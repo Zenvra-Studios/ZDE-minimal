@@ -3,8 +3,6 @@
 A development platform for building creative tools / applications that
 unify UI, graphics, and audio in a single ecosystem.
 
-> Initial technical spec: [Zenvra Custom Window PRD v0.1](Docs/Zenvra_Custom_Window_PRD_v0.1.md)
-
 ## Vision
 
 To become the foundation of a development platform that unifies UI,
