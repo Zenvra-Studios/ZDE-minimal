@@ -26,8 +26,8 @@
       "inherits": "base"
     },
     {
-      "name": "windows-x64-vs2026-debug",
-      "displayName": "Windows Debug (Visual Studio 2026)",
+      "name": "windows-x64-vs2022-debug",
+      "displayName": "Windows Debug (Visual Studio 2022)",
       "description": "Generate Visual Studio solution/project files for Debug builds.",
       "inherits": "base-msvc",
       "condition": {
@@ -35,12 +35,12 @@
         "lhs": "${hostSystemName}",
         "rhs": "Windows"
       },
-      "generator": "Visual Studio 18 2026",
+      "generator": "Visual Studio 17 2022",
       "architecture": "x64"
     },
     {
-      "name": "windows-x64-vs2026-release",
-      "displayName": "Windows Release (Visual Studio 2026)",
+      "name": "windows-x64-vs2022-release",
+      "displayName": "Windows Release (Visual Studio 2022)",
       "description": "Generate Visual Studio solution/project files for Release builds.",
       "inherits": "base-msvc",
       "condition": {
@@ -48,7 +48,7 @@
         "lhs": "${hostSystemName}",
         "rhs": "Windows"
       },
-      "generator": "Visual Studio 18 2026",
+      "generator": "Visual Studio 17 2022",
       "architecture": "x64"
     },
     {
@@ -179,15 +179,15 @@
   ],
   "buildPresets": [
     {
-      "name": "windows-x64-vs2026-debug",
-      "displayName": "Build Windows Debug (Visual Studio 2026)",
-      "configurePreset": "windows-x64-vs2026-debug",
+      "name": "windows-x64-vs2022-debug",
+      "displayName": "Build Windows Debug (Visual Studio 2022)",
+      "configurePreset": "windows-x64-vs2022-debug",
       "configuration": "Debug"
     },
     {
-      "name": "windows-x64-vs2026-release",
-      "displayName": "Build Windows Release (Visual Studio 2026)",
-      "configurePreset": "windows-x64-vs2026-release",
+      "name": "windows-x64-vs2022-release",
+      "displayName": "Build Windows Release (Visual Studio 2022)",
+      "configurePreset": "windows-x64-vs2022-release",
       "configuration": "Release"
     },
     {

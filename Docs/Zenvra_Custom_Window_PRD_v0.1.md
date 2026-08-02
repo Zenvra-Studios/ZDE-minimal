@@ -5,6 +5,23 @@
 Version: 0.1.0\
 Status: Draft
 
+## Vision & Mission
+
+**Vision:** Become the foundation of a development platform that unifies
+UI, multiple graphics engines, and an audio engine in one clean, fast,
+cross-platform abstraction (Windows, Linux, macOS).
+
+**Mission:**
+
+-   Make the Custom Window Framework the hub that bridges multiple
+    graphics engines (e.g., Skia for 2D/UI + a 3D engine) and an audio
+    engine through one consistent API.
+-   Keep the architecture modular & cross-platform so new backends
+    (Linux, macOS, renderers, audio) can be added without touching the
+    public API.
+-   Prioritize high performance, zero native controls, and theme-ready
+    support from the very first version.
+
 ## 1. Objective
 
 Membangun fondasi **Custom Window Framework** untuk ekosistem Zenvra
