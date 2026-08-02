@@ -1,0 +1,22 @@
+#include "resource.h"
+#include <windows.h>
+
+IDR_MAINMENU MENU
+BEGIN
+    POPUP "&File"
+    BEGIN
+        MENUITEM "E&xit", ID_FILE_EXIT
+    END
+    POPUP "&Edit"
+    BEGIN
+        MENUITEM "&Undo\tCtrl+Z", 0, INACTIVE
+        MENUITEM SEPARATOR
+        MENUITEM "Cu&t\tCtrl+X", 0, INACTIVE
+        MENUITEM "&Copy\tCtrl+C", 0, INACTIVE
+        MENUITEM "&Paste\tCtrl+V", 0, INACTIVE
+    END
+    POPUP "&Help"
+    BEGIN
+        MENUITEM "&About", ID_HELP_ABOUT
+    END
+END

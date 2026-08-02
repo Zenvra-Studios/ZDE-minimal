@@ -1,0 +1,2062 @@
+{
+  "date": "2026-08-03T04:57:47.428110500+07:00",
+  "data": {
+    "${isClean}": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 458,
+            "character": 8
+          },
+          "end": {
+            "line": 458,
+            "character": 18
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "cpm_package_name_from_git_uri": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 189,
+            "character": 9
+          },
+          "end": {
+            "line": 189,
+            "character": 38
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nTry to infer package name from git repository uri (path or url)",
+      "is_function": true
+    },
+    "cpm_add_subdirectory": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1051,
+            "character": 2
+          },
+          "end": {
+            "line": 1051,
+            "character": 22
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": true
+    },
+    "download_directory": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 784,
+            "character": 10
+          },
+          "end": {
+            "line": 784,
+            "character": 28
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CURRENT_CPM_VERSION": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 44,
+            "character": 4
+          },
+          "end": {
+            "line": 44,
+            "character": 23
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "cpm_get_version_from_git_tag": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1161,
+            "character": 9
+          },
+          "end": {
+            "line": 1161,
+            "character": 37
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nguesses the package version from a git tag",
+      "is_function": true
+    },
+    "CMAKE_POLICY_DEFAULT_CMP0077": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 87,
+            "character": 6
+          },
+          "end": {
+            "line": 87,
+            "character": 34
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_DRY_RUN": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 148,
+            "character": 4
+          },
+          "end": {
+            "line": 148,
+            "character": 15
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "${OPTION_KEY}": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1073,
+            "character": 12
+          },
+          "end": {
+            "line": 1073,
+            "character": 25
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "cpm_export_variables": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 926,
+            "character": 6
+          },
+          "end": {
+            "line": 926,
+            "character": 26
+          }
+        }
+      },
+      "document_info": "defined macro\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nexport variables available to the caller to the parent scope expects ${CPM_ARGS_NAME} to be set",
+      "is_function": true
+    },
+    "uri": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 343,
+            "character": 8
+          },
+          "end": {
+            "line": 343,
+            "character": 11
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPMGetPackageVersion": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1001,
+            "character": 9
+          },
+          "end": {
+            "line": 1001,
+            "character": 29
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nretrieve the current version of the package to ${OUTPUT}",
+      "is_function": true
+    },
+    "CPM_ARGS_UNPARSED_ARGUMENTS": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 525,
+            "character": 6
+          },
+          "end": {
+            "line": 525,
+            "character": 33
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nMove temp out into parent scope.",
+      "is_function": false
+    },
+    "CPM_${CPM_ARGS_NAME}_SOURCE": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 690,
+            "character": 8
+          },
+          "end": {
+            "line": 690,
+            "character": 35
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_ARGS_GIT_TAG": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 634,
+            "character": 10
+          },
+          "end": {
+            "line": 634,
+            "character": 26
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "${name}_ADDED": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 935,
+            "character": 6
+          },
+          "end": {
+            "line": 935,
+            "character": 19
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "cpm_parse_add_package_single_arg": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 339,
+            "character": 9
+          },
+          "end": {
+            "line": 339,
+            "character": 41
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nto: GITHUB_REPOSITORY;foo/bar;VERSION;1.2.3",
+      "is_function": true
+    },
+    "${name}_SOURCE_DIR": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 927,
+            "character": 6
+          },
+          "end": {
+            "line": 927,
+            "character": 24
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "packageType": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 372,
+            "character": 10
+          },
+          "end": {
+            "line": 372,
+            "character": 21
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_PACKAGE_ALREADY_ADDED": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 329,
+            "character": 8
+          },
+          "end": {
+            "line": 329,
+            "character": 33
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "cpm_create_module_file": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 269,
+            "character": 9
+          },
+          "end": {
+            "line": 269,
+            "character": 31
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nfinding the system library",
+      "is_function": true
+    },
+    "CPM_VERSION": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 132,
+            "character": 4
+          },
+          "end": {
+            "line": 132,
+            "character": 15
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_DECLARATION_${CPM_ARGS_NAME}": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 709,
+            "character": 8
+          },
+          "end": {
+            "line": 709,
+            "character": 40
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_PACKAGES": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 990,
+            "character": 6
+          },
+          "end": {
+            "line": 990,
+            "character": 18
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CMAKE_CXX_STANDARD": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 10,
+            "character": 4
+          },
+          "end": {
+            "line": 10,
+            "character": 22
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\CMakeLists.txt",
+      "is_function": false
+    },
+    "cpm_message": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 39,
+            "character": 11
+          },
+          "end": {
+            "line": 39,
+            "character": 22
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": true
+    },
+    "CMAKE_C_STANDARD_REQUIRED": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 11,
+            "character": 4
+          },
+          "end": {
+            "line": 11,
+            "character": 29
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\CMakeLists.txt",
+      "is_function": false
+    },
+    "CPM_USE_NAMED_CACHE_DIRECTORIES": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 127,
+            "character": 7
+          },
+          "end": {
+            "line": 127,
+            "character": 38
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "cpm_fetch_package": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1085,
+            "character": 9
+          },
+          "end": {
+            "line": 1085,
+            "character": 26
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\n`${PACKAGE}_SOURCE_DIR` and `${PACKAGE}_BINARY_DIR` to the parent scope",
+      "is_function": true
+    },
+    "CPM_USE_LOCAL_PACKAGES": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 110,
+            "character": 7
+          },
+          "end": {
+            "line": 110,
+            "character": 29
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "cpm_declare_fetch": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1009,
+            "character": 9
+          },
+          "end": {
+            "line": 1009,
+            "character": 26
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\ndeclares a package in FetchContent_Declare",
+      "is_function": true
+    },
+    "cpm_set_policies": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 84,
+            "character": 6
+          },
+          "end": {
+            "line": 84,
+            "character": 22
+          }
+        }
+      },
+      "document_info": "defined macro\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": true
+    },
+    "CMAKE_POLICY_DEFAULT_CMP0126": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 92,
+            "character": 8
+          },
+          "end": {
+            "line": 92,
+            "character": 36
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "cpm_parse_option": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1139,
+            "character": 9
+          },
+          "end": {
+            "line": 1139,
+            "character": 25
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nsplits a package option",
+      "is_function": true
+    },
+    "cpm_prettify_package_arguments": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1202,
+            "character": 9
+          },
+          "end": {
+            "line": 1202,
+            "character": 39
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": true
+    },
+    "PATCH_FILE": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 506,
+            "character": 10
+          },
+          "end": {
+            "line": 506,
+            "character": 20
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_ARGS_VERSION": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 665,
+            "character": 10
+          },
+          "end": {
+            "line": 665,
+            "character": 26
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "cpm_add_to_package_lock": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 953,
+            "character": 9
+          },
+          "end": {
+            "line": 953,
+            "character": 32
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": true
+    },
+    "${OUT_VAR}": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1263,
+            "character": 6
+          },
+          "end": {
+            "line": 1263,
+            "character": 16
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "cpm_override_fetchcontent": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 536,
+            "character": 9
+          },
+          "end": {
+            "line": 536,
+            "character": 34
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nhttps://github.com/Kitware/CMake/blob/dc3d0b5a0a7d26d43d6cfeb511e224533b5d188f/Modules/FetchContent.cmake#L1152",
+      "is_function": true
+    },
+    "CMAKE_POLICY_DEFAULT_CMP0150": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 105,
+            "character": 8
+          },
+          "end": {
+            "line": 105,
+            "character": 36
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CMAKE_LIBRARY_OUTPUT_DIRECTORY": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 26,
+            "character": 4
+          },
+          "end": {
+            "line": 26,
+            "character": 34
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\CMakeLists.txt",
+      "is_function": false
+    },
+    "VERSION": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 251,
+            "character": 10
+          },
+          "end": {
+            "line": 251,
+            "character": 17
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "cpm_get_fetch_properties": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1019,
+            "character": 9
+          },
+          "end": {
+            "line": 1019,
+            "character": 33
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nreturns properties for a package previously defined by cpm_declare_fetch",
+      "is_function": true
+    },
+    "cpm_package_name_and_ver_from_url": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 201,
+            "character": 9
+          },
+          "end": {
+            "line": 201,
+            "character": 42
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nTry to infer package name and version from a url",
+      "is_function": true
+    },
+    "addSubdirectoryExtraArgs": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1062,
+            "character": 8
+          },
+          "end": {
+            "line": 1062,
+            "character": 32
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "cpm_check_if_package_already_added": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 312,
+            "character": 9
+          },
+          "end": {
+            "line": 312,
+            "character": 43
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nchecks if a package has been added before",
+      "is_function": true
+    },
+    "source_directory": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 765,
+            "character": 10
+          },
+          "end": {
+            "line": 765,
+            "character": 26
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "PACKAGE_INFO": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 846,
+            "character": 10
+          },
+          "end": {
+            "line": 846,
+            "character": 22
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "cpm_store_fetch_properties": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1034,
+            "character": 9
+          },
+          "end": {
+            "line": 1034,
+            "character": 35
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": true
+    },
+    "cpm_add_comment_to_package_lock": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 960,
+            "character": 9
+          },
+          "end": {
+            "line": 960,
+            "character": 40
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": true
+    },
+    "temp_list": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 496,
+            "character": 6
+          },
+          "end": {
+            "line": 496,
+            "character": 15
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nCreate a temporary",
+      "is_function": false
+    },
+    "propertyName": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 563,
+            "character": 6
+          },
+          "end": {
+            "line": 563,
+            "character": 18
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "oneValueArgs": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1203,
+            "character": 6
+          },
+          "end": {
+            "line": 1203,
+            "character": 18
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "${outArgs}": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 398,
+            "character": 6
+          },
+          "end": {
+            "line": 398,
+            "character": 16
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "ZDE_SUBDIRECTORIES": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 31,
+            "character": 4
+          },
+          "end": {
+            "line": 31,
+            "character": 22
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\CMakeLists.txt\n\nso any new subdirectory gets picked up without touching this file.",
+      "is_function": false
+    },
+    "cpm_is_git_tag_commit_hash": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1179,
+            "character": 9
+          },
+          "end": {
+            "line": 1179,
+            "character": 35
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nguesses if the git tag is a commit hash or an actual tag or a branch name.",
+      "is_function": true
+    },
+    "${RESULT}": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1194,
+            "character": 10
+          },
+          "end": {
+            "line": 1194,
+            "character": 19
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "origin_parameters": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 774,
+            "character": 8
+          },
+          "end": {
+            "line": 774,
+            "character": 25
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_PACKAGE_${PACKAGE}_BINARY_DIR": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1043,
+            "character": 6
+          },
+          "end": {
+            "line": 1043,
+            "character": 39
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CMAKE_RUNTIME_OUTPUT_DIRECTORY": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 25,
+            "character": 4
+          },
+          "end": {
+            "line": 25,
+            "character": 34
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\CMakeLists.txt\n\n<build>/lib/<config>/  -> static / import libraries (what the app links)",
+      "is_function": false
+    },
+    "CPM_MODULE_PATH": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 165,
+            "character": 6
+          },
+          "end": {
+            "line": 165,
+            "character": 21
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_ARGS_NAME": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 662,
+            "character": 10
+          },
+          "end": {
+            "line": 662,
+            "character": 23
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "\"CPM_DECLARATION_${Name}\"": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 949,
+            "character": 8
+          },
+          "end": {
+            "line": 949,
+            "character": 33
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "filename": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 204,
+            "character": 8
+          },
+          "end": {
+            "line": 204,
+            "character": 16
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nWe matched an archive",
+      "is_function": false
+    },
+    "CPMUsePackageLock": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 971,
+            "character": 6
+          },
+          "end": {
+            "line": 971,
+            "character": 23
+          }
+        }
+      },
+      "document_info": "defined macro\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nupdate it",
+      "is_function": true
+    },
+    "${PACKAGE}_SOURCE_DIR": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1128,
+            "character": 6
+          },
+          "end": {
+            "line": 1128,
+            "character": 27
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CMAKE_ARCHIVE_OUTPUT_DIRECTORY": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 27,
+            "character": 4
+          },
+          "end": {
+            "line": 27,
+            "character": 34
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\CMakeLists.txt",
+      "is_function": false
+    },
+    "${outName}": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 233,
+            "character": 10
+          },
+          "end": {
+            "line": 233,
+            "character": 20
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nsuch cases should be quite rare. No popular service does this... we think.",
+      "is_function": false
+    },
+    "CMAKE_BUILD_TYPE": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 15,
+            "character": 8
+          },
+          "end": {
+            "line": 15,
+            "character": 24
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\CMakeLists.txt",
+      "is_function": false
+    },
+    "CPMGetPackage": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 917,
+            "character": 6
+          },
+          "end": {
+            "line": 917,
+            "character": 19
+          }
+        }
+      },
+      "document_info": "defined macro\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nFetch a previously declared package",
+      "is_function": true
+    },
+    "CPM_SOURCE_CACHE_DEFAULT": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 156,
+            "character": 6
+          },
+          "end": {
+            "line": 156,
+            "character": 30
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "${OUTPUT}": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1002,
+            "character": 6
+          },
+          "end": {
+            "line": 1002,
+            "character": 15
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPMRegisterPackage": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 988,
+            "character": 9
+          },
+          "end": {
+            "line": 988,
+            "character": 27
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nregisters a package that has been added to CPM",
+      "is_function": true
+    },
+    "cpm_find_package": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 246,
+            "character": 9
+          },
+          "end": {
+            "line": 246,
+            "character": 25
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": true
+    },
+    "CPM_PACKAGE_FOUND": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 260,
+            "character": 8
+          },
+          "end": {
+            "line": 260,
+            "character": 25
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_INDENT": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1079,
+            "character": 8
+          },
+          "end": {
+            "line": 1079,
+            "character": 18
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_DONT_UPDATE_MODULE_PATH": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 117,
+            "character": 7
+          },
+          "end": {
+            "line": 117,
+            "character": 34
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_PACKAGE_LOCK_ENABLED": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 983,
+            "character": 8
+          },
+          "end": {
+            "line": 983,
+            "character": 32
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_DOWNLOAD_ALL": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 116,
+            "character": 7
+          },
+          "end": {
+            "line": 116,
+            "character": 23
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "\"CPM_PACKAGE_${PACKAGE}_VERSION\"": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 994,
+            "character": 6
+          },
+          "end": {
+            "line": 994,
+            "character": 38
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_DIRECTORY": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 136,
+            "character": 4
+          },
+          "end": {
+            "line": 136,
+            "character": 17
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CMAKE_MODULE_PATH": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 173,
+            "character": 6
+          },
+          "end": {
+            "line": 173,
+            "character": 23
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nlocally added CPM modules should override global packages",
+      "is_function": false
+    },
+    "cpm_add_patches": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 469,
+            "character": 9
+          },
+          "end": {
+            "line": 469,
+            "character": 24
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nto the parent scope's `CPM_ARGS_UNPARSED_ARGUMENTS`.",
+      "is_function": true
+    },
+    "CMAKE_C_STANDARD": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 9,
+            "character": 4
+          },
+          "end": {
+            "line": 9,
+            "character": 20
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\CMakeLists.txt",
+      "is_function": false
+    },
+    "cpm_check_git_working_dir_is_clean": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 405,
+            "character": 9
+          },
+          "end": {
+            "line": 405,
+            "character": 43
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nCheck that the working directory for a git repo is clean",
+      "is_function": true
+    },
+    "CMAKE_RUTIME_DI": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 6,
+            "character": 4
+          },
+          "end": {
+            "line": 6,
+            "character": 19
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\CMakeLists.txt",
+      "is_function": false
+    },
+    "OPTION_KEY": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1150,
+            "character": 6
+          },
+          "end": {
+            "line": 1150,
+            "character": 16
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_PACKAGE_LOCK_FILE": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 177,
+            "character": 6
+          },
+          "end": {
+            "line": 177,
+            "character": 27
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_FETCHCONTENT_BASE_DIR": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 749,
+            "character": 8
+          },
+          "end": {
+            "line": 749,
+            "character": 33
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPMFindPackage": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 279,
+            "character": 9
+          },
+          "end": {
+            "line": 279,
+            "character": 23
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nFind a package locally or fallback to CPMAddPackage",
+      "is_function": true
+    },
+    "declaration": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 708,
+            "character": 8
+          },
+          "end": {
+            "line": 708,
+            "character": 19
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_DONT_CREATE_PACKAGE_LOCK": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 120,
+            "character": 7
+          },
+          "end": {
+            "line": 120,
+            "character": 35
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "${populated}": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1118,
+            "character": 8
+          },
+          "end": {
+            "line": 1118,
+            "character": 20
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "ARGN": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 582,
+            "character": 8
+          },
+          "end": {
+            "line": 582,
+            "character": 12
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nThe shorthand syntax implies EXCLUDE_FROM_ALL and SYSTEM",
+      "is_function": false
+    },
+    "prefix": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 543,
+            "character": 6
+          },
+          "end": {
+            "line": 543,
+            "character": 12
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "${CPM_ARGS_NAME}_ADDED": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 912,
+            "character": 6
+          },
+          "end": {
+            "line": 912,
+            "character": 28
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "PACKAGE_SOURCE": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 689,
+            "character": 8
+          },
+          "end": {
+            "line": 689,
+            "character": 22
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "fetchContentDeclareExtraArgs": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 871,
+            "character": 8
+          },
+          "end": {
+            "line": 871,
+            "character": 36
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nadd_subdirectory separately, which is no longer necessary and has been deprecated as of 3.30.",
+      "is_function": false
+    },
+    "CPM_PACKAGE_${PACKAGE}_SOURCE_DIR": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1039,
+            "character": 6
+          },
+          "end": {
+            "line": 1039,
+            "character": 39
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "downloadPackage": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 294,
+            "character": 8
+          },
+          "end": {
+            "line": 294,
+            "character": 23
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_LAST_PACKAGE_NAME": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 939,
+            "character": 6
+          },
+          "end": {
+            "line": 939,
+            "character": 27
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "${name}_BINARY_DIR": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 931,
+            "character": 6
+          },
+          "end": {
+            "line": 931,
+            "character": 24
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "multiValueArgs": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1221,
+            "character": 6
+          },
+          "end": {
+            "line": 1221,
+            "character": 20
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "first_item": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 515,
+            "character": 10
+          },
+          "end": {
+            "line": 515,
+            "character": 20
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPMAddPackage": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 574,
+            "character": 9
+          },
+          "end": {
+            "line": 574,
+            "character": 22
+          }
+        }
+      },
+      "document_info": "defined function\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nDownload and add a package from source",
+      "is_function": true
+    },
+    "CMAKE_POLICY_DEFAULT_CMP0135": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 99,
+            "character": 8
+          },
+          "end": {
+            "line": 99,
+            "character": 36
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_FILE": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 140,
+            "character": 4
+          },
+          "end": {
+            "line": 140,
+            "character": 12
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_SOURCE_CACHE": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 159,
+            "character": 4
+          },
+          "end": {
+            "line": 159,
+            "character": 20
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_LOCAL_PACKAGES_ONLY": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 113,
+            "character": 7
+          },
+          "end": {
+            "line": 113,
+            "character": 30
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_SKIP_FETCH": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 828,
+            "character": 10
+          },
+          "end": {
+            "line": 828,
+            "character": 24
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\nAs the source dir is already cached/populated, we override the call to FetchContent.",
+      "is_function": false
+    },
+    "CPM_INCLUDE_ALL_IN_PACKAGE_LOCK": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 123,
+            "character": 7
+          },
+          "end": {
+            "line": 123,
+            "character": 38
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CMAKE_CXX_STANDARD_REQUIRED": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/CMakeLists.txt",
+        "range": {
+          "start": {
+            "line": 12,
+            "character": 4
+          },
+          "end": {
+            "line": 12,
+            "character": 31
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\CMakeLists.txt",
+      "is_function": false
+    },
+    "CPM_ARGS_GIT_REPOSITORY": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 628,
+            "character": 8
+          },
+          "end": {
+            "line": 628,
+            "character": 31
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPM_OLD_INDENT": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1076,
+            "character": 8
+          },
+          "end": {
+            "line": 1076,
+            "character": 22
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "${outVer}": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 224,
+            "character": 10
+          },
+          "end": {
+            "line": 224,
+            "character": 19
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "${PACKAGE}_BINARY_DIR": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1132,
+            "character": 6
+          },
+          "end": {
+            "line": 1132,
+            "character": 27
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "DOWNLOAD_ONLY": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 620,
+            "character": 8
+          },
+          "end": {
+            "line": 620,
+            "character": 21
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "out": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 371,
+            "character": 10
+          },
+          "end": {
+            "line": 371,
+            "character": 13
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "OPTION_VALUE": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 1154,
+            "character": 6
+          },
+          "end": {
+            "line": 1154,
+            "character": 18
+          }
+        }
+      },
+      "document_info": "defined variable\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake",
+      "is_function": false
+    },
+    "CPMDeclarePackage": {
+      "location": {
+        "uri": "file:///C:/Users/Administrator/Documents/Projects/ZenvraDevelopmentStudio/Cmake/CPM.cmake",
+        "range": {
+          "start": {
+            "line": 947,
+            "character": 6
+          },
+          "end": {
+            "line": 947,
+            "character": 23
+          }
+        }
+      },
+      "document_info": "defined macro\nfrom: C:\\Users\\Administrator\\Documents\\Projects\\ZenvraDevelopmentStudio\\Cmake\\CPM.cmake\n\narguments instead. Previous declarations will not be overridden.",
+      "is_function": true
+    }
+  }
+}

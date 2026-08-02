@@ -1,0 +1,239 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 22,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "base-ninja",
+      "hidden": true,
+      "inherits": "base",
+      "generator": "Ninja"
+    },
+    {
+      "name": "base-msvc",
+      "hidden": true,
+      "inherits": "base"
+    },
+    {
+      "name": "windows-x64-vs2026-debug",
+      "displayName": "Windows Debug (Visual Studio 2026)",
+      "description": "Generate Visual Studio solution/project files for Debug builds.",
+      "inherits": "base-msvc",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64"
+    },
+    {
+      "name": "windows-x64-vs2026-release",
+      "displayName": "Windows Release (Visual Studio 2026)",
+      "description": "Generate Visual Studio solution/project files for Release builds.",
+      "inherits": "base-msvc",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "generator": "Visual Studio 18 2026",
+      "architecture": "x64"
+    },
+    {
+      "name": "windows-x64-ninja-debug",
+      "displayName": "Windows Debug (Ninja + GCC/MinGW)",
+      "description": "Single-config Debug build for clangd compile_commands.json on Windows.",
+      "inherits": "base-ninja",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "windows-x64-ninja-release",
+      "displayName": "Windows Release (Ninja + GCC/MinGW)",
+      "description": "Single-config Release build for clangd compile_commands.json on Windows.",
+      "inherits": "base-ninja",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "windows-x64-clang-ninja-debug",
+      "displayName": "Windows Debug (clang-cl + Ninja)",
+      "description": "Single-config Debug build with clang-cl for clangd compile_commands.json on Windows.",
+      "inherits": "base-ninja",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl"
+      }
+    },
+    {
+      "name": "linux-debug",
+      "displayName": "Linux Debug (Ninja)",
+      "inherits": "base-ninja",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "linux-release",
+      "displayName": "Linux Release (Ninja)",
+      "inherits": "base-ninja",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "linux-mingw-base",
+      "hidden": true,
+      "inherits": "base-ninja",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/Cmake/toolchains/mingw-w64-x86_64.cmake"
+      }
+    },
+    {
+      "name": "linux-mingw-debug",
+      "displayName": "Windows Debug from Linux (MinGW-w64 + Ninja)",
+      "inherits": "linux-mingw-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "linux-mingw-release",
+      "displayName": "Windows Release from Linux (MinGW-w64 + Ninja)",
+      "inherits": "linux-mingw-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "macos-debug",
+      "displayName": "macOS Debug (Ninja)",
+      "inherits": "base-ninja",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "macos-release",
+      "displayName": "macOS Release (Ninja)",
+      "inherits": "base-ninja",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-x64-vs2026-debug",
+      "displayName": "Build Windows Debug (Visual Studio 2026)",
+      "configurePreset": "windows-x64-vs2026-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-x64-vs2026-release",
+      "displayName": "Build Windows Release (Visual Studio 2026)",
+      "configurePreset": "windows-x64-vs2026-release",
+      "configuration": "Release"
+    },
+    {
+      "name": "windows-x64-ninja-debug",
+      "displayName": "Build Windows Debug (Ninja + GCC/MinGW)",
+      "configurePreset": "windows-x64-ninja-debug"
+    },
+    {
+      "name": "windows-x64-ninja-release",
+      "displayName": "Build Windows Release (Ninja + GCC/MinGW)",
+      "configurePreset": "windows-x64-ninja-release"
+    },
+    {
+      "name": "windows-x64-clang-ninja-debug",
+      "displayName": "Build Windows Debug (clang-cl + Ninja)",
+      "configurePreset": "windows-x64-clang-ninja-debug"
+    },
+    {
+      "name": "linux-debug",
+      "displayName": "Build Linux Debug",
+      "configurePreset": "linux-debug"
+    },
+    {
+      "name": "linux-release",
+      "displayName": "Build Linux Release",
+      "configurePreset": "linux-release"
+    },
+    {
+      "name": "linux-mingw-debug",
+      "displayName": "Build Windows Debug from Linux",
+      "configurePreset": "linux-mingw-debug"
+    },
+    {
+      "name": "linux-mingw-release",
+      "displayName": "Build Windows Release from Linux",
+      "configurePreset": "linux-mingw-release"
+    },
+    {
+      "name": "macos-debug",
+      "displayName": "Build macOS Debug",
+      "configurePreset": "macos-debug"
+    },
+    {
+      "name": "macos-release",
+      "displayName": "Build macOS Release",
+      "configurePreset": "macos-release"
+    }
+  ]
+}
