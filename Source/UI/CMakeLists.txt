@@ -1,6 +1,17 @@
 add_library(ZDEUI STATIC
     Chrome/WindowChromeLayout.cpp
     Chrome/WindowMenuModel.cpp
+    Editor/ActivityPanelModel.cpp
+    Editor/CaretBlinkModel.cpp
+    Editor/EditorController.cpp
+    Editor/EditorDropModel.cpp
+    Editor/EditorFileCrud.cpp
+    Editor/EditorFileSystem.cpp
+    Editor/EditorMinimapModel.cpp
+    Editor/EditorSessionModel.cpp
+    Editor/EditorScrollModel.cpp
+    Editor/StudioEditorModel.cpp
+    Editor/TextDocumentModel.cpp
     Theme/StudioTheme.cpp
 )
 add_library(Zenvra::UI ALIAS ZDEUI)

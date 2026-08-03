@@ -7,7 +7,9 @@ BEGIN
     BEGIN
         MENUITEM "&New File\tCtrl+N", ID_FILE_NEW, GRAYED
         MENUITEM "&Open File...\tCtrl+O", ID_FILE_OPEN, GRAYED
+        MENUITEM "&Save File\tCtrl+S", ID_FILE_SAVE, GRAYED
         MENUITEM "&Close File\tCtrl+W", ID_FILE_CLOSE, GRAYED
+        MENUITEM "&Delete File\tCtrl+Shift+Del", ID_FILE_DELETE, GRAYED
         MENUITEM SEPARATOR
         MENUITEM "E&xit", ID_FILE_EXIT
     END
@@ -15,10 +17,14 @@ BEGIN
     BEGIN
         MENUITEM "&Undo\tCtrl+Z", ID_EDIT_UNDO, GRAYED
         MENUITEM "&Redo", ID_EDIT_REDO, GRAYED
+        MENUITEM SEPARATOR
+        MENUITEM "Cu&t\tCtrl+X", ID_EDIT_CUT, GRAYED
+        MENUITEM "&Copy\tCtrl+C", ID_EDIT_COPY, GRAYED
+        MENUITEM "&Paste\tCtrl+V", ID_EDIT_PASTE, GRAYED
     END
     POPUP "&Selection"
     BEGIN
-        MENUITEM "Selection commands will be available with the editor", 0, GRAYED
+        MENUITEM "Select &All\tCtrl+A", ID_SELECTION_SELECT_ALL, GRAYED
     END
     POPUP "&View"
     BEGIN

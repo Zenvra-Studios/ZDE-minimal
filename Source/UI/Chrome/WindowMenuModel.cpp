@@ -15,7 +15,9 @@ constexpr WindowMenuItem separator{{}, {}, true};
 constexpr std::array file_items{
     WindowMenuItem{"New File", Commands::CommandIds::file_new},
     WindowMenuItem{"Open File...", Commands::CommandIds::file_open},
+    WindowMenuItem{"Save File", Commands::CommandIds::file_save},
     WindowMenuItem{"Close File", Commands::CommandIds::file_close},
+    WindowMenuItem{"Delete File", Commands::CommandIds::file_delete},
     separator,
     WindowMenuItem{"Exit", Commands::CommandIds::file_exit},
 };
@@ -23,10 +25,14 @@ constexpr std::array file_items{
 constexpr std::array edit_items{
     WindowMenuItem{"Undo", Commands::CommandIds::edit_undo},
     WindowMenuItem{"Redo", Commands::CommandIds::edit_redo},
+    separator,
+    WindowMenuItem{"Cut", Commands::CommandIds::edit_cut},
+    WindowMenuItem{"Copy", Commands::CommandIds::edit_copy},
+    WindowMenuItem{"Paste", Commands::CommandIds::edit_paste},
 };
 
 constexpr std::array selection_items{
-    WindowMenuItem{"Selection commands are not available yet", {}},
+    WindowMenuItem{"Select All", Commands::CommandIds::selection_select_all},
 };
 
 constexpr std::array view_items{

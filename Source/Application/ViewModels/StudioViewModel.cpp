@@ -116,11 +116,23 @@ bool StudioViewModel::register_future_commands()
         "File",
         Shortcut{KeyCode::O, true, false, false}));
     add_command(create_unavailable_command(
+        Commands::CommandIds::file_save,
+        "Save File",
+        "Save the active document.",
+        "File",
+        Shortcut{KeyCode::S, true, false, false}));
+    add_command(create_unavailable_command(
         Commands::CommandIds::file_close,
         "Close File",
         "Close the active document.",
         "File",
         Shortcut{KeyCode::W, true, false, false}));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::file_delete,
+        "Delete File",
+        "Delete the active document from disk.",
+        "File",
+        Shortcut{KeyCode::Delete, true, true, false}));
     add_command(create_unavailable_command(
         Commands::CommandIds::edit_undo,
         "Undo",
@@ -132,6 +144,30 @@ bool StudioViewModel::register_future_commands()
         "Redo",
         "Redo the last editor operation.",
         "Edit"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::edit_cut,
+        "Cut",
+        "Cut the current editor selection.",
+        "Edit",
+        Shortcut{KeyCode::X, true, false, false}));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::edit_copy,
+        "Copy",
+        "Copy the current editor selection.",
+        "Edit",
+        Shortcut{KeyCode::C, true, false, false}));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::edit_paste,
+        "Paste",
+        "Paste the editor clipboard.",
+        "Edit",
+        Shortcut{KeyCode::V, true, false, false}));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::selection_select_all,
+        "Select All",
+        "Select all text in the active document.",
+        "Selection",
+        Shortcut{KeyCode::A, true, false, false}));
     add_command(create_unavailable_command(
         Commands::CommandIds::view_explorer,
         "Show Explorer",

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Platform/IPlatformWindow.h"
+#include "Platform/X11/Components/FileDropTarget.h"
 #include "Platform/X11/Components/X11ChromeRenderer.h"
 #include "UI/Chrome/WindowChromeLayout.h"
 #include "UI/Theme/StudioTheme.h"
@@ -143,6 +144,8 @@ private:
     int m_last_titlebar_click_x = 0;
     int m_last_titlebar_click_y = 0;
     Cursor m_default_cursor = None;
+    Cursor m_text_cursor = None;
+    Cursor m_split_resize_cursor = None;
     Cursor m_active_cursor = None;
     std::array<Cursor, 9> m_move_resize_cursors{};
     TitlebarHitTestCallback m_titlebar_hit_test_callback;
@@ -152,6 +155,7 @@ private:
     UI::Chrome::WindowChromeLayout m_chrome_layout_engine;
     UI::Chrome::WindowChromeLayoutResult m_chrome_layout;
     Components::X11ChromeRenderer m_chrome_renderer;
+    Components::FileDropTarget m_file_drop_target;
     Components::ChromeInteractionState m_interaction_state;
     std::optional<std::size_t> m_pressed_popup_item_index;
     std::optional<MoveResizeDirection> m_manual_move_resize_direction;

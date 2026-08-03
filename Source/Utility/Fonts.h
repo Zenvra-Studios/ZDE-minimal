@@ -41,6 +41,8 @@ public:
     }
   }
 
+  bool isValid() const noexcept { return m_font != nullptr; }
+
   /**
    * @brief Draw a string on a device context.
    * @param hdc Device Context (HDC).
@@ -187,6 +189,8 @@ public:
       XftColorFree(m_display, m_visual, m_colormap, &pair.second);
     }
   }
+
+  bool isValid() const noexcept { return m_font != nullptr; }
 
   /**
    * @brief Draw an UTF-8 string on a drawable.

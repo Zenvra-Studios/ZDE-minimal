@@ -1,5 +1,8 @@
 #include "Platform/X11/Components/X11ChromeRenderer.h"
 
+#include "Utility/Fonts.h"
+#include "Utility/X11Rounded.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -15,12 +18,22 @@ int round_to_int(float value)
     return static_cast<int>(std::lround(value));
 }
 
-unsigned int to_unsigned_size(float value)
+std::string to_xft_color(const UI::Theme::Color& color)
 {
-    return static_cast<unsigned int>(std::max(round_to_int(value), 0));
+    char value[8]{};
+    std::snprintf(
+        value,
+        sizeof(value),
+        "#%02x%02x%02x",
+        static_cast<unsigned int>(color.red),
+        static_cast<unsigned int>(color.green),
+        static_cast<unsigned int>(color.blue));
+    return value;
 }
 
 } // namespace
+
+X11ChromeRenderer::X11ChromeRenderer() = default;
 
 X11ChromeRenderer::~X11ChromeRenderer()
 {
@@ -50,21 +63,18 @@ bool X11ChromeRenderer::initialize(
         return false;
     }
 
-    char font_pattern[128]{};
-    const int pixel_size = std::max(round_to_int(13.0F * m_dpi_scale), 8);
+    char font_pattern[96]{};
+    const int pixel_size = std::max(round_to_int(12.0F * m_dpi_scale), 8);
     std::snprintf(
         font_pattern,
         sizeof(font_pattern),
-        "-*-sans-medium-r-normal--%d-*-*-*-*-*-*-*",
+        "sans:pixelsize=%d:antialias=true:hinting=true",
         pixel_size);
-    m_font = XLoadQueryFont(m_display, font_pattern);
-    if (m_font == nullptr)
+    m_font = std::make_unique<AntialiasedFont>(m_display, m_screen, font_pattern);
+    if (m_font->getHeight() <= 0)
     {
-        m_font = XLoadQueryFont(m_display, "fixed");
-    }
-    if (m_font != nullptr)
-    {
-        XSetFont(m_display, m_graphics_context, m_font->fid);
+        shutdown();
+        return false;
     }
 
     m_colors.window_background = allocate_color(theme.window_background);
@@ -80,23 +90,241 @@ bool X11ChromeRenderer::initialize(
     m_colors.close_hover = allocate_color(theme.close_hover);
     m_colors.popup_background = allocate_color(theme.panel_background);
     m_colors.popup_border = allocate_color(theme.titlebar_border);
+    m_text_colors.primary = to_xft_color(theme.text_primary);
+    m_text_colors.secondary = to_xft_color(theme.text_secondary);
+    m_text_colors.white = "#ffffff";
+    if (!m_workspace_renderer.initialize(m_display, m_screen, m_dpi_scale))
+    {
+        shutdown();
+        return false;
+    }
     return true;
 }
 
 void X11ChromeRenderer::shutdown()
 {
-    if (m_display != nullptr && m_font != nullptr)
-    {
-        XFreeFont(m_display, m_font);
-    }
+    m_workspace_renderer.shutdown();
+    // AntialiasedFont releases Xft resources through this display, so it must
+    // be destroyed before the renderer forgets the connection.
+    m_font.reset();
     if (m_display != nullptr && m_graphics_context != nullptr)
     {
         XFreeGC(m_display, m_graphics_context);
     }
 
-    m_font = nullptr;
     m_graphics_context = nullptr;
     m_display = nullptr;
+}
+
+bool X11ChromeRenderer::open_workspace_file(const std::filesystem::path& path)
+{
+    return m_workspace_renderer.open_file(path);
+}
+
+std::size_t X11ChromeRenderer::open_dropped_paths(
+    std::span<const std::filesystem::path> dropped_paths)
+{
+    return m_workspace_renderer.open_dropped_paths(dropped_paths);
+}
+
+bool X11ChromeRenderer::create_workspace_buffer()
+{
+    return m_workspace_renderer.create_buffer();
+}
+
+bool X11ChromeRenderer::handle_workspace_pointer_press(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top,
+    bool extend_selection,
+    Time event_time)
+{
+    return m_workspace_renderer.handle_pointer_press(
+        point_x,
+        point_y,
+        client_width,
+        client_height,
+        content_top,
+        extend_selection,
+        event_time);
+}
+
+bool X11ChromeRenderer::handle_workspace_pointer_move(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) noexcept
+{
+    return m_workspace_renderer.handle_pointer_move(
+        point_x, point_y, client_width, client_height, content_top);
+}
+
+bool X11ChromeRenderer::handle_workspace_pointer_drag(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top)
+{
+    return m_workspace_renderer.handle_pointer_drag(
+        point_x, point_y, client_width, client_height, content_top);
+}
+
+bool X11ChromeRenderer::handle_workspace_pointer_release() noexcept
+{
+    return m_workspace_renderer.handle_pointer_release();
+}
+
+bool X11ChromeRenderer::handle_workspace_scroll(
+    std::ptrdiff_t line_delta,
+    int client_width,
+    int client_height,
+    float content_top) noexcept
+{
+    return m_workspace_renderer.handle_scroll(
+        line_delta, client_width, client_height, content_top);
+}
+
+bool X11ChromeRenderer::handle_editor_input(
+    UI::Editor::EditorInputCommand command,
+    bool extend_selection)
+{
+    return m_workspace_renderer.handle_editor_input(command, extend_selection);
+}
+
+bool X11ChromeRenderer::handle_editor_action(UI::Editor::EditorAction action)
+{
+    return m_workspace_renderer.handle_editor_action(action);
+}
+
+std::optional<bool> X11ChromeRenderer::handle_editor_command(std::string_view command_id)
+{
+    return m_workspace_renderer.handle_editor_command(command_id);
+}
+
+std::optional<bool> X11ChromeRenderer::is_editor_command_enabled(
+    std::string_view command_id) const noexcept
+{
+    return m_workspace_renderer.is_editor_command_enabled(command_id);
+}
+
+bool X11ChromeRenderer::handle_text_input(std::string_view utf8_text)
+{
+    return m_workspace_renderer.handle_text_input(utf8_text);
+}
+
+bool X11ChromeRenderer::handle_terminal_key(Terminal::TerminalInputKey key)
+{
+    return m_workspace_renderer.handle_terminal_key(key);
+}
+
+bool X11ChromeRenderer::handle_terminal_control(char letter)
+{
+    return m_workspace_renderer.handle_terminal_control(letter);
+}
+
+bool X11ChromeRenderer::handle_terminal_scroll(std::ptrdiff_t line_delta) noexcept
+{
+    return m_workspace_renderer.handle_terminal_scroll(line_delta);
+}
+
+bool X11ChromeRenderer::handle_tool_sidebar_scroll(
+    std::ptrdiff_t line_delta,
+    int client_width,
+    int client_height,
+    float content_top) noexcept
+{
+    return m_workspace_renderer.handle_tool_sidebar_scroll(
+        line_delta, client_width, client_height, content_top);
+}
+
+bool X11ChromeRenderer::is_editor_focused() const noexcept
+{
+    return m_workspace_renderer.is_editor_focused();
+}
+
+bool X11ChromeRenderer::is_terminal_focused() const noexcept
+{
+    return m_workspace_renderer.is_terminal_focused();
+}
+
+bool X11ChromeRenderer::is_editor_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    return m_workspace_renderer.is_editor_point(
+        point_x, point_y, client_width, client_height, content_top);
+}
+
+bool X11ChromeRenderer::is_scrollbar_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    return m_workspace_renderer.is_scrollbar_point(
+        point_x, point_y, client_width, client_height, content_top);
+}
+
+bool X11ChromeRenderer::is_minimap_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    return m_workspace_renderer.is_minimap_point(
+        point_x, point_y, client_width, client_height, content_top);
+}
+
+bool X11ChromeRenderer::is_terminal_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    return m_workspace_renderer.is_terminal_point(
+        point_x, point_y, client_width, client_height, content_top);
+}
+
+bool X11ChromeRenderer::is_tool_sidebar_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    return m_workspace_renderer.is_tool_sidebar_point(
+        point_x, point_y, client_width, client_height, content_top);
+}
+
+bool X11ChromeRenderer::is_terminal_resize_handle_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    return m_workspace_renderer.is_terminal_resize_handle_point(
+        point_x, point_y, client_width, client_height, content_top);
+}
+
+bool X11ChromeRenderer::is_terminal_resizing() const noexcept
+{
+    return m_workspace_renderer.is_terminal_resizing();
+}
+
+bool X11ChromeRenderer::tick_caret_blink() noexcept
+{
+    return m_workspace_renderer.tick_caret_blink();
 }
 
 void X11ChromeRenderer::render(
@@ -150,11 +378,18 @@ void X11ChromeRenderer::render(
             interaction_state.open_menu_index == region.menu_index;
         if (hovered)
         {
-            fill_rectangle(back_buffer, region.bounds, m_colors.hover);
+            UI::Rect hover_bounds = region.bounds;
+            hover_bounds.y += 4.0F * m_dpi_scale;
+            hover_bounds.height -= 8.0F * m_dpi_scale;
+            fill_rectangle(back_buffer, hover_bounds, m_colors.hover, 4);
         }
         if (region.menu_index < menus.size())
         {
-            draw_centered_text(back_buffer, menus[region.menu_index].label, region.bounds, m_colors.text_primary);
+            draw_centered_text(
+                back_buffer,
+                menus[region.menu_index].label,
+                region.bounds,
+                m_text_colors.primary);
         }
     }
 
@@ -165,13 +400,16 @@ void X11ChromeRenderer::render(
         if (interaction_state.overflow_menu_hovered || interaction_state.overflow_menu_open ||
             hidden_menu_open)
         {
-            fill_rectangle(back_buffer, chrome_layout.overflow_menu_bounds, m_colors.hover);
+            UI::Rect hover_bounds = chrome_layout.overflow_menu_bounds;
+            hover_bounds.y += 4.0F * m_dpi_scale;
+            hover_bounds.height -= 8.0F * m_dpi_scale;
+            fill_rectangle(back_buffer, hover_bounds, m_colors.hover, 4);
         }
         draw_centered_text(
             back_buffer,
             "...",
             chrome_layout.overflow_menu_bounds,
-            m_colors.text_primary);
+            m_text_colors.primary);
     }
 
     const float scale = chrome_layout.dpi_scale;
@@ -182,17 +420,22 @@ void X11ChromeRenderer::render(
         logo_size,
         logo_size,
     };
-    fill_rectangle(back_buffer, logo_bounds, m_colors.accent);
-    draw_centered_text(back_buffer, "Z", logo_bounds, WhitePixel(m_display, m_screen));
+    fill_rectangle(back_buffer, logo_bounds, m_colors.accent, static_cast<int>(logo_size * 0.25F));
+    draw_centered_text(back_buffer, "Z", logo_bounds, m_text_colors.white);
 
     if (!chrome_layout.command_center_bounds.is_empty())
     {
         fill_rectangle(
             back_buffer,
             chrome_layout.command_center_bounds,
-            interaction_state.command_center_hovered ? m_colors.hover : m_colors.command_center_background);
-        draw_rectangle(back_buffer, chrome_layout.command_center_bounds, m_colors.command_center_border);
-        draw_centered_text(back_buffer, title, chrome_layout.command_center_bounds, m_colors.text_secondary);
+            interaction_state.command_center_hovered ? m_colors.hover : m_colors.command_center_background,
+            6);
+        draw_rectangle(back_buffer, chrome_layout.command_center_bounds, m_colors.command_center_border, 6);
+        draw_centered_text(
+            back_buffer,
+            title,
+            chrome_layout.command_center_bounds,
+            m_text_colors.secondary);
 
         const int search_x = round_to_int(chrome_layout.command_center_bounds.x + 14.0F * scale);
         const int search_y = round_to_int(
@@ -218,6 +461,28 @@ void X11ChromeRenderer::render(
             search_x + search_radius + round_to_int(3.0F * scale),
             search_y + search_radius + round_to_int(3.0F * scale));
     }
+
+    draw_window_control(
+        back_buffer,
+        chrome_layout.minimize_bounds,
+        UI::Chrome::WindowControl::Minimize,
+        interaction_state);
+    draw_window_control(
+        back_buffer,
+        chrome_layout.maximize_bounds,
+        UI::Chrome::WindowControl::MaximizeRestore,
+        interaction_state);
+    draw_window_control(
+        back_buffer,
+        chrome_layout.close_bounds,
+        UI::Chrome::WindowControl::Close,
+        interaction_state);
+
+    m_workspace_renderer.render(
+        back_buffer,
+        client_width,
+        client_height,
+        chrome_layout.titlebar_bounds.bottom());
 
     draw_overflow_menu(back_buffer, chrome_layout, interaction_state);
     draw_popup_menu(
@@ -368,7 +633,8 @@ unsigned long X11ChromeRenderer::allocate_color(const UI::Theme::Color& color) c
 void X11ChromeRenderer::fill_rectangle(
     Drawable drawable,
     const UI::Rect& rectangle,
-    unsigned long color) const
+    unsigned long color,
+    int radius) const
 {
     if (rectangle.is_empty())
     {
@@ -376,20 +642,22 @@ void X11ChromeRenderer::fill_rectangle(
     }
 
     XSetForeground(m_display, m_graphics_context, color);
-    XFillRectangle(
+    Utility::X11Rounded::X11Rounded::fillRoundedRect(
         m_display,
         drawable,
         m_graphics_context,
         round_to_int(rectangle.x),
         round_to_int(rectangle.y),
-        to_unsigned_size(rectangle.width),
-        to_unsigned_size(rectangle.height));
+        round_to_int(rectangle.width),
+        round_to_int(rectangle.height),
+        radius);
 }
 
 void X11ChromeRenderer::draw_rectangle(
     Drawable drawable,
     const UI::Rect& rectangle,
-    unsigned long color) const
+    unsigned long color,
+    int radius) const
 {
     if (rectangle.is_empty())
     {
@@ -397,47 +665,44 @@ void X11ChromeRenderer::draw_rectangle(
     }
 
     XSetForeground(m_display, m_graphics_context, color);
-    XDrawRectangle(
+    Utility::X11Rounded::X11Rounded::drawRoundedRect(
         m_display,
         drawable,
         m_graphics_context,
         round_to_int(rectangle.x),
         round_to_int(rectangle.y),
-        to_unsigned_size(rectangle.width - 1.0F),
-        to_unsigned_size(rectangle.height - 1.0F));
+        round_to_int(rectangle.width),
+        round_to_int(rectangle.height),
+        radius);
 }
 
 void X11ChromeRenderer::draw_centered_text(
     Drawable drawable,
     std::string_view text,
     const UI::Rect& rectangle,
-    unsigned long color) const
+    const std::string& color) const
 {
     if (text.empty() || rectangle.is_empty())
     {
         return;
     }
 
+    const std::string utf8_text{text};
     const int text_width = m_font != nullptr
-        ? XTextWidth(m_font, text.data(), static_cast<int>(text.size()))
+        ? m_font->getTextWidth(utf8_text)
         : static_cast<int>(text.size()) * 8;
-    const int font_ascent = m_font != nullptr ? m_font->ascent : 8;
-    const int font_descent = m_font != nullptr ? m_font->descent : 2;
+    const int font_ascent = m_font != nullptr ? m_font->getAscent() : 8;
+    const int font_descent = m_font != nullptr ? m_font->getDescent() : 2;
     const int text_x = round_to_int(rectangle.x + (rectangle.width - static_cast<float>(text_width)) * 0.5F);
     const int text_y = round_to_int(
         rectangle.y +
         (rectangle.height - static_cast<float>(font_ascent + font_descent)) * 0.5F +
         static_cast<float>(font_ascent));
 
-    XSetForeground(m_display, m_graphics_context, color);
-    XDrawString(
-        m_display,
-        drawable,
-        m_graphics_context,
-        text_x,
-        text_y,
-        text.data(),
-        static_cast<int>(text.size()));
+    if (m_font != nullptr)
+    {
+        m_font->drawString(drawable, color, text_x, text_y, utf8_text);
+    }
 }
 
 void X11ChromeRenderer::draw_text(
@@ -445,30 +710,126 @@ void X11ChromeRenderer::draw_text(
     std::string_view text,
     const UI::Rect& rectangle,
     float left_padding,
-    unsigned long color) const
+    const std::string& color) const
 {
     if (text.empty() || rectangle.is_empty())
     {
         return;
     }
 
-    const int font_ascent = m_font != nullptr ? m_font->ascent : 8;
-    const int font_descent = m_font != nullptr ? m_font->descent : 2;
+    const int font_ascent = m_font != nullptr ? m_font->getAscent() : 8;
+    const int font_descent = m_font != nullptr ? m_font->getDescent() : 2;
     const int text_x = round_to_int(rectangle.x + left_padding);
     const int text_y = round_to_int(
         rectangle.y +
         (rectangle.height - static_cast<float>(font_ascent + font_descent)) * 0.5F +
         static_cast<float>(font_ascent));
 
-    XSetForeground(m_display, m_graphics_context, color);
-    XDrawString(
-        m_display,
-        drawable,
-        m_graphics_context,
-        text_x,
-        text_y,
-        text.data(),
-        static_cast<int>(text.size()));
+    if (m_font != nullptr)
+    {
+        m_font->drawString(drawable, color, text_x, text_y, std::string{text});
+    }
+}
+
+void X11ChromeRenderer::draw_window_control(
+    Drawable drawable,
+    const UI::Rect& bounds,
+    UI::Chrome::WindowControl control,
+    const ChromeInteractionState& interaction_state) const
+{
+    if (bounds.is_empty() || control == UI::Chrome::WindowControl::NoControl)
+    {
+        return;
+    }
+
+    const bool pressed = interaction_state.pressed_control == control;
+    const bool hovered = interaction_state.hovered_control == control;
+    if (pressed || hovered)
+    {
+        const unsigned long background = control == UI::Chrome::WindowControl::Close && hovered
+            ? m_colors.close_hover
+            : (pressed ? m_colors.pressed : m_colors.hover);
+        fill_rectangle(drawable, bounds, background);
+    }
+
+    const bool white_close_glyph = control == UI::Chrome::WindowControl::Close && (hovered || pressed);
+    const unsigned long icon_color = white_close_glyph
+        ? WhitePixel(m_display, m_screen)
+        : (interaction_state.focused ? m_colors.text_primary : m_colors.text_secondary);
+    const int line_width = std::max(round_to_int(m_dpi_scale), 1);
+    const int center_x = round_to_int(bounds.x + bounds.width * 0.5F);
+    const int center_y = round_to_int(bounds.y + bounds.height * 0.5F);
+    const int half_size = std::max(round_to_int(5.0F * m_dpi_scale), 4);
+
+    XSetForeground(m_display, m_graphics_context, icon_color);
+    XSetLineAttributes(m_display, m_graphics_context, line_width, LineSolid, CapButt, JoinMiter);
+    if (control == UI::Chrome::WindowControl::Minimize)
+    {
+        const int baseline_y = center_y + std::max(round_to_int(2.0F * m_dpi_scale), 1);
+        XDrawLine(
+            m_display,
+            drawable,
+            m_graphics_context,
+            center_x - half_size,
+            baseline_y,
+            center_x + half_size,
+            baseline_y);
+    }
+    else if (control == UI::Chrome::WindowControl::MaximizeRestore)
+    {
+        const unsigned int box_size = static_cast<unsigned int>(half_size * 2);
+        if (interaction_state.maximized)
+        {
+            const int offset = std::max(round_to_int(2.0F * m_dpi_scale), 2);
+            XDrawRectangle(
+                m_display,
+                drawable,
+                m_graphics_context,
+                center_x - half_size + offset,
+                center_y - half_size,
+                box_size - static_cast<unsigned int>(offset),
+                box_size - static_cast<unsigned int>(offset));
+            XDrawRectangle(
+                m_display,
+                drawable,
+                m_graphics_context,
+                center_x - half_size,
+                center_y - half_size + offset,
+                box_size - static_cast<unsigned int>(offset),
+                box_size - static_cast<unsigned int>(offset));
+        }
+        else
+        {
+            XDrawRectangle(
+                m_display,
+                drawable,
+                m_graphics_context,
+                center_x - half_size,
+                center_y - half_size,
+                box_size,
+                box_size);
+        }
+    }
+    else if (control == UI::Chrome::WindowControl::Close)
+    {
+        XDrawLine(
+            m_display,
+            drawable,
+            m_graphics_context,
+            center_x - half_size,
+            center_y - half_size,
+            center_x + half_size,
+            center_y + half_size);
+        XDrawLine(
+            m_display,
+            drawable,
+            m_graphics_context,
+            center_x - half_size,
+            center_y + half_size,
+            center_x + half_size,
+            center_y - half_size);
+    }
+    XSetLineAttributes(m_display, m_graphics_context, 1, LineSolid, CapButt, JoinMiter);
 }
 
 void X11ChromeRenderer::draw_popup_menu(
@@ -495,8 +856,8 @@ void X11ChromeRenderer::draw_popup_menu(
         return;
     }
 
-    fill_rectangle(drawable, geometry.bounds, m_colors.popup_background);
-    draw_rectangle(drawable, geometry.bounds, m_colors.popup_border);
+    fill_rectangle(drawable, geometry.bounds, m_colors.popup_background, 6);
+    draw_rectangle(drawable, geometry.bounds, m_colors.popup_border, 6);
 
     const UI::Chrome::WindowMenu& menu = menus[menu_index];
     for (std::size_t item_index = 0; item_index < geometry.item_count; ++item_index)
@@ -518,14 +879,31 @@ void X11ChromeRenderer::draw_popup_menu(
             continue;
         }
 
-        const CommandPresentationState state = item.command_id.empty()
+        CommandPresentationState state = item.command_id.empty()
             ? CommandPresentationState{}
             : (command_state_query_callback
                     ? command_state_query_callback(item.command_id)
                     : CommandPresentationState{true, false});
-        if (interaction_state.hovered_popup_item_index == item_index && state.enabled)
+        if (const std::optional<bool> editor_enabled =
+                m_workspace_renderer.is_editor_command_enabled(item.command_id))
         {
-            fill_rectangle(drawable, item_bounds, m_colors.hover);
+            state.enabled = *editor_enabled;
+        }
+        const bool is_hovered = interaction_state.hovered_popup_item_index == item_index && state.enabled;
+        if (is_hovered)
+        {
+            UI::Rect hover_bounds = item_bounds;
+            hover_bounds.x += 4.0F * m_dpi_scale;
+            hover_bounds.width -= 8.0F * m_dpi_scale;
+            hover_bounds.y += 2.0F * m_dpi_scale;
+            hover_bounds.height -= 4.0F * m_dpi_scale;
+            fill_rectangle(drawable, hover_bounds, m_colors.accent, 4);
+        }
+
+        std::string text_color = m_text_colors.secondary;
+        if (state.enabled)
+        {
+            text_color = is_hovered ? m_text_colors.white : m_text_colors.primary;
         }
 
         draw_text(
@@ -533,11 +911,11 @@ void X11ChromeRenderer::draw_popup_menu(
             item.label,
             item_bounds,
             26.0F * m_dpi_scale,
-            state.enabled ? m_colors.text_primary : m_colors.text_secondary);
+            text_color);
 
         if (state.checked)
         {
-            XSetForeground(m_display, m_graphics_context, m_colors.text_primary);
+            XSetForeground(m_display, m_graphics_context, is_hovered ? WhitePixel(m_display, m_screen) : m_colors.text_primary);
             const int check_x = round_to_int(item_bounds.x + 11.0F * m_dpi_scale);
             const int check_y = round_to_int(item_bounds.y + item_bounds.height * 0.5F);
             XDrawLine(m_display, drawable, m_graphics_context, check_x, check_y, check_x + 3, check_y + 3);
@@ -562,8 +940,8 @@ void X11ChromeRenderer::draw_overflow_menu(
         return;
     }
 
-    fill_rectangle(drawable, geometry.bounds, m_colors.popup_background);
-    draw_rectangle(drawable, geometry.bounds, m_colors.popup_border);
+    fill_rectangle(drawable, geometry.bounds, m_colors.popup_background, 6);
+    draw_rectangle(drawable, geometry.bounds, m_colors.popup_border, 6);
     const std::span<const UI::Chrome::WindowMenu> menus = UI::Chrome::get_window_menu_model();
     for (std::size_t item_index = 0; item_index < geometry.item_count; ++item_index)
     {
@@ -572,16 +950,22 @@ void X11ChromeRenderer::draw_overflow_menu(
         {
             break;
         }
-        if (interaction_state.hovered_overflow_menu_index == menu_index)
+        const bool is_hovered = interaction_state.hovered_overflow_menu_index == menu_index;
+        if (is_hovered)
         {
-            fill_rectangle(drawable, geometry.item_bounds[item_index], m_colors.hover);
+            UI::Rect hover_bounds = geometry.item_bounds[item_index];
+            hover_bounds.x += 4.0F * m_dpi_scale;
+            hover_bounds.width -= 8.0F * m_dpi_scale;
+            hover_bounds.y += 2.0F * m_dpi_scale;
+            hover_bounds.height -= 4.0F * m_dpi_scale;
+            fill_rectangle(drawable, hover_bounds, m_colors.accent, 4);
         }
         draw_text(
             drawable,
             menus[menu_index].label,
             geometry.item_bounds[item_index],
             12.0F * m_dpi_scale,
-            m_colors.text_primary);
+            is_hovered ? m_text_colors.white : m_text_colors.primary);
     }
 }
 

@@ -1,5 +1,6 @@
 #include "Platform/Win32/Win32Window.h"
 
+#include "Platform/Win32/Components/FileDropTarget.h"
 #include "Utility/Math.h"
 #include <dwmapi.h>
 #include <uxtheme.h>
@@ -19,6 +20,7 @@ namespace
 {
 
 constexpr DWORD dwm_immersive_dark_mode_attribute = 20;
+constexpr UINT_PTR editor_caret_timer_id = 1;
 
 constexpr std::array<const wchar_t*, UI::Chrome::window_menu_count> window_menu_labels{
     L"File",
@@ -71,6 +73,38 @@ void draw_centered_text(
         -1,
         &rectangle,
         DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+}
+
+std::string utf16_to_utf8(std::wstring_view text)
+{
+    if (text.empty())
+    {
+        return {};
+    }
+    const int required_size = WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        text.data(),
+        static_cast<int>(text.size()),
+        nullptr,
+        0,
+        nullptr,
+        nullptr);
+    if (required_size <= 0)
+    {
+        return {};
+    }
+    std::string result(static_cast<std::size_t>(required_size), '\0');
+    WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        text.data(),
+        static_cast<int>(text.size()),
+        result.data(),
+        required_size,
+        nullptr,
+        nullptr);
+    return result;
 }
 
 int caption_button_state(
@@ -249,6 +283,14 @@ bool Win32Window::initialize()
 
     m_dpi = GetDpiForWindow(m_window_handle);
     refresh_ui_font();
+    if (!m_workspace_renderer.initialize(m_dpi))
+    {
+        std::cerr << "Fatal error: the Win32 workspace renderer could not be initialized.\n";
+        return false;
+    }
+    static_cast<void>(m_workspace_renderer.create_buffer());
+    Components::FileDropTarget::set_enabled(m_window_handle, true);
+    static_cast<void>(SetTimer(m_window_handle, editor_caret_timer_id, 100, nullptr));
     refresh_chrome_layout();
     set_custom_chrome_enabled(m_specification.custom_chrome_enabled);
     return true;
@@ -370,12 +412,39 @@ void Win32Window::set_titlebar_hit_test_callback(TitlebarHitTestCallback callbac
 
 void Win32Window::set_command_invoked_callback(CommandInvokedCallback callback)
 {
-    m_menubar.set_command_invoked_callback(std::move(callback));
+    m_command_invoked_callback = std::move(callback);
+    m_menubar.set_command_invoked_callback([this](std::string_view command_id) {
+        const std::optional<bool> editor_result =
+            m_workspace_renderer.handle_editor_command(command_id);
+        if (editor_result)
+        {
+            if (*editor_result && m_window_handle != nullptr)
+            {
+                InvalidateRect(m_window_handle, nullptr, FALSE);
+            }
+            return;
+        }
+        if (m_command_invoked_callback)
+        {
+            m_command_invoked_callback(command_id);
+        }
+    });
 }
 
 void Win32Window::set_command_state_query_callback(CommandStateQueryCallback callback)
 {
-    m_menubar.set_command_state_query_callback(std::move(callback));
+    m_command_state_query_callback = std::move(callback);
+    m_menubar.set_command_state_query_callback([this](std::string_view command_id) {
+        const std::optional<bool> editor_enabled =
+            m_workspace_renderer.is_editor_command_enabled(command_id);
+        if (editor_enabled)
+        {
+            return CommandPresentationState{*editor_enabled, false};
+        }
+        return m_command_state_query_callback
+            ? m_command_state_query_callback(command_id)
+            : CommandPresentationState{true, false};
+    });
 }
 
 LRESULT CALLBACK Win32Window::window_proc(
@@ -414,6 +483,19 @@ LRESULT Win32Window::handle_message(
 {
     switch (message)
     {
+    case WM_DROPFILES:
+    {
+        const HDROP drop = reinterpret_cast<HDROP>(w_param);
+        const std::vector<std::filesystem::path> dropped_paths =
+            Components::FileDropTarget::collect_paths(drop);
+        if (m_workspace_renderer.open_dropped_paths(dropped_paths) > 0)
+        {
+            SetFocus(window_handle);
+            InvalidateRect(window_handle, nullptr, FALSE);
+        }
+        return 0;
+    }
+
     case WM_NCCALCSIZE:
         if (m_custom_chrome_enabled && w_param != FALSE)
         {
@@ -525,12 +607,42 @@ LRESULT Win32Window::handle_message(
         {
             const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
             const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
+            RECT client_bounds{};
+            GetClientRect(window_handle, &client_bounds);
+            if (m_workspace_pointer_captured)
+            {
+                HDC device_context = GetDC(window_handle);
+                const bool changed = device_context != nullptr &&
+                    m_workspace_renderer.handle_pointer_drag(
+                        device_context,
+                        point_x,
+                        point_y,
+                        client_bounds.right - client_bounds.left,
+                        client_bounds.bottom - client_bounds.top,
+                        m_chrome_layout.titlebar_bounds.bottom());
+                if (device_context != nullptr)
+                {
+                    ReleaseDC(window_handle, device_context);
+                }
+                if (changed)
+                {
+                    InvalidateRect(window_handle, nullptr, FALSE);
+                }
+                return 0;
+            }
             const std::optional<std::size_t> menu_index = m_chrome_layout.get_menu_index(point_x, point_y);
             const bool overflow_menu_hovered = m_chrome_layout.is_overflow_menu(point_x, point_y);
             const bool command_center_hovered = m_chrome_layout.command_center_bounds.contains(point_x, point_y);
+            const bool terminal_hover_changed = m_workspace_renderer.handle_pointer_move(
+                point_x,
+                point_y,
+                client_bounds.right - client_bounds.left,
+                client_bounds.bottom - client_bounds.top,
+                m_chrome_layout.titlebar_bounds.bottom());
             if (menu_index != m_hovered_menu_index ||
                 overflow_menu_hovered != m_overflow_menu_hovered ||
-                command_center_hovered != m_command_center_hovered)
+                command_center_hovered != m_command_center_hovered ||
+                terminal_hover_changed)
             {
                 m_hovered_menu_index = menu_index;
                 m_overflow_menu_hovered = overflow_menu_hovered;
@@ -548,10 +660,68 @@ LRESULT Win32Window::handle_message(
         }
         return 0;
 
+    case WM_MOUSEWHEEL:
+        if (m_custom_chrome_enabled)
+        {
+            POINT point{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
+            ScreenToClient(window_handle, &point);
+            RECT client_bounds{};
+            GetClientRect(window_handle, &client_bounds);
+            const float point_x = static_cast<float>(point.x);
+            const float point_y = static_cast<float>(point.y);
+            const int client_width = client_bounds.right - client_bounds.left;
+            const int client_height = client_bounds.bottom - client_bounds.top;
+            const float content_top = m_chrome_layout.titlebar_bounds.bottom();
+            const bool over_editor = m_workspace_renderer.is_editor_point(
+                point_x, point_y, client_width, client_height, content_top) ||
+                m_workspace_renderer.is_minimap_point(
+                    point_x, point_y, client_width, client_height, content_top) ||
+                m_workspace_renderer.is_scrollbar_point(
+                    point_x, point_y, client_width, client_height, content_top);
+            const bool over_terminal = m_workspace_renderer.is_terminal_point(
+                point_x, point_y, client_width, client_height, content_top);
+            const bool over_tool_sidebar = m_workspace_renderer.is_tool_sidebar_point(
+                point_x, point_y, client_width, client_height, content_top);
+            const short wheel_delta = GET_WHEEL_DELTA_WPARAM(w_param);
+            const std::ptrdiff_t line_delta = wheel_delta == 0
+                ? 0
+                : (wheel_delta > 0 ? -3 : 3);
+            if (over_tool_sidebar && line_delta != 0 &&
+                m_workspace_renderer.handle_tool_sidebar_scroll(
+                    line_delta, client_width, client_height, content_top))
+            {
+                InvalidateRect(window_handle, nullptr, FALSE);
+                return 0;
+            }
+            if (over_terminal && line_delta != 0 &&
+                m_workspace_renderer.handle_terminal_scroll(line_delta))
+            {
+                InvalidateRect(window_handle, nullptr, FALSE);
+                return 0;
+            }
+            if (over_editor && line_delta != 0 && m_workspace_renderer.handle_scroll(
+                    line_delta, client_width, client_height, content_top))
+            {
+                InvalidateRect(window_handle, nullptr, FALSE);
+            }
+            return 0;
+        }
+        break;
+
     case WM_MOUSELEAVE:
         m_hovered_menu_index.reset();
         m_overflow_menu_hovered = false;
         m_command_center_hovered = false;
+        {
+            RECT client_bounds{};
+            GetClientRect(window_handle, &client_bounds);
+            static_cast<void>(m_workspace_renderer.handle_pointer_move(
+                -10000.0F,
+                -10000.0F,
+                client_bounds.right - client_bounds.left,
+                client_bounds.bottom - client_bounds.top,
+                m_chrome_layout.titlebar_bounds.bottom()));
+        }
         InvalidateRect(window_handle, nullptr, FALSE);
         return 0;
 
@@ -568,9 +738,97 @@ LRESULT Win32Window::handle_message(
                 return 0;
             }
         }
+        if (m_custom_chrome_enabled)
+        {
+            const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
+            const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
+            RECT client_bounds{};
+            GetClientRect(window_handle, &client_bounds);
+            const bool editor_point = m_workspace_renderer.is_editor_point(
+                point_x,
+                point_y,
+                client_bounds.right - client_bounds.left,
+                client_bounds.bottom - client_bounds.top,
+                m_chrome_layout.titlebar_bounds.bottom());
+            const bool scrollbar_point = m_workspace_renderer.is_scrollbar_point(
+                point_x,
+                point_y,
+                client_bounds.right - client_bounds.left,
+                client_bounds.bottom - client_bounds.top,
+                m_chrome_layout.titlebar_bounds.bottom());
+            const bool minimap_point = m_workspace_renderer.is_minimap_point(
+                point_x,
+                point_y,
+                client_bounds.right - client_bounds.left,
+                client_bounds.bottom - client_bounds.top,
+                m_chrome_layout.titlebar_bounds.bottom());
+            HDC device_context = GetDC(window_handle);
+            const bool handled = device_context != nullptr &&
+                m_workspace_renderer.handle_pointer_press(
+                    device_context,
+                    point_x,
+                    point_y,
+                    client_bounds.right - client_bounds.left,
+                    client_bounds.bottom - client_bounds.top,
+                    m_chrome_layout.titlebar_bounds.bottom(),
+                    (w_param & MK_SHIFT) != 0);
+            if (device_context != nullptr)
+            {
+                ReleaseDC(window_handle, device_context);
+            }
+            if (handled)
+            {
+                if (editor_point || scrollbar_point || minimap_point ||
+                    m_workspace_renderer.is_terminal_resizing())
+                {
+                    m_workspace_pointer_captured = true;
+                    SetCapture(window_handle);
+                }
+                SetFocus(window_handle);
+                InvalidateRect(window_handle, nullptr, FALSE);
+                return 0;
+            }
+        }
+        break;
+
+    case WM_LBUTTONDBLCLK:
+        if (m_custom_chrome_enabled)
+        {
+            const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
+            const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
+            RECT client_bounds{};
+            GetClientRect(window_handle, &client_bounds);
+            if (m_workspace_renderer.handle_double_click(
+                    point_x,
+                    point_y,
+                    client_bounds.right - client_bounds.left,
+                    client_bounds.bottom - client_bounds.top,
+                    m_chrome_layout.titlebar_bounds.bottom()))
+            {
+                m_workspace_pointer_captured = false;
+                static_cast<void>(m_workspace_renderer.handle_pointer_release());
+                if (GetCapture() == window_handle)
+                {
+                    ReleaseCapture();
+                }
+                InvalidateRect(window_handle, nullptr, FALSE);
+                return 0;
+            }
+        }
         break;
 
     case WM_LBUTTONUP:
+        if (m_custom_chrome_enabled && m_workspace_pointer_captured)
+        {
+            m_workspace_pointer_captured = false;
+            static_cast<void>(m_workspace_renderer.handle_pointer_release());
+            if (GetCapture() == window_handle)
+            {
+                ReleaseCapture();
+            }
+            InvalidateRect(window_handle, nullptr, FALSE);
+            return 0;
+        }
         if (m_custom_chrome_enabled && m_menu_pointer_tracking)
         {
             m_menu_pointer_tracking = false;
@@ -601,6 +859,11 @@ LRESULT Win32Window::handle_message(
 
     case WM_CANCELMODE:
     case WM_CAPTURECHANGED:
+        if (m_workspace_pointer_captured)
+        {
+            m_workspace_pointer_captured = false;
+            static_cast<void>(m_workspace_renderer.handle_pointer_release());
+        }
         if (m_menu_pointer_tracking)
         {
             m_menu_pointer_tracking = false;
@@ -631,12 +894,268 @@ LRESULT Win32Window::handle_message(
                 SetCursor(LoadCursorW(nullptr, IDC_HAND));
                 return TRUE;
             }
+            RECT client_bounds{};
+            GetClientRect(window_handle, &client_bounds);
+            if (m_workspace_renderer.is_terminal_resize_handle_point(
+                    static_cast<float>(cursor_position.x),
+                    static_cast<float>(cursor_position.y),
+                    client_bounds.right - client_bounds.left,
+                    client_bounds.bottom - client_bounds.top,
+                    m_chrome_layout.titlebar_bounds.bottom()))
+            {
+                SetCursor(LoadCursorW(nullptr, IDC_SIZENS));
+                return TRUE;
+            }
+            if (m_workspace_renderer.is_editor_point(
+                    static_cast<float>(cursor_position.x),
+                    static_cast<float>(cursor_position.y),
+                    client_bounds.right - client_bounds.left,
+                    client_bounds.bottom - client_bounds.top,
+                    m_chrome_layout.titlebar_bounds.bottom()) ||
+                m_workspace_renderer.is_terminal_point(
+                    static_cast<float>(cursor_position.x),
+                    static_cast<float>(cursor_position.y),
+                    client_bounds.right - client_bounds.left,
+                    client_bounds.bottom - client_bounds.top,
+                    m_chrome_layout.titlebar_bounds.bottom()))
+            {
+                SetCursor(LoadCursorW(nullptr, IDC_IBEAM));
+                return TRUE;
+            }
+        }
+        break;
+
+    case WM_KEYDOWN:
+        if (m_custom_chrome_enabled && m_workspace_renderer.is_terminal_focused())
+        {
+            std::optional<Terminal::TerminalInputKey> terminal_key;
+            switch (w_param)
+            {
+            case VK_ESCAPE: terminal_key = Terminal::TerminalInputKey::Escape; break;
+            case VK_UP: terminal_key = Terminal::TerminalInputKey::ArrowUp; break;
+            case VK_DOWN: terminal_key = Terminal::TerminalInputKey::ArrowDown; break;
+            case VK_LEFT: terminal_key = Terminal::TerminalInputKey::ArrowLeft; break;
+            case VK_RIGHT: terminal_key = Terminal::TerminalInputKey::ArrowRight; break;
+            case VK_HOME: terminal_key = Terminal::TerminalInputKey::Home; break;
+            case VK_END: terminal_key = Terminal::TerminalInputKey::End; break;
+            case VK_DELETE: terminal_key = Terminal::TerminalInputKey::DeleteForward; break;
+            default: break;
+            }
+            if (terminal_key)
+            {
+                if (m_workspace_renderer.handle_terminal_key(*terminal_key))
+                {
+                    InvalidateRect(window_handle, nullptr, FALSE);
+                }
+                return 0;
+            }
+        }
+        if (m_custom_chrome_enabled && m_workspace_renderer.is_editor_focused())
+        {
+            const bool control_pressed = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+            const bool shift_pressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            std::optional<UI::Editor::EditorAction> action;
+            if (control_pressed && shift_pressed && w_param == VK_DELETE)
+            {
+                action = UI::Editor::EditorAction::RemoveDocument;
+            }
+            else if (control_pressed)
+            {
+                switch (w_param)
+                {
+                case 'N':
+                    action = UI::Editor::EditorAction::CreateDocument;
+                    break;
+                case 'S':
+                    action = UI::Editor::EditorAction::SaveDocument;
+                    break;
+                case 'W':
+                    action = UI::Editor::EditorAction::CloseDocument;
+                    break;
+                case 'A':
+                    action = UI::Editor::EditorAction::SelectAll;
+                    break;
+                case 'C':
+                    action = UI::Editor::EditorAction::Copy;
+                    break;
+                case 'X':
+                    action = UI::Editor::EditorAction::Cut;
+                    break;
+                case 'V':
+                    action = UI::Editor::EditorAction::Paste;
+                    break;
+                default:
+                    break;
+                }
+            }
+            if (action)
+            {
+                if (m_workspace_renderer.handle_editor_action(*action))
+                {
+                    InvalidateRect(window_handle, nullptr, FALSE);
+                }
+                return 0;
+            }
+
+            std::optional<UI::Editor::EditorInputCommand> editor_command;
+            switch (w_param)
+            {
+            case VK_LEFT:
+                editor_command = UI::Editor::EditorInputCommand::MoveLeft;
+                break;
+            case VK_RIGHT:
+                editor_command = UI::Editor::EditorInputCommand::MoveRight;
+                break;
+            case VK_UP:
+                editor_command = UI::Editor::EditorInputCommand::MoveUp;
+                break;
+            case VK_DOWN:
+                editor_command = UI::Editor::EditorInputCommand::MoveDown;
+                break;
+            case VK_HOME:
+                editor_command = UI::Editor::EditorInputCommand::MoveHome;
+                break;
+            case VK_END:
+                editor_command = UI::Editor::EditorInputCommand::MoveEnd;
+                break;
+            case VK_DELETE:
+                editor_command = UI::Editor::EditorInputCommand::DeleteForward;
+                break;
+            default:
+                break;
+            }
+            if (editor_command)
+            {
+                if (m_workspace_renderer.handle_editor_input(
+                        *editor_command, shift_pressed))
+                {
+                    InvalidateRect(window_handle, nullptr, FALSE);
+                }
+                return 0;
+            }
+        }
+        break;
+
+    case WM_CHAR:
+        if (m_custom_chrome_enabled && m_workspace_renderer.is_terminal_focused())
+        {
+            bool changed = false;
+            const wchar_t character = static_cast<wchar_t>(w_param);
+            if (character == L'\r')
+            {
+                changed = m_workspace_renderer.handle_terminal_key(
+                    Terminal::TerminalInputKey::Enter);
+            }
+            else if (character == L'\b')
+            {
+                changed = m_workspace_renderer.handle_terminal_key(
+                    Terminal::TerminalInputKey::Backspace);
+            }
+            else if (character == L'\t')
+            {
+                changed = m_workspace_renderer.handle_terminal_key(
+                    Terminal::TerminalInputKey::Tab);
+            }
+            else if (character >= 1 && character <= 26)
+            {
+                changed = m_workspace_renderer.handle_terminal_control(
+                    static_cast<char>('A' + character - 1));
+            }
+            else if (character >= 0x20 && character != 0x7F)
+            {
+                std::wstring utf16;
+                if (character >= 0xD800 && character <= 0xDBFF)
+                {
+                    m_pending_high_surrogate = character;
+                    return 0;
+                }
+                if (character >= 0xDC00 && character <= 0xDFFF)
+                {
+                    if (m_pending_high_surrogate == 0)
+                    {
+                        return 0;
+                    }
+                    utf16.push_back(m_pending_high_surrogate);
+                    m_pending_high_surrogate = 0;
+                }
+                else
+                {
+                    m_pending_high_surrogate = 0;
+                }
+                utf16.push_back(character);
+                const std::string utf8 = utf16_to_utf8(utf16);
+                changed = !utf8.empty() && m_workspace_renderer.handle_text_input(utf8);
+            }
+            if (changed)
+            {
+                InvalidateRect(window_handle, nullptr, FALSE);
+            }
+            return 0;
+        }
+        if (m_custom_chrome_enabled && m_workspace_renderer.is_editor_focused())
+        {
+            bool changed = false;
+            const wchar_t character = static_cast<wchar_t>(w_param);
+            if (character == L'\r')
+            {
+                changed = m_workspace_renderer.handle_editor_input(
+                    UI::Editor::EditorInputCommand::InsertNewLine, false);
+            }
+            else if (character == L'\b')
+            {
+                changed = m_workspace_renderer.handle_editor_input(
+                    UI::Editor::EditorInputCommand::DeleteBackward, false);
+            }
+            else if (character == L'\t')
+            {
+                changed = m_workspace_renderer.handle_editor_input(
+                    UI::Editor::EditorInputCommand::InsertTab, false);
+            }
+            else if (character >= 0x20 && character != 0x7F)
+            {
+                std::wstring utf16;
+                if (character >= 0xD800 && character <= 0xDBFF)
+                {
+                    m_pending_high_surrogate = character;
+                    return 0;
+                }
+                if (character >= 0xDC00 && character <= 0xDFFF)
+                {
+                    if (m_pending_high_surrogate == 0)
+                    {
+                        return 0;
+                    }
+                    utf16.push_back(m_pending_high_surrogate);
+                    m_pending_high_surrogate = 0;
+                }
+                else
+                {
+                    m_pending_high_surrogate = 0;
+                }
+                utf16.push_back(character);
+                const std::string utf8 = utf16_to_utf8(utf16);
+                changed = !utf8.empty() && m_workspace_renderer.handle_text_input(utf8);
+            }
+            if (changed)
+            {
+                InvalidateRect(window_handle, nullptr, FALSE);
+            }
+            return 0;
         }
         break;
 
     case WM_COMMAND:
         if (m_menubar.handle_command(LOWORD(w_param)))
         {
+            return 0;
+        }
+        break;
+
+    case WM_TIMER:
+        if (w_param == editor_caret_timer_id &&
+            m_workspace_renderer.tick_caret_blink())
+        {
+            InvalidateRect(window_handle, nullptr, FALSE);
             return 0;
         }
         break;
@@ -665,6 +1184,7 @@ LRESULT Win32Window::handle_message(
             suggested_bounds->bottom - suggested_bounds->top,
             SWP_NOZORDER | SWP_NOACTIVATE);
         refresh_ui_font();
+        static_cast<void>(m_workspace_renderer.initialize(m_dpi));
         refresh_chrome_layout();
         return 0;
     }
@@ -705,6 +1225,8 @@ LRESULT Win32Window::handle_message(
         return 0;
 
     case WM_DESTROY:
+        Components::FileDropTarget::set_enabled(window_handle, false);
+        KillTimer(window_handle, editor_caret_timer_id);
         m_should_close = true;
         PostQuitMessage(0);
         return 0;
@@ -947,6 +1469,12 @@ void Win32Window::paint_custom_chrome()
         SelectObject(buffer_context, previous_pen);
         DeleteObject(search_pen);
     }
+
+    m_workspace_renderer.render(
+        buffer_context,
+        client_width,
+        client_height,
+        m_chrome_layout.titlebar_bounds.bottom());
 
     const int minimize_state = caption_button_state(
         UI::Chrome::WindowControl::Minimize,

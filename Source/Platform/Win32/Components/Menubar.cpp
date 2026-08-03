@@ -299,8 +299,14 @@ std::string_view Menubar::get_command_id(int native_command_id) noexcept
     case ID_FILE_OPEN:
         command_id = Commands::CommandIds::file_open;
         break;
+    case ID_FILE_SAVE:
+        command_id = Commands::CommandIds::file_save;
+        break;
     case ID_FILE_CLOSE:
         command_id = Commands::CommandIds::file_close;
+        break;
+    case ID_FILE_DELETE:
+        command_id = Commands::CommandIds::file_delete;
         break;
     case ID_FILE_EXIT:
         command_id = Commands::CommandIds::file_exit;
@@ -310,6 +316,18 @@ std::string_view Menubar::get_command_id(int native_command_id) noexcept
         break;
     case ID_EDIT_REDO:
         command_id = Commands::CommandIds::edit_redo;
+        break;
+    case ID_EDIT_CUT:
+        command_id = Commands::CommandIds::edit_cut;
+        break;
+    case ID_EDIT_COPY:
+        command_id = Commands::CommandIds::edit_copy;
+        break;
+    case ID_EDIT_PASTE:
+        command_id = Commands::CommandIds::edit_paste;
+        break;
+    case ID_SELECTION_SELECT_ALL:
+        command_id = Commands::CommandIds::selection_select_all;
         break;
     case ID_VIEW_EXPLORER:
         command_id = Commands::CommandIds::view_explorer;

@@ -1,0 +1,207 @@
+#pragma once
+
+#include "Platform/X11/Components/ActivitySidebar.h"
+#include "Platform/X11/Components/FooterToolbar.h"
+#include "Platform/X11/Components/TerminalPanel.h"
+#include "Platform/X11/Components/TextEditor.h"
+#include "Platform/X11/Components/ToolSidebar.h"
+#include "UI/Editor/StudioEditorModel.h"
+
+#include <X11/Xlib.h>
+
+#include <cstddef>
+#include <filesystem>
+#include <memory>
+#include <optional>
+#include <span>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+
+class AntialiasedFont;
+
+namespace Zenvra::Platform::X11::Components
+{
+
+class StudioWorkspaceRenderer
+{
+public:
+    StudioWorkspaceRenderer();
+    ~StudioWorkspaceRenderer();
+
+    StudioWorkspaceRenderer(const StudioWorkspaceRenderer&) = delete;
+    StudioWorkspaceRenderer& operator=(const StudioWorkspaceRenderer&) = delete;
+
+    [[nodiscard]] bool initialize(Display* display, int screen, float dpi_scale);
+    [[nodiscard]] bool open_file(const std::filesystem::path& path);
+    [[nodiscard]] std::size_t open_dropped_paths(
+        std::span<const std::filesystem::path> dropped_paths);
+    [[nodiscard]] bool create_buffer();
+    [[nodiscard]] bool handle_pointer_press(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top,
+        bool extend_selection,
+        Time event_time);
+    [[nodiscard]] bool handle_pointer_move(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) noexcept;
+    [[nodiscard]] bool handle_pointer_drag(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top);
+    [[nodiscard]] bool handle_pointer_release() noexcept;
+    [[nodiscard]] bool handle_scroll(
+        std::ptrdiff_t line_delta,
+        int client_width,
+        int client_height,
+        float content_top) noexcept;
+    [[nodiscard]] bool handle_editor_input(
+        UI::Editor::EditorInputCommand command,
+        bool extend_selection);
+    [[nodiscard]] bool handle_editor_action(UI::Editor::EditorAction action);
+    [[nodiscard]] std::optional<bool> handle_editor_command(std::string_view command_id);
+    [[nodiscard]] std::optional<bool> is_editor_command_enabled(
+        std::string_view command_id) const noexcept;
+    [[nodiscard]] bool handle_text_input(std::string_view utf8_text);
+    [[nodiscard]] bool handle_terminal_key(Terminal::TerminalInputKey key);
+    [[nodiscard]] bool handle_terminal_control(char letter);
+    [[nodiscard]] bool handle_terminal_scroll(std::ptrdiff_t line_delta) noexcept;
+    [[nodiscard]] bool handle_tool_sidebar_scroll(
+        std::ptrdiff_t line_delta,
+        int client_width,
+        int client_height,
+        float content_top) noexcept;
+    [[nodiscard]] bool is_editor_focused() const noexcept;
+    [[nodiscard]] bool is_terminal_focused() const noexcept;
+    [[nodiscard]] bool is_editor_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_scrollbar_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_minimap_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_terminal_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_tool_sidebar_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_terminal_resize_handle_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_terminal_resizing() const noexcept;
+    [[nodiscard]] bool tick_caret_blink() noexcept;
+    void shutdown();
+    void render(Drawable drawable, int client_width, int client_height, float content_top) const;
+
+private:
+    friend class ActivitySidebar;
+    friend class EditorMinimap;
+    friend class EditorScrollbar;
+    friend class FooterToolbar;
+    friend class TerminalPanel;
+    friend class TextEditor;
+    friend class ToolSidebar;
+
+    struct PalettePixels
+    {
+        unsigned long workspace_background = 0;
+        unsigned long tab_background = 0;
+        unsigned long tab_active_background = 0;
+        unsigned long sidebar_background = 0;
+        unsigned long editor_background = 0;
+        unsigned long active_line_background = 0;
+        unsigned long selection_background = 0;
+        unsigned long status_background = 0;
+        unsigned long border = 0;
+        unsigned long text_primary = 0;
+        unsigned long text_muted = 0;
+        unsigned long accent = 0;
+        unsigned long warning = 0;
+        unsigned long success = 0;
+    };
+
+    struct PaletteText
+    {
+        std::string primary;
+        std::string muted;
+        std::string keyword;
+        std::string number;
+        std::string label;
+        std::string type;
+        std::string comment;
+        std::string accent;
+        std::string warning;
+        std::string success;
+    };
+
+    [[nodiscard]] unsigned long allocate_color(const UI::Theme::Color& color) const;
+    void fill_rectangle(Drawable drawable, const UI::Rect& rectangle, unsigned long color) const;
+    void draw_rectangle(Drawable drawable, const UI::Rect& rectangle, unsigned long color) const;
+    void draw_line(Drawable drawable, int from_x, int from_y, int to_x, int to_y, unsigned long color) const;
+    void draw_text(
+        Drawable drawable,
+        AntialiasedFont& font,
+        std::string_view text,
+        float point_x,
+        float center_y,
+        const std::string& color) const;
+    void draw_svg_icon(
+        Drawable drawable,
+        const std::string& path,
+        int center_x,
+        int center_y,
+        int size,
+        const UI::Theme::Color& color,
+        const UI::Theme::Color& background) const;
+
+    Display* m_display = nullptr;
+    int m_screen = 0;
+    float m_dpi_scale = 1.0F;
+    GC m_graphics_context = nullptr;
+    std::unique_ptr<AntialiasedFont> m_ui_font;
+    std::unique_ptr<AntialiasedFont> m_small_font;
+    std::unique_ptr<AntialiasedFont> m_editor_font;
+    std::unique_ptr<AntialiasedFont> m_minimap_font;
+    std::filesystem::path m_icon_asset_root;
+    UI::Editor::StudioEditorLayout m_layout_engine;
+    UI::Editor::StudioEditorPalette m_palette = UI::Editor::StudioEditorPalette::jetbrains_dark();
+    PalettePixels m_pixels;
+    PaletteText m_text;
+    ActivitySidebar m_activity_sidebar;
+    FooterToolbar m_footer_toolbar;
+    ToolSidebar m_tool_sidebar;
+    TextEditor m_text_editor;
+    mutable TerminalPanel m_terminal_panel;
+    mutable std::unordered_map<std::string, XImage*> m_svg_cache;
+};
+
+} // namespace Zenvra::Platform::X11::Components

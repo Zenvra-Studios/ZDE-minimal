@@ -16,7 +16,7 @@ jobs:
       - name: Install X11 build and test packages
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libx11-dev ninja-build xauth xvfb
+          sudo apt-get install --yes libx11-dev libxft-dev ninja-build xauth xvfb
 
       - name: Configure
         run: cmake --preset linux-release -DBUILD_TESTING=ON

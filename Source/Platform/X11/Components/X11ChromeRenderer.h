@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Platform/IPlatformWindow.h"
+#include "Platform/X11/Components/StudioWorkspaceRenderer.h"
 #include "UI/Chrome/WindowChromeLayout.h"
 #include "UI/Chrome/WindowMenuModel.h"
 #include "UI/Theme/StudioTheme.h"
@@ -9,8 +10,14 @@
 
 #include <array>
 #include <cstddef>
+#include <filesystem>
+#include <memory>
 #include <optional>
+#include <span>
+#include <string>
 #include <string_view>
+
+class AntialiasedFont;
 
 namespace Zenvra::Platform::X11::Components
 {
@@ -50,7 +57,7 @@ struct ChromeInteractionState
 class X11ChromeRenderer
 {
 public:
-    X11ChromeRenderer() = default;
+    X11ChromeRenderer();
     ~X11ChromeRenderer();
 
     X11ChromeRenderer(const X11ChromeRenderer&) = delete;
@@ -62,6 +69,93 @@ public:
         float dpi_scale,
         const UI::Theme::StudioTheme& theme);
     void shutdown();
+
+    [[nodiscard]] bool open_workspace_file(const std::filesystem::path& path);
+    [[nodiscard]] std::size_t open_dropped_paths(
+        std::span<const std::filesystem::path> dropped_paths);
+    [[nodiscard]] bool create_workspace_buffer();
+    [[nodiscard]] bool handle_workspace_pointer_press(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top,
+        bool extend_selection,
+        Time event_time);
+    [[nodiscard]] bool handle_workspace_pointer_move(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) noexcept;
+    [[nodiscard]] bool handle_workspace_pointer_drag(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top);
+    [[nodiscard]] bool handle_workspace_pointer_release() noexcept;
+    [[nodiscard]] bool handle_workspace_scroll(
+        std::ptrdiff_t line_delta,
+        int client_width,
+        int client_height,
+        float content_top) noexcept;
+    [[nodiscard]] bool handle_editor_input(
+        UI::Editor::EditorInputCommand command,
+        bool extend_selection);
+    [[nodiscard]] bool handle_editor_action(UI::Editor::EditorAction action);
+    [[nodiscard]] std::optional<bool> handle_editor_command(std::string_view command_id);
+    [[nodiscard]] std::optional<bool> is_editor_command_enabled(
+        std::string_view command_id) const noexcept;
+    [[nodiscard]] bool handle_text_input(std::string_view utf8_text);
+    [[nodiscard]] bool handle_terminal_key(Terminal::TerminalInputKey key);
+    [[nodiscard]] bool handle_terminal_control(char letter);
+    [[nodiscard]] bool handle_terminal_scroll(std::ptrdiff_t line_delta) noexcept;
+    [[nodiscard]] bool handle_tool_sidebar_scroll(
+        std::ptrdiff_t line_delta,
+        int client_width,
+        int client_height,
+        float content_top) noexcept;
+    [[nodiscard]] bool is_editor_focused() const noexcept;
+    [[nodiscard]] bool is_terminal_focused() const noexcept;
+    [[nodiscard]] bool is_editor_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_scrollbar_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_minimap_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_terminal_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_tool_sidebar_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_terminal_resize_handle_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_terminal_resizing() const noexcept;
+    [[nodiscard]] bool tick_caret_blink() noexcept;
 
     void render(
         Window window_handle,
@@ -96,20 +190,32 @@ private:
         unsigned long popup_border = 0;
     };
 
+    struct ThemeTextColors
+    {
+        std::string primary;
+        std::string secondary;
+        std::string white;
+    };
+
     [[nodiscard]] unsigned long allocate_color(const UI::Theme::Color& color) const;
-    void fill_rectangle(Drawable drawable, const UI::Rect& rectangle, unsigned long color) const;
-    void draw_rectangle(Drawable drawable, const UI::Rect& rectangle, unsigned long color) const;
+    void fill_rectangle(Drawable drawable, const UI::Rect& rectangle, unsigned long color, int radius = 0) const;
+    void draw_rectangle(Drawable drawable, const UI::Rect& rectangle, unsigned long color, int radius = 0) const;
     void draw_centered_text(
         Drawable drawable,
         std::string_view text,
         const UI::Rect& rectangle,
-        unsigned long color) const;
+        const std::string& color) const;
     void draw_text(
         Drawable drawable,
         std::string_view text,
         const UI::Rect& rectangle,
         float left_padding,
-        unsigned long color) const;
+        const std::string& color) const;
+    void draw_window_control(
+        Drawable drawable,
+        const UI::Rect& bounds,
+        UI::Chrome::WindowControl control,
+        const ChromeInteractionState& interaction_state) const;
     void draw_popup_menu(
         Drawable drawable,
         const UI::Chrome::WindowChromeLayoutResult& chrome_layout,
@@ -124,8 +230,10 @@ private:
     int m_screen = 0;
     float m_dpi_scale = 1.0F;
     GC m_graphics_context = nullptr;
-    XFontStruct* m_font = nullptr;
+    std::unique_ptr<AntialiasedFont> m_font;
     ThemePixels m_colors;
+    ThemeTextColors m_text_colors;
+    StudioWorkspaceRenderer m_workspace_renderer;
 };
 
 } // namespace Zenvra::Platform::X11::Components

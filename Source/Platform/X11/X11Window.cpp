@@ -107,6 +107,10 @@ bool X11Window::initialize()
 
     initialize_atoms();
     initialize_cursors();
+    if (!m_file_drop_target.initialize(m_display, m_window_handle))
+    {
+        std::clog << "Warning: X11 file drag-and-drop could not be initialized.\n";
+    }
     m_ewmh_move_resize_supported = is_root_atom_supported(m_atoms.net_wm_move_resize);
     m_ewmh_maximize_supported =
         is_root_atom_supported(m_atoms.net_wm_state_maximized_horizontal) &&
@@ -168,6 +172,7 @@ bool X11Window::initialize()
         release_native_resources();
         return false;
     }
+    static_cast<void>(m_chrome_renderer.create_workspace_buffer());
 
     refresh_chrome_layout();
     apply_size_hints();
@@ -200,6 +205,10 @@ void X11Window::poll_events()
         reinterpret_cast<XPointer>(&m_window_handle)) != 0)
     {
         handle_event(event);
+    }
+    if (m_custom_chrome_enabled && m_chrome_renderer.tick_caret_blink())
+    {
+        render();
     }
 }
 
@@ -333,6 +342,7 @@ void X11Window::set_custom_chrome_enabled(bool enabled)
         m_pressed_popup_item_index.reset();
         m_menu_pointer_tracking = false;
     }
+    refresh_chrome_layout();
     apply_custom_chrome();
     render();
 }
@@ -385,6 +395,8 @@ void X11Window::initialize_atoms()
 void X11Window::initialize_cursors()
 {
     m_default_cursor = XCreateFontCursor(m_display, XC_left_ptr);
+    m_text_cursor = XCreateFontCursor(m_display, XC_xterm);
+    m_split_resize_cursor = XCreateFontCursor(m_display, XC_sb_v_double_arrow);
     m_move_resize_cursors[static_cast<std::size_t>(MoveResizeDirection::SizeTopLeft)] =
         XCreateFontCursor(m_display, XC_top_left_corner);
     m_move_resize_cursors[static_cast<std::size_t>(MoveResizeDirection::SizeTop)] =
@@ -419,6 +431,12 @@ void X11Window::release_native_resources()
         XUngrabPointer(m_display, CurrentTime);
         m_manual_move_resize_direction.reset();
     }
+    if (m_chrome_renderer.is_terminal_resizing())
+    {
+        XUngrabPointer(m_display, CurrentTime);
+        static_cast<void>(m_chrome_renderer.handle_workspace_pointer_release());
+    }
+    m_file_drop_target.shutdown();
     m_chrome_renderer.shutdown();
     for (Cursor& cursor : m_move_resize_cursors)
     {
@@ -433,6 +451,16 @@ void X11Window::release_native_resources()
         XFreeCursor(m_display, m_default_cursor);
         m_default_cursor = None;
     }
+    if (m_text_cursor != None)
+    {
+        XFreeCursor(m_display, m_text_cursor);
+        m_text_cursor = None;
+    }
+    if (m_split_resize_cursor != None)
+    {
+        XFreeCursor(m_display, m_split_resize_cursor);
+        m_split_resize_cursor = None;
+    }
     if (m_window_handle != 0)
     {
         XDestroyWindow(m_display, m_window_handle);
@@ -442,32 +470,44 @@ void X11Window::release_native_resources()
 
 void X11Window::apply_window_icon() const
 {
-    constexpr int icon_size = 32;
-    constexpr int icon_margin = 3;
-    constexpr int glyph_start = 8;
-    constexpr int glyph_end = 23;
+    constexpr std::array<int, 4> icon_sizes{16, 32, 48, 64};
     const unsigned long background_color = to_argb(m_theme.accent);
     const unsigned long glyph_color = 0xFFFFFFFFUL;
 
     std::vector<unsigned long> icon_data;
-    icon_data.reserve(2 + icon_size * icon_size);
-    icon_data.push_back(icon_size);
-    icon_data.push_back(icon_size);
-    for (int point_y = 0; point_y < icon_size; ++point_y)
+    std::size_t icon_data_size = 0;
+    for (const int icon_size : icon_sizes)
     {
-        for (int point_x = 0; point_x < icon_size; ++point_x)
+        icon_data_size += 2U + static_cast<std::size_t>(icon_size * icon_size);
+    }
+    icon_data.reserve(icon_data_size);
+
+    for (const int icon_size : icon_sizes)
+    {
+        const int icon_margin = std::max(icon_size * 3 / 32, 1);
+        const int glyph_start = icon_size / 4;
+        const int glyph_end = icon_size - glyph_start - 1;
+        const int glyph_thickness = std::max(icon_size / 24, 1);
+        icon_data.push_back(static_cast<unsigned long>(icon_size));
+        icon_data.push_back(static_cast<unsigned long>(icon_size));
+        for (int point_y = 0; point_y < icon_size; ++point_y)
         {
-            const bool in_background = point_x >= icon_margin && point_x < icon_size - icon_margin &&
-                point_y >= icon_margin && point_y < icon_size - icon_margin;
-            const bool on_horizontal = point_x >= glyph_start && point_x <= glyph_end &&
-                (std::abs(point_y - glyph_start) <= 1 || std::abs(point_y - glyph_end) <= 1);
-            const bool on_diagonal = point_x >= glyph_start && point_x <= glyph_end &&
-                point_y >= glyph_start && point_y <= glyph_end &&
-                std::abs(point_x + point_y - glyph_start - glyph_end) <= 1;
-            icon_data.push_back(
-                on_horizontal || on_diagonal
-                    ? glyph_color
-                    : (in_background ? background_color : 0UL));
+            for (int point_x = 0; point_x < icon_size; ++point_x)
+            {
+                const bool in_background =
+                    point_x >= icon_margin && point_x < icon_size - icon_margin &&
+                    point_y >= icon_margin && point_y < icon_size - icon_margin;
+                const bool on_horizontal = point_x >= glyph_start && point_x <= glyph_end &&
+                    (std::abs(point_y - glyph_start) <= glyph_thickness ||
+                     std::abs(point_y - glyph_end) <= glyph_thickness);
+                const bool on_diagonal = point_x >= glyph_start && point_x <= glyph_end &&
+                    point_y >= glyph_start && point_y <= glyph_end &&
+                    std::abs(point_x + point_y - glyph_start - glyph_end) <= glyph_thickness;
+                icon_data.push_back(
+                    on_horizontal || on_diagonal
+                        ? glyph_color
+                        : (in_background ? background_color : 0UL));
+            }
         }
     }
 
@@ -489,10 +529,39 @@ void X11Window::apply_custom_chrome()
         return;
     }
 
-    // Never replace Linux window controls with Xlib-drawn icons. Removing
-    // Motif overrides leaves decorations, resize borders, and their theme to
-    // the active GNOME/KDE/XFCE-compatible window manager.
-    XDeleteProperty(m_display, m_window_handle, m_atoms.motif_wm_hints);
+    if (m_custom_chrome_enabled)
+    {
+        struct MotifWindowManagerHints
+        {
+            unsigned long flags;
+            unsigned long functions;
+            unsigned long decorations;
+            long input_mode;
+            unsigned long status;
+        };
+
+        constexpr unsigned long motif_hints_decorations = 1UL << 1U;
+        const MotifWindowManagerHints hints{
+            .flags = motif_hints_decorations,
+            .functions = 0,
+            .decorations = 0,
+            .input_mode = 0,
+            .status = 0,
+        };
+        XChangeProperty(
+            m_display,
+            m_window_handle,
+            m_atoms.motif_wm_hints,
+            m_atoms.motif_wm_hints,
+            32,
+            PropModeReplace,
+            reinterpret_cast<const unsigned char*>(&hints),
+            5);
+    }
+    else
+    {
+        XDeleteProperty(m_display, m_window_handle, m_atoms.motif_wm_hints);
+    }
     XFlush(m_display);
 }
 
@@ -511,7 +580,7 @@ void X11Window::refresh_chrome_layout()
         static_cast<float>(m_client_width),
         m_dpi_scale,
         UI::Chrome::WindowChromeLayoutOptions{
-            .show_window_controls = false,
+            .show_window_controls = m_custom_chrome_enabled,
         });
 }
 
@@ -628,10 +697,25 @@ void X11Window::handle_event(XEvent& event)
         break;
 
     case ClientMessage:
+        if (m_file_drop_target.handle_client_message(event.xclient))
+        {
+            break;
+        }
         if (event.xclient.message_type == m_atoms.wm_protocols &&
             static_cast<Atom>(event.xclient.data.l[0]) == m_atoms.wm_delete_window)
         {
             m_should_close = true;
+        }
+        break;
+
+    case SelectionNotify:
+        if (const std::optional<std::vector<std::filesystem::path>> dropped_paths =
+                m_file_drop_target.handle_selection_notify(event.xselection))
+        {
+            if (m_chrome_renderer.open_dropped_paths(*dropped_paths) > 0)
+            {
+                render();
+            }
         }
         break;
 
@@ -702,6 +786,12 @@ void X11Window::handle_event(XEvent& event)
         m_interaction_state.overflow_menu_hovered = false;
         m_interaction_state.hovered_overflow_menu_index.reset();
         m_interaction_state.command_center_hovered = false;
+        static_cast<void>(m_chrome_renderer.handle_workspace_pointer_move(
+            -10000.0F,
+            -10000.0F,
+            m_client_width,
+            m_client_height,
+            m_chrome_layout.titlebar_bounds.bottom()));
         render();
         break;
 
@@ -723,6 +813,18 @@ void X11Window::handle_motion(const XMotionEvent& event)
     if (m_manual_move_resize_direction)
     {
         update_manual_move_resize(event);
+        return;
+    }
+
+    if ((event.state & Button1Mask) != 0 &&
+        m_chrome_renderer.handle_workspace_pointer_drag(
+            static_cast<float>(event.x),
+            static_cast<float>(event.y),
+            m_client_width,
+            m_client_height,
+            m_chrome_layout.titlebar_bounds.bottom()))
+    {
+        render();
         return;
     }
 
@@ -749,6 +851,12 @@ void X11Window::handle_motion(const XMotionEvent& event)
         hovered_overflow_menu != m_interaction_state.hovered_overflow_menu_index ||
         overflow_menu_hovered != m_interaction_state.overflow_menu_hovered ||
         command_center_hovered != m_interaction_state.command_center_hovered;
+    changed = m_chrome_renderer.handle_workspace_pointer_move(
+        static_cast<float>(event.x),
+        static_cast<float>(event.y),
+        m_client_width,
+        m_client_height,
+        m_chrome_layout.titlebar_bounds.bottom()) || changed;
     m_interaction_state.hovered_control = hovered_control;
     m_interaction_state.hovered_menu_index = hovered_menu;
     m_interaction_state.hovered_popup_item_index = hovered_popup_item;
@@ -787,6 +895,46 @@ void X11Window::handle_motion(const XMotionEvent& event)
 
 void X11Window::handle_button_press(const XButtonEvent& event)
 {
+    if (event.button == Button4 || event.button == Button5)
+    {
+        const float point_x = static_cast<float>(event.x);
+        const float point_y = static_cast<float>(event.y);
+        const float content_top = m_chrome_layout.titlebar_bounds.bottom();
+        const bool over_editor = m_chrome_renderer.is_editor_point(
+            point_x, point_y, m_client_width, m_client_height, content_top) ||
+            m_chrome_renderer.is_minimap_point(
+                point_x, point_y, m_client_width, m_client_height, content_top) ||
+            m_chrome_renderer.is_scrollbar_point(
+                point_x, point_y, m_client_width, m_client_height, content_top);
+        const bool over_terminal = m_chrome_renderer.is_terminal_point(
+            point_x, point_y, m_client_width, m_client_height, content_top);
+        const bool over_tool_sidebar = m_chrome_renderer.is_tool_sidebar_point(
+            point_x, point_y, m_client_width, m_client_height, content_top);
+        if (over_tool_sidebar && m_chrome_renderer.handle_tool_sidebar_scroll(
+                event.button == Button4 ? -3 : 3,
+                m_client_width,
+                m_client_height,
+                content_top))
+        {
+            render();
+            return;
+        }
+        if (over_terminal && m_chrome_renderer.handle_terminal_scroll(
+                event.button == Button4 ? -3 : 3))
+        {
+            render();
+            return;
+        }
+        if (over_editor && m_chrome_renderer.handle_workspace_scroll(
+                event.button == Button4 ? -3 : 3,
+                m_client_width,
+                m_client_height,
+                content_top))
+        {
+            render();
+        }
+        return;
+    }
     if (event.button != Button1)
     {
         return;
@@ -794,6 +942,13 @@ void X11Window::handle_button_press(const XButtonEvent& event)
 
     const float point_x = static_cast<float>(event.x);
     const float point_y = static_cast<float>(event.y);
+    const std::optional<MoveResizeDirection> resize_direction = get_resize_direction(event.x, event.y);
+    if (resize_direction)
+    {
+        begin_move_resize(event, *resize_direction);
+        return;
+    }
+
     const std::optional<std::size_t> menu_index = m_chrome_layout.get_menu_index(point_x, point_y);
     if (menu_index)
     {
@@ -860,10 +1015,29 @@ void X11Window::handle_button_press(const XButtonEvent& event)
         return;
     }
 
-    const std::optional<MoveResizeDirection> resize_direction = get_resize_direction(event.x, event.y);
-    if (resize_direction)
+    if (m_chrome_renderer.handle_workspace_pointer_press(
+            point_x,
+            point_y,
+            m_client_width,
+            m_client_height,
+            m_chrome_layout.titlebar_bounds.bottom(),
+            (event.state & ShiftMask) != 0,
+            event.time))
     {
-        begin_move_resize(event, *resize_direction);
+        if (m_chrome_renderer.is_terminal_resizing())
+        {
+            XGrabPointer(
+                m_display,
+                m_window_handle,
+                False,
+                ButtonReleaseMask | PointerMotionMask,
+                GrabModeAsync,
+                GrabModeAsync,
+                None,
+                m_split_resize_cursor,
+                event.time);
+        }
+        render();
         return;
     }
 
@@ -899,6 +1073,17 @@ void X11Window::handle_button_release(const XButtonEvent& event)
     if (m_manual_move_resize_direction)
     {
         end_manual_move_resize(event.time);
+        return;
+    }
+
+    const bool terminal_was_resizing = m_chrome_renderer.is_terminal_resizing();
+    if (m_chrome_renderer.handle_workspace_pointer_release())
+    {
+        if (terminal_was_resizing)
+        {
+            XUngrabPointer(m_display, event.time);
+        }
+        render();
         return;
     }
 
@@ -1066,6 +1251,197 @@ void X11Window::handle_key_press(XKeyEvent& event)
         return;
     }
 
+    if (!m_interaction_state.open_menu_index && !m_interaction_state.overflow_menu_open &&
+        m_chrome_renderer.is_terminal_focused() && (event.state & Mod1Mask) == 0)
+    {
+        bool handled = false;
+        if ((event.state & ControlMask) != 0 &&
+            ((key_symbol >= XK_a && key_symbol <= XK_z) ||
+                (key_symbol >= XK_A && key_symbol <= XK_Z)))
+        {
+            handled = m_chrome_renderer.handle_terminal_control(
+                static_cast<char>(key_symbol >= XK_A && key_symbol <= XK_Z
+                    ? key_symbol - XK_A + 'A'
+                    : key_symbol - XK_a + 'a'));
+        }
+        else
+        {
+            std::optional<Terminal::TerminalInputKey> terminal_key;
+            switch (key_symbol)
+            {
+            case XK_Return:
+            case XK_KP_Enter: terminal_key = Terminal::TerminalInputKey::Enter; break;
+            case XK_BackSpace: terminal_key = Terminal::TerminalInputKey::Backspace; break;
+            case XK_Tab:
+            case XK_KP_Tab: terminal_key = Terminal::TerminalInputKey::Tab; break;
+            case XK_Escape: terminal_key = Terminal::TerminalInputKey::Escape; break;
+            case XK_Up:
+            case XK_KP_Up: terminal_key = Terminal::TerminalInputKey::ArrowUp; break;
+            case XK_Down:
+            case XK_KP_Down: terminal_key = Terminal::TerminalInputKey::ArrowDown; break;
+            case XK_Left:
+            case XK_KP_Left: terminal_key = Terminal::TerminalInputKey::ArrowLeft; break;
+            case XK_Right:
+            case XK_KP_Right: terminal_key = Terminal::TerminalInputKey::ArrowRight; break;
+            case XK_Home:
+            case XK_KP_Home: terminal_key = Terminal::TerminalInputKey::Home; break;
+            case XK_End:
+            case XK_KP_End: terminal_key = Terminal::TerminalInputKey::End; break;
+            case XK_Delete:
+            case XK_KP_Delete: terminal_key = Terminal::TerminalInputKey::DeleteForward; break;
+            default: break;
+            }
+            if (terminal_key)
+            {
+                handled = m_chrome_renderer.handle_terminal_key(*terminal_key);
+            }
+            else if ((event.state & ControlMask) == 0)
+            {
+                char text[64]{};
+                KeySym input_symbol = NoSymbol;
+                const int text_length = XLookupString(
+                    &event, text, static_cast<int>(sizeof(text)), &input_symbol, nullptr);
+                handled = text_length > 0 &&
+                    m_chrome_renderer.handle_text_input(
+                        std::string_view{text, static_cast<std::size_t>(text_length)});
+            }
+        }
+        if (handled)
+        {
+            render();
+        }
+        return;
+    }
+
+    if (!m_interaction_state.open_menu_index && !m_interaction_state.overflow_menu_open &&
+        (event.state & ControlMask) != 0)
+    {
+        std::optional<UI::Editor::EditorAction> action;
+        if ((event.state & ShiftMask) != 0 &&
+            (key_symbol == XK_Delete || key_symbol == XK_KP_Delete))
+        {
+            action = UI::Editor::EditorAction::RemoveDocument;
+        }
+        else
+        {
+            switch (key_symbol)
+            {
+            case XK_n:
+            case XK_N:
+                action = UI::Editor::EditorAction::CreateDocument;
+                break;
+            case XK_s:
+            case XK_S:
+                action = UI::Editor::EditorAction::SaveDocument;
+                break;
+            case XK_w:
+            case XK_W:
+                action = UI::Editor::EditorAction::CloseDocument;
+                break;
+            case XK_a:
+            case XK_A:
+                action = UI::Editor::EditorAction::SelectAll;
+                break;
+            case XK_c:
+            case XK_C:
+                action = UI::Editor::EditorAction::Copy;
+                break;
+            case XK_x:
+            case XK_X:
+                action = UI::Editor::EditorAction::Cut;
+                break;
+            case XK_v:
+            case XK_V:
+                action = UI::Editor::EditorAction::Paste;
+                break;
+            default:
+                break;
+            }
+        }
+        if (action)
+        {
+            if (m_chrome_renderer.handle_editor_action(*action))
+            {
+                render();
+            }
+            return;
+        }
+    }
+
+    if (!m_interaction_state.open_menu_index && !m_interaction_state.overflow_menu_open &&
+        m_chrome_renderer.is_editor_focused() && (event.state & Mod1Mask) == 0)
+    {
+        std::optional<UI::Editor::EditorInputCommand> editor_command;
+        switch (key_symbol)
+        {
+        case XK_Left:
+        case XK_KP_Left:
+            editor_command = UI::Editor::EditorInputCommand::MoveLeft;
+            break;
+        case XK_Right:
+        case XK_KP_Right:
+            editor_command = UI::Editor::EditorInputCommand::MoveRight;
+            break;
+        case XK_Up:
+        case XK_KP_Up:
+            editor_command = UI::Editor::EditorInputCommand::MoveUp;
+            break;
+        case XK_Down:
+        case XK_KP_Down:
+            editor_command = UI::Editor::EditorInputCommand::MoveDown;
+            break;
+        case XK_Home:
+        case XK_KP_Home:
+            editor_command = UI::Editor::EditorInputCommand::MoveHome;
+            break;
+        case XK_End:
+        case XK_KP_End:
+            editor_command = UI::Editor::EditorInputCommand::MoveEnd;
+            break;
+        case XK_Return:
+        case XK_KP_Enter:
+            editor_command = UI::Editor::EditorInputCommand::InsertNewLine;
+            break;
+        case XK_Tab:
+        case XK_KP_Tab:
+            editor_command = UI::Editor::EditorInputCommand::InsertTab;
+            break;
+        case XK_BackSpace:
+            editor_command = UI::Editor::EditorInputCommand::DeleteBackward;
+            break;
+        case XK_Delete:
+        case XK_KP_Delete:
+            editor_command = UI::Editor::EditorInputCommand::DeleteForward;
+            break;
+        default:
+            break;
+        }
+        if (editor_command)
+        {
+            if (m_chrome_renderer.handle_editor_input(
+                    *editor_command, (event.state & ShiftMask) != 0))
+            {
+                render();
+            }
+            return;
+        }
+        if ((event.state & ControlMask) == 0)
+        {
+            char text[64]{};
+            KeySym input_symbol = NoSymbol;
+            const int text_length = XLookupString(
+                &event, text, static_cast<int>(sizeof(text)), &input_symbol, nullptr);
+            if (text_length > 0 && static_cast<unsigned char>(text[0]) >= 0x20U &&
+                static_cast<unsigned char>(text[0]) != 0x7FU &&
+                m_chrome_renderer.handle_text_input(
+                    std::string_view{text, static_cast<std::size_t>(text_length)}))
+            {
+                render();
+            }
+            return;
+        }
+    }
+
     if (!m_interaction_state.open_menu_index)
     {
         return;
@@ -1115,6 +1491,30 @@ void X11Window::update_cursor(int point_x, int point_y)
     else if (is_drag_region(static_cast<float>(point_x), static_cast<float>(point_y)))
     {
         desired_cursor = m_move_resize_cursors[static_cast<std::size_t>(MoveResizeDirection::Move)];
+    }
+    else if (m_chrome_renderer.is_terminal_resize_handle_point(
+                 static_cast<float>(point_x),
+                 static_cast<float>(point_y),
+                 m_client_width,
+                 m_client_height,
+                 m_chrome_layout.titlebar_bounds.bottom()))
+    {
+        desired_cursor = m_split_resize_cursor;
+    }
+    else if (m_chrome_renderer.is_editor_point(
+                 static_cast<float>(point_x),
+                 static_cast<float>(point_y),
+                 m_client_width,
+                 m_client_height,
+                 m_chrome_layout.titlebar_bounds.bottom()) ||
+             m_chrome_renderer.is_terminal_point(
+                 static_cast<float>(point_x),
+                 static_cast<float>(point_y),
+                 m_client_width,
+                 m_client_height,
+                 m_chrome_layout.titlebar_bounds.bottom()))
+    {
+        desired_cursor = m_text_cursor;
     }
 
     if (desired_cursor != None && desired_cursor != m_active_cursor)
@@ -1382,7 +1782,21 @@ void X11Window::execute_popup_selection()
     m_interaction_state.hovered_overflow_menu_index.reset();
     m_pressed_popup_item_index.reset();
     render();
-    if (!command_id.empty() && m_command_invoked_callback)
+    if (command_id.empty())
+    {
+        return;
+    }
+    const std::optional<bool> editor_result =
+        m_chrome_renderer.handle_editor_command(command_id);
+    if (editor_result)
+    {
+        if (*editor_result)
+        {
+            render();
+        }
+        return;
+    }
+    if (m_command_invoked_callback)
     {
         m_command_invoked_callback(command_id);
     }
@@ -1505,10 +1919,49 @@ std::optional<X11Window::MoveResizeDirection> X11Window::get_resize_direction(
     int point_x,
     int point_y) const
 {
-    static_cast<void>(point_x);
-    static_cast<void>(point_y);
-    // Resizing is delegated to the native WM frame. This preserves the
-    // desktop's own cursors, borders, touch targets, and snap behavior.
+    if (!m_custom_chrome_enabled || m_is_maximized || m_client_width <= 0 || m_client_height <= 0)
+    {
+        return std::nullopt;
+    }
+
+    const int resize_border = std::max(static_cast<int>(std::lround(6.0F * m_dpi_scale)), 4);
+    const bool on_left = point_x >= 0 && point_x < resize_border;
+    const bool on_right = point_x < m_client_width && point_x >= m_client_width - resize_border;
+    const bool on_top = point_y >= 0 && point_y < resize_border;
+    const bool on_bottom = point_y < m_client_height && point_y >= m_client_height - resize_border;
+
+    if (on_top && on_left)
+    {
+        return MoveResizeDirection::SizeTopLeft;
+    }
+    if (on_top && on_right)
+    {
+        return MoveResizeDirection::SizeTopRight;
+    }
+    if (on_bottom && on_right)
+    {
+        return MoveResizeDirection::SizeBottomRight;
+    }
+    if (on_bottom && on_left)
+    {
+        return MoveResizeDirection::SizeBottomLeft;
+    }
+    if (on_top)
+    {
+        return MoveResizeDirection::SizeTop;
+    }
+    if (on_right)
+    {
+        return MoveResizeDirection::SizeRight;
+    }
+    if (on_bottom)
+    {
+        return MoveResizeDirection::SizeBottom;
+    }
+    if (on_left)
+    {
+        return MoveResizeDirection::SizeLeft;
+    }
     return std::nullopt;
 }
 
@@ -1572,8 +2025,16 @@ bool X11Window::is_popup_item_enabled(std::size_t menu_index, std::size_t item_i
     }
 
     const UI::Chrome::WindowMenuItem& item = menus[menu_index].items[item_index];
-    return !item.separator && !item.command_id.empty() &&
-        (!m_command_state_query_callback || m_command_state_query_callback(item.command_id).enabled);
+    if (item.separator || item.command_id.empty())
+    {
+        return false;
+    }
+    const std::optional<bool> editor_enabled =
+        m_chrome_renderer.is_editor_command_enabled(item.command_id);
+    return editor_enabled
+        ? *editor_enabled
+        : (!m_command_state_query_callback ||
+              m_command_state_query_callback(item.command_id).enabled);
 }
 
 bool X11Window::is_root_atom_supported(Atom atom) const

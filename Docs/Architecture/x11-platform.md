@@ -13,9 +13,13 @@ code do not include Xlib headers.
   event routing, DPI scale, cursor feedback, custom-chrome hit testing, and
   command dispatch.
 - `Components/X11ChromeRenderer` is the bootstrap View. It double-buffers the
-  shared ZDE theme and chrome layout into an X11 pixmap and draws menus,
-  command center, window controls, and popup command states without a native
-  widget toolkit.
+  shared ZDE theme and chrome layout into an X11 pixmap, renders UTF-8 text
+  through Xft, and draws menus, command center, window controls, and popup
+  command states without a native widget toolkit.
+- `Components/ActivitySidebar`, `FooterToolbar`, and `TextEditor` independently
+  draw the left tool-window rail, bottom breadcrumb/status toolbar, and editor
+  surface. `StudioWorkspaceRenderer` composes them into the same pixmap below
+  the custom chrome and owns the Xlib/Xft drawing resources.
 - `UI/Chrome/WindowMenuModel` is platform-neutral. Win32 and X11 bind the same
   stable command IDs to `StudioViewModel` through `CommandRegistry`.
 
@@ -35,10 +39,11 @@ native snap is actually available.
 ## Input and scaling
 
 Mouse input supports titlebar dragging, eight resize edges/corners,
-double-click maximize, window buttons, menu switching, and popup commands.
-Keyboard input supports Alt+F4, Alt plus each menu mnemonic, arrow navigation,
-Enter, and Escape. Disabled and checked command states are queried from the
-ViewModel at render time.
+double-click maximize, window buttons, menu switching, popup commands, and
+glyph-width-based editor caret placement. Keyboard input supports Alt+F4, Alt
+plus each menu mnemonic, menu navigation, UTF-8 text entry, caret arrows,
+Home/End, Enter, Tab, Backspace, and Delete. Disabled and checked command
+states are queried from the ViewModel at render time.
 
 The initial scale is read from `Xft.dpi`, with physical screen DPI as a
 fallback. Xlib exposes screen-wide DPI rather than dependable per-monitor DPI,
@@ -50,7 +55,7 @@ XRandR monitor policy.
 On Debian or Ubuntu, install the native build prerequisites:
 
 ```sh
-sudo apt-get install cmake ninja-build libx11-dev xauth xvfb
+sudo apt-get install cmake ninja-build libx11-dev libxft-dev xauth xvfb
 cmake --preset linux-release -DBUILD_TESTING=ON
 cmake --build --preset linux-release
 ctest --test-dir build/linux-release --output-on-failure

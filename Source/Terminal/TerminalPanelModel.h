@@ -1,0 +1,77 @@
+#pragma once
+
+#include "Terminal/TerminalSession.h"
+
+#include <cstddef>
+#include <filesystem>
+#include <memory>
+#include <optional>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
+
+namespace Zenvra::Terminal
+{
+
+enum class TerminalInputKey
+{
+    Enter,
+    Backspace,
+    Tab,
+    Escape,
+    ArrowUp,
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    Home,
+    End,
+    DeleteForward,
+};
+
+struct TerminalSessionEntry
+{
+    std::size_t identifier = 0;
+    std::string title;
+    std::unique_ptr<TerminalSession> session;
+};
+
+class TerminalPanelModel
+{
+public:
+    [[nodiscard]] bool toggle(const std::filesystem::path& working_directory = {});
+    [[nodiscard]] bool create_session(const std::filesystem::path& working_directory = {});
+    [[nodiscard]] bool close_active_session();
+    [[nodiscard]] bool activate_session(std::size_t index) noexcept;
+    void shutdown() noexcept;
+
+    [[nodiscard]] bool send_text(std::string_view text);
+    [[nodiscard]] bool send_key(TerminalInputKey key);
+    [[nodiscard]] bool send_control(char letter);
+    [[nodiscard]] bool poll();
+    [[nodiscard]] bool scroll(std::ptrdiff_t line_delta) noexcept;
+    void resize(std::size_t columns, std::size_t rows) noexcept;
+
+    [[nodiscard]] bool is_visible() const noexcept;
+    [[nodiscard]] bool is_focused() const noexcept;
+    void set_focused(bool focused) noexcept;
+    [[nodiscard]] std::size_t get_scroll_offset() const noexcept;
+    [[nodiscard]] std::optional<std::size_t> get_active_index() const noexcept;
+    [[nodiscard]] std::span<const TerminalSessionEntry> get_sessions() const noexcept;
+    [[nodiscard]] TerminalSession* get_active_session() noexcept;
+    [[nodiscard]] const TerminalSession* get_active_session() const noexcept;
+
+private:
+    static constexpr std::size_t maximum_sessions = 8;
+
+    void remove_session(std::size_t index) noexcept;
+
+    std::vector<TerminalSessionEntry> m_sessions;
+    std::optional<std::size_t> m_active_index;
+    std::size_t m_next_identifier = 1;
+    std::size_t m_scroll_offset = 0;
+    bool m_visible = false;
+    bool m_focused = false;
+};
+
+} // namespace Zenvra::Terminal

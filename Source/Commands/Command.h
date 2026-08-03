@@ -11,11 +11,17 @@ namespace Zenvra::Commands
 enum class KeyCode
 {
     None,
+    A,
+    C,
     N,
     O,
     P,
+    S,
+    V,
     W,
+    X,
     Z,
+    Delete,
 };
 
 struct Shortcut

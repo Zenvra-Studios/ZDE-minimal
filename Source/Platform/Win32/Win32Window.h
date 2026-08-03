@@ -2,6 +2,7 @@
 
 #include "Platform/IPlatformWindow.h"
 #include "Platform/Win32/Components/Menubar.h"
+#include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
 #include "UI/Chrome/WindowChromeLayout.h"
 #include "UI/Theme/StudioTheme.h"
 
@@ -64,7 +65,10 @@ private:
     bool m_should_close = false;
     bool m_custom_chrome_enabled = false;
     TitlebarHitTestCallback m_titlebar_hit_test_callback;
+    CommandInvokedCallback m_command_invoked_callback;
+    CommandStateQueryCallback m_command_state_query_callback;
     Components::Menubar m_menubar;
+    Components::StudioWorkspaceRenderer m_workspace_renderer;
     UI::Theme::StudioTheme m_theme = UI::Theme::StudioTheme::zenvra_dark();
     UI::Chrome::WindowChromeLayout m_chrome_layout_engine;
     UI::Chrome::WindowChromeLayoutResult m_chrome_layout;
@@ -73,9 +77,11 @@ private:
     std::optional<std::size_t> m_hovered_menu_index;
     bool m_overflow_menu_hovered = false;
     bool m_menu_pointer_tracking = false;
+    bool m_workspace_pointer_captured = false;
     bool m_command_center_hovered = false;
     HFONT m_ui_font = nullptr;
     UINT m_dpi = 96;
+    wchar_t m_pending_high_surrogate = 0;
 
     static constexpr const wchar_t* window_class_name = L"ZenvraPlatformWindow";
 };

@@ -1,6 +1,7 @@
 add_subdirectory(Core)
 add_subdirectory(Commands)
 add_subdirectory(UI)
+add_subdirectory(Terminal)
 add_subdirectory(Platform)
 add_subdirectory(Application)
 
@@ -25,7 +26,6 @@ foreach(module_dir IN ITEMS
     Plugins
     Server
     Services
-    Terminal
     Utility
     Workspace
 )

@@ -6,7 +6,7 @@ add_executable(ZDEUnitTests
     CommandRegistryTests.cpp
 )
 
-target_link_libraries(ZDEUnitTests PRIVATE Zenvra::Application Zenvra::UI)
+target_link_libraries(ZDEUnitTests PRIVATE Zenvra::Application Zenvra::UI Zenvra::Terminal)
 target_include_directories(ZDEUnitTests PRIVATE "${PROJECT_SOURCE_DIR}/Source")
 zde_enable_warnings(ZDEUnitTests)
 

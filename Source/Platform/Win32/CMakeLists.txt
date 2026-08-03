@@ -4,7 +4,16 @@ endif()
 
 add_library(ZDEPlatformWin32 STATIC
     Win32Window.cpp
+    Components/ActivitySidebar.cpp
+    Components/EditorMinimap.cpp
+    Components/EditorScrollbar.cpp
+    Components/FileDropTarget.cpp
+    Components/FooterToolbar.cpp
     Components/Menubar.cpp
+    Components/StudioWorkspaceRenderer.cpp
+    Components/TerminalPanel.cpp
+    Components/TextEditor.cpp
+    Components/ToolSidebar.cpp
 )
 
 target_include_directories(ZDEPlatformWin32 PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../..")
@@ -18,6 +27,6 @@ target_compile_definitions(ZDEPlatformWin32 PRIVATE
 )
 target_link_libraries(ZDEPlatformWin32
     PUBLIC Zenvra::Core
-    PRIVATE Zenvra::Commands Zenvra::UI user32 gdi32 shell32 dwmapi uxtheme
+    PRIVATE Zenvra::Commands Zenvra::UI Zenvra::Terminal user32 gdi32 shell32 dwmapi uxtheme
 )
 zde_enable_warnings(ZDEPlatformWin32)

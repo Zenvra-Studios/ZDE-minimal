@@ -1,8 +1,12 @@
-﻿# CMakeLists.txt for Terminal module.
+add_library(ZDETerminal STATIC
+    TerminalPanelModel.cpp
+    TerminalResizeModel.cpp
+    TerminalSession.cpp
+)
+add_library(Zenvra::Terminal ALIAS ZDETerminal)
 
-file(GLOB_RECURSE Terminal_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
-
-if(Terminal_SOURCES)
-    add_library(Terminal STATIC ${Terminal_SOURCES})
-    target_include_directories(Terminal PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(ZDETerminal PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/..")
+if(UNIX AND NOT APPLE)
+    target_link_libraries(ZDETerminal PRIVATE util)
 endif()
+zde_enable_warnings(ZDETerminal)
