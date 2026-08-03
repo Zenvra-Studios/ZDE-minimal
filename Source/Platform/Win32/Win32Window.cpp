@@ -89,32 +89,87 @@ int caption_button_state(
     return MINBS_NORMAL;
 }
 
-void draw_native_caption_button(
+void draw_custom_caption_button(
     HDC device_context,
-    HTHEME window_theme,
     const UI::Rect& bounds,
-    int theme_part,
-    UINT classic_state,
-    int theme_state)
+    UI::Chrome::WindowControl control,
+    int theme_state,
+    bool is_maximized,
+    const UI::Theme::StudioTheme& theme,
+    float scale)
 {
-    RECT native_bounds = to_native_rect(bounds);
-    if (window_theme != nullptr &&
-        SUCCEEDED(DrawThemeBackground(
-            window_theme,
-            device_context,
-            theme_part,
-            theme_state,
-            &native_bounds,
-            nullptr)))
+    if (theme_state == MINBS_HOT || theme_state == MINBS_PUSHED)
     {
-        return;
+        UI::Theme::Color bg_color = theme_state == MINBS_PUSHED ? theme.pressed : theme.hover;
+        if (control == UI::Chrome::WindowControl::Close)
+        {
+            bg_color = theme_state == MINBS_PUSHED ? theme.pressed : theme.close_hover;
+        }
+        fill_rectangle(device_context, bounds, bg_color);
     }
 
-    DrawFrameControl(
-        device_context,
-        &native_bounds,
-        DFC_CAPTION,
-        classic_state | static_cast<UINT>(theme_state == MINBS_PUSHED ? DFCS_PUSHED : 0));
+    UI::Theme::Color icon_color = theme.text_primary;
+    if (control == UI::Chrome::WindowControl::Close && (theme_state == MINBS_HOT || theme_state == MINBS_PUSHED))
+    {
+        icon_color = UI::Theme::Color{255, 255, 255, 255};
+    }
+
+    HPEN icon_pen = CreatePen(PS_SOLID, std::max(1, round_to_int(scale)), to_color_ref(icon_color));
+    HGDIOBJ previous_pen = SelectObject(device_context, icon_pen);
+    HGDIOBJ previous_brush = SelectObject(device_context, GetStockObject(HOLLOW_BRUSH));
+
+    const int center_x = round_to_int(bounds.x + bounds.width * 0.5F);
+    const int center_y = round_to_int(bounds.y + bounds.height * 0.5F);
+    const int icon_size = round_to_int(10.0F * scale);
+    const int half_size = icon_size / 2;
+
+    if (control == UI::Chrome::WindowControl::Minimize)
+    {
+        MoveToEx(device_context, center_x - half_size, center_y, nullptr);
+        LineTo(device_context, center_x + half_size + 1, center_y);
+    }
+    else if (control == UI::Chrome::WindowControl::MaximizeRestore)
+    {
+        if (is_maximized)
+        {
+            const int offset = round_to_int(2.0F * scale);
+            
+            MoveToEx(device_context, center_x - half_size + offset, center_y - half_size, nullptr);
+            LineTo(device_context, center_x + half_size + 1, center_y - half_size);
+            LineTo(device_context, center_x + half_size + 1, center_y + half_size - offset + 1);
+            
+            MoveToEx(device_context, center_x - half_size + offset, center_y - half_size, nullptr);
+            LineTo(device_context, center_x - half_size + offset, center_y - half_size + offset);
+
+            Rectangle(
+                device_context, 
+                center_x - half_size, 
+                center_y - half_size + offset, 
+                center_x + half_size - offset + 1, 
+                center_y + half_size + 1);
+        }
+        else
+        {
+            Rectangle(
+                device_context, 
+                center_x - half_size, 
+                center_y - half_size, 
+                center_x + half_size + 1, 
+                center_y + half_size + 1);
+        }
+    }
+    else if (control == UI::Chrome::WindowControl::Close)
+    {
+        MoveToEx(device_context, center_x - half_size, center_y - half_size, nullptr);
+        LineTo(device_context, center_x + half_size + 1, center_y + half_size + 1);
+        
+        MoveToEx(device_context, center_x - half_size, center_y + half_size, nullptr);
+        LineTo(device_context, center_x + half_size + 1, center_y - half_size - 1);
+    }
+
+    SelectObject(device_context, previous_brush);
+    SelectObject(device_context, previous_pen);
+    DeleteObject(icon_pen);
 }
 
 } // namespace
@@ -893,7 +948,6 @@ void Win32Window::paint_custom_chrome()
         DeleteObject(search_pen);
     }
 
-    HTHEME window_theme = OpenThemeData(m_window_handle, L"WINDOW");
     const int minimize_state = caption_button_state(
         UI::Chrome::WindowControl::Minimize,
         m_hovered_control,
@@ -907,31 +961,30 @@ void Win32Window::paint_custom_chrome()
         m_hovered_control,
         m_pressed_control);
 
-    draw_native_caption_button(
+    draw_custom_caption_button(
         buffer_context,
-        window_theme,
         m_chrome_layout.minimize_bounds,
-        WP_MINBUTTON,
-        DFCS_CAPTIONMIN,
-        minimize_state);
-    draw_native_caption_button(
+        UI::Chrome::WindowControl::Minimize,
+        minimize_state,
+        is_maximized(),
+        m_theme,
+        scale);
+    draw_custom_caption_button(
         buffer_context,
-        window_theme,
         m_chrome_layout.maximize_bounds,
-        is_maximized() ? WP_RESTOREBUTTON : WP_MAXBUTTON,
-        is_maximized() ? DFCS_CAPTIONRESTORE : DFCS_CAPTIONMAX,
-        maximize_state);
-    draw_native_caption_button(
+        UI::Chrome::WindowControl::MaximizeRestore,
+        maximize_state,
+        is_maximized(),
+        m_theme,
+        scale);
+    draw_custom_caption_button(
         buffer_context,
-        window_theme,
         m_chrome_layout.close_bounds,
-        WP_CLOSEBUTTON,
-        DFCS_CAPTIONCLOSE,
-        close_state);
-    if (window_theme != nullptr)
-    {
-        CloseThemeData(window_theme);
-    }
+        UI::Chrome::WindowControl::Close,
+        close_state,
+        is_maximized(),
+        m_theme,
+        scale);
     
     SelectObject(buffer_context, previous_font);
 

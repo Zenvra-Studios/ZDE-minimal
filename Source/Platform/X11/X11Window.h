@@ -115,6 +115,9 @@ private:
     [[nodiscard]] bool is_drag_region(float point_x, float point_y) const;
     [[nodiscard]] std::optional<MoveResizeDirection> get_resize_direction(int point_x, int point_y) const;
     [[nodiscard]] std::optional<std::size_t> get_popup_item_index(int point_x, int point_y) const;
+    [[nodiscard]] std::optional<std::size_t> get_overflow_popup_menu_index(
+        int point_x,
+        int point_y) const;
     [[nodiscard]] bool is_popup_item_enabled(std::size_t menu_index, std::size_t item_index) const;
     [[nodiscard]] bool is_root_atom_supported(Atom atom) const;
 
@@ -135,6 +138,7 @@ private:
     bool m_context_acquired = false;
     bool m_ewmh_move_resize_supported = false;
     bool m_ewmh_maximize_supported = false;
+    bool m_menu_pointer_tracking = false;
     Time m_last_titlebar_click_time = 0;
     int m_last_titlebar_click_x = 0;
     int m_last_titlebar_click_y = 0;

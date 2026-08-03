@@ -341,6 +341,7 @@ void X11Window::set_custom_chrome_enabled(bool enabled)
     {
         m_interaction_state = Components::ChromeInteractionState{};
         m_pressed_popup_item_index.reset();
+        m_menu_pointer_tracking = false;
     }
     apply_custom_chrome();
     render();
@@ -685,9 +686,12 @@ void X11Window::handle_event(XEvent& event)
     case FocusOut:
         m_is_focused = false;
         m_interaction_state.open_menu_index.reset();
+        m_interaction_state.overflow_menu_open = false;
         m_interaction_state.hovered_popup_item_index.reset();
+        m_interaction_state.hovered_overflow_menu_index.reset();
         m_interaction_state.pressed_control = UI::Chrome::WindowControl::NoControl;
         m_pressed_popup_item_index.reset();
+        m_menu_pointer_tracking = false;
         render();
         break;
 
@@ -715,6 +719,8 @@ void X11Window::handle_event(XEvent& event)
     case LeaveNotify:
         m_interaction_state.hovered_control = UI::Chrome::WindowControl::NoControl;
         m_interaction_state.hovered_menu_index.reset();
+        m_interaction_state.overflow_menu_hovered = false;
+        m_interaction_state.hovered_overflow_menu_index.reset();
         m_interaction_state.command_center_hovered = false;
         render();
         break;
@@ -747,6 +753,12 @@ void X11Window::handle_motion(const XMotionEvent& event)
         static_cast<float>(event.x),
         static_cast<float>(event.y));
     const std::optional<std::size_t> hovered_popup_item = get_popup_item_index(event.x, event.y);
+    const std::optional<std::size_t> hovered_overflow_menu = get_overflow_popup_menu_index(
+        event.x,
+        event.y);
+    const bool overflow_menu_hovered = m_chrome_layout.is_overflow_menu(
+        static_cast<float>(event.x),
+        static_cast<float>(event.y));
     const bool command_center_hovered = m_chrome_layout.command_center_bounds.contains(
         static_cast<float>(event.x),
         static_cast<float>(event.y));
@@ -754,15 +766,33 @@ void X11Window::handle_motion(const XMotionEvent& event)
     bool changed = hovered_control != m_interaction_state.hovered_control ||
         hovered_menu != m_interaction_state.hovered_menu_index ||
         hovered_popup_item != m_interaction_state.hovered_popup_item_index ||
+        hovered_overflow_menu != m_interaction_state.hovered_overflow_menu_index ||
+        overflow_menu_hovered != m_interaction_state.overflow_menu_hovered ||
         command_center_hovered != m_interaction_state.command_center_hovered;
     m_interaction_state.hovered_control = hovered_control;
     m_interaction_state.hovered_menu_index = hovered_menu;
     m_interaction_state.hovered_popup_item_index = hovered_popup_item;
+    m_interaction_state.hovered_overflow_menu_index = hovered_overflow_menu;
+    m_interaction_state.overflow_menu_hovered = overflow_menu_hovered;
     m_interaction_state.command_center_hovered = command_center_hovered;
-    if (m_interaction_state.open_menu_index && hovered_menu &&
-        m_interaction_state.open_menu_index != hovered_menu)
+    const bool menu_interaction_active = m_interaction_state.open_menu_index.has_value() ||
+        m_interaction_state.overflow_menu_open || m_menu_pointer_tracking;
+    if (menu_interaction_active && hovered_menu &&
+        (m_interaction_state.open_menu_index != hovered_menu ||
+         m_interaction_state.overflow_menu_open))
     {
         m_interaction_state.open_menu_index = hovered_menu;
+        m_interaction_state.overflow_menu_open = false;
+        m_interaction_state.hovered_popup_item_index.reset();
+        m_interaction_state.hovered_overflow_menu_index.reset();
+        m_pressed_popup_item_index.reset();
+        changed = true;
+    }
+    else if (menu_interaction_active && overflow_menu_hovered &&
+             !m_interaction_state.overflow_menu_open)
+    {
+        m_interaction_state.open_menu_index.reset();
+        m_interaction_state.overflow_menu_open = true;
         m_interaction_state.hovered_popup_item_index.reset();
         m_pressed_popup_item_index.reset();
         changed = true;
@@ -782,23 +812,43 @@ void X11Window::handle_button_press(const XButtonEvent& event)
         return;
     }
 
-    const std::optional<std::size_t> menu_index = m_chrome_layout.get_menu_index(
-        static_cast<float>(event.x),
-        static_cast<float>(event.y));
+    const float point_x = static_cast<float>(event.x);
+    const float point_y = static_cast<float>(event.y);
+    const std::optional<std::size_t> menu_index = m_chrome_layout.get_menu_index(point_x, point_y);
     if (menu_index)
     {
-        if (m_interaction_state.open_menu_index == menu_index)
-        {
-            m_interaction_state.open_menu_index.reset();
-        }
-        else
-        {
-            open_menu(*menu_index, false);
-            return;
-        }
+        m_menu_pointer_tracking = true;
+        open_menu(*menu_index, false);
+        return;
+    }
+
+    if (m_chrome_layout.is_overflow_menu(point_x, point_y))
+    {
+        m_menu_pointer_tracking = true;
+        m_interaction_state.open_menu_index.reset();
         m_interaction_state.hovered_popup_item_index.reset();
+        m_interaction_state.hovered_overflow_menu_index.reset();
+        m_interaction_state.overflow_menu_open = true;
         render();
         return;
+    }
+
+    if (m_interaction_state.overflow_menu_open)
+    {
+        const std::optional<std::size_t> overflow_menu_index = get_overflow_popup_menu_index(
+            event.x,
+            event.y);
+        if (overflow_menu_index)
+        {
+            m_menu_pointer_tracking = true;
+            m_interaction_state.hovered_overflow_menu_index = overflow_menu_index;
+            render();
+            return;
+        }
+
+        m_interaction_state.overflow_menu_open = false;
+        m_interaction_state.hovered_overflow_menu_index.reset();
+        render();
     }
 
     if (m_interaction_state.open_menu_index)
@@ -808,7 +858,9 @@ void X11Window::handle_button_press(const XButtonEvent& event)
                                     *m_interaction_state.open_menu_index,
                                     *popup_item_index))
         {
+            m_menu_pointer_tracking = true;
             m_pressed_popup_item_index = popup_item_index;
+            m_interaction_state.hovered_popup_item_index = popup_item_index;
             render();
             return;
         }
@@ -835,7 +887,7 @@ void X11Window::handle_button_press(const XButtonEvent& event)
         return;
     }
 
-    if (!is_drag_region(static_cast<float>(event.x), static_cast<float>(event.y)))
+    if (!is_drag_region(point_x, point_y))
     {
         return;
     }
