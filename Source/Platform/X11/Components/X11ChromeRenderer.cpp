@@ -160,7 +160,10 @@ void X11ChromeRenderer::render(
 
     if (chrome_layout.has_overflow_menu())
     {
-        if (interaction_state.overflow_menu_hovered || interaction_state.overflow_menu_open)
+        const bool hidden_menu_open = interaction_state.open_menu_index &&
+            *interaction_state.open_menu_index >= chrome_layout.first_overflow_menu_index;
+        if (interaction_state.overflow_menu_hovered || interaction_state.overflow_menu_open ||
+            hidden_menu_open)
         {
             fill_rectangle(back_buffer, chrome_layout.overflow_menu_bounds, m_colors.hover);
         }
@@ -214,99 +217,6 @@ void X11ChromeRenderer::render(
             search_y + search_radius - 1,
             search_x + search_radius + round_to_int(3.0F * scale),
             search_y + search_radius + round_to_int(3.0F * scale));
-    }
-
-    if (!chrome_layout.close_bounds.is_empty())
-    {
-        const auto draw_control_background = [this, back_buffer, &interaction_state](
-                                             UI::Chrome::WindowControl control,
-                                             const UI::Rect& bounds) {
-            if (interaction_state.pressed_control == control)
-            {
-                fill_rectangle(back_buffer, bounds, m_colors.pressed);
-            }
-            else if (interaction_state.hovered_control == control)
-            {
-                fill_rectangle(
-                    back_buffer,
-                    bounds,
-                    control == UI::Chrome::WindowControl::Close ? m_colors.close_hover : m_colors.hover);
-            }
-        };
-
-        draw_control_background(UI::Chrome::WindowControl::Minimize, chrome_layout.minimize_bounds);
-        draw_control_background(UI::Chrome::WindowControl::MaximizeRestore, chrome_layout.maximize_bounds);
-        draw_control_background(UI::Chrome::WindowControl::Close, chrome_layout.close_bounds);
-
-        XSetForeground(m_display, m_graphics_context, m_colors.text_primary);
-        const float icon_half_size = 5.0F * scale;
-        const auto center_x = [](const UI::Rect& bounds) { return bounds.x + bounds.width * 0.5F; };
-        const auto center_y = [](const UI::Rect& bounds) { return bounds.y + bounds.height * 0.5F; };
-
-        const int minimize_x = round_to_int(center_x(chrome_layout.minimize_bounds));
-        const int minimize_y = round_to_int(center_y(chrome_layout.minimize_bounds));
-        XDrawLine(
-            m_display,
-            back_buffer,
-            m_graphics_context,
-            minimize_x - round_to_int(icon_half_size),
-            minimize_y,
-            minimize_x + round_to_int(icon_half_size),
-            minimize_y);
-
-        const int maximize_x = round_to_int(center_x(chrome_layout.maximize_bounds));
-        const int maximize_y = round_to_int(center_y(chrome_layout.maximize_bounds));
-        const int icon_size = std::max(round_to_int(icon_half_size * 2.0F), 4);
-        if (interaction_state.maximized)
-        {
-            XDrawRectangle(
-                m_display,
-                back_buffer,
-                m_graphics_context,
-                maximize_x - icon_size / 2 + 2,
-                maximize_y - icon_size / 2 - 2,
-                static_cast<unsigned int>(icon_size),
-                static_cast<unsigned int>(icon_size));
-            XDrawRectangle(
-                m_display,
-                back_buffer,
-                m_graphics_context,
-                maximize_x - icon_size / 2 - 2,
-                maximize_y - icon_size / 2 + 2,
-                static_cast<unsigned int>(icon_size),
-                static_cast<unsigned int>(icon_size));
-        }
-        else
-        {
-            XDrawRectangle(
-                m_display,
-                back_buffer,
-                m_graphics_context,
-                maximize_x - icon_size / 2,
-                maximize_y - icon_size / 2,
-                static_cast<unsigned int>(icon_size),
-                static_cast<unsigned int>(icon_size));
-        }
-
-        const int close_x = round_to_int(center_x(chrome_layout.close_bounds));
-        const int close_y = round_to_int(center_y(chrome_layout.close_bounds));
-        const int close_half_size = std::max(round_to_int(icon_half_size), 2);
-        XDrawLine(
-            m_display,
-            back_buffer,
-            m_graphics_context,
-            close_x - close_half_size,
-            close_y - close_half_size,
-            close_x + close_half_size,
-            close_y + close_half_size);
-        XDrawLine(
-            m_display,
-            back_buffer,
-            m_graphics_context,
-            close_x + close_half_size,
-            close_y - close_half_size,
-            close_x - close_half_size,
-            close_y + close_half_size);
     }
 
     draw_overflow_menu(back_buffer, chrome_layout, interaction_state);
@@ -405,7 +315,13 @@ OverflowMenuGeometry X11ChromeRenderer::calculate_overflow_menu_geometry(
 
     const std::span<const UI::Chrome::WindowMenu> menus = UI::Chrome::get_window_menu_model();
     geometry.first_menu_index = chrome_layout.first_overflow_menu_index;
-    geometry.item_count = menus.size() - geometry.first_menu_index;
+    if (geometry.first_menu_index >= menus.size())
+    {
+        return geometry;
+    }
+    geometry.item_count = std::min(
+        menus.size() - geometry.first_menu_index,
+        geometry.item_bounds.size());
     const float row_height = 28.0F * m_dpi_scale;
     float popup_width = 160.0F * m_dpi_scale;
     for (std::size_t menu_index = geometry.first_menu_index; menu_index < menus.size(); ++menu_index)

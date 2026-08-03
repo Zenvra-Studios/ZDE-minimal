@@ -150,6 +150,12 @@ void test_window_chrome_layout_is_responsive_and_dpi_aware()
     const WindowChromeLayout layout_engine;
     const WindowChromeLayoutResult narrow_layout = layout_engine.calculate(600.0F, 1.0F);
     const WindowChromeLayoutResult compact_layout = layout_engine.calculate(720.0F, 1.0F);
+    const WindowChromeLayoutResult linux_layout = layout_engine.calculate(
+        720.0F,
+        1.0F,
+        WindowChromeLayoutOptions{
+            .show_window_controls = false,
+        });
     const WindowChromeLayoutResult scaled_layout = layout_engine.calculate(2400.0F, 2.0F);
 
     expect(
@@ -177,6 +183,12 @@ void test_window_chrome_layout_is_responsive_and_dpi_aware()
             compact_layout.overflow_menu_bounds.x + 1.0F,
             compact_layout.overflow_menu_bounds.y + 1.0F),
         "the ellipsis button must be excluded from the drag region");
+    expect(
+        linux_layout.close_bounds.is_empty(),
+        "a WM-decorated Linux layout must not reserve or draw client window controls");
+    expect(
+        linux_layout.has_overflow_menu(),
+        "the responsive menu overflow must also remain available under native WM decorations");
     expect(scaled_layout.titlebar_bounds.height == 70.0F, "titlebar metrics must scale with DPI");
     expect(scaled_layout.close_bounds.width == 92.0F, "window controls must scale with DPI");
 }

@@ -27,20 +27,10 @@ namespace Zenvra::Platform::X11
 namespace
 {
 
-constexpr long motif_hints_decorations = 1L << 1;
 constexpr long net_wm_state_remove = 0;
 constexpr long net_wm_state_add = 1;
 constexpr unsigned long double_click_interval_ms = 400;
 constexpr int double_click_distance = 4;
-
-struct MotifWindowManagerHints
-{
-    unsigned long flags = 0;
-    unsigned long functions = 0;
-    unsigned long decorations = 0;
-    long input_mode = 0;
-    unsigned long status = 0;
-};
 
 unsigned long to_argb(const UI::Theme::Color& color)
 {
@@ -499,20 +489,10 @@ void X11Window::apply_custom_chrome()
         return;
     }
 
-    MotifWindowManagerHints hints;
-    hints.flags = static_cast<unsigned long>(motif_hints_decorations);
-    // Linux window controls and their icons remain owned by the active window
-    // manager so GNOME, KDE, XFCE, and other desktops keep their native theme.
-    hints.decorations = 1UL;
-    XChangeProperty(
-        m_display,
-        m_window_handle,
-        m_atoms.motif_wm_hints,
-        m_atoms.motif_wm_hints,
-        32,
-        PropModeReplace,
-        reinterpret_cast<const unsigned char*>(&hints),
-        5);
+    // Never replace Linux window controls with Xlib-drawn icons. Removing
+    // Motif overrides leaves decorations, resize borders, and their theme to
+    // the active GNOME/KDE/XFCE-compatible window manager.
+    XDeleteProperty(m_display, m_window_handle, m_atoms.motif_wm_hints);
     XFlush(m_display);
 }
 
@@ -922,26 +902,60 @@ void X11Window::handle_button_release(const XButtonEvent& event)
         return;
     }
 
-    if (m_pressed_popup_item_index && m_interaction_state.open_menu_index)
+    if (m_menu_pointer_tracking)
     {
-        const std::optional<std::size_t> released_item_index = get_popup_item_index(event.x, event.y);
-        const std::size_t menu_index = *m_interaction_state.open_menu_index;
-        const std::size_t pressed_item_index = *m_pressed_popup_item_index;
-        m_pressed_popup_item_index.reset();
-        m_interaction_state.open_menu_index.reset();
-        m_interaction_state.hovered_popup_item_index.reset();
-
-        const std::span<const UI::Chrome::WindowMenu> menus = UI::Chrome::get_window_menu_model();
-        if (released_item_index == pressed_item_index && menu_index < menus.size() &&
-            pressed_item_index < menus[menu_index].items.size() &&
-            is_popup_item_enabled(menu_index, pressed_item_index))
+        m_menu_pointer_tracking = false;
+        if (m_interaction_state.open_menu_index)
         {
-            const std::string_view command_id = menus[menu_index].items[pressed_item_index].command_id;
-            if (!command_id.empty() && m_command_invoked_callback)
+            const std::optional<std::size_t> popup_item_index = get_popup_item_index(event.x, event.y);
+            if (popup_item_index && is_popup_item_enabled(
+                                        *m_interaction_state.open_menu_index,
+                                        *popup_item_index))
             {
-                m_command_invoked_callback(command_id);
+                m_interaction_state.hovered_popup_item_index = popup_item_index;
+                execute_popup_selection();
+                return;
             }
         }
+
+        if (m_interaction_state.overflow_menu_open)
+        {
+            const std::optional<std::size_t> overflow_menu_index = get_overflow_popup_menu_index(
+                event.x,
+                event.y);
+            if (overflow_menu_index)
+            {
+                m_interaction_state.overflow_menu_open = false;
+                m_interaction_state.hovered_overflow_menu_index.reset();
+                open_menu(*overflow_menu_index, false);
+                return;
+            }
+        }
+
+        const std::optional<std::size_t> menu_index = m_chrome_layout.get_menu_index(
+            static_cast<float>(event.x),
+            static_cast<float>(event.y));
+        if (menu_index)
+        {
+            open_menu(*menu_index, false);
+            return;
+        }
+        if (m_chrome_layout.is_overflow_menu(
+                static_cast<float>(event.x),
+                static_cast<float>(event.y)))
+        {
+            m_interaction_state.open_menu_index.reset();
+            m_interaction_state.overflow_menu_open = true;
+            m_interaction_state.hovered_popup_item_index.reset();
+            render();
+            return;
+        }
+
+        m_pressed_popup_item_index.reset();
+        m_interaction_state.open_menu_index.reset();
+        m_interaction_state.overflow_menu_open = false;
+        m_interaction_state.hovered_popup_item_index.reset();
+        m_interaction_state.hovered_overflow_menu_index.reset();
         render();
         return;
     }
@@ -1033,9 +1047,22 @@ void X11Window::handle_key_press(XKeyEvent& event)
             break;
         }
     }
-    if (accelerator_menu_index && *accelerator_menu_index < m_chrome_layout.visible_menu_count)
+    if (accelerator_menu_index && *accelerator_menu_index < UI::Chrome::window_menu_count)
     {
         open_menu(*accelerator_menu_index, true);
+        return;
+    }
+
+    if (key_symbol == XK_Escape &&
+        (m_interaction_state.open_menu_index || m_interaction_state.overflow_menu_open))
+    {
+        m_interaction_state.open_menu_index.reset();
+        m_interaction_state.overflow_menu_open = false;
+        m_interaction_state.hovered_popup_item_index.reset();
+        m_interaction_state.hovered_overflow_menu_index.reset();
+        m_pressed_popup_item_index.reset();
+        m_menu_pointer_tracking = false;
+        render();
         return;
     }
 
@@ -1044,17 +1071,9 @@ void X11Window::handle_key_press(XKeyEvent& event)
         return;
     }
 
-    if (key_symbol == XK_Escape)
-    {
-        m_interaction_state.open_menu_index.reset();
-        m_interaction_state.hovered_popup_item_index.reset();
-        m_pressed_popup_item_index.reset();
-        render();
-        return;
-    }
     if (key_symbol == XK_Left || key_symbol == XK_Right)
     {
-        const std::size_t menu_count = m_chrome_layout.visible_menu_count;
+        constexpr std::size_t menu_count = UI::Chrome::window_menu_count;
         if (menu_count > 0)
         {
             const std::size_t current_index = *m_interaction_state.open_menu_index;
@@ -1079,7 +1098,7 @@ void X11Window::handle_key_press(XKeyEvent& event)
 void X11Window::update_cursor(int point_x, int point_y)
 {
     Cursor desired_cursor = m_default_cursor;
-    if (m_interaction_state.open_menu_index)
+    if (m_interaction_state.open_menu_index || m_interaction_state.overflow_menu_open)
     {
         if (desired_cursor != None && desired_cursor != m_active_cursor)
         {
@@ -1279,13 +1298,16 @@ void X11Window::send_maximized_state(long operation)
 
 void X11Window::open_menu(std::size_t menu_index, bool select_first_item)
 {
-    if (menu_index >= m_chrome_layout.visible_menu_count)
+    const std::span<const UI::Chrome::WindowMenu> menus = UI::Chrome::get_window_menu_model();
+    if (menu_index >= menus.size())
     {
         return;
     }
 
     m_interaction_state.open_menu_index = menu_index;
+    m_interaction_state.overflow_menu_open = false;
     m_interaction_state.hovered_popup_item_index.reset();
+    m_interaction_state.hovered_overflow_menu_index.reset();
     m_pressed_popup_item_index.reset();
     if (select_first_item)
     {
@@ -1355,7 +1377,9 @@ void X11Window::execute_popup_selection()
     const std::span<const UI::Chrome::WindowMenu> menus = UI::Chrome::get_window_menu_model();
     const std::string_view command_id = menus[menu_index].items[item_index].command_id;
     m_interaction_state.open_menu_index.reset();
+    m_interaction_state.overflow_menu_open = false;
     m_interaction_state.hovered_popup_item_index.reset();
+    m_interaction_state.hovered_overflow_menu_index.reset();
     m_pressed_popup_item_index.reset();
     render();
     if (!command_id.empty() && m_command_invoked_callback)
@@ -1511,6 +1535,29 @@ std::optional<std::size_t> X11Window::get_popup_item_index(int point_x, int poin
             {
                 return item_index;
             }
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::size_t> X11Window::get_overflow_popup_menu_index(
+    int point_x,
+    int point_y) const
+{
+    if (!m_interaction_state.overflow_menu_open)
+    {
+        return std::nullopt;
+    }
+
+    const Components::OverflowMenuGeometry geometry =
+        m_chrome_renderer.calculate_overflow_menu_geometry(m_chrome_layout);
+    for (std::size_t item_index = 0; item_index < geometry.item_count; ++item_index)
+    {
+        if (geometry.item_bounds[item_index].contains(
+                static_cast<float>(point_x),
+                static_cast<float>(point_y)))
+        {
+            return geometry.first_menu_index + item_index;
         }
     }
     return std::nullopt;
