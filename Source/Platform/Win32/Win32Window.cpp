@@ -1,150 +1,1062 @@
-#include "Win32Window.h"
-#include "Config/resource.h"
+#include "Platform/Win32/Win32Window.h"
 
+#include "Utility/Math.h"
+#include <dwmapi.h>
+#include <uxtheme.h>
+#include <vssym32.h>
+#include <windowsx.h>
+
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <iostream>
+#include <utility>
 
-namespace Zenvra {
-namespace Platform {
-namespace Win32 {
-
-const wchar_t* Win32Window::s_class_name = L"ZenvraWin32WindowClass";
-
-Win32Window::Win32Window(const std::wstring& title, int width, int height)
-    : m_hwnd(nullptr), m_hinstance(GetModuleHandle(nullptr)), 
-      m_title(title), m_width(width), m_height(height), m_should_close(false)
+namespace Zenvra::Platform::Win32
 {
+
+namespace
+{
+
+constexpr DWORD dwm_immersive_dark_mode_attribute = 20;
+
+constexpr std::array<const wchar_t*, UI::Chrome::window_menu_count> window_menu_labels{
+    L"File",
+    L"Edit",
+    L"Selection",
+    L"View",
+    L"Navigate",
+    L"Project",
+    L"Build",
+    L"Run",
+    L"Window",
+    L"Help",
+};
+
+COLORREF to_color_ref(const UI::Theme::Color& color)
+{
+    return RGB(color.red, color.green, color.blue);
+}
+
+using Zenvra::Utility::round_to_int;
+
+RECT to_native_rect(const UI::Rect& rectangle)
+{
+    return RECT{
+        round_to_int(rectangle.x),
+        round_to_int(rectangle.y),
+        round_to_int(rectangle.right()),
+        round_to_int(rectangle.bottom()),
+    };
+}
+
+void fill_rectangle(HDC device_context, const UI::Rect& rectangle, const UI::Theme::Color& color)
+{
+    RECT native_rectangle = to_native_rect(rectangle);
+    HBRUSH brush = CreateSolidBrush(to_color_ref(color));
+    FillRect(device_context, &native_rectangle, brush);
+    DeleteObject(brush);
+}
+
+void draw_centered_text(
+    HDC device_context,
+    const wchar_t* text,
+    RECT rectangle,
+    const UI::Theme::Color& color)
+{
+    SetTextColor(device_context, to_color_ref(color));
+    DrawTextW(
+        device_context,
+        text,
+        -1,
+        &rectangle,
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+}
+
+int caption_button_state(
+    UI::Chrome::WindowControl control,
+    UI::Chrome::WindowControl hovered_control,
+    UI::Chrome::WindowControl pressed_control)
+{
+    if (pressed_control == control)
+    {
+        return MINBS_PUSHED;
+    }
+    if (hovered_control == control)
+    {
+        return MINBS_HOT;
+    }
+    return MINBS_NORMAL;
+}
+
+void draw_native_caption_button(
+    HDC device_context,
+    HTHEME window_theme,
+    const UI::Rect& bounds,
+    int theme_part,
+    UINT classic_state,
+    int theme_state)
+{
+    RECT native_bounds = to_native_rect(bounds);
+    if (window_theme != nullptr &&
+        SUCCEEDED(DrawThemeBackground(
+            window_theme,
+            device_context,
+            theme_part,
+            theme_state,
+            &native_bounds,
+            nullptr)))
+    {
+        return;
+    }
+
+    DrawFrameControl(
+        device_context,
+        &native_bounds,
+        DFC_CAPTION,
+        classic_state | static_cast<UINT>(theme_state == MINBS_PUSHED ? DFCS_PUSHED : 0));
+}
+
+} // namespace
+
+Win32Window::Win32Window(const WindowSpecification& specification)
+    : m_instance_handle(GetModuleHandleW(nullptr)),
+      m_specification(specification),
+      m_window_title(utf8_to_wide(specification.title))
+{
+    m_capabilities.custom_chrome = true;
+    m_capabilities.native_titlebar_hit_test = true;
+    m_capabilities.native_resize = true;
+    m_capabilities.native_snap = true;
+    m_capabilities.per_monitor_dpi = true;
 }
 
 Win32Window::~Win32Window()
 {
-    if (m_hwnd) {
-        DestroyWindow(m_hwnd);
+    if (m_window_handle != nullptr && IsWindow(m_window_handle) != FALSE)
+    {
+        DestroyWindow(m_window_handle);
+    }
+    if (m_ui_font != nullptr)
+    {
+        DeleteObject(m_ui_font);
     }
 }
 
 bool Win32Window::initialize()
 {
-    WNDCLASSEXW wc = {0};
-    wc.cbSize = sizeof(WNDCLASSEXW);
-    wc.style = CS_HREDRAW | CS_VREDRAW;
-    wc.lpfnWndProc = window_proc;
-    wc.hInstance = m_hinstance;
-    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-    wc.lpszClassName = s_class_name;
+    SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
-    RegisterClassExW(&wc);
+    WNDCLASSEXW window_class{};
+    window_class.cbSize = sizeof(window_class);
+    window_class.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
+    window_class.lpfnWndProc = window_proc;
+    window_class.hInstance = m_instance_handle;
+    window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    window_class.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+    window_class.lpszClassName = window_class_name;
 
-    m_hwnd = CreateWindowExW(
-        0,
-        s_class_name,
-        m_title.c_str(),
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, m_width, m_height,
-        nullptr, nullptr, m_hinstance, this
-    );
-
-    if (!m_hwnd) {
+    if (RegisterClassExW(&window_class) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
+    {
         return false;
     }
 
-    // Load and attach the menu bar from Win32Resources.rc (IDR_MAINMENU)
-    if (!m_menubar.load(m_hinstance)) {
-        std::wcerr << L"Warning: Failed to load main menu resource." << std::endl;
-    } else if (!m_menubar.attach(m_hwnd)) {
-        std::wcerr << L"Warning: Failed to attach main menu to window." << std::endl;
+    m_window_handle = CreateWindowExW(
+        0,
+        window_class_name,
+        m_window_title.c_str(),
+        WS_OVERLAPPEDWINDOW,
+        CW_USEDEFAULT,
+        CW_USEDEFAULT,
+        static_cast<int>(m_specification.width),
+        static_cast<int>(m_specification.height),
+        nullptr,
+        nullptr,
+        m_instance_handle,
+        this);
+
+    if (m_window_handle == nullptr)
+    {
+        return false;
     }
 
+    const BOOL dark_mode_enabled = TRUE;
+    DwmSetWindowAttribute(
+        m_window_handle,
+        dwm_immersive_dark_mode_attribute,
+        &dark_mode_enabled,
+        sizeof(dark_mode_enabled));
+
+    if (!m_menubar.load(m_instance_handle) || !m_menubar.attach(m_window_handle))
+    {
+        std::clog << "Warning: the window menu resource could not be loaded.\n";
+    }
+
+    m_dpi = GetDpiForWindow(m_window_handle);
+    refresh_ui_font();
+    refresh_chrome_layout();
+    set_custom_chrome_enabled(m_specification.custom_chrome_enabled);
     return true;
 }
 
 void Win32Window::show()
 {
-    if (m_hwnd) {
-        ShowWindow(m_hwnd, SW_SHOW);
-        UpdateWindow(m_hwnd);
-    }
-}
-
-void Win32Window::update()
-{
-    MSG msg = {0};
-    while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
-        if (msg.message == WM_QUIT) {
-            m_should_close = true;
-        }
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
-    }
-}
-
-LRESULT CALLBACK Win32Window::window_proc(HWND hwnd, UINT msg, WPARAM w_param, LPARAM l_param)
-{
-    Win32Window* p_this = nullptr;
-
-    if (msg == WM_NCCREATE) {
-        CREATESTRUCT* p_create = reinterpret_cast<CREATESTRUCT*>(l_param);
-        p_this = reinterpret_cast<Win32Window*>(p_create->lpCreateParams);
-        SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(p_this));
-        p_this->m_hwnd = hwnd;
-    } else {
-        p_this = reinterpret_cast<Win32Window*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
-    }
-
-    if (p_this) {
-        return p_this->handle_message(hwnd, msg, w_param, l_param);
-    }
-
-    return DefWindowProc(hwnd, msg, w_param, l_param);
-}
-
-LRESULT Win32Window::handle_message(HWND hwnd, UINT msg, WPARAM w_param, LPARAM l_param)
-{
-    switch (msg) {
-        case WM_SIZE:
-        {
-            // Update dimensions and trigger layouting logic for UI
-            m_width = LOWORD(l_param);
-            m_height = HIWORD(l_param);
-            on_resize(m_width, m_height);
-            return 0;
-        }
-        case WM_COMMAND:
-        {
-            // Handle Menu Bar item clicks
-            on_command(LOWORD(w_param));
-            return 0;
-        }
-        case WM_CLOSE:
-        {
-            PostQuitMessage(0);
-            return 0;
-        }
-        case WM_DESTROY:
-        {
-            PostQuitMessage(0);
-            return 0;
-        }
-    }
-    return DefWindowProc(hwnd, msg, w_param, l_param);
-}
-
-void Win32Window::on_resize(int width, int height)
-{
-    // Override this in a derived class or dispatch an event to handle UI layouting 
-    // when the window is resized.
-}
-
-void Win32Window::on_command(int command_id)
-{
-    // Menu commands are handled by the Menubar component (IDR_MAINMENU).
-    if (m_menubar.handle_command(command_id)) {
+    if (m_window_handle == nullptr)
+    {
         return;
     }
 
-    // Handle non-menu commands here later.
+    ShowWindow(m_window_handle, SW_SHOWDEFAULT);
+    UpdateWindow(m_window_handle);
 }
 
-} // namespace Win32
-} // namespace Platform
-} // namespace Zenvra
+void Win32Window::poll_events()
+{
+    MSG message{};
+    while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE) != FALSE)
+    {
+        if (message.message == WM_QUIT)
+        {
+            m_should_close = true;
+            continue;
+        }
+
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+    }
+}
+
+bool Win32Window::should_close() const
+{
+    return m_should_close;
+}
+
+void Win32Window::minimize()
+{
+    ShowWindow(m_window_handle, SW_MINIMIZE);
+}
+
+void Win32Window::maximize()
+{
+    ShowWindow(m_window_handle, SW_MAXIMIZE);
+}
+
+void Win32Window::restore()
+{
+    ShowWindow(m_window_handle, SW_RESTORE);
+}
+
+void Win32Window::request_close()
+{
+    if (m_window_handle != nullptr)
+    {
+        PostMessageW(m_window_handle, WM_CLOSE, 0, 0);
+    }
+}
+
+bool Win32Window::is_maximized() const
+{
+    return m_window_handle != nullptr && IsZoomed(m_window_handle) != FALSE;
+}
+
+bool Win32Window::is_minimized() const
+{
+    return m_window_handle != nullptr && IsIconic(m_window_handle) != FALSE;
+}
+
+bool Win32Window::is_focused() const
+{
+    return m_window_handle != nullptr && GetForegroundWindow() == m_window_handle;
+}
+
+const WindowCapabilities& Win32Window::get_capabilities() const noexcept
+{
+    return m_capabilities;
+}
+
+void* Win32Window::get_native_handle() const noexcept
+{
+    return m_window_handle;
+}
+
+void Win32Window::set_custom_chrome_enabled(bool enabled)
+{
+    m_custom_chrome_enabled = enabled && m_capabilities.custom_chrome;
+    if (m_window_handle == nullptr)
+    {
+        return;
+    }
+
+    if (m_custom_chrome_enabled)
+    {
+        static_cast<void>(m_menubar.detach());
+    }
+    else
+    {
+        static_cast<void>(m_menubar.attach(m_window_handle));
+    }
+
+    SetWindowPos(
+        m_window_handle,
+        nullptr,
+        0,
+        0,
+        0,
+        0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    refresh_chrome_layout();
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+}
+
+void Win32Window::set_titlebar_hit_test_callback(TitlebarHitTestCallback callback)
+{
+    m_titlebar_hit_test_callback = std::move(callback);
+}
+
+void Win32Window::set_command_invoked_callback(CommandInvokedCallback callback)
+{
+    m_menubar.set_command_invoked_callback(std::move(callback));
+}
+
+void Win32Window::set_command_state_query_callback(CommandStateQueryCallback callback)
+{
+    m_menubar.set_command_state_query_callback(std::move(callback));
+}
+
+LRESULT CALLBACK Win32Window::window_proc(
+    HWND window_handle,
+    UINT message,
+    WPARAM w_param,
+    LPARAM l_param)
+{
+    Win32Window* window = nullptr;
+
+    if (message == WM_NCCREATE)
+    {
+        const auto* create_data = reinterpret_cast<const CREATESTRUCTW*>(l_param);
+        window = static_cast<Win32Window*>(create_data->lpCreateParams);
+        window->m_window_handle = window_handle;
+        SetWindowLongPtrW(window_handle, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(window));
+    }
+    else
+    {
+        window = reinterpret_cast<Win32Window*>(GetWindowLongPtrW(window_handle, GWLP_USERDATA));
+    }
+
+    if (window != nullptr)
+    {
+        return window->handle_message(window_handle, message, w_param, l_param);
+    }
+
+    return DefWindowProcW(window_handle, message, w_param, l_param);
+}
+
+LRESULT Win32Window::handle_message(
+    HWND window_handle,
+    UINT message,
+    WPARAM w_param,
+    LPARAM l_param)
+{
+    switch (message)
+    {
+    case WM_NCCALCSIZE:
+        if (m_custom_chrome_enabled && w_param != FALSE)
+        {
+            if (is_maximized())
+            {
+                auto* parameters = reinterpret_cast<NCCALCSIZE_PARAMS*>(l_param);
+                MONITORINFO monitor_info{};
+                monitor_info.cbSize = sizeof(monitor_info);
+                const HMONITOR monitor = MonitorFromWindow(window_handle, MONITOR_DEFAULTTONEAREST);
+                if (GetMonitorInfoW(monitor, &monitor_info) != FALSE)
+                {
+                    parameters->rgrc[0] = monitor_info.rcWork;
+                }
+            }
+            return 0;
+        }
+        break;
+
+    case WM_NCHITTEST:
+        if (m_custom_chrome_enabled)
+        {
+            return hit_test_non_client(l_param);
+        }
+        break;
+
+    case WM_NCLBUTTONDOWN:
+        if (m_custom_chrome_enabled)
+        {
+            if (w_param == HTMINBUTTON)
+            {
+                m_pressed_control = UI::Chrome::WindowControl::Minimize;
+                InvalidateRect(window_handle, nullptr, FALSE);
+                return 0;
+            }
+            if (w_param == HTMAXBUTTON)
+            {
+                m_pressed_control = UI::Chrome::WindowControl::MaximizeRestore;
+                InvalidateRect(window_handle, nullptr, FALSE);
+                return 0;
+            }
+            if (w_param == HTCLOSE)
+            {
+                m_pressed_control = UI::Chrome::WindowControl::Close;
+                InvalidateRect(window_handle, nullptr, FALSE);
+                return 0;
+            }
+        }
+        break;
+
+    case WM_NCLBUTTONUP:
+        if (m_custom_chrome_enabled && m_pressed_control != UI::Chrome::WindowControl::NoControl)
+        {
+            const UI::Chrome::WindowControl pressed_control = m_pressed_control;
+            m_pressed_control = UI::Chrome::WindowControl::NoControl;
+
+            if (pressed_control == UI::Chrome::WindowControl::Minimize && w_param == HTMINBUTTON)
+            {
+                minimize();
+            }
+            else if (pressed_control == UI::Chrome::WindowControl::MaximizeRestore && w_param == HTMAXBUTTON)
+            {
+                is_maximized() ? restore() : maximize();
+            }
+            else if (pressed_control == UI::Chrome::WindowControl::Close && w_param == HTCLOSE)
+            {
+                request_close();
+            }
+
+            InvalidateRect(window_handle, nullptr, FALSE);
+            return 0;
+        }
+        break;
+
+    case WM_NCMOUSEMOVE:
+        if (m_custom_chrome_enabled)
+        {
+        UI::Chrome::WindowControl control = UI::Chrome::WindowControl::NoControl;
+            if (w_param == HTMINBUTTON)
+            {
+                control = UI::Chrome::WindowControl::Minimize;
+            }
+            else if (w_param == HTMAXBUTTON)
+            {
+                control = UI::Chrome::WindowControl::MaximizeRestore;
+            }
+            else if (w_param == HTCLOSE)
+            {
+                control = UI::Chrome::WindowControl::Close;
+            }
+            update_hovered_control(control);
+
+            TRACKMOUSEEVENT tracking_data{
+                .cbSize = sizeof(TRACKMOUSEEVENT),
+                .dwFlags = TME_LEAVE | TME_NONCLIENT,
+                .hwndTrack = window_handle,
+                .dwHoverTime = HOVER_DEFAULT,
+            };
+            TrackMouseEvent(&tracking_data);
+        }
+        break;
+
+    case WM_NCMOUSELEAVE:
+        update_hovered_control(UI::Chrome::WindowControl::NoControl);
+        m_pressed_control = UI::Chrome::WindowControl::NoControl;
+        return 0;
+
+    case WM_MOUSEMOVE:
+        if (m_custom_chrome_enabled)
+        {
+            const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
+            const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
+            const std::optional<std::size_t> menu_index = m_chrome_layout.get_menu_index(point_x, point_y);
+            const bool overflow_menu_hovered = m_chrome_layout.is_overflow_menu(point_x, point_y);
+            const bool command_center_hovered = m_chrome_layout.command_center_bounds.contains(point_x, point_y);
+            if (menu_index != m_hovered_menu_index ||
+                overflow_menu_hovered != m_overflow_menu_hovered ||
+                command_center_hovered != m_command_center_hovered)
+            {
+                m_hovered_menu_index = menu_index;
+                m_overflow_menu_hovered = overflow_menu_hovered;
+                m_command_center_hovered = command_center_hovered;
+                InvalidateRect(window_handle, nullptr, FALSE);
+            }
+
+            TRACKMOUSEEVENT tracking_data{
+                .cbSize = sizeof(TRACKMOUSEEVENT),
+                .dwFlags = TME_LEAVE,
+                .hwndTrack = window_handle,
+                .dwHoverTime = HOVER_DEFAULT,
+            };
+            TrackMouseEvent(&tracking_data);
+        }
+        return 0;
+
+    case WM_MOUSELEAVE:
+        m_hovered_menu_index.reset();
+        m_overflow_menu_hovered = false;
+        m_command_center_hovered = false;
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+
+    case WM_LBUTTONDOWN:
+        if (m_custom_chrome_enabled)
+        {
+            const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
+            const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
+            if (m_chrome_layout.get_menu_index(point_x, point_y) ||
+                m_chrome_layout.is_overflow_menu(point_x, point_y))
+            {
+                m_menu_pointer_tracking = true;
+                SetCapture(window_handle);
+                return 0;
+            }
+        }
+        break;
+
+    case WM_LBUTTONUP:
+        if (m_custom_chrome_enabled && m_menu_pointer_tracking)
+        {
+            m_menu_pointer_tracking = false;
+            if (GetCapture() == window_handle)
+            {
+                ReleaseCapture();
+            }
+            const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
+            const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
+            const std::optional<std::size_t> menu_index = m_chrome_layout.get_menu_index(point_x, point_y);
+            if (menu_index)
+            {
+                show_menu(*menu_index);
+                return 0;
+            }
+            if (m_chrome_layout.is_overflow_menu(point_x, point_y))
+            {
+                show_overflow_menu();
+                return 0;
+            }
+
+            m_hovered_menu_index.reset();
+            m_overflow_menu_hovered = false;
+            InvalidateRect(window_handle, nullptr, FALSE);
+            return 0;
+        }
+        break;
+
+    case WM_CANCELMODE:
+    case WM_CAPTURECHANGED:
+        if (m_menu_pointer_tracking)
+        {
+            m_menu_pointer_tracking = false;
+            m_hovered_menu_index.reset();
+            m_overflow_menu_hovered = false;
+            InvalidateRect(window_handle, nullptr, FALSE);
+        }
+        break;
+
+    case WM_SETCURSOR:
+        if (m_custom_chrome_enabled && LOWORD(l_param) == HTCLIENT)
+        {
+            POINT cursor_position{};
+            GetCursorPos(&cursor_position);
+            ScreenToClient(window_handle, &cursor_position);
+            const bool interactive = m_chrome_layout.get_menu_index(
+                                         static_cast<float>(cursor_position.x),
+                                         static_cast<float>(cursor_position.y))
+                                         .has_value() ||
+                m_chrome_layout.is_overflow_menu(
+                    static_cast<float>(cursor_position.x),
+                    static_cast<float>(cursor_position.y)) ||
+                m_chrome_layout.command_center_bounds.contains(
+                    static_cast<float>(cursor_position.x),
+                    static_cast<float>(cursor_position.y));
+            if (interactive)
+            {
+                SetCursor(LoadCursorW(nullptr, IDC_HAND));
+                return TRUE;
+            }
+        }
+        break;
+
+    case WM_COMMAND:
+        if (m_menubar.handle_command(LOWORD(w_param)))
+        {
+            return 0;
+        }
+        break;
+
+    case WM_GETMINMAXINFO:
+        if (m_custom_chrome_enabled)
+        {
+            auto* min_max_info = reinterpret_cast<MINMAXINFO*>(l_param);
+            const float dpi_scale = static_cast<float>(m_dpi) / 96.0F;
+            min_max_info->ptMinTrackSize.x = round_to_int(720.0F * dpi_scale);
+            min_max_info->ptMinTrackSize.y = round_to_int(480.0F * dpi_scale);
+            return 0;
+        }
+        break;
+
+    case WM_DPICHANGED:
+    {
+        m_dpi = HIWORD(w_param);
+        const auto* suggested_bounds = reinterpret_cast<const RECT*>(l_param);
+        SetWindowPos(
+            window_handle,
+            nullptr,
+            suggested_bounds->left,
+            suggested_bounds->top,
+            suggested_bounds->right - suggested_bounds->left,
+            suggested_bounds->bottom - suggested_bounds->top,
+            SWP_NOZORDER | SWP_NOACTIVATE);
+        refresh_ui_font();
+        refresh_chrome_layout();
+        return 0;
+    }
+
+    case WM_SIZE:
+        refresh_chrome_layout();
+        if (m_custom_chrome_enabled)
+        {
+            InvalidateRect(window_handle, nullptr, FALSE);
+        }
+        return 0;
+
+    case WM_PAINT:
+        if (m_custom_chrome_enabled)
+        {
+            paint_custom_chrome();
+            return 0;
+        }
+        break;
+
+    case WM_ERASEBKGND:
+        if (m_custom_chrome_enabled)
+        {
+            return 1;
+        }
+        break;
+
+    case WM_NCACTIVATE:
+        if (m_custom_chrome_enabled)
+        {
+            InvalidateRect(window_handle, nullptr, FALSE);
+            return TRUE;
+        }
+        break;
+
+    case WM_CLOSE:
+        DestroyWindow(window_handle);
+        return 0;
+
+    case WM_DESTROY:
+        m_should_close = true;
+        PostQuitMessage(0);
+        return 0;
+
+    case WM_NCDESTROY:
+        SetWindowLongPtrW(window_handle, GWLP_USERDATA, 0);
+        m_window_handle = nullptr;
+        break;
+
+    default:
+        break;
+    }
+
+    return DefWindowProcW(window_handle, message, w_param, l_param);
+}
+
+LRESULT Win32Window::hit_test_non_client(LPARAM l_param)
+{
+    POINT cursor_position{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
+    ScreenToClient(m_window_handle, &cursor_position);
+
+    const LRESULT resize_result = hit_test_resize_border(cursor_position);
+    if (resize_result != HTNOWHERE)
+    {
+        return resize_result;
+    }
+
+    const float point_x = static_cast<float>(cursor_position.x);
+    const float point_y = static_cast<float>(cursor_position.y);
+    switch (m_chrome_layout.get_window_control(point_x, point_y))
+    {
+    case UI::Chrome::WindowControl::Minimize:
+        return HTMINBUTTON;
+    case UI::Chrome::WindowControl::MaximizeRestore:
+        return HTMAXBUTTON;
+    case UI::Chrome::WindowControl::Close:
+        return HTCLOSE;
+    case UI::Chrome::WindowControl::NoControl:
+        break;
+    }
+
+    const bool is_drag_region = m_titlebar_hit_test_callback
+        ? m_titlebar_hit_test_callback(point_x, point_y)
+        : m_chrome_layout.is_drag_region(point_x, point_y);
+    return is_drag_region ? HTCAPTION : HTCLIENT;
+}
+
+LRESULT Win32Window::hit_test_resize_border(POINT client_position) const
+{
+    if (is_maximized())
+    {
+        return HTNOWHERE;
+    }
+
+    RECT client_bounds{};
+    GetClientRect(m_window_handle, &client_bounds);
+    const int frame_x = GetSystemMetricsForDpi(SM_CXFRAME, m_dpi) +
+        GetSystemMetricsForDpi(SM_CXPADDEDBORDER, m_dpi);
+    const int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, m_dpi) +
+        GetSystemMetricsForDpi(SM_CXPADDEDBORDER, m_dpi);
+
+    const bool on_left = client_position.x < frame_x;
+    const bool on_right = client_position.x >= client_bounds.right - frame_x;
+    const bool on_top = client_position.y < frame_y;
+    const bool on_bottom = client_position.y >= client_bounds.bottom - frame_y;
+
+    if (on_top && on_left)
+    {
+        return HTTOPLEFT;
+    }
+    if (on_top && on_right)
+    {
+        return HTTOPRIGHT;
+    }
+    if (on_bottom && on_left)
+    {
+        return HTBOTTOMLEFT;
+    }
+    if (on_bottom && on_right)
+    {
+        return HTBOTTOMRIGHT;
+    }
+    if (on_left)
+    {
+        return HTLEFT;
+    }
+    if (on_right)
+    {
+        return HTRIGHT;
+    }
+    if (on_top)
+    {
+        return HTTOP;
+    }
+    if (on_bottom)
+    {
+        return HTBOTTOM;
+    }
+    return HTNOWHERE;
+}
+
+void Win32Window::paint_custom_chrome()
+{
+    PAINTSTRUCT paint_data{};
+    HDC window_context = BeginPaint(m_window_handle, &paint_data);
+
+    RECT client_bounds{};
+    GetClientRect(m_window_handle, &client_bounds);
+    const int client_width = client_bounds.right - client_bounds.left;
+    const int client_height = client_bounds.bottom - client_bounds.top;
+    if (client_width <= 0 || client_height <= 0)
+    {
+        EndPaint(m_window_handle, &paint_data);
+        return;
+    }
+
+    HDC buffer_context = CreateCompatibleDC(window_context);
+    HBITMAP buffer_bitmap = CreateCompatibleBitmap(window_context, client_width, client_height);
+    HGDIOBJ previous_bitmap = SelectObject(buffer_context, buffer_bitmap);
+
+    fill_rectangle(
+        buffer_context,
+        UI::Rect{0.0F, 0.0F, static_cast<float>(client_width), static_cast<float>(client_height)},
+        m_theme.window_background);
+    fill_rectangle(buffer_context, m_chrome_layout.titlebar_bounds, m_theme.titlebar_background);
+    fill_rectangle(
+        buffer_context,
+        UI::Rect{
+            0.0F,
+            m_chrome_layout.titlebar_bounds.bottom() - 1.0F,
+            static_cast<float>(client_width),
+            1.0F,
+        },
+        m_theme.titlebar_border);
+
+    SetBkMode(buffer_context, TRANSPARENT);
+    HGDIOBJ previous_font = SelectObject(buffer_context, m_ui_font);
+
+    if (m_hovered_menu_index)
+    {
+        for (std::size_t index = 0; index < m_chrome_layout.visible_menu_count; ++index)
+        {
+            const UI::Chrome::MenuRegion& region = m_chrome_layout.menu_regions[index];
+            if (region.menu_index == *m_hovered_menu_index)
+            {
+                fill_rectangle(buffer_context, region.bounds, m_theme.hover);
+                break;
+            }
+        }
+    }
+
+    for (std::size_t index = 0; index < m_chrome_layout.visible_menu_count; ++index)
+    {
+        const UI::Chrome::MenuRegion& region = m_chrome_layout.menu_regions[index];
+        RECT menu_bounds = to_native_rect(region.bounds);
+        draw_centered_text(
+            buffer_context,
+                window_menu_labels[region.menu_index],
+            menu_bounds,
+            m_theme.text_primary);
+    }
+
+    if (m_chrome_layout.has_overflow_menu())
+    {
+        if (m_overflow_menu_hovered)
+        {
+            fill_rectangle(buffer_context, m_chrome_layout.overflow_menu_bounds, m_theme.hover);
+        }
+        RECT overflow_bounds = to_native_rect(m_chrome_layout.overflow_menu_bounds);
+        draw_centered_text(
+            buffer_context,
+            L"...",
+            overflow_bounds,
+            m_theme.text_primary);
+    }
+
+    const float scale = m_chrome_layout.dpi_scale;
+    const float logo_size = 22.0F * scale;
+    const UI::Rect logo_mark{
+        m_chrome_layout.logo_bounds.x + (m_chrome_layout.logo_bounds.width - logo_size) * 0.5F,
+        m_chrome_layout.logo_bounds.y + (m_chrome_layout.logo_bounds.height - logo_size) * 0.5F,
+        logo_size,
+        logo_size,
+    };
+    fill_rectangle(buffer_context, logo_mark, m_theme.accent);
+    RECT logo_text_bounds = to_native_rect(logo_mark);
+    draw_centered_text(buffer_context, L"Z", logo_text_bounds, UI::Theme::Color{255, 255, 255, 255});
+
+    if (!m_chrome_layout.command_center_bounds.is_empty())
+    {
+        const UI::Theme::Color command_background = m_command_center_hovered
+            ? m_theme.hover
+            : m_theme.command_center_background;
+        RECT command_bounds = to_native_rect(m_chrome_layout.command_center_bounds);
+        HBRUSH command_brush = CreateSolidBrush(to_color_ref(command_background));
+        HPEN command_pen = CreatePen(PS_SOLID, 1, to_color_ref(m_theme.command_center_border));
+        HGDIOBJ previous_brush = SelectObject(buffer_context, command_brush);
+        HGDIOBJ previous_pen = SelectObject(buffer_context, command_pen);
+        const int radius = round_to_int(6.0F * scale);
+        RoundRect(
+            buffer_context,
+            command_bounds.left,
+            command_bounds.top,
+            command_bounds.right,
+            command_bounds.bottom,
+            radius,
+            radius);
+        SelectObject(buffer_context, previous_pen);
+        SelectObject(buffer_context, previous_brush);
+        DeleteObject(command_pen);
+        DeleteObject(command_brush);
+
+        command_bounds.left += round_to_int(28.0F * scale);
+        command_bounds.right -= round_to_int(12.0F * scale);
+        draw_centered_text(
+            buffer_context,
+            m_window_title.c_str(),
+            command_bounds,
+            m_theme.text_secondary);
+
+        HPEN search_pen = CreatePen(PS_SOLID, std::max(1, round_to_int(scale)), to_color_ref(m_theme.text_secondary));
+        previous_pen = SelectObject(buffer_context, search_pen);
+        previous_brush = SelectObject(buffer_context, GetStockObject(HOLLOW_BRUSH));
+        const int search_center_x = round_to_int(m_chrome_layout.command_center_bounds.x + 14.0F * scale);
+        const int search_center_y = round_to_int(m_chrome_layout.command_center_bounds.y +
+            m_chrome_layout.command_center_bounds.height * 0.5F - 1.0F * scale);
+        const int search_radius = round_to_int(4.0F * scale);
+        Ellipse(
+            buffer_context,
+            search_center_x - search_radius,
+            search_center_y - search_radius,
+            search_center_x + search_radius,
+            search_center_y + search_radius);
+        MoveToEx(buffer_context, search_center_x + search_radius - 1, search_center_y + search_radius - 1, nullptr);
+        LineTo(
+            buffer_context,
+            search_center_x + search_radius + round_to_int(3.0F * scale),
+            search_center_y + search_radius + round_to_int(3.0F * scale));
+        SelectObject(buffer_context, previous_brush);
+        SelectObject(buffer_context, previous_pen);
+        DeleteObject(search_pen);
+    }
+
+    HTHEME window_theme = OpenThemeData(m_window_handle, L"WINDOW");
+    const int minimize_state = caption_button_state(
+        UI::Chrome::WindowControl::Minimize,
+        m_hovered_control,
+        m_pressed_control);
+    const int maximize_state = caption_button_state(
+        UI::Chrome::WindowControl::MaximizeRestore,
+        m_hovered_control,
+        m_pressed_control);
+    const int close_state = caption_button_state(
+        UI::Chrome::WindowControl::Close,
+        m_hovered_control,
+        m_pressed_control);
+
+    draw_native_caption_button(
+        buffer_context,
+        window_theme,
+        m_chrome_layout.minimize_bounds,
+        WP_MINBUTTON,
+        DFCS_CAPTIONMIN,
+        minimize_state);
+    draw_native_caption_button(
+        buffer_context,
+        window_theme,
+        m_chrome_layout.maximize_bounds,
+        is_maximized() ? WP_RESTOREBUTTON : WP_MAXBUTTON,
+        is_maximized() ? DFCS_CAPTIONRESTORE : DFCS_CAPTIONMAX,
+        maximize_state);
+    draw_native_caption_button(
+        buffer_context,
+        window_theme,
+        m_chrome_layout.close_bounds,
+        WP_CLOSEBUTTON,
+        DFCS_CAPTIONCLOSE,
+        close_state);
+    if (window_theme != nullptr)
+    {
+        CloseThemeData(window_theme);
+    }
+    
+    SelectObject(buffer_context, previous_font);
+
+    BitBlt(window_context, 0, 0, client_width, client_height, buffer_context, 0, 0, SRCCOPY);
+    SelectObject(buffer_context, previous_bitmap);
+    DeleteObject(buffer_bitmap);
+    DeleteDC(buffer_context);
+    EndPaint(m_window_handle, &paint_data);
+}
+
+void Win32Window::refresh_chrome_layout()
+{
+    if (m_window_handle == nullptr)
+    {
+        return;
+    }
+
+    RECT client_bounds{};
+    GetClientRect(m_window_handle, &client_bounds);
+    m_chrome_layout = m_chrome_layout_engine.calculate(
+        static_cast<float>(client_bounds.right - client_bounds.left),
+        static_cast<float>(m_dpi) / 96.0F);
+}
+
+void Win32Window::refresh_ui_font()
+{
+    if (m_ui_font != nullptr)
+    {
+        DeleteObject(m_ui_font);
+    }
+
+    m_ui_font = CreateFontW(
+        -MulDiv(9, static_cast<int>(m_dpi), 72),
+        0,
+        0,
+        0,
+        FW_NORMAL,
+        FALSE,
+        FALSE,
+        FALSE,
+        DEFAULT_CHARSET,
+        OUT_DEFAULT_PRECIS,
+        CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY,
+        DEFAULT_PITCH | FF_DONTCARE,
+        L"Segoe UI");
+}
+
+void Win32Window::show_menu(std::size_t menu_index)
+{
+    if (menu_index >= m_chrome_layout.visible_menu_count)
+    {
+        return;
+    }
+
+    const UI::Rect& menu_bounds = m_chrome_layout.menu_regions[menu_index].bounds;
+    POINT popup_position{
+        round_to_int(menu_bounds.x),
+        round_to_int(m_chrome_layout.titlebar_bounds.bottom()),
+    };
+    ClientToScreen(m_window_handle, &popup_position);
+    static_cast<void>(m_menubar.show_popup(menu_index, popup_position.x, popup_position.y));
+    m_hovered_menu_index.reset();
+    m_overflow_menu_hovered = false;
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+}
+
+void Win32Window::show_overflow_menu()
+{
+    if (!m_chrome_layout.has_overflow_menu())
+    {
+        return;
+    }
+
+    POINT popup_position{
+        round_to_int(m_chrome_layout.overflow_menu_bounds.x),
+        round_to_int(m_chrome_layout.titlebar_bounds.bottom()),
+    };
+    ClientToScreen(m_window_handle, &popup_position);
+    static_cast<void>(m_menubar.show_overflow_popup(
+        m_chrome_layout.first_overflow_menu_index,
+        popup_position.x,
+        popup_position.y));
+    m_hovered_menu_index.reset();
+    m_overflow_menu_hovered = false;
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+}
+
+void Win32Window::update_hovered_control(UI::Chrome::WindowControl control)
+{
+    if (m_hovered_control != control)
+    {
+        m_hovered_control = control;
+        InvalidateRect(m_window_handle, nullptr, FALSE);
+    }
+}
+
+std::wstring Win32Window::utf8_to_wide(std::string_view text)
+{
+    if (text.empty())
+    {
+        return {};
+    }
+
+    const int required_size = MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        text.data(),
+        static_cast<int>(text.size()),
+        nullptr,
+        0);
+    if (required_size <= 0)
+    {
+        return std::wstring(text.begin(), text.end());
+    }
+
+    std::wstring result(static_cast<std::size_t>(required_size), L'\0');
+    MultiByteToWideChar(
+        CP_UTF8,
+        MB_ERR_INVALID_CHARS,
+        text.data(),
+        static_cast<int>(text.size()),
+        result.data(),
+        required_size);
+    return result;
+}
+
+} // namespace Zenvra::Platform::Win32

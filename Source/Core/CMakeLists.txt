@@ -1,8 +1,4 @@
-﻿# CMakeLists.txt for Core module.
+add_library(ZDECore INTERFACE)
+add_library(Zenvra::Core ALIAS ZDECore)
 
-file(GLOB_RECURSE Core_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
-
-if(Core_SOURCES)
-    add_library(Core STATIC ${Core_SOURCES})
-    target_include_directories(Core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-endif()
+target_include_directories(ZDECore INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/..")

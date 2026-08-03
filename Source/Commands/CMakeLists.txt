@@ -1,8 +1,8 @@
-﻿# CMakeLists.txt for Commands module.
+add_library(ZDECommands STATIC
+    CommandRegistry.cpp
+)
+add_library(Zenvra::Commands ALIAS ZDECommands)
 
-file(GLOB_RECURSE Commands_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
-
-if(Commands_SOURCES)
-    add_library(Commands STATIC ${Commands_SOURCES})
-    target_include_directories(Commands PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-endif()
+target_include_directories(ZDECommands PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/..")
+target_link_libraries(ZDECommands PUBLIC Zenvra::Core)
+zde_enable_warnings(ZDECommands)

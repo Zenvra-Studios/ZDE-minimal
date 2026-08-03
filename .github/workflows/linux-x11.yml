@@ -1,0 +1,31 @@
+name: Linux X11
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build_and_smoke_test:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install X11 build and test packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libx11-dev ninja-build xauth xvfb
+
+      - name: Configure
+        run: cmake --preset linux-release -DBUILD_TESTING=ON
+
+      - name: Build
+        run: cmake --build --preset linux-release
+
+      - name: Run unit tests
+        run: ctest --test-dir build/linux-release --output-on-failure
+
+      - name: Run X11 lifecycle smoke test
+        run: xvfb-run --auto-servernum build/linux-release/bin/Release/ZDE --smoke-test

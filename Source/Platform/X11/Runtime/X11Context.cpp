@@ -1,76 +1,92 @@
-#include "X11Context.h"
-#include <iostream>
+#include "Platform/X11/Runtime/X11Context.h"
+
 #include <cstdlib>
+#include <iostream>
+#include <mutex>
 
-namespace Zenvra {
-namespace Platform {
-namespace X11 {
-namespace Runtime {
+namespace
+{
 
-bool X11Context::s_is_initialized = false;
+std::mutex context_mutex;
+
+} // namespace
+
+namespace Zenvra::Platform::X11::Runtime
+{
+
+bool X11Context::s_threads_initialized = false;
 Display* X11Context::s_display = nullptr;
-
-int X11Context::x11_error_handler(Display* display, XErrorEvent* event)
-{
-    char error_text[1024];
-    XGetErrorText(display, event->error_code, error_text, sizeof(error_text));
-    
-    std::cerr << "X11 Error: " << error_text 
-              << " (Request: " << (int)event->request_code 
-              << ", Minor: " << (int)event->minor_code << ")" << std::endl;
-              
-    return 0; // Returning 0 prevents the application from exiting abruptly
-}
-
-int X11Context::x11_io_error_handler(Display* display)
-{
-    std::cerr << "Fatal X11 I/O Error: Connection to X server lost!" << std::endl;
-    exit(1); // I/O errors are typically fatal, Xlib requires exit
-    return 0;
-}
+std::size_t X11Context::s_reference_count = 0;
 
 bool X11Context::initialize()
 {
-    if (s_is_initialized) {
+    const std::scoped_lock lock(context_mutex);
+    if (s_display != nullptr)
+    {
+        ++s_reference_count;
         return true;
     }
 
-    // Initialize multithreading support before any other X11 calls
-    if (XInitThreads() == 0) {
-        std::cerr << "Fatal Error: XInitThreads failed. Xlib does not support multithreading." << std::endl;
-        return false;
+    if (!s_threads_initialized)
+    {
+        if (XInitThreads() == 0)
+        {
+            std::cerr << "Fatal error: XInitThreads failed.\n";
+            return false;
+        }
+        s_threads_initialized = true;
     }
 
-    // Set custom error handlers
     XSetErrorHandler(x11_error_handler);
     XSetIOErrorHandler(x11_io_error_handler);
-
-    // Open a global display connection
     s_display = XOpenDisplay(nullptr);
-    if (!s_display) {
-        std::cerr << "Fatal Error: Failed to open X11 global display." << std::endl;
+    if (s_display == nullptr)
+    {
+        std::cerr << "Fatal error: the X11 display could not be opened.\n";
         return false;
     }
 
-    s_is_initialized = true;
+    s_reference_count = 1;
     return true;
 }
 
 void X11Context::shutdown()
 {
-    if (s_is_initialized && s_display) {
+    const std::scoped_lock lock(context_mutex);
+    if (s_reference_count == 0)
+    {
+        return;
+    }
+
+    --s_reference_count;
+    if (s_reference_count == 0 && s_display != nullptr)
+    {
         XCloseDisplay(s_display);
         s_display = nullptr;
-        s_is_initialized = false;
     }
 }
 
-Display* X11Context::get_display()
+Display* X11Context::get_display() noexcept
 {
+    const std::scoped_lock lock(context_mutex);
     return s_display;
 }
 
-} // namespace Runtime
-} // namespace X11
-} // namespace Platform
-} // namespace Zenvra
+int X11Context::x11_error_handler(Display* display, XErrorEvent* event)
+{
+    char error_text[1024]{};
+    XGetErrorText(display, event->error_code, error_text, sizeof(error_text));
+    std::cerr << "X11 error: " << error_text
+              << " (request: " << static_cast<int>(event->request_code)
+              << ", minor: " << static_cast<int>(event->minor_code) << ")\n";
+    return 0;
+}
+
+int X11Context::x11_io_error_handler(Display* display)
+{
+    static_cast<void>(display);
+    std::cerr << "Fatal X11 I/O error: the display connection was lost.\n";
+    std::_Exit(EXIT_FAILURE);
+}
+
+} // namespace Zenvra::Platform::X11::Runtime

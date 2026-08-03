@@ -1,38 +1,167 @@
 #pragma once
 
-#include <string>
+#include "Platform/IPlatformWindow.h"
+#include "Platform/X11/Components/X11ChromeRenderer.h"
+#include "UI/Chrome/WindowChromeLayout.h"
+#include "UI/Theme/StudioTheme.h"
+
 #include <X11/Xlib.h>
 
-namespace Zenvra {
-namespace Platform {
-namespace X11 {
+#include <array>
+#include <optional>
 
-class X11Window {
+namespace Zenvra::Platform::X11
+{
+
+class X11Window final : public IPlatformWindow
+{
 public:
-    X11Window(const std::string& title, int width, int height);
-    virtual ~X11Window();
+    explicit X11Window(const WindowSpecification& specification);
+    ~X11Window() override;
 
-    bool initialize();
-    void show();
-    void update();
-    
-    bool should_close() const { return m_should_close; }
-    Window get_handle() const { return m_window; }
-    Display* get_display() const { return m_display; }
+    X11Window(const X11Window&) = delete;
+    X11Window& operator=(const X11Window&) = delete;
 
-protected:
-    // Callback methods for layouting and UI
-    virtual void on_resize(int width, int height);
+    [[nodiscard]] bool initialize() override;
+    void show() override;
+    void poll_events() override;
+    [[nodiscard]] bool should_close() const override;
+
+    void minimize() override;
+    void maximize() override;
+    void restore() override;
+    void request_close() override;
+
+    [[nodiscard]] bool is_maximized() const override;
+    [[nodiscard]] bool is_minimized() const override;
+    [[nodiscard]] bool is_focused() const override;
+    [[nodiscard]] const WindowCapabilities& get_capabilities() const noexcept override;
+    [[nodiscard]] void* get_native_handle() const noexcept override;
+
+    void set_custom_chrome_enabled(bool enabled) override;
+    void set_titlebar_hit_test_callback(TitlebarHitTestCallback callback) override;
+    void set_command_invoked_callback(CommandInvokedCallback callback) override;
+    void set_command_state_query_callback(CommandStateQueryCallback callback) override;
 
 private:
-    Display* m_display;
-    Window m_window;
-    std::string m_title;
-    int m_width;
-    int m_height;
-    bool m_should_close;
+    struct Atoms
+    {
+        Atom wm_protocols = None;
+        Atom wm_delete_window = None;
+        Atom utf8_string = None;
+        Atom net_wm_name = None;
+        Atom net_wm_icon = None;
+        Atom net_wm_pid = None;
+        Atom net_wm_window_type = None;
+        Atom net_wm_window_type_normal = None;
+        Atom net_supported = None;
+        Atom net_workarea = None;
+        Atom net_current_desktop = None;
+        Atom net_wm_state = None;
+        Atom net_wm_state_maximized_horizontal = None;
+        Atom net_wm_state_maximized_vertical = None;
+        Atom net_wm_state_hidden = None;
+        Atom net_wm_move_resize = None;
+        Atom motif_wm_hints = None;
+    };
+
+    enum class MoveResizeDirection : long
+    {
+        SizeTopLeft = 0,
+        SizeTop = 1,
+        SizeTopRight = 2,
+        SizeRight = 3,
+        SizeBottomRight = 4,
+        SizeBottom = 5,
+        SizeBottomLeft = 6,
+        SizeLeft = 7,
+        Move = 8,
+        Cancel = 11,
+    };
+
+    struct WorkArea
+    {
+        int x = 0;
+        int y = 0;
+        int width = 0;
+        int height = 0;
+    };
+
+    void initialize_atoms();
+    void initialize_cursors();
+    void release_native_resources();
+    void apply_window_icon() const;
+    void apply_custom_chrome();
+    void apply_size_hints() const;
+    void refresh_chrome_layout();
+    void refresh_window_state();
+    void render();
+    void handle_event(XEvent& event);
+    void handle_motion(const XMotionEvent& event);
+    void handle_button_press(const XButtonEvent& event);
+    void handle_button_release(const XButtonEvent& event);
+    void handle_key_press(XKeyEvent& event);
+    void update_cursor(int point_x, int point_y);
+    void begin_move_resize(const XButtonEvent& event, MoveResizeDirection direction);
+    void update_manual_move_resize(const XMotionEvent& event);
+    void end_manual_move_resize(Time event_time);
+    void send_maximized_state(long operation);
+    void open_menu(std::size_t menu_index, bool select_first_item);
+    void move_popup_selection(int direction);
+    void execute_popup_selection();
+
+    [[nodiscard]] float calculate_dpi_scale() const;
+    [[nodiscard]] WorkArea get_work_area() const;
+    [[nodiscard]] bool is_drag_region(float point_x, float point_y) const;
+    [[nodiscard]] std::optional<MoveResizeDirection> get_resize_direction(int point_x, int point_y) const;
+    [[nodiscard]] std::optional<std::size_t> get_popup_item_index(int point_x, int point_y) const;
+    [[nodiscard]] bool is_popup_item_enabled(std::size_t menu_index, std::size_t item_index) const;
+    [[nodiscard]] bool is_root_atom_supported(Atom atom) const;
+
+    Display* m_display = nullptr;
+    int m_screen = 0;
+    Window m_window_handle = 0;
+    WindowSpecification m_specification;
+    WindowCapabilities m_capabilities;
+    Atoms m_atoms;
+    int m_client_width = 0;
+    int m_client_height = 0;
+    float m_dpi_scale = 1.0F;
+    bool m_should_close = false;
+    bool m_is_maximized = false;
+    bool m_is_minimized = false;
+    bool m_is_focused = false;
+    bool m_custom_chrome_enabled = false;
+    bool m_context_acquired = false;
+    bool m_ewmh_move_resize_supported = false;
+    bool m_ewmh_maximize_supported = false;
+    Time m_last_titlebar_click_time = 0;
+    int m_last_titlebar_click_x = 0;
+    int m_last_titlebar_click_y = 0;
+    Cursor m_default_cursor = None;
+    Cursor m_active_cursor = None;
+    std::array<Cursor, 9> m_move_resize_cursors{};
+    TitlebarHitTestCallback m_titlebar_hit_test_callback;
+    CommandInvokedCallback m_command_invoked_callback;
+    CommandStateQueryCallback m_command_state_query_callback;
+    UI::Theme::StudioTheme m_theme = UI::Theme::StudioTheme::zenvra_dark();
+    UI::Chrome::WindowChromeLayout m_chrome_layout_engine;
+    UI::Chrome::WindowChromeLayoutResult m_chrome_layout;
+    Components::X11ChromeRenderer m_chrome_renderer;
+    Components::ChromeInteractionState m_interaction_state;
+    std::optional<std::size_t> m_pressed_popup_item_index;
+    std::optional<MoveResizeDirection> m_manual_move_resize_direction;
+    int m_manual_start_root_x = 0;
+    int m_manual_start_root_y = 0;
+    int m_manual_start_window_x = 0;
+    int m_manual_start_window_y = 0;
+    int m_manual_start_width = 0;
+    int m_manual_start_height = 0;
+    int m_restore_x = 0;
+    int m_restore_y = 0;
+    int m_restore_width = 0;
+    int m_restore_height = 0;
+    bool m_restore_bounds_valid = false;
 };
 
-} // namespace X11
-} // namespace Platform
-} // namespace Zenvra
+} // namespace Zenvra::Platform::X11

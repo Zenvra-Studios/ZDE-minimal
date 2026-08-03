@@ -1,8 +1,12 @@
-﻿# CMakeLists.txt for Application module.
+add_library(ZDEApplication STATIC
+    Application.cpp
+    ViewModels/StudioViewModel.cpp
+)
+add_library(Zenvra::Application ALIAS ZDEApplication)
 
-file(GLOB_RECURSE Application_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
-
-if(Application_SOURCES)
-    add_library(Application STATIC ${Application_SOURCES})
-    target_include_directories(Application PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-endif()
+target_include_directories(ZDEApplication PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/..")
+target_link_libraries(ZDEApplication
+    PUBLIC Zenvra::Commands Zenvra::Core
+    PRIVATE Zenvra::Platform
+)
+zde_enable_warnings(ZDEApplication)

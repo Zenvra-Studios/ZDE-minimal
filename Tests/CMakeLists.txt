@@ -1,8 +1,13 @@
-﻿# CMakeLists.txt for Tests module.
-
-file(GLOB_RECURSE Tests_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
-
-if(Tests_SOURCES)
-    add_library(Tests STATIC ${Tests_SOURCES})
-    target_include_directories(Tests PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+if(NOT BUILD_TESTING)
+    return()
 endif()
+
+add_executable(ZDEUnitTests
+    CommandRegistryTests.cpp
+)
+
+target_link_libraries(ZDEUnitTests PRIVATE Zenvra::Application Zenvra::UI)
+target_include_directories(ZDEUnitTests PRIVATE "${PROJECT_SOURCE_DIR}/Source")
+zde_enable_warnings(ZDEUnitTests)
+
+add_test(NAME ZDE.UnitTests COMMAND ZDEUnitTests)

@@ -2,28 +2,26 @@
 
 #include <X11/Xlib.h>
 
-namespace Zenvra {
-namespace Platform {
-namespace X11 {
-namespace Runtime {
+#include <cstddef>
 
-class X11Context {
+namespace Zenvra::Platform::X11::Runtime
+{
+
+class X11Context
+{
 public:
-    static bool initialize();
+    [[nodiscard]] static bool initialize();
     static void shutdown();
-    
-    // Global access to the X11 Display
-    static Display* get_display();
+
+    [[nodiscard]] static Display* get_display() noexcept;
 
 private:
     static int x11_error_handler(Display* display, XErrorEvent* event);
     static int x11_io_error_handler(Display* display);
 
-    static bool s_is_initialized;
+    static bool s_threads_initialized;
     static Display* s_display;
+    static std::size_t s_reference_count;
 };
 
-} // namespace Runtime
-} // namespace X11
-} // namespace Platform
-} // namespace Zenvra
+} // namespace Zenvra::Platform::X11::Runtime

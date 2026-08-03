@@ -5,18 +5,52 @@ IDR_MAINMENU MENU
 BEGIN
     POPUP "&File"
     BEGIN
+        MENUITEM "&New File\tCtrl+N", ID_FILE_NEW, GRAYED
+        MENUITEM "&Open File...\tCtrl+O", ID_FILE_OPEN, GRAYED
+        MENUITEM "&Close File\tCtrl+W", ID_FILE_CLOSE, GRAYED
+        MENUITEM SEPARATOR
         MENUITEM "E&xit", ID_FILE_EXIT
     END
     POPUP "&Edit"
     BEGIN
-        MENUITEM "&Undo\tCtrl+Z", 0, INACTIVE
-        MENUITEM SEPARATOR
-        MENUITEM "Cu&t\tCtrl+X", 0, INACTIVE
-        MENUITEM "&Copy\tCtrl+C", 0, INACTIVE
-        MENUITEM "&Paste\tCtrl+V", 0, INACTIVE
+        MENUITEM "&Undo\tCtrl+Z", ID_EDIT_UNDO, GRAYED
+        MENUITEM "&Redo", ID_EDIT_REDO, GRAYED
+    END
+    POPUP "&Selection"
+    BEGIN
+        MENUITEM "Selection commands will be available with the editor", 0, GRAYED
+    END
+    POPUP "&View"
+    BEGIN
+        MENUITEM "&Explorer", ID_VIEW_EXPLORER, GRAYED
+        MENUITEM "&Search", ID_VIEW_SEARCH, GRAYED
+        MENUITEM "&Output", ID_VIEW_OUTPUT, GRAYED
+        MENUITEM "&Problems", ID_VIEW_PROBLEMS, GRAYED
+    END
+    POPUP "&Navigate"
+    BEGIN
+        MENUITEM "Navigation commands will be available with the editor", 0, GRAYED
+    END
+    POPUP "&Project"
+    BEGIN
+        MENUITEM "&Open Project...", ID_PROJECT_OPEN, GRAYED
+        MENUITEM "&Close Project", ID_PROJECT_CLOSE, GRAYED
+    END
+    POPUP "&Build"
+    BEGIN
+        MENUITEM "&Build Project", ID_BUILD_PROJECT, GRAYED
+    END
+    POPUP "&Run"
+    BEGIN
+        MENUITEM "&Start", ID_RUN_START, GRAYED
+    END
+    POPUP "&Window"
+    BEGIN
+        MENUITEM "&Reset Layout", ID_WINDOW_RESET_LAYOUT, GRAYED
+        MENUITEM "Toggle &Fullscreen", ID_WINDOW_TOGGLE_FULLSCREEN, GRAYED
     END
     POPUP "&Help"
     BEGIN
-        MENUITEM "&About", ID_HELP_ABOUT
+        MENUITEM "&About ZDE", ID_HELP_ABOUT
     END
 END
