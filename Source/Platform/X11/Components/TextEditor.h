@@ -30,6 +30,10 @@ public:
         float point_x,
         float point_y,
         bool extend_selection);
+    [[nodiscard]] bool handle_pointer_move(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) noexcept;
     [[nodiscard]] bool handle_pointer_drag(
         const StudioWorkspaceRenderer& surface,
         const UI::Editor::StudioEditorLayoutResult& layout,

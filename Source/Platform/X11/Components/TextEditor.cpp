@@ -218,6 +218,14 @@ bool TextEditor::handle_pointer_press(
     return true;
 }
 
+bool TextEditor::handle_pointer_move(
+    const UI::Editor::StudioEditorLayoutResult& layout,
+    float point_x,
+    float point_y) noexcept
+{
+    return m_scrollbar.set_hovered(layout, point_x, point_y);
+}
+
 bool TextEditor::handle_pointer_drag(
     const StudioWorkspaceRenderer& surface,
     const UI::Editor::StudioEditorLayoutResult& layout,

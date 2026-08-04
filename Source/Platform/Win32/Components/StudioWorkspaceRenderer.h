@@ -10,11 +10,15 @@
 #include <windows.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
+#include <unordered_map>
+#include <vector>
 
 class AntialiasedFont;
 
@@ -86,6 +90,12 @@ public:
         float content_top) noexcept;
     [[nodiscard]] bool is_editor_focused() const noexcept;
     [[nodiscard]] bool is_terminal_focused() const noexcept;
+    [[nodiscard]] bool is_tab_bar_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
     [[nodiscard]] bool is_editor_point(
         float point_x,
         float point_y,
@@ -130,6 +140,14 @@ public:
         int client_width,
         int client_height,
         float content_top) const;
+    void draw_svg_icon(
+        HDC device_context,
+        std::string_view asset_name,
+        int center_x,
+        int center_y,
+        int size,
+        const UI::Theme::Color& color,
+        const UI::Theme::Color& background) const;
 
 private:
     friend class ActivitySidebar;
@@ -167,6 +185,7 @@ private:
     std::unique_ptr<AntialiasedFont> m_small_font;
     std::unique_ptr<AntialiasedFont> m_editor_font;
     std::unique_ptr<AntialiasedFont> m_minimap_font;
+    std::filesystem::path m_icon_asset_root;
     UI::Editor::StudioEditorLayout m_layout_engine;
     UI::Editor::StudioEditorPalette m_palette = UI::Editor::StudioEditorPalette::jetbrains_dark();
     ActivitySidebar m_activity_sidebar;
@@ -174,6 +193,7 @@ private:
     ToolSidebar m_tool_sidebar;
     TextEditor m_text_editor;
     mutable TerminalPanel m_terminal_panel;
+    mutable std::unordered_map<std::string, std::vector<std::uint32_t>> m_svg_cache;
 };
 
 } // namespace Zenvra::Platform::Win32::Components

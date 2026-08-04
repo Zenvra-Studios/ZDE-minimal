@@ -223,7 +223,10 @@ bool StudioWorkspaceRenderer::handle_pointer_move(
         m_tool_sidebar.get_width());
     const bool sidebar_changed = m_tool_sidebar.handle_pointer_move(
         layout, point_x, point_y);
-    return m_terminal_panel.handle_pointer_move(layout, point_x, point_y) || sidebar_changed;
+    const bool editor_changed = m_text_editor.handle_pointer_move(
+        layout, point_x, point_y);
+    return m_terminal_panel.handle_pointer_move(layout, point_x, point_y) ||
+        sidebar_changed || editor_changed;
 }
 
 bool StudioWorkspaceRenderer::handle_pointer_drag(
@@ -349,6 +352,26 @@ bool StudioWorkspaceRenderer::is_editor_focused() const noexcept
 bool StudioWorkspaceRenderer::is_terminal_focused() const noexcept
 {
     return m_terminal_panel.is_focused();
+}
+
+bool StudioWorkspaceRenderer::is_tab_bar_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
+        static_cast<float>(client_width),
+        static_cast<float>(client_height),
+        content_top,
+        m_dpi_scale,
+        m_terminal_panel.is_visible(),
+        m_terminal_panel.get_height(),
+        m_terminal_panel.is_maximized(),
+        m_tool_sidebar.is_visible(),
+        m_tool_sidebar.get_width());
+    return layout.tab_bar_bounds.contains(point_x, point_y);
 }
 
 bool StudioWorkspaceRenderer::is_editor_point(

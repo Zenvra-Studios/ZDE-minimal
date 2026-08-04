@@ -129,6 +129,8 @@ struct StudioEditorMetrics final
     static constexpr float editor_tab_icon_offset = 10.0F;
     static constexpr float editor_tab_label_offset = 26.0F;
     static constexpr float editor_tab_close_width = 30.0F;
+    static constexpr float titlebar_navigation_width = 80.0F;
+    static constexpr float titlebar_window_controls_width = 138.0F;
 };
 
 class StudioEditorLayout

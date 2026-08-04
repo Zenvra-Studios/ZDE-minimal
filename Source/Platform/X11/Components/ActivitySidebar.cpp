@@ -36,13 +36,21 @@ void ActivitySidebar::render(
         float center_y = 0.0F;
         if (item.placement == UI::Editor::SidebarPlacement::Top)
         {
-            center_y = top_index == 0
-                ? layout.tab_bar_bounds.y + layout.tab_bar_bounds.height * 0.5F
-                : layout.editor_bounds.y +
-                    (UI::Editor::StudioEditorMetrics::sidebar_top_offset +
-                        static_cast<float>(top_index - 1) *
+            const bool tabs_are_in_titlebar =
+                layout.tab_bar_bounds.bottom() <= layout.activity_bar_bounds.y;
+            center_y = tabs_are_in_titlebar
+                ? layout.activity_bar_bounds.y +
+                    (UI::Editor::StudioEditorMetrics::tab_height * 0.5F +
+                        static_cast<float>(top_index) *
                             UI::Editor::StudioEditorMetrics::sidebar_item_spacing) *
-                        surface.m_dpi_scale;
+                        surface.m_dpi_scale
+                : top_index == 0
+                    ? layout.tab_bar_bounds.y + layout.tab_bar_bounds.height * 0.5F
+                    : layout.editor_bounds.y +
+                        (UI::Editor::StudioEditorMetrics::sidebar_top_offset +
+                            static_cast<float>(top_index - 1) *
+                                UI::Editor::StudioEditorMetrics::sidebar_item_spacing) *
+                            surface.m_dpi_scale;
             ++top_index;
         }
         else

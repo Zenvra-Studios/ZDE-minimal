@@ -4,8 +4,10 @@
 #include "Utility/Fonts.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <string>
+#include <string_view>
 
 namespace Zenvra::Platform::X11::Components
 {
@@ -18,15 +20,29 @@ int round_to_int(float value)
     return static_cast<int>(std::lround(value));
 }
 
-std::string file_badge(const std::filesystem::path& path)
+std::string_view file_icon_for_path()
 {
-    const std::string extension = path.extension().string();
-    if (extension == ".cpp" || extension == ".cc" || extension == ".cxx") return "C+";
-    if (extension == ".h" || extension == ".hpp") return "h";
-    if (path.filename() == "CMakeLists.txt") return "cm";
-    if (extension == ".md") return "md";
-    if (extension == ".json") return "{}";
-    return "f";
+    return "file.svg";
+}
+
+std::string_view file_badge_for_path(const std::filesystem::path& path)
+{
+    std::string extension = path.extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+        [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+    if (extension == ".cpp" || extension == ".cxx" || extension == ".cc")
+    {
+        return "C++";
+    }
+    if (extension == ".h" || extension == ".hpp" || extension == ".hh")
+    {
+        return "h";
+    }
+    if (extension == ".c")
+    {
+        return "C";
+    }
+    return {};
 }
 
 std::string ellipsize(AntialiasedFont& font, std::string text, int maximum_width)
@@ -58,12 +74,14 @@ bool ToolSidebar::initialize()
 {
     m_hovered_row.reset();
     m_hovered_icon.reset();
+    m_hovered_scrollbar = false;
     return m_model.initialize();
 }
 
 bool ToolSidebar::activate(UI::Editor::SidebarIcon icon) noexcept
 {
     m_hovered_row.reset();
+    m_hovered_scrollbar = false;
     return m_model.activate(icon);
 }
 
@@ -76,6 +94,12 @@ bool ToolSidebar::handle_pointer_press(
     if (!contains(layout, point_x, point_y))
     {
         return false;
+    }
+    if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project &&
+        m_model.get_project_items().size() > viewport_row_count(layout) &&
+        scrollbar_bounds(layout).contains(point_x, point_y))
+    {
+        return true;
     }
     const float scale = layout.dpi_scale;
     const UI::Rect refresh_bounds{
@@ -111,14 +135,19 @@ bool ToolSidebar::handle_pointer_move(
         next_icon = UI::Editor::get_studio_sidebar_items()[*sidebar_index].icon;
     }
     std::optional<std::size_t> next_row;
+    bool next_scrollbar = false;
     if (contains(layout, point_x, point_y) &&
         m_model.get_active_icon() == UI::Editor::SidebarIcon::Project)
     {
         next_row = row_from_point(layout, point_y);
+        next_scrollbar = scrollbar_bounds(layout).contains(point_x, point_y) &&
+            m_model.get_project_items().size() > viewport_row_count(layout);
     }
-    const bool changed = next_row != m_hovered_row || next_icon != m_hovered_icon;
+    const bool changed = next_row != m_hovered_row || next_icon != m_hovered_icon ||
+        next_scrollbar != m_hovered_scrollbar;
     m_hovered_row = next_row;
     m_hovered_icon = next_icon;
+    m_hovered_scrollbar = next_scrollbar;
     return changed;
 }
 
@@ -237,28 +266,42 @@ void ToolSidebar::render(
         }
         const float indent_x = panel.x +
             (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
+        const int guide_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
+        for (std::size_t level = 0; level < item.depth; ++level)
+        {
+            const int guide_x = round_to_int(
+                panel.x + (13.0F + static_cast<float>(level) * 16.0F) * scale);
+            surface.draw_line(drawable, guide_x, round_to_int(row_bounds.y),
+                guide_x, round_to_int(row_bounds.bottom()), surface.m_pixels.border);
+        }
+        if (item.depth > 0)
+        {
+            const int parent_x = round_to_int(
+                panel.x + (13.0F + static_cast<float>(item.depth - 1) * 16.0F) * scale);
+            const int child_x = round_to_int(indent_x + 3.0F * scale);
+            surface.draw_line(drawable, parent_x, guide_y, child_x, guide_y,
+                surface.m_pixels.border);
+        }
         if (item.directory)
         {
             const int arrow_x = round_to_int(indent_x + 3.0F * scale);
             const int arrow_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
-            if (item.expanded)
-            {
-                surface.draw_line(drawable, arrow_x - 3, arrow_y - 2,
-                    arrow_x, arrow_y + 1, surface.m_pixels.text_muted);
-                surface.draw_line(drawable, arrow_x, arrow_y + 1,
-                    arrow_x + 3, arrow_y - 2, surface.m_pixels.text_muted);
-            }
-            else
-            {
-                surface.draw_line(drawable, arrow_x - 2, arrow_y - 3,
-                    arrow_x + 1, arrow_y, surface.m_pixels.text_muted);
-                surface.draw_line(drawable, arrow_x + 1, arrow_y,
-                    arrow_x - 2, arrow_y + 3, surface.m_pixels.text_muted);
-            }
-            surface.draw_svg_icon(drawable, "Assets/icons/folder.svg",
-                round_to_int(indent_x + 15.0F * scale),
+            const std::string chevron_path = item.expanded
+                ? "Assets/icons/chevron-down.svg"
+                : "Assets/icons/chevron-right.svg";
+            surface.draw_svg_icon(drawable, chevron_path,
+                arrow_x, arrow_y, std::max(round_to_int(8.0F * scale), 7),
+                surface.m_palette.text_muted,
+                m_hovered_row && *m_hovered_row == visible_row
+                    ? surface.m_palette.tab_active_background
+                    : surface.m_palette.sidebar_background);
+            const std::string folder_path = item.expanded
+                ? "Assets/icons/folder-open.svg"
+                : "Assets/icons/folder.svg";
+            surface.draw_svg_icon(drawable, folder_path,
+                round_to_int(indent_x + 19.0F * scale),
                 round_to_int(row_bounds.y + row_bounds.height * 0.5F),
-                std::max(round_to_int(13.0F * scale), 10),
+                std::max(round_to_int(16.0F * scale), 13),
                 surface.m_palette.text_muted,
                 m_hovered_row && *m_hovered_row == visible_row
                     ? surface.m_palette.tab_active_background
@@ -266,17 +309,59 @@ void ToolSidebar::render(
         }
         else
         {
-            surface.draw_text(drawable, *surface.m_small_font, file_badge(item.path),
-                indent_x + 7.0F * scale,
-                row_bounds.y + row_bounds.height * 0.5F,
-                item.path.extension() == ".cpp" ? surface.m_text.accent : surface.m_text.muted);
+            const int icon_x = round_to_int(indent_x + 19.0F * scale);
+            const int icon_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
+            const std::string_view badge = file_badge_for_path(item.path);
+            if (!badge.empty())
+            {
+                // Match the compact bold language marker used by the Win32 tree.
+                const float bold_offset = std::max(scale, 1.0F);
+                surface.draw_text(drawable, *surface.m_small_font, badge,
+                    static_cast<float>(icon_x), static_cast<float>(icon_y),
+                    surface.m_text.accent);
+                surface.draw_text(drawable, *surface.m_small_font, badge,
+                    static_cast<float>(icon_x) + bold_offset, static_cast<float>(icon_y),
+                    surface.m_text.accent);
+            }
+            else
+            {
+                const std::string file_path = "Assets/icons/" +
+                    std::string{file_icon_for_path()};
+                surface.draw_svg_icon(drawable, file_path, icon_x, icon_y,
+                    std::max(round_to_int(16.0F * scale), 13),
+                    surface.m_palette.text_muted,
+                    m_hovered_row && *m_hovered_row == visible_row
+                        ? surface.m_palette.tab_active_background
+                        : surface.m_palette.sidebar_background);
+            }
         }
-        const float label_x = indent_x + (item.directory ? 26.0F : 27.0F) * scale;
+        const float label_x = indent_x + (item.directory ? 30.0F : 36.0F) * scale;
         const std::string label = ellipsize(*surface.m_small_font, item.label,
             std::max(round_to_int(panel.right() - label_x - 10.0F * scale), 1));
         surface.draw_text(drawable, *surface.m_small_font, label,
             label_x, row_bounds.y + row_bounds.height * 0.5F,
             item.directory ? surface.m_text.primary : surface.m_text.muted);
+    }
+
+    if (items.size() > row_count)
+    {
+        const UI::Rect track = scrollbar_bounds(layout);
+        const float visible_fraction = static_cast<float>(row_count) /
+            static_cast<float>(items.size());
+        const float thumb_height = std::max(
+            track.height * visible_fraction, 18.0F * scale);
+        const std::size_t maximum_offset = items.size() - row_count;
+        const float progress = maximum_offset == 0
+            ? 0.0F
+            : static_cast<float>(first) / static_cast<float>(maximum_offset);
+        const UI::Rect thumb{
+            track.x + track.width * 0.25F,
+            track.y + progress * std::max(track.height - thumb_height, 0.0F),
+            std::max(track.width * 0.5F, 1.0F),
+            std::min(thumb_height, track.height),
+        };
+        surface.fill_rectangle(drawable, thumb,
+            m_hovered_scrollbar ? surface.m_pixels.accent : surface.m_pixels.text_muted);
     }
 }
 
@@ -306,6 +391,19 @@ std::optional<std::size_t> ToolSidebar::row_from_point(
             m_model.get_scroll_offset() + row < m_model.get_project_items().size()
         ? std::optional<std::size_t>{row}
         : std::nullopt;
+}
+
+UI::Rect ToolSidebar::scrollbar_bounds(
+    const UI::Editor::StudioEditorLayoutResult& layout) const noexcept
+{
+    const float scale = layout.dpi_scale;
+    const float tree_top = layout.tool_sidebar_bounds.y + header_height * scale;
+    return UI::Rect{
+        layout.tool_sidebar_bounds.right() - 8.0F * scale,
+        tree_top,
+        8.0F * scale,
+        std::max(layout.tool_sidebar_bounds.bottom() - tree_top, 0.0F),
+    };
 }
 
 } // namespace Zenvra::Platform::X11::Components

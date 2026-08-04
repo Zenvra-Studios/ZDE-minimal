@@ -12,7 +12,12 @@ bool TerminalPanelModel::toggle(const std::filesystem::path& working_directory)
     m_focused = m_visible;
     if (m_visible && m_sessions.empty())
     {
-        return create_session(working_directory);
+        if (!create_session(working_directory))
+        {
+            m_visible = false;
+            m_focused = false;
+            return false;
+        }
     }
     return true;
 }
@@ -24,11 +29,15 @@ bool TerminalPanelModel::create_session(const std::filesystem::path& working_dir
         return false;
     }
     auto session = std::make_unique<TerminalSession>();
-    static_cast<void>(session->start(working_directory));
+    if (!session->start(working_directory))
+    {
+        return false;
+    }
     const std::size_t identifier = m_next_identifier++;
+    const std::string shell_name = session->get_shell_path().stem().string();
     m_sessions.push_back(TerminalSessionEntry{
         .identifier = identifier,
-        .title = "bash " + std::to_string(identifier),
+        .title = shell_name + " " + std::to_string(identifier),
         .session = std::move(session),
     });
     m_active_index = m_sessions.size() - 1;

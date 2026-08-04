@@ -251,19 +251,33 @@ void TerminalPanel::render(
     const float line_height = std::max(
         static_cast<float>(surface.m_editor_font->getHeight()) + 2.0F * surface.m_dpi_scale,
         12.0F * surface.m_dpi_scale);
-    const std::size_t visible_rows = static_cast<std::size_t>(std::max(
-        std::floor((layout.terminal_content_bounds.height - 8.0F * surface.m_dpi_scale) / line_height), 1.0F));
+    const float content_top_padding = 5.0F * surface.m_dpi_scale;
+    const float content_bottom_padding = 8.0F * surface.m_dpi_scale;
+    const float usable_content_height = std::max(
+        layout.terminal_content_bounds.height - content_bottom_padding, 0.0F);
+    const std::size_t visible_rows = usable_content_height > 0.0F
+        ? std::max<std::size_t>(
+            static_cast<std::size_t>(std::floor(usable_content_height / line_height)), 1)
+        : 0;
     const int glyph_width = std::max(surface.m_editor_font->getTextWidth("M"), 1);
     const std::size_t visible_columns = static_cast<std::size_t>(std::max(
         (layout.terminal_content_bounds.width - 22.0F * surface.m_dpi_scale) /
             static_cast<float>(glyph_width),
         1.0F));
-    m_model.resize(visible_columns, visible_rows);
+    m_model.resize(visible_columns, std::max<std::size_t>(visible_rows, 1));
+    if (visible_rows == 0)
+    {
+        return;
+    }
     const std::span<const std::string> lines = session->get_lines();
     const std::size_t offset = std::min(m_model.get_scroll_offset(), lines.size());
     const std::size_t end = lines.size() - offset;
     const std::size_t start = end > visible_rows ? end - visible_rows : 0;
-    float center_y = layout.terminal_content_bounds.y + 5.0F * surface.m_dpi_scale + line_height * 0.5F;
+    const std::size_t displayed_rows = end - start;
+    const float content_bottom = layout.terminal_content_bounds.bottom() - content_bottom_padding;
+    const float first_center_y = content_bottom - line_height * 0.5F -
+        static_cast<float>(displayed_rows > 0 ? displayed_rows - 1 : 0) * line_height;
+    float center_y = first_center_y;
     for (std::size_t index = start; index < end; ++index)
     {
         const std::string_view line = lines[index].size() > visible_columns
@@ -275,7 +289,9 @@ void TerminalPanel::render(
     }
     if (lines.size() > visible_rows)
     {
-        const float track_height = std::max(layout.terminal_content_bounds.height - 8.0F * surface.m_dpi_scale, 1.0F);
+        const float track_top = layout.terminal_content_bounds.y + content_top_padding - surface.m_dpi_scale;
+        const float track_bottom = layout.terminal_content_bounds.bottom() - content_bottom_padding;
+        const float track_height = std::max(track_bottom - track_top, 1.0F);
         const float thumb_height = std::max(
             track_height * static_cast<float>(visible_rows) / static_cast<float>(lines.size()),
             18.0F * surface.m_dpi_scale);
@@ -285,7 +301,7 @@ void TerminalPanel::render(
             : static_cast<float>(start) / static_cast<float>(maximum_start);
         surface.fill_rectangle(drawable,
             UI::Rect{layout.terminal_content_bounds.right() - 4.0F * surface.m_dpi_scale,
-                layout.terminal_content_bounds.y + 4.0F * surface.m_dpi_scale +
+                track_top +
                     progress * std::max(track_height - thumb_height, 0.0F),
                 2.0F * surface.m_dpi_scale,
                 std::min(thumb_height, track_height)},
@@ -297,8 +313,8 @@ void TerminalPanel::render(
         const std::string cursor_text = last.substr(0, std::min(last.size(), visible_columns));
         const int cursor_x = round_to_int(layout.terminal_content_bounds.x + padding_x) +
             surface.m_editor_font->getTextWidth(cursor_text);
-        const int cursor_y = round_to_int(layout.terminal_content_bounds.y +
-            5.0F * surface.m_dpi_scale + static_cast<float>(end - start - 1) * line_height);
+        const int cursor_y = round_to_int(first_center_y +
+            static_cast<float>(displayed_rows - 1) * line_height - line_height * 0.5F);
         surface.fill_rectangle(drawable,
             UI::Rect{static_cast<float>(cursor_x), static_cast<float>(cursor_y),
                 std::max(surface.m_dpi_scale, 1.0F), line_height - 2.0F * surface.m_dpi_scale},

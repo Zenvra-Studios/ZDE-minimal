@@ -151,22 +151,21 @@ void test_window_chrome_layout_excludes_interactive_regions()
     const WindowChromeLayoutResult layout = layout_engine.calculate(1600.0F, 1.0F);
 
     expect(layout.titlebar_bounds.height == 35.0F, "the default titlebar must use the 35px design token");
-    expect(layout.visible_menu_count == window_menu_count, "all main menus must fit at the default width");
-    expect(!layout.command_center_bounds.is_empty(), "the command center must be visible at the default width");
+    expect(layout.visible_menu_count == 0, "the main menu labels must stay hidden in the compact chrome");
+    expect(layout.command_center_bounds.is_empty(), "the obsolete title search field must stay removed");
+    expect(layout.has_overflow_menu() && layout.first_overflow_menu_index == 0,
+        "the hamburger overlay must expose every top-level menu");
     expect(
         layout.get_window_control(1580.0F, 17.0F) == WindowControl::Close,
         "the close control must remain at the far-right edge");
     expect(
-        !layout.is_drag_region(layout.menu_regions[0].bounds.x + 2.0F, 17.0F),
-        "menu items must be excluded from the drag region");
-    expect(
         !layout.is_drag_region(
-            layout.command_center_bounds.x + 2.0F,
-            layout.command_center_bounds.y + 2.0F),
-        "the command center must be excluded from the drag region");
+            layout.overflow_menu_bounds.x + 2.0F,
+            layout.overflow_menu_bounds.y + 2.0F),
+        "the hamburger button must be excluded from the drag region");
     expect(
         layout.is_drag_region(
-            layout.command_center_bounds.right() + 4.0F,
+            layout.overflow_menu_bounds.right() + 4.0F,
             layout.titlebar_bounds.height * 0.5F),
         "unused titlebar space must remain draggable");
 }
@@ -188,35 +187,35 @@ void test_window_chrome_layout_is_responsive_and_dpi_aware()
 
     expect(
         narrow_layout.command_center_bounds.is_empty(),
-        "the command center must hide before overlapping menus or window controls");
+        "the removed title search field must stay absent at every width");
     expect(
         narrow_layout.close_bounds.right() == 600.0F,
         "window controls must remain visible at narrow widths");
     expect(
-        narrow_layout.visible_menu_count < window_menu_count,
-        "secondary menu content must collapse at narrow widths");
-    expect(narrow_layout.has_overflow_menu(), "collapsed menus must remain available through overflow");
+        narrow_layout.visible_menu_count == 0,
+        "all top-level menu labels must remain inside the hamburger overlay");
+    expect(narrow_layout.has_overflow_menu(), "the hamburger menu must remain available at narrow widths");
     expect(
-        compact_layout.visible_menu_count == 3,
-        "the minimum supported width must retain File, Edit, and Selection");
-    expect(compact_layout.has_overflow_menu(), "the minimum supported width must expose an ellipsis menu");
+        compact_layout.visible_menu_count == 0,
+        "the minimum supported width must not restore inline menu labels");
+    expect(compact_layout.has_overflow_menu(), "the minimum supported width must expose a hamburger menu");
     expect(
-        compact_layout.first_overflow_menu_index == compact_layout.visible_menu_count,
-        "overflow must begin immediately after the last visible menu");
+        compact_layout.first_overflow_menu_index == 0,
+        "the hamburger overlay must begin with the File menu");
     expect(
-        !compact_layout.command_center_bounds.is_empty(),
-        "the command center must shrink to its responsive minimum before hiding");
+        compact_layout.command_center_bounds.is_empty(),
+        "the removed title search field must not return at compact widths");
     expect(
         !compact_layout.is_drag_region(
             compact_layout.overflow_menu_bounds.x + 1.0F,
             compact_layout.overflow_menu_bounds.y + 1.0F),
-        "the ellipsis button must be excluded from the drag region");
+        "the hamburger button must be excluded from the drag region");
     expect(
         linux_layout.close_bounds.is_empty(),
         "a WM-decorated Linux layout must not reserve or draw client window controls");
     expect(
         linux_layout.has_overflow_menu(),
-        "the responsive menu overflow must also remain available under native WM decorations");
+        "the hamburger menu must also remain available under native WM decorations");
     expect(scaled_layout.titlebar_bounds.height == 70.0F, "titlebar metrics must scale with DPI");
     expect(scaled_layout.close_bounds.width == 92.0F, "window controls must scale with DPI");
 }
@@ -268,8 +267,9 @@ void test_studio_editor_layout_and_tokenization()
 
     const StudioEditorLayout layout_engine;
     const StudioEditorLayoutResult layout = layout_engine.calculate(860.0F, 640.0F, 35.0F, 1.0F);
-    expect(layout.tab_bar_bounds.y == 35.0F, "editor tabs must begin below the window chrome");
-    expect(layout.editor_bounds.y == 65.0F, "the editor must begin below the medium tab strip");
+    expect(layout.tab_bar_bounds.y == 5.0F && layout.tab_bar_bounds.bottom() == 35.0F,
+        "editor tabs must be integrated into the custom titlebar");
+    expect(layout.editor_bounds.y == 35.0F, "the editor must begin directly below the titlebar");
     expect(layout.status_bar_bounds.y == 616.0F, "the status bar must remain pinned to the bottom");
     expect(layout.activity_bar_bounds.width == 38.0F,
         "the activity rail must use the medium workspace scale");
@@ -694,23 +694,22 @@ void test_terminal_layout_and_host_session()
             "the terminal rail icon must have a real clickable hit target");
     }
 
-#if !defined(_WIN32)
     Zenvra::Terminal::TerminalSession session;
     expect(!Zenvra::Terminal::TerminalSession::resolve_host_shell().empty(),
-        "the host terminal must resolve /usr/bash or a standard bash fallback");
+        "the host terminal must resolve a local shell executable");
     const bool started = session.start(std::filesystem::current_path());
-    expect(started, "the host bash session must start through a pseudo-terminal");
+    expect(started, "the host shell session must start");
     bool received_marker = false;
     if (started)
     {
-        expect(session.write_input("printf '__ZDE_TERMINAL_READY__\\n'\r"),
+        expect(session.write_input("echo __ZDE_TERMINAL_READY__\r"),
             "the terminal must accept interactive keyboard input");
         for (int attempt = 0; attempt < 100 && !received_marker; ++attempt)
         {
             static_cast<void>(session.poll());
             for (const std::string& line : session.get_lines())
             {
-                if (line == "__ZDE_TERMINAL_READY__")
+                if (line.find("__ZDE_TERMINAL_READY__") != std::string::npos)
                 {
                     received_marker = true;
                     break;
@@ -755,7 +754,6 @@ void test_terminal_layout_and_host_session()
             !terminal_panel.is_visible(),
         "exiting the final session must destroy its tab and close the terminal panel");
     terminal_panel.shutdown();
-#endif
 }
 
 void test_editor_selection_and_file_crud()

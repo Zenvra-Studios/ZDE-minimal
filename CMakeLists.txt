@@ -45,6 +45,12 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib/$<CONFIG>")
 
 # --- Compiler Flags per Target & Configuration -----------------------------
 function(zde_enable_warnings target_name)
+    # Prevent the Windows SDK's min/max macros from breaking calls such as
+    # std::min and std::max in any ZDE target that includes windows.h.
+    if(WIN32)
+        target_compile_definitions(${target_name} PRIVATE NOMINMAX)
+    endif()
+
     if(MSVC)
         target_compile_options(${target_name} PRIVATE
             /W4

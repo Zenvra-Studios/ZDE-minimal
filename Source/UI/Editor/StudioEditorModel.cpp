@@ -145,15 +145,22 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
     const UI::Rect sidebar_bounds = content.items[1];
     const UI::Rect editor_workspace_bounds = content.items[2];
 
-    const std::array workspace_items{
-        Utility::FlexItem::fixed(tab_height),
-        Utility::FlexItem::flexible(),
+    const float integrated_tab_height = std::min(tab_height, safe_top);
+    const float integrated_tab_x = std::min(
+        std::max(
+            editor_workspace_bounds.x,
+            StudioEditorMetrics::titlebar_navigation_width * safe_scale),
+        safe_width);
+    const float integrated_tab_right = std::max(
+        safe_width - StudioEditorMetrics::titlebar_window_controls_width * safe_scale,
+        integrated_tab_x);
+    const UI::Rect tab_bounds{
+        integrated_tab_x,
+        safe_top - integrated_tab_height,
+        integrated_tab_right - integrated_tab_x,
+        integrated_tab_height,
     };
-    const Utility::FlexLayoutResult workspace = Utility::Column::calculate(
-        editor_workspace_bounds,
-        workspace_items);
-    const UI::Rect tab_bounds = workspace.items[0];
-    const UI::Rect workspace_body = workspace.items[1];
+    const UI::Rect workspace_body = editor_workspace_bounds;
 
     const float requested_terminal_height = terminal_visible
         ? (terminal_maximized
@@ -251,12 +258,19 @@ Rect calculate_studio_sidebar_item_bounds(
     float center_y = 0.0F;
     if (target.placement == SidebarPlacement::Top)
     {
-        center_y = placement_index == 0
-            ? layout.tab_bar_bounds.y + layout.tab_bar_bounds.height * 0.5F
-            : layout.editor_bounds.y +
-                (StudioEditorMetrics::sidebar_top_offset +
-                    static_cast<float>(placement_index - 1) *
-                        StudioEditorMetrics::sidebar_item_spacing) * scale;
+        const bool tabs_are_in_titlebar =
+            layout.tab_bar_bounds.bottom() <= layout.activity_bar_bounds.y;
+        center_y = tabs_are_in_titlebar
+            ? layout.activity_bar_bounds.y +
+                (StudioEditorMetrics::tab_height * 0.5F +
+                    static_cast<float>(placement_index) *
+                        StudioEditorMetrics::sidebar_item_spacing) * scale
+            : placement_index == 0
+                ? layout.tab_bar_bounds.y + layout.tab_bar_bounds.height * 0.5F
+                : layout.editor_bounds.y +
+                    (StudioEditorMetrics::sidebar_top_offset +
+                        static_cast<float>(placement_index - 1) *
+                            StudioEditorMetrics::sidebar_item_spacing) * scale;
     }
     else
     {

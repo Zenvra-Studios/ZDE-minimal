@@ -251,6 +251,17 @@ bool X11ChromeRenderer::is_terminal_focused() const noexcept
     return m_workspace_renderer.is_terminal_focused();
 }
 
+bool X11ChromeRenderer::is_tab_bar_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    return m_workspace_renderer.is_tab_bar_point(
+        point_x, point_y, client_width, client_height, content_top);
+}
+
 bool X11ChromeRenderer::is_editor_point(
     float point_x,
     float point_y,
@@ -332,7 +343,6 @@ void X11ChromeRenderer::render(
     int client_width,
     int client_height,
     const UI::Chrome::WindowChromeLayoutResult& chrome_layout,
-    std::string_view title,
     const ChromeInteractionState& interaction_state,
     const CommandStateQueryCallback& command_state_query_callback) const
 {
@@ -405,11 +415,26 @@ void X11ChromeRenderer::render(
             hover_bounds.height -= 8.0F * m_dpi_scale;
             fill_rectangle(back_buffer, hover_bounds, m_colors.hover, 4);
         }
-        draw_centered_text(
-            back_buffer,
-            "...",
-            chrome_layout.overflow_menu_bounds,
-            m_text_colors.primary);
+        const int line_half_width = std::max(round_to_int(6.0F * m_dpi_scale), 4);
+        const int line_gap = std::max(round_to_int(4.0F * m_dpi_scale), 3);
+        const int center_x = round_to_int(
+            chrome_layout.overflow_menu_bounds.x +
+            chrome_layout.overflow_menu_bounds.width * 0.5F);
+        const int center_y = round_to_int(
+            chrome_layout.overflow_menu_bounds.y +
+            chrome_layout.overflow_menu_bounds.height * 0.5F);
+        XSetForeground(m_display, m_graphics_context, m_colors.text_primary);
+        for (int row = -1; row <= 1; ++row)
+        {
+            XDrawLine(
+                m_display,
+                back_buffer,
+                m_graphics_context,
+                center_x - line_half_width,
+                center_y + row * line_gap,
+                center_x + line_half_width,
+                center_y + row * line_gap);
+        }
     }
 
     const float scale = chrome_layout.dpi_scale;
@@ -422,45 +447,6 @@ void X11ChromeRenderer::render(
     };
     fill_rectangle(back_buffer, logo_bounds, m_colors.accent, static_cast<int>(logo_size * 0.25F));
     draw_centered_text(back_buffer, "Z", logo_bounds, m_text_colors.white);
-
-    if (!chrome_layout.command_center_bounds.is_empty())
-    {
-        fill_rectangle(
-            back_buffer,
-            chrome_layout.command_center_bounds,
-            interaction_state.command_center_hovered ? m_colors.hover : m_colors.command_center_background,
-            6);
-        draw_rectangle(back_buffer, chrome_layout.command_center_bounds, m_colors.command_center_border, 6);
-        draw_centered_text(
-            back_buffer,
-            title,
-            chrome_layout.command_center_bounds,
-            m_text_colors.secondary);
-
-        const int search_x = round_to_int(chrome_layout.command_center_bounds.x + 14.0F * scale);
-        const int search_y = round_to_int(
-            chrome_layout.command_center_bounds.y + chrome_layout.command_center_bounds.height * 0.5F);
-        const int search_radius = std::max(round_to_int(4.0F * scale), 2);
-        XSetForeground(m_display, m_graphics_context, m_colors.text_secondary);
-        XDrawArc(
-            m_display,
-            back_buffer,
-            m_graphics_context,
-            search_x - search_radius,
-            search_y - search_radius,
-            static_cast<unsigned int>(search_radius * 2),
-            static_cast<unsigned int>(search_radius * 2),
-            0,
-            360 * 64);
-        XDrawLine(
-            m_display,
-            back_buffer,
-            m_graphics_context,
-            search_x + search_radius - 1,
-            search_y + search_radius - 1,
-            search_x + search_radius + round_to_int(3.0F * scale),
-            search_y + search_radius + round_to_int(3.0F * scale));
-    }
 
     draw_window_control(
         back_buffer,

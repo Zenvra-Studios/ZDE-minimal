@@ -670,7 +670,6 @@ void X11Window::render()
         m_client_width,
         m_client_height,
         m_chrome_layout,
-        m_specification.title,
         m_interaction_state,
         m_command_state_query_callback);
 }
@@ -1910,6 +1909,15 @@ X11Window::WorkArea X11Window::get_work_area() const
 
 bool X11Window::is_drag_region(float point_x, float point_y) const
 {
+    if (m_chrome_renderer.is_tab_bar_point(
+            point_x,
+            point_y,
+            m_client_width,
+            m_client_height,
+            m_chrome_layout.titlebar_bounds.bottom()))
+    {
+        return false;
+    }
     return m_titlebar_hit_test_callback
         ? m_titlebar_hit_test_callback(point_x, point_y)
         : m_chrome_layout.is_drag_region(point_x, point_y);

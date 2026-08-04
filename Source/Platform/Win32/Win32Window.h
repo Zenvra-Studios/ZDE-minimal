@@ -8,8 +8,9 @@
 
 #include <windows.h>
 
-#include <string>
+#include <array>
 #include <optional>
+#include <string>
 
 namespace Zenvra::Platform::Win32
 {
@@ -45,6 +46,22 @@ public:
     void set_command_state_query_callback(CommandStateQueryCallback callback) override;
 
 private:
+    static constexpr std::size_t max_popup_menu_items = 16;
+
+    struct MenuOverlayGeometry
+    {
+        UI::Rect bounds;
+        std::array<UI::Rect, UI::Chrome::window_menu_count> item_bounds{};
+        std::size_t item_count = 0;
+    };
+
+    struct PopupMenuGeometry
+    {
+        UI::Rect bounds;
+        std::array<UI::Rect, max_popup_menu_items> item_bounds{};
+        std::size_t item_count = 0;
+    };
+
     static LRESULT CALLBACK window_proc(HWND window_handle, UINT message, WPARAM w_param, LPARAM l_param);
     LRESULT handle_message(HWND window_handle, UINT message, WPARAM w_param, LPARAM l_param);
     [[nodiscard]] LRESULT hit_test_non_client(LPARAM l_param);
@@ -54,6 +71,21 @@ private:
     void refresh_ui_font();
     void show_menu(std::size_t menu_index);
     void show_overflow_menu();
+    void close_menu_overlay();
+    void execute_menu_item(std::size_t menu_index, std::size_t item_index);
+    void draw_menu_overlay(HDC device_context) const;
+    [[nodiscard]] MenuOverlayGeometry calculate_menu_overlay_geometry() const noexcept;
+    [[nodiscard]] PopupMenuGeometry calculate_popup_menu_geometry(
+        std::size_t menu_index) const noexcept;
+    [[nodiscard]] std::optional<std::size_t> get_menu_overlay_index(
+        float point_x,
+        float point_y) const noexcept;
+    [[nodiscard]] std::optional<std::size_t> get_popup_menu_item_index(
+        float point_x,
+        float point_y) const noexcept;
+    [[nodiscard]] bool is_popup_menu_item_enabled(
+        std::size_t menu_index,
+        std::size_t item_index) const;
     void update_hovered_control(UI::Chrome::WindowControl control);
     static std::wstring utf8_to_wide(std::string_view text);
 
@@ -75,6 +107,9 @@ private:
     UI::Chrome::WindowControl m_hovered_control = UI::Chrome::WindowControl::NoControl;
     UI::Chrome::WindowControl m_pressed_control = UI::Chrome::WindowControl::NoControl;
     std::optional<std::size_t> m_hovered_menu_index;
+    std::optional<std::size_t> m_open_menu_index;
+    std::optional<std::size_t> m_hovered_popup_item_index;
+    bool m_menu_overlay_open = false;
     bool m_overflow_menu_hovered = false;
     bool m_menu_pointer_tracking = false;
     bool m_workspace_pointer_captured = false;

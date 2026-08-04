@@ -225,6 +225,14 @@ bool TextEditor::handle_pointer_press(
     return true;
 }
 
+bool TextEditor::handle_pointer_move(
+    const UI::Editor::StudioEditorLayoutResult& layout,
+    float point_x,
+    float point_y) noexcept
+{
+    return m_scrollbar.set_hovered(layout, point_x, point_y);
+}
+
 bool TextEditor::handle_pointer_drag(
     const StudioWorkspaceRenderer& surface,
     HDC device_context,
@@ -444,14 +452,17 @@ void TextEditor::draw_tab_strip(
                     bounds.width, surface.m_dpi_scale},
                 surface.m_palette.accent);
         }
-        surface.draw_rectangle(
+        surface.draw_svg_icon(
             device_context,
-            UI::Rect{bounds.x +
-                    UI::Editor::StudioEditorMetrics::editor_tab_icon_offset *
-                        surface.m_dpi_scale,
-                bounds.y + (bounds.height - 10.0F * surface.m_dpi_scale) * 0.5F,
-                8.0F * surface.m_dpi_scale, 10.0F * surface.m_dpi_scale},
-            surface.m_palette.text_muted);
+            "file.svg",
+            round_to_int(bounds.x +
+                (UI::Editor::StudioEditorMetrics::editor_tab_icon_offset + 4.0F) *
+                    surface.m_dpi_scale),
+            round_to_int(bounds.y + bounds.height * 0.5F),
+            std::max(round_to_int(12.0F * surface.m_dpi_scale), 9),
+            surface.m_palette.text_muted,
+            active ? surface.m_palette.tab_active_background
+                   : surface.m_palette.tab_background);
         surface.draw_text(
             device_context,
             *surface.m_ui_font,
@@ -475,13 +486,15 @@ void TextEditor::draw_tab_strip(
             UI::Editor::StudioEditorMetrics::editor_tab_close_width *
                 0.5F * surface.m_dpi_scale);
         const int close_center_y = round_to_int(bounds.y + bounds.height * 0.5F);
-        const int close_half = std::max(round_to_int(3.0F * surface.m_dpi_scale), 2);
-        surface.draw_line(device_context, close_center_x - close_half,
-            close_center_y - close_half, close_center_x + close_half,
-            close_center_y + close_half, surface.m_palette.text_muted);
-        surface.draw_line(device_context, close_center_x + close_half,
-            close_center_y - close_half, close_center_x - close_half,
-            close_center_y + close_half, surface.m_palette.text_muted);
+        surface.draw_svg_icon(
+            device_context,
+            "close.svg",
+            close_center_x,
+            close_center_y,
+            std::max(round_to_int(10.0F * surface.m_dpi_scale), 8),
+            surface.m_palette.text_muted,
+            active ? surface.m_palette.tab_active_background
+                   : surface.m_palette.tab_background);
         surface.draw_line(
             device_context,
             round_to_int(bounds.right()),

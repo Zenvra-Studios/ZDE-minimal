@@ -32,6 +32,10 @@ public:
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y) const noexcept;
+    [[nodiscard]] bool set_hovered(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) noexcept;
     [[nodiscard]] std::size_t get_first_visible_line() const noexcept;
 
     void render(
@@ -44,6 +48,7 @@ private:
         const UI::Editor::StudioEditorLayoutResult& layout) noexcept;
 
     UI::Editor::EditorScrollModel m_model;
+    bool m_hovered = false;
 };
 
 } // namespace Zenvra::Platform::Win32::Components

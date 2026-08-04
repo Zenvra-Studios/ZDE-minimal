@@ -1,5 +1,4 @@
 #include "Platform/Win32/Components/ActivitySidebar.h"
-
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
 
 #include <algorithm>
@@ -16,11 +15,6 @@ int round_to_int(float value)
     return static_cast<int>(std::lround(value));
 }
 
-COLORREF to_color_ref(const UI::Theme::Color& color)
-{
-    return RGB(color.red, color.green, color.blue);
-}
-
 } // namespace
 
 void ActivitySidebar::render(
@@ -28,8 +22,7 @@ void ActivitySidebar::render(
     HDC device_context,
     const UI::Editor::StudioEditorLayoutResult& layout) const
 {
-    const int center_x = round_to_int(
-        layout.activity_bar_bounds.x + layout.activity_bar_bounds.width * 0.5F);
+    const int center_x = round_to_int(layout.activity_bar_bounds.x + layout.activity_bar_bounds.width * 0.5F);
     std::size_t top_index = 0;
     std::size_t bottom_index = 0;
     const std::span<const UI::Editor::SidebarItem> items = UI::Editor::get_studio_sidebar_items();
@@ -43,13 +36,21 @@ void ActivitySidebar::render(
         float center_y = 0.0F;
         if (item.placement == UI::Editor::SidebarPlacement::Top)
         {
-            center_y = top_index == 0
-                ? layout.tab_bar_bounds.y + layout.tab_bar_bounds.height * 0.5F
-                : layout.editor_bounds.y +
-                    (UI::Editor::StudioEditorMetrics::sidebar_top_offset +
-                        static_cast<float>(top_index - 1) *
+            const bool tabs_are_in_titlebar =
+                layout.tab_bar_bounds.bottom() <= layout.activity_bar_bounds.y;
+            center_y = tabs_are_in_titlebar
+                ? layout.activity_bar_bounds.y +
+                    (UI::Editor::StudioEditorMetrics::tab_height * 0.5F +
+                        static_cast<float>(top_index) *
                             UI::Editor::StudioEditorMetrics::sidebar_item_spacing) *
-                        surface.m_dpi_scale;
+                        surface.m_dpi_scale
+                : top_index == 0
+                    ? layout.tab_bar_bounds.y + layout.tab_bar_bounds.height * 0.5F
+                    : layout.editor_bounds.y +
+                        (UI::Editor::StudioEditorMetrics::sidebar_top_offset +
+                            static_cast<float>(top_index - 1) *
+                                UI::Editor::StudioEditorMetrics::sidebar_item_spacing) *
+                            surface.m_dpi_scale;
             ++top_index;
         }
         else
@@ -112,95 +113,48 @@ void ActivitySidebar::draw_icon(
     int center_y,
     bool active) const
 {
-    const int size = std::max(round_to_int(
-        UI::Editor::StudioEditorMetrics::sidebar_icon_size * surface.m_dpi_scale), 14);
-    const int half = size / 2;
-    const UI::Theme::Color icon_color = active
-        ? surface.m_palette.text_primary
-        : surface.m_palette.text_muted;
-    HPEN pen = CreatePen(PS_SOLID, 1, to_color_ref(icon_color));
-    HGDIOBJ previous_pen = SelectObject(device_context, pen);
-    HGDIOBJ previous_brush = SelectObject(device_context, GetStockObject(HOLLOW_BRUSH));
+    const int size = std::max(round_to_int(UI::Editor::StudioEditorMetrics::sidebar_icon_size * surface.m_dpi_scale), 14);
+    std::string_view asset_name;
     switch (icon)
     {
     case UI::Editor::SidebarIcon::Project:
-        Rectangle(device_context, center_x - half, center_y - half + 2,
-            center_x + half + 1, center_y + half + 1);
-        MoveToEx(device_context, center_x - half + 1, center_y - half + 1, nullptr);
-        LineTo(device_context, center_x - 1, center_y - half + 1);
+        asset_name = "folder.svg";
         break;
     case UI::Editor::SidebarIcon::VersionControl:
-        Ellipse(device_context, center_x - half, center_y - half,
-            center_x - half + 5, center_y - half + 5);
-        Ellipse(device_context, center_x + half - 5, center_y - half,
-            center_x + half, center_y - half + 5);
-        Ellipse(device_context, center_x - 2, center_y + half - 5,
-            center_x + 3, center_y + half);
-        MoveToEx(device_context, center_x - half + 2, center_y - half + 5, nullptr);
-        LineTo(device_context, center_x, center_y + half - 5);
-        MoveToEx(device_context, center_x + half - 2, center_y - half + 5, nullptr);
-        LineTo(device_context, center_x, center_y + half - 5);
+        asset_name = "git-branch.svg";
         break;
     case UI::Editor::SidebarIcon::Search:
-        Ellipse(device_context, center_x - half, center_y - half,
-            center_x + half - 2, center_y + half - 2);
-        MoveToEx(device_context, center_x + 2, center_y + 2, nullptr);
-        LineTo(device_context, center_x + half + 1, center_y + half + 1);
+        asset_name = "search.svg";
         break;
     case UI::Editor::SidebarIcon::Services:
-        for (int row = 0; row < 2; ++row)
-        {
-            for (int column = 0; column < 2; ++column)
-            {
-                const int left = center_x - half + column * (half + 1);
-                const int top = center_y - half + row * (half + 1);
-                Rectangle(device_context, left, top, left + half - 1, top + half - 1);
-            }
-        }
+        asset_name = "puzzle.svg";
         break;
     case UI::Editor::SidebarIcon::Run:
-    {
-        POINT points[]{
-            POINT{center_x - half + 2, center_y - half},
-            POINT{center_x + half, center_y},
-            POINT{center_x - half + 2, center_y + half},
-        };
-        Polygon(device_context, points, 3);
+        asset_name = "play.svg";
         break;
-    }
     case UI::Editor::SidebarIcon::Terminal:
-        Rectangle(device_context, center_x - half, center_y - half,
-            center_x + half + 1, center_y + half + 1);
-        MoveToEx(device_context, center_x - half + 3, center_y - 3, nullptr);
-        LineTo(device_context, center_x, center_y);
-        LineTo(device_context, center_x - half + 3, center_y + 3);
+        asset_name = "terminal.svg";
         break;
     case UI::Editor::SidebarIcon::Problems:
-        Ellipse(device_context, center_x - half, center_y - half,
-            center_x + half + 1, center_y + half + 1);
-        MoveToEx(device_context, center_x, center_y - 3, nullptr);
-        LineTo(device_context, center_x, center_y + 2);
-        SetPixel(device_context, center_x, center_y + 5, to_color_ref(icon_color));
+        asset_name = "bug.svg";
         break;
     case UI::Editor::SidebarIcon::More:
-        SelectObject(device_context, previous_brush);
-        previous_brush = SelectObject(
-            device_context,
-            CreateSolidBrush(to_color_ref(icon_color)));
-        for (int offset = -4; offset <= 4; offset += 4)
-        {
-            Ellipse(device_context, center_x + offset - 1, center_y - 1,
-                center_x + offset + 2, center_y + 2);
-        }
+        asset_name = "ellipsis.svg";
         break;
     }
-    HGDIOBJ active_brush = SelectObject(device_context, previous_brush);
-    if (icon == UI::Editor::SidebarIcon::More)
+
+    if (!asset_name.empty())
     {
-        DeleteObject(active_brush);
+        surface.draw_svg_icon(
+            device_context,
+            asset_name,
+            center_x,
+            center_y,
+            size,
+            active ? surface.m_palette.text_primary : surface.m_palette.text_muted,
+            active ? surface.m_palette.tab_active_background
+                   : surface.m_palette.sidebar_background);
     }
-    SelectObject(device_context, previous_pen);
-    DeleteObject(pen);
 }
 
 } // namespace Zenvra::Platform::Win32::Components

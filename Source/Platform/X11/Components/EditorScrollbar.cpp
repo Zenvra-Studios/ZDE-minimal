@@ -10,6 +10,7 @@ namespace Zenvra::Platform::X11::Components
 void EditorScrollbar::reset() noexcept
 {
     m_model = UI::Editor::EditorScrollModel{};
+    m_hovered = false;
 }
 
 void EditorScrollbar::synchronize(
@@ -74,6 +75,17 @@ bool EditorScrollbar::is_point(
     return layout.scrollbar_bounds.contains(point_x, point_y);
 }
 
+bool EditorScrollbar::set_hovered(
+    const UI::Editor::StudioEditorLayoutResult& layout,
+    float point_x,
+    float point_y) noexcept
+{
+    const bool hovered = is_point(layout, point_x, point_y);
+    const bool changed = hovered != m_hovered;
+    m_hovered = hovered;
+    return changed;
+}
+
 std::size_t EditorScrollbar::get_first_visible_line() const noexcept
 {
     return m_model.get_first_visible_line();
@@ -95,7 +107,9 @@ void EditorScrollbar::render(
     surface.fill_rectangle(
         drawable,
         geometry.thumb,
-        m_model.is_dragging() ? surface.m_pixels.accent : surface.m_pixels.text_muted);
+        m_model.is_dragging() || m_hovered
+            ? surface.m_pixels.accent
+            : surface.m_pixels.text_muted);
 }
 
 UI::Rect EditorScrollbar::get_track_bounds(

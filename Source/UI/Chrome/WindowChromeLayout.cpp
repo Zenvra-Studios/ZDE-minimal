@@ -84,7 +84,6 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(
     const WindowChromeMetrics metrics;
     const float titlebar_height = metrics.titlebar_height * safe_scale;
     const float control_width = metrics.window_control_width * safe_scale;
-    const float horizontal_padding = metrics.horizontal_padding * safe_scale;
 
     WindowChromeLayoutResult result;
     result.dpi_scale = safe_scale;
@@ -101,72 +100,18 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(
         result.close_bounds = {controls_start + control_width * 2.0F, 0.0F, control_width, titlebar_height};
     }
 
-    const float command_area_end = controls_start - horizontal_padding;
-    if (client_width >= metrics.command_center_minimum_window_width * safe_scale)
+    // The full menu bar lives in a custom overlay. Keeping one stable anchor
+    // leaves the remaining titlebar width available for real editor tabs.
+    const float hamburger_width = std::min(
+        metrics.overflow_menu_width * safe_scale,
+        std::max(controls_start - result.logo_bounds.right(), 0.0F));
+    if (hamburger_width > 0.0F)
     {
-        const float minimum_command_width = metrics.command_center_minimum_width * safe_scale;
-        const float maximum_command_width = metrics.command_center_width * safe_scale;
-        const float responsive_command_width = client_width * 0.30F;
-        const float available_command_width = std::max(
-            command_area_end - result.logo_bounds.right() - horizontal_padding,
-            0.0F);
-        const float command_width = std::min(
-            std::clamp(responsive_command_width, minimum_command_width, maximum_command_width),
-            available_command_width);
-        if (command_width >= minimum_command_width)
-        {
-            const float centered_x = client_width * 0.5F - command_width * 0.5F;
-            const float command_x = std::min(centered_x, command_area_end - command_width);
-            const float vertical_padding = 5.0F * safe_scale;
-            result.command_center_bounds = {
-                command_x,
-                vertical_padding,
-                command_width,
-                titlebar_height - vertical_padding * 2.0F,
-            };
-        }
-    }
-
-    float menu_x = result.logo_bounds.right();
-    const float menu_limit = result.command_center_bounds.is_empty()
-        ? command_area_end
-        : result.command_center_bounds.x - horizontal_padding;
-    std::array<float, window_menu_count> menu_widths{};
-    float complete_menu_width = 0.0F;
-    for (std::size_t index = 0; index < menu_labels.size(); ++index)
-    {
-        menu_widths[index] = static_cast<float>(menu_labels[index].size()) * 7.0F * safe_scale +
-            metrics.menu_item_padding * safe_scale;
-        complete_menu_width += menu_widths[index];
-    }
-
-    const bool requires_overflow = menu_x + complete_menu_width > menu_limit;
-    const float reserved_overflow_width = requires_overflow
-        ? metrics.overflow_menu_width * safe_scale
-        : 0.0F;
-    for (std::size_t index = 0; index < menu_labels.size(); ++index)
-    {
-        if (menu_x + menu_widths[index] + reserved_overflow_width > menu_limit)
-        {
-            break;
-        }
-
-        result.menu_regions[result.visible_menu_count] = MenuRegion{
-            .menu_index = index,
-            .bounds = {menu_x, 0.0F, menu_widths[index], titlebar_height},
-        };
-        ++result.visible_menu_count;
-        menu_x += menu_widths[index];
-    }
-
-    if (result.visible_menu_count < window_menu_count &&
-        menu_x + reserved_overflow_width <= menu_limit)
-    {
-        result.first_overflow_menu_index = result.visible_menu_count;
+        result.first_overflow_menu_index = 0;
         result.overflow_menu_bounds = {
-            menu_x,
+            result.logo_bounds.right(),
             0.0F,
-            reserved_overflow_width,
+            hamburger_width,
             titlebar_height,
         };
     }

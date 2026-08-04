@@ -32,6 +32,35 @@ std::wstring quote_windows_argument(const std::wstring& argument)
 {
     return L'"' + argument + L'"';
 }
+
+std::filesystem::path find_windows_executable(const wchar_t* executable)
+{
+    std::array<wchar_t, 32768> resolved{};
+    const DWORD length = SearchPathW(
+        nullptr, executable, nullptr, static_cast<DWORD>(resolved.size()), resolved.data(), nullptr);
+    return length > 0 && length < resolved.size()
+        ? std::filesystem::path{resolved.data()}
+        : std::filesystem::path{};
+}
+
+bool is_windows_shell(const std::filesystem::path& path, const wchar_t* filename)
+{
+    const std::wstring actual = path.filename().wstring();
+    return CompareStringOrdinal(actual.c_str(), -1, filename, -1, TRUE) == CSTR_EQUAL;
+}
+
+std::wstring windows_shell_arguments(const std::filesystem::path& shell_path)
+{
+    if (is_windows_shell(shell_path, L"bash.exe"))
+    {
+        return L" --noprofile --norc -i";
+    }
+    if (is_windows_shell(shell_path, L"cmd.exe"))
+    {
+        return L" /D /Q /K";
+    }
+    return L" -NoLogo -NoProfile -NoExit -Command -";
+}
 #endif
 
 } // namespace
@@ -61,24 +90,44 @@ TerminalSession::~TerminalSession()
 std::filesystem::path TerminalSession::resolve_host_shell()
 {
 #if defined(_WIN32)
-    constexpr std::array<std::wstring_view, 3> candidates{
+    // Command Prompt behaves interactively over the redirected pipes used by
+    // this lightweight terminal host. PowerShell and Bash remain fallbacks.
+    std::array<wchar_t, 32768> comspec{};
+    const DWORD comspec_length = GetEnvironmentVariableW(
+        L"COMSPEC", comspec.data(), static_cast<DWORD>(comspec.size()));
+    if (comspec_length > 0 && comspec_length < comspec.size() &&
+        GetFileAttributesW(comspec.data()) != INVALID_FILE_ATTRIBUTES)
+    {
+        return std::filesystem::path{comspec.data()};
+    }
+    if (const std::filesystem::path command_prompt = find_windows_executable(L"cmd.exe");
+        !command_prompt.empty())
+    {
+        return command_prompt;
+    }
+
+    for (const wchar_t* executable : {L"pwsh.exe", L"powershell.exe"})
+    {
+        if (const std::filesystem::path resolved = find_windows_executable(executable);
+            !resolved.empty())
+        {
+            return resolved;
+        }
+    }
+
+    constexpr std::array<std::wstring_view, 3> bash_candidates{
         L"C:\\msys64\\usr\\bin\\bash.exe",
         L"C:\\Program Files\\Git\\bin\\bash.exe",
         L"C:\\Program Files\\Git\\usr\\bin\\bash.exe",
     };
-    for (const std::wstring_view candidate : candidates)
+    for (const std::wstring_view candidate : bash_candidates)
     {
         if (GetFileAttributesW(std::wstring{candidate}.c_str()) != INVALID_FILE_ATTRIBUTES)
         {
             return std::filesystem::path{candidate};
         }
     }
-    std::array<wchar_t, 32768> resolved{};
-    const DWORD length = SearchPathW(
-        nullptr, L"bash.exe", nullptr, static_cast<DWORD>(resolved.size()), resolved.data(), nullptr);
-    return length > 0 && length < resolved.size()
-        ? std::filesystem::path{resolved.data()}
-        : std::filesystem::path{};
+    return find_windows_executable(L"bash.exe");
 #else
     constexpr std::array<std::string_view, 3> candidates{
         "/usr/bash",
@@ -108,7 +157,7 @@ bool TerminalSession::start(const std::filesystem::path& working_directory)
     m_shell_path = resolve_host_shell();
     if (m_shell_path.empty())
     {
-        append_status("[Unable to find a local bash executable]");
+        append_status("[Unable to find a local shell executable]");
         return false;
     }
 
@@ -139,7 +188,7 @@ bool TerminalSession::start(const std::filesystem::path& working_directory)
     startup.hStdError = output_write;
     PROCESS_INFORMATION process_info{};
     std::wstring command = quote_windows_argument(m_shell_path.wstring()) +
-        L" --noprofile --norc -i";
+        windows_shell_arguments(m_shell_path);
     const std::wstring directory = working_directory.empty()
         ? std::wstring{}
         : working_directory.wstring();
@@ -151,7 +200,7 @@ bool TerminalSession::start(const std::filesystem::path& working_directory)
     if (created == FALSE)
     {
         stop();
-        append_status("[Unable to start local bash]");
+        append_status("[Unable to start the local shell]");
         return false;
     }
     CloseHandle(process_info.hThread);
@@ -260,10 +309,21 @@ bool TerminalSession::write_input(std::string_view text)
         return false;
     }
 #if defined(_WIN32)
+    std::string windows_input;
+    windows_input.reserve(text.size() + 1);
+    for (std::size_t index = 0; index < text.size(); ++index)
+    {
+        windows_input.push_back(text[index]);
+        if (text[index] == '\r' && (index + 1 == text.size() || text[index + 1] != '\n'))
+        {
+            windows_input.push_back('\n');
+        }
+    }
     DWORD written = 0;
     const bool succeeded = m_implementation->input_write != nullptr &&
-        WriteFile(m_implementation->input_write, text.data(), static_cast<DWORD>(text.size()),
-            &written, nullptr) != FALSE && written == text.size();
+        WriteFile(m_implementation->input_write, windows_input.data(),
+            static_cast<DWORD>(windows_input.size()), &written, nullptr) != FALSE &&
+        written == windows_input.size();
     if (succeeded)
     {
         if (text == "\r")

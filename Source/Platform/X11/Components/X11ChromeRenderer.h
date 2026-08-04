@@ -118,6 +118,12 @@ public:
         float content_top) noexcept;
     [[nodiscard]] bool is_editor_focused() const noexcept;
     [[nodiscard]] bool is_terminal_focused() const noexcept;
+    [[nodiscard]] bool is_tab_bar_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
     [[nodiscard]] bool is_editor_point(
         float point_x,
         float point_y,
@@ -162,7 +168,6 @@ public:
         int client_width,
         int client_height,
         const UI::Chrome::WindowChromeLayoutResult& chrome_layout,
-        std::string_view title,
         const ChromeInteractionState& interaction_state,
         const CommandStateQueryCallback& command_state_query_callback) const;
 

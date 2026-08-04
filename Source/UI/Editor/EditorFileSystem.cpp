@@ -1,5 +1,7 @@
 #include "UI/Editor/EditorFileSystem.h"
 
+#include "Utility/TextEncoding.h"
+
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
@@ -14,66 +16,6 @@ namespace
 
 constexpr std::uintmax_t maximum_editor_file_size = 8U * 1024U * 1024U;
 constexpr std::size_t maximum_binary_preview_size = 64U * 1024U;
-
-bool is_valid_utf8(std::string_view text)
-{
-    std::size_t index = 0;
-    while (index < text.size())
-    {
-        const unsigned char lead = static_cast<unsigned char>(text[index]);
-        if (lead <= 0x7FU)
-        {
-            ++index;
-            continue;
-        }
-
-        std::size_t continuation_count = 0;
-        std::uint32_t code_point = 0;
-        std::uint32_t minimum_code_point = 0;
-        if ((lead & 0xE0U) == 0xC0U)
-        {
-            continuation_count = 1;
-            code_point = lead & 0x1FU;
-            minimum_code_point = 0x80U;
-        }
-        else if ((lead & 0xF0U) == 0xE0U)
-        {
-            continuation_count = 2;
-            code_point = lead & 0x0FU;
-            minimum_code_point = 0x800U;
-        }
-        else if ((lead & 0xF8U) == 0xF0U)
-        {
-            continuation_count = 3;
-            code_point = lead & 0x07U;
-            minimum_code_point = 0x10000U;
-        }
-        else
-        {
-            return false;
-        }
-        if (index + continuation_count >= text.size())
-        {
-            return false;
-        }
-        for (std::size_t offset = 1; offset <= continuation_count; ++offset)
-        {
-            const unsigned char continuation = static_cast<unsigned char>(text[index + offset]);
-            if ((continuation & 0xC0U) != 0x80U)
-            {
-                return false;
-            }
-            code_point = (code_point << 6U) | (continuation & 0x3FU);
-        }
-        if (code_point < minimum_code_point || code_point > 0x10FFFFU ||
-            (code_point >= 0xD800U && code_point <= 0xDFFFU))
-        {
-            return false;
-        }
-        index += continuation_count + 1;
-    }
-    return true;
-}
 
 std::vector<std::string> build_binary_preview(
     std::string_view contents,
@@ -253,12 +195,15 @@ std::optional<TextFileSnapshot> EditorFileSystem::read_text_file(
     snapshot.project_root = source_project_root.value_or(snapshot.absolute_path.parent_path());
     snapshot.breadcrumbs = build_breadcrumbs(snapshot.absolute_path, snapshot.project_root);
     const bool truncated = file_size > contents.size();
-    bool valid_text = contents.find('\0') == std::string::npos && is_valid_utf8(contents);
+    bool valid_text = contents.find('\0') == std::string::npos &&
+        Utility::is_valid_utf8(contents);
     if (!valid_text && truncated)
     {
         for (std::size_t trim = 1; trim <= 3 && trim <= contents.size(); ++trim)
         {
-            if (is_valid_utf8(std::string_view{contents}.substr(0, contents.size() - trim)))
+            const std::string_view candidate =
+                std::string_view{contents}.substr(0, contents.size() - trim);
+            if (Utility::is_valid_utf8(candidate))
             {
                 contents.resize(contents.size() - trim);
                 valid_text = true;

@@ -47,7 +47,9 @@ public:
 
 private:
     static constexpr float default_width = 260.0F;
-    static constexpr float header_height = 36.0F;
+    // Keep the Explorer header aligned with the editor tab strip. Both
+    // borders must use the same vertical measurement when a buffer opens.
+    static constexpr float header_height = UI::Editor::StudioEditorMetrics::tab_height;
     static constexpr float row_height = 22.0F;
 
     [[nodiscard]] std::size_t viewport_row_count(
@@ -55,10 +57,13 @@ private:
     [[nodiscard]] std::optional<std::size_t> row_from_point(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_y) const noexcept;
+    [[nodiscard]] UI::Rect scrollbar_bounds(
+        const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
 
     UI::Editor::ActivityPanelModel m_model;
     std::optional<std::size_t> m_hovered_row;
     std::optional<UI::Editor::SidebarIcon> m_hovered_icon;
+    bool m_hovered_scrollbar = false;
 };
 
 } // namespace Zenvra::Platform::Win32::Components

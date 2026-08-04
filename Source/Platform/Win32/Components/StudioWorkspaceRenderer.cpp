@@ -1,8 +1,11 @@
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
 
+#include "UI/Editor/EditorFileSystem.h"
 #include "Utility/Fonts.h"
+#include <lunasvg.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -60,6 +63,30 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi)
     shutdown();
     m_dpi = std::max(dpi, 48U);
     m_dpi_scale = static_cast<float>(m_dpi) / 96.0F;
+
+    std::error_code path_error;
+    const std::filesystem::path current_path = std::filesystem::current_path(path_error);
+    std::optional<std::filesystem::path> project_root;
+    if (!path_error)
+    {
+        project_root = UI::Editor::EditorFileSystem::find_project_root(current_path);
+    }
+    if (!project_root)
+    {
+        std::array<wchar_t, 32768> executable_path{};
+        const DWORD length = GetModuleFileNameW(
+            nullptr, executable_path.data(), static_cast<DWORD>(executable_path.size()));
+        if (length > 0 && length < executable_path.size())
+        {
+            project_root = UI::Editor::EditorFileSystem::find_project_root(
+                std::filesystem::path{executable_path.data()});
+        }
+    }
+    if (project_root)
+    {
+        m_icon_asset_root = *project_root / "Assets" / "icons";
+    }
+
     m_ui_font = std::make_unique<AntialiasedFont>(
         "Segoe UI", std::max(round_to_int(12.0F * m_dpi_scale), 9));
     m_small_font = std::make_unique<AntialiasedFont>(
@@ -185,7 +212,10 @@ bool StudioWorkspaceRenderer::handle_pointer_move(
         m_tool_sidebar.get_width());
     const bool sidebar_changed = m_tool_sidebar.handle_pointer_move(
         layout, point_x, point_y);
-    return m_terminal_panel.handle_pointer_move(layout, point_x, point_y) || sidebar_changed;
+    const bool editor_changed = m_text_editor.handle_pointer_move(
+        layout, point_x, point_y);
+    return m_terminal_panel.handle_pointer_move(layout, point_x, point_y) ||
+        sidebar_changed || editor_changed;
 }
 
 bool StudioWorkspaceRenderer::handle_pointer_drag(
@@ -313,6 +343,26 @@ bool StudioWorkspaceRenderer::is_editor_focused() const noexcept
 bool StudioWorkspaceRenderer::is_terminal_focused() const noexcept
 {
     return m_terminal_panel.is_focused();
+}
+
+bool StudioWorkspaceRenderer::is_tab_bar_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
+        static_cast<float>(client_width),
+        static_cast<float>(client_height),
+        content_top,
+        m_dpi_scale,
+        m_terminal_panel.is_visible(),
+        m_terminal_panel.get_height(),
+        m_terminal_panel.is_maximized(),
+        m_tool_sidebar.is_visible(),
+        m_tool_sidebar.get_width());
+    return layout.tab_bar_bounds.contains(point_x, point_y);
 }
 
 bool StudioWorkspaceRenderer::is_editor_point(
@@ -453,6 +503,8 @@ bool StudioWorkspaceRenderer::tick_caret_blink() noexcept
 void StudioWorkspaceRenderer::shutdown()
 {
     m_terminal_panel.shutdown();
+    m_svg_cache.clear();
+    m_icon_asset_root.clear();
     m_minimap_font.reset();
     m_editor_font.reset();
     m_small_font.reset();
@@ -576,6 +628,96 @@ void StudioWorkspaceRenderer::draw_text(
         round_to_int(point_x),
         baseline,
         std::string{text});
+}
+
+void StudioWorkspaceRenderer::draw_svg_icon(
+    HDC device_context,
+    std::string_view asset_name,
+    int center_x,
+    int center_y,
+    int size,
+    const UI::Theme::Color& color,
+    const UI::Theme::Color& background) const
+{
+    if (device_context == nullptr || size <= 0 || asset_name.empty())
+    {
+        return;
+    }
+
+    std::filesystem::path resolved_path{asset_name};
+    if (resolved_path.is_relative() && !m_icon_asset_root.empty())
+    {
+        resolved_path = m_icon_asset_root / resolved_path.filename();
+    }
+    std::error_code path_error;
+    if (!std::filesystem::is_regular_file(resolved_path, path_error))
+    {
+        return;
+    }
+
+    const std::string resolved_string = resolved_path.string();
+    const std::string cache_key = resolved_string + "@" + std::to_string(size) + "#" +
+        to_font_color(color) + "/" + to_font_color(background);
+    auto cached = m_svg_cache.find(cache_key);
+    if (cached == m_svg_cache.end())
+    {
+        auto document = lunasvg::Document::loadFromFile(resolved_string);
+        if (!document)
+        {
+            return;
+        }
+        auto bitmap = document->renderToBitmap(
+            static_cast<std::uint32_t>(size), static_cast<std::uint32_t>(size));
+        if (bitmap.isNull())
+        {
+            return;
+        }
+
+        std::vector<std::uint32_t> pixels(
+            static_cast<std::size_t>(size) * static_cast<std::size_t>(size));
+        const auto* source = reinterpret_cast<const std::uint32_t*>(bitmap.data());
+        for (std::size_t index = 0; index < pixels.size(); ++index)
+        {
+            const std::uint32_t alpha = (source[index] >> 24U) & 0xFFU;
+            const std::uint32_t inverse_alpha = 255U - alpha;
+            const std::uint32_t red =
+                (static_cast<std::uint32_t>(color.red) * alpha +
+                    static_cast<std::uint32_t>(background.red) * inverse_alpha) /
+                255U;
+            const std::uint32_t green =
+                (static_cast<std::uint32_t>(color.green) * alpha +
+                    static_cast<std::uint32_t>(background.green) * inverse_alpha) /
+                255U;
+            const std::uint32_t blue =
+                (static_cast<std::uint32_t>(color.blue) * alpha +
+                    static_cast<std::uint32_t>(background.blue) * inverse_alpha) /
+                255U;
+            pixels[index] = blue | (green << 8U) | (red << 16U);
+        }
+        cached = m_svg_cache.emplace(cache_key, std::move(pixels)).first;
+    }
+
+    BITMAPINFO bitmap_info{};
+    bitmap_info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bitmap_info.bmiHeader.biWidth = size;
+    bitmap_info.bmiHeader.biHeight = -size;
+    bitmap_info.bmiHeader.biPlanes = 1;
+    bitmap_info.bmiHeader.biBitCount = 32;
+    bitmap_info.bmiHeader.biCompression = BI_RGB;
+    const int half = size / 2;
+    SetDIBitsToDevice(
+        device_context,
+        center_x - half,
+        center_y - half,
+        static_cast<DWORD>(size),
+        static_cast<DWORD>(size),
+        0,
+        0,
+        0,
+        static_cast<UINT>(size),
+        cached->second.data(),
+        &bitmap_info,
+        DIB_RGB_COLORS);
 }
 
 int StudioWorkspaceRenderer::get_text_width(
