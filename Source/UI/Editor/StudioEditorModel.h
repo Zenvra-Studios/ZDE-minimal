@@ -115,7 +115,8 @@ struct StudioEditorMetrics final
     static constexpr float activity_width = 38.0F;
     static constexpr float tab_height = 30.0F;
     static constexpr float status_height = 24.0F;
-    static constexpr float gutter_width = 52.0F;
+    static constexpr float gutter_width = 66.0F;
+    static constexpr float fold_margin_width = 14.0F;
     static constexpr float sidebar_item_height = 36.0F;
     static constexpr float sidebar_item_spacing = 40.0F;
     static constexpr float sidebar_top_offset = 21.0F;

@@ -1,8 +1,10 @@
 add_library(ZDEUI STATIC
     Chrome/WindowChromeLayout.cpp
     Chrome/WindowMenuModel.cpp
+    Components/EditorFolding.cpp
     Components/MenuModel.cpp
     Editor/ActivityPanelModel.cpp
+    Editor/BraceAnimationModel.cpp
     Editor/CaretBlinkModel.cpp
     Editor/EditorController.cpp
     Editor/EditorDropModel.cpp
@@ -11,6 +13,7 @@ add_library(ZDEUI STATIC
     Editor/EditorMinimapModel.cpp
     Editor/EditorSessionModel.cpp
     Editor/EditorScrollModel.cpp
+    Editor/SelectionAnimationModel.cpp
     Editor/StudioEditorModel.cpp
     Editor/TextDocumentModel.cpp
     Theme/StudioTheme.cpp

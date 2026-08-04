@@ -1217,6 +1217,9 @@ LRESULT Win32Window::handle_message(
                 case 'V':
                     action = UI::Editor::EditorAction::Paste;
                     break;
+                case VK_OEM_2:
+                    action = UI::Editor::EditorAction::ToggleComment;
+                    break;
                 default:
                     break;
                 }
@@ -2057,7 +2060,7 @@ Win32Window::PopupMenuGeometry Win32Window::calculate_popup_menu_geometry(
     PopupMenuGeometry geometry;
     const std::span<const UI::Components::Menu> menus =
         UI::Components::get_window_menus();
-    if (!m_chrome_layout.has_overflow_menu() || menu_index >= menus.size())
+    if (menu_index >= menus.size())
     {
         return geometry;
     }
@@ -2098,6 +2101,11 @@ Win32Window::PopupMenuGeometry Win32Window::calculate_popup_menu_geometry(
                 break;
             }
         }
+        if (menu_index == 10) geometry.bounds.x = m_chrome_layout.compiler_bounds.x;
+        else if (menu_index == 11) geometry.bounds.x = m_chrome_layout.platform_bounds.x;
+        else if (menu_index == 12) geometry.bounds.x = m_chrome_layout.binary_bounds.x;
+        else if (menu_index == 13) geometry.bounds.x = m_chrome_layout.gear_bounds.x;
+        else if (menu_index == 14) geometry.bounds.x = m_chrome_layout.ellipsis_bounds.x;
     }
     geometry.bounds.width = popup_width;
     geometry.item_count = std::min(menu.items.size(), geometry.item_bounds.size());

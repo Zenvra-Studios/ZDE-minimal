@@ -78,6 +78,8 @@ bool EditorController::execute_action(EditorAction action)
     case EditorAction::Paste:
         return document != nullptr && !m_clipboard.empty() &&
             document->insert_text(m_clipboard);
+    case EditorAction::ToggleComment:
+        return document != nullptr && document->toggle_line_comment();
     }
     return false;
 }
@@ -103,6 +105,8 @@ bool EditorController::can_execute_action(EditorAction action) const noexcept
     case EditorAction::Paste:
         return document != nullptr && !document->is_read_only() &&
             !m_clipboard.empty();
+    case EditorAction::ToggleComment:
+        return document != nullptr && !document->is_read_only();
     }
     return false;
 }
@@ -142,6 +146,10 @@ std::optional<EditorAction> EditorController::action_from_command_id(
     if (command_id == edit_paste)
     {
         return EditorAction::Paste;
+    }
+    if (command_id == edit_toggle_comment)
+    {
+        return EditorAction::ToggleComment;
     }
     return std::nullopt;
 }

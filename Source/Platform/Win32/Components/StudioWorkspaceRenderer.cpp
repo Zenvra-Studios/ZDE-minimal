@@ -640,6 +640,33 @@ void StudioWorkspaceRenderer::fill_rectangle(
     DeleteObject(brush);
 }
 
+void StudioWorkspaceRenderer::fill_rounded_rectangle(
+    HDC device_context,
+    const UI::Rect& rectangle,
+    const UI::Theme::Color& color,
+    float radius) const
+{
+    if (rectangle.is_empty())
+    {
+        return;
+    }
+    const RECT bounds = to_native_rect(rectangle);
+    const int corner = std::max(round_to_int(radius), 1);
+    HBRUSH brush = CreateSolidBrush(to_color_ref(color));
+    HPEN null_pen = CreatePen(PS_NULL, 0, 0);
+    HGDIOBJ previous_brush = SelectObject(device_context, brush);
+    HGDIOBJ previous_pen = SelectObject(device_context, null_pen);
+    // +1 on right/bottom because GDI RoundRect excludes the bottom-right edge
+    RoundRect(device_context,
+        bounds.left, bounds.top,
+        bounds.right + 1, bounds.bottom + 1,
+        corner * 2, corner * 2);
+    SelectObject(device_context, previous_pen);
+    SelectObject(device_context, previous_brush);
+    DeleteObject(null_pen);
+    DeleteObject(brush);
+}
+
 void StudioWorkspaceRenderer::draw_rectangle(
     HDC device_context,
     const UI::Rect& rectangle,
@@ -696,6 +723,61 @@ void StudioWorkspaceRenderer::draw_text(
         round_to_int(point_x),
         baseline,
         std::string{text});
+}
+
+void StudioWorkspaceRenderer::draw_scaled_text(
+    HDC device_context,
+    AntialiasedFont& font,
+    std::string_view text,
+    float point_x,
+    float center_y,
+    float scale,
+    const UI::Theme::Color& color) const
+{
+    if (text.empty() || scale <= 0.0f)
+    {
+        return;
+    }
+
+    const int baseline = round_to_int(
+        center_y - static_cast<float>(font.getAscent(device_context) + font.getDescent(device_context)) * 0.5F +
+        static_cast<float>(font.getAscent(device_context)));
+
+    // Calculate center of the text for scaling
+    const float text_width = static_cast<float>(font.getTextWidth(device_context, std::string{text}));
+    const float text_center_x = point_x + text_width * 0.5f;
+    const float text_center_y = center_y;
+
+    // Enable advanced graphics mode for world transform
+    int old_graphics_mode = SetGraphicsMode(device_context, GM_ADVANCED);
+
+    // Get the previous transform to restore later
+    XFORM old_xform;
+    GetWorldTransform(device_context, &old_xform);
+
+    // Setup scaling transform around the center point
+    XFORM xform;
+    xform.eM11 = scale;
+    xform.eM12 = 0.0f;
+    xform.eM21 = 0.0f;
+    xform.eM22 = scale;
+    xform.eDx = text_center_x * (1.0f - scale);
+    xform.eDy = text_center_y * (1.0f - scale);
+
+    // Apply the scaling transform relative to any existing transform
+    ModifyWorldTransform(device_context, &xform, MWT_RIGHTMULTIPLY);
+
+    // Draw the text (it will be scaled by the transform)
+    font.drawString(
+        device_context,
+        to_font_color(color),
+        round_to_int(point_x),
+        baseline,
+        std::string{text});
+
+    // Restore previous transform and graphics mode
+    SetWorldTransform(device_context, &old_xform);
+    SetGraphicsMode(device_context, old_graphics_mode);
 }
 
 void StudioWorkspaceRenderer::draw_svg_icon(

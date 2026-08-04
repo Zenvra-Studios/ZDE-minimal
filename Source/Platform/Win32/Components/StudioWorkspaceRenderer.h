@@ -180,6 +180,7 @@ private:
     friend class ::Zenvra::Platform::Win32::Win32Window;
 
     void fill_rectangle(HDC device_context, const UI::Rect& rectangle, const UI::Theme::Color& color) const;
+    void fill_rounded_rectangle(HDC device_context, const UI::Rect& rectangle, const UI::Theme::Color& color, float radius) const;
     void draw_rectangle(HDC device_context, const UI::Rect& rectangle, const UI::Theme::Color& color) const;
     void draw_line(
         HDC device_context,
@@ -194,6 +195,14 @@ private:
         std::string_view text,
         float point_x,
         float center_y,
+        const UI::Theme::Color& color) const;
+    void draw_scaled_text(
+        HDC device_context,
+        AntialiasedFont& font,
+        std::string_view text,
+        float point_x,
+        float center_y,
+        float scale,
         const UI::Theme::Color& color) const;
     [[nodiscard]] int get_text_width(
         HDC device_context,

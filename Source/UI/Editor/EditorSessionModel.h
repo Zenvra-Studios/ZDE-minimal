@@ -21,6 +21,7 @@ enum class EditorAction
     Copy,
     Cut,
     Paste,
+    ToggleComment,
 };
 
 struct EditorSessionDocument

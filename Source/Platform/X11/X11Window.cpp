@@ -649,6 +649,7 @@ void X11Window::handle_event(XEvent &event) {
     m_interaction_state.debug_button_hovered = false;
     m_interaction_state.ellipsis_button_hovered = false;
     m_interaction_state.compiler_button_hovered = false;
+    m_interaction_state.platform_button_hovered = false;
     m_interaction_state.binary_button_hovered = false;
     m_interaction_state.build_button_hovered = false;
     m_interaction_state.gear_button_hovered = false;
@@ -709,6 +710,8 @@ void X11Window::handle_motion(const XMotionEvent &event) {
       static_cast<float>(event.x), static_cast<float>(event.y));
   const bool compiler_button_hovered = m_chrome_layout.is_compiler_button(
       static_cast<float>(event.x), static_cast<float>(event.y));
+  const bool platform_button_hovered = m_chrome_layout.is_platform_button(
+      static_cast<float>(event.x), static_cast<float>(event.y));
   const bool binary_button_hovered = m_chrome_layout.is_binary_button(
       static_cast<float>(event.x), static_cast<float>(event.y));
   const bool build_button_hovered = m_chrome_layout.is_build_button(
@@ -728,6 +731,7 @@ void X11Window::handle_motion(const XMotionEvent &event) {
       debug_button_hovered != m_interaction_state.debug_button_hovered ||
       ellipsis_button_hovered != m_interaction_state.ellipsis_button_hovered ||
       compiler_button_hovered != m_interaction_state.compiler_button_hovered ||
+      platform_button_hovered != m_interaction_state.platform_button_hovered ||
       binary_button_hovered != m_interaction_state.binary_button_hovered ||
       build_button_hovered != m_interaction_state.build_button_hovered ||
       gear_button_hovered != m_interaction_state.gear_button_hovered;
@@ -745,6 +749,7 @@ void X11Window::handle_motion(const XMotionEvent &event) {
   m_interaction_state.debug_button_hovered = debug_button_hovered;
   m_interaction_state.ellipsis_button_hovered = ellipsis_button_hovered;
   m_interaction_state.compiler_button_hovered = compiler_button_hovered;
+  m_interaction_state.platform_button_hovered = platform_button_hovered;
   m_interaction_state.binary_button_hovered = binary_button_hovered;
   m_interaction_state.build_button_hovered = build_button_hovered;
   m_interaction_state.gear_button_hovered = gear_button_hovered;
@@ -897,9 +902,10 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
 
   // Overlay toolbar dropdowns — mutual exclusion + toggle
   static constexpr std::size_t compiler_menu_index = 10;
-  static constexpr std::size_t binary_menu_index   = 11;
-  static constexpr std::size_t gear_menu_index     = 12;
-  static constexpr std::size_t ellipsis_menu_index = 13;
+  static constexpr std::size_t platform_menu_index = 11;
+  static constexpr std::size_t binary_menu_index   = 12;
+  static constexpr std::size_t gear_menu_index     = 13;
+  static constexpr std::size_t ellipsis_menu_index = 14;
 
   auto open_or_close_overlay = [&](std::size_t idx) {
     // Toggle: if the same menu is already open, close it
@@ -919,6 +925,11 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
 
   if (m_chrome_layout.is_compiler_button(point_x, point_y)) {
     open_or_close_overlay(compiler_menu_index);
+    return;
+  }
+
+  if (m_chrome_layout.is_platform_button(point_x, point_y)) {
+    open_or_close_overlay(platform_menu_index);
     return;
   }
 
@@ -1310,6 +1321,9 @@ void X11Window::handle_key_press(XKeyEvent &event) {
       case XK_v:
       case XK_V:
         action = UI::Editor::EditorAction::Paste;
+        break;
+      case XK_slash:
+        action = UI::Editor::EditorAction::ToggleComment;
         break;
       default:
         break;

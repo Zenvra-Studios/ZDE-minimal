@@ -320,6 +320,20 @@ std::size_t tokenize_editor_line(
 {
     std::size_t token_count = 0;
     std::size_t cursor = 0;
+    
+    std::size_t first_non_ws = line.find_first_not_of(" \t");
+    if (first_non_ws != std::string_view::npos)
+    {
+        std::string_view trimmed = line.substr(first_non_ws);
+        if (trimmed.starts_with("/**") || trimmed.starts_with("/*") || trimmed.starts_with("*/") || trimmed.starts_with("* ") || trimmed == "*" || trimmed.starts_with("**/"))
+        {
+            if (!output.empty())
+            {
+                output[0] = EditorToken{line, EditorTokenKind::Comment};
+                return 1;
+            }
+        }
+    }
     const auto append = [&output, &token_count](std::string_view text, EditorTokenKind kind) {
         if (!text.empty() && token_count < output.size())
         {

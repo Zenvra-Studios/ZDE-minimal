@@ -79,6 +79,7 @@ public:
     bool insert_text(std::string_view utf8_text);
     bool execute(EditorInputCommand command, bool extend_selection = false);
     bool delete_selection();
+    bool toggle_line_comment();
     void mark_saved() noexcept;
 
 private:

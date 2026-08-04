@@ -3,8 +3,11 @@
 #include "Platform/Win32/Components/EditorMinimap.h"
 #include "Platform/Win32/Components/EditorScrollbar.h"
 #include "Platform/Win32/Event/ScrollEvent.h"
+#include "UI/Components/EditorFolding.h"
+#include "UI/Editor/BraceAnimationModel.h"
 #include "UI/Editor/CaretBlinkModel.h"
 #include "UI/Editor/EditorController.h"
+#include "UI/Editor/SelectionAnimationModel.h"
 #include "UI/Editor/StudioEditorModel.h"
 #include "Utility/DragDropModel.h"
 
@@ -102,6 +105,7 @@ private:
         float point_y) const;
 
     UI::Editor::EditorController m_controller;
+    mutable UI::Components::EditorFoldingModel m_folding;
     mutable EditorMinimap m_minimap;
     mutable EditorScrollbar m_scrollbar;
     Utility::DragDropModel m_tab_drag_drop;
@@ -120,6 +124,9 @@ private:
     mutable float m_max_tab_scroll = 0.0F;
     float m_text_scroll_offset = 0.0F;
     mutable float m_max_text_scroll = 0.0F;
+    mutable UI::Editor::SelectionAnimationModel m_selection_animation;
+    mutable UI::Editor::BraceAnimationModel m_brace_animation;
+    mutable UI::Editor::TextPosition m_last_brace_caret;
 };
 
 } // namespace Zenvra::Platform::Win32::Components

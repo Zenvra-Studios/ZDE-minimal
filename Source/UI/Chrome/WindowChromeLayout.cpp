@@ -108,6 +108,13 @@ WindowChromeLayoutResult::get_menu_index(float point_x,
       return menu_regions[index].menu_index;
     }
   }
+
+  if (compiler_bounds.contains(point_x, point_y)) return 10;
+  if (platform_bounds.contains(point_x, point_y)) return 11;
+  if (binary_bounds.contains(point_x, point_y)) return 12;
+  if (gear_bounds.contains(point_x, point_y)) return 13;
+  if (ellipsis_bounds.contains(point_x, point_y)) return 14;
+
   return std::nullopt;
 }
 

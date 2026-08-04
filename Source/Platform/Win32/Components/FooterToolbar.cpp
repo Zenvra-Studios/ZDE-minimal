@@ -1,5 +1,4 @@
 #include "Platform/Win32/Components/FooterToolbar.h"
-
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
 
 #include <cmath>

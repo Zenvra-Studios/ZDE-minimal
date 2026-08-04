@@ -16,6 +16,7 @@ inline constexpr std::string_view edit_redo = "zde.edit.redo";
 inline constexpr std::string_view edit_cut = "zde.edit.cut";
 inline constexpr std::string_view edit_copy = "zde.edit.copy";
 inline constexpr std::string_view edit_paste = "zde.edit.paste";
+inline constexpr std::string_view edit_toggle_comment = "zde.edit.toggleComment";
 inline constexpr std::string_view selection_select_all = "zde.selection.selectAll";
 inline constexpr std::string_view view_explorer = "zde.view.explorer";
 inline constexpr std::string_view view_search = "zde.view.search";

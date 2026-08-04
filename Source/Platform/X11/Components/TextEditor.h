@@ -2,6 +2,7 @@
 
 #include "Platform/X11/Components/EditorMinimap.h"
 #include "Platform/X11/Components/EditorScrollbar.h"
+#include "UI/Components/EditorFolding.h"
 #include "UI/Editor/CaretBlinkModel.h"
 #include "UI/Editor/EditorController.h"
 #include "UI/Editor/StudioEditorModel.h"
@@ -96,6 +97,7 @@ private:
         float point_y) const;
 
     UI::Editor::EditorController m_controller;
+    mutable UI::Components::EditorFoldingModel m_folding;
     mutable EditorMinimap m_minimap;
     mutable EditorScrollbar m_scrollbar;
     Utility::DragDropModel m_tab_drag_drop;

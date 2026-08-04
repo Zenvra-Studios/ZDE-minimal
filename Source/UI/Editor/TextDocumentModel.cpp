@@ -245,17 +245,35 @@ bool TextDocumentModel::insert_text(std::string_view utf8_text)
     }
     bool changed = delete_selection();
     std::size_t segment_start = 0;
-    for (std::size_t index = 0; index <= utf8_text.size(); ++index)
+    
+    // Auto closing braces
+    std::string text_to_insert{utf8_text};
+    bool auto_close_brace = false;
+    if (text_to_insert == "{")
     {
-        const bool at_end = index == utf8_text.size();
-        const bool at_line_break = !at_end && (utf8_text[index] == '\n' || utf8_text[index] == '\r');
+        std::size_t dot_pos = m_file_name.find_last_of('.');
+        if (dot_pos != std::string::npos)
+        {
+            std::string ext = m_file_name.substr(dot_pos);
+            if (ext == ".cpp" || ext == ".h" || ext == ".c" || ext == ".hpp")
+            {
+                text_to_insert = "{}";
+                auto_close_brace = true;
+            }
+        }
+    }
+    
+    for (std::size_t index = 0; index <= text_to_insert.size(); ++index)
+    {
+        const bool at_end = index == text_to_insert.size();
+        const bool at_line_break = !at_end && (text_to_insert[index] == '\n' || text_to_insert[index] == '\r');
         if (!at_end && !at_line_break)
         {
             continue;
         }
         if (index > segment_start)
         {
-            const std::string_view segment = utf8_text.substr(segment_start, index - segment_start);
+            const std::string_view segment = std::string_view{text_to_insert}.substr(segment_start, index - segment_start);
             m_lines[m_caret_line].insert(m_caret_column, segment);
             m_caret_column += segment.size();
             changed = true;
@@ -264,14 +282,23 @@ bool TextDocumentModel::insert_text(std::string_view utf8_text)
         {
             insert_new_line();
             changed = true;
-            if (utf8_text[index] == '\r' && index + 1 < utf8_text.size() &&
-                utf8_text[index + 1] == '\n')
+            if (text_to_insert[index] == '\r' && index + 1 < text_to_insert.size() &&
+                text_to_insert[index + 1] == '\n')
             {
                 ++index;
             }
             segment_start = index + 1;
         }
     }
+    
+    if (auto_close_brace && changed)
+    {
+        if (m_caret_column > 0)
+        {
+            m_caret_column -= 1;
+        }
+    }
+    
     if (changed)
     {
         m_dirty = true;
@@ -437,6 +464,61 @@ bool TextDocumentModel::delete_selection()
     return true;
 }
 
+bool TextDocumentModel::toggle_line_comment()
+{
+    if (m_read_only)
+    {
+        return false;
+    }
+    const TextSelection selection = has_selection() ? get_selection() : TextSelection{{m_caret_line, 0}, {m_caret_line, m_lines[m_caret_line].size()}};
+    
+    bool all_commented = true;
+    std::size_t min_indent = std::string::npos;
+    
+    for (std::size_t i = selection.start.line; i <= selection.end.line; ++i)
+    {
+        const std::string& line = m_lines[i];
+        std::size_t first_non_ws = line.find_first_not_of(" \t");
+        if (first_non_ws == std::string::npos) continue;
+        
+        if (first_non_ws < min_indent) min_indent = first_non_ws;
+        
+        if (first_non_ws + 1 >= line.size() || line[first_non_ws] != '/' || line[first_non_ws + 1] != '/')
+        {
+            all_commented = false;
+        }
+    }
+    
+    if (min_indent == std::string::npos) return false;
+    
+    for (std::size_t i = selection.start.line; i <= selection.end.line; ++i)
+    {
+        std::string& line = m_lines[i];
+        std::size_t first_non_ws = line.find_first_not_of(" \t");
+        if (first_non_ws == std::string::npos) continue;
+        
+        if (all_commented)
+        {
+            if (first_non_ws + 2 < line.size() && line[first_non_ws + 2] == ' ')
+            {
+                line.erase(first_non_ws, 3);
+            }
+            else
+            {
+                line.erase(first_non_ws, 2);
+            }
+        }
+        else
+        {
+            line.insert(min_indent, "// ");
+        }
+    }
+    
+    m_dirty = true;
+    update_preferred_column();
+    return true;
+}
+
 void TextDocumentModel::mark_saved() noexcept
 {
     m_dirty = false;
@@ -444,12 +526,93 @@ void TextDocumentModel::mark_saved() noexcept
 
 void TextDocumentModel::insert_new_line()
 {
+    std::string previous_line_content = m_lines[m_caret_line].substr(0, m_caret_column);
     std::string remainder = m_lines[m_caret_line].substr(m_caret_column);
+    
+    std::string auto_indent;
+    std::size_t first_non_ws = previous_line_content.find_first_not_of(" \t");
+    if (first_non_ws != std::string::npos)
+    {
+        auto_indent = previous_line_content.substr(0, first_non_ws);
+    }
+    else
+    {
+        auto_indent = previous_line_content;
+    }
+
+    bool is_block_comment_start = false;
+    bool is_block_comment_middle = false;
+    bool is_open_brace = false;
+
+    if (first_non_ws != std::string::npos)
+    {
+        std::string trimmed_prev = previous_line_content.substr(first_non_ws);
+        if (trimmed_prev.ends_with("/**") || trimmed_prev == "/**")
+        {
+            is_block_comment_start = true;
+        }
+        else if (trimmed_prev.starts_with("* "))
+        {
+            is_block_comment_middle = true;
+        }
+        else if (trimmed_prev.ends_with("{"))
+        {
+            is_open_brace = true;
+        }
+    }
+
     m_lines[m_caret_line].erase(m_caret_column);
-    m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 1),
-        std::move(remainder));
-    ++m_caret_line;
-    m_caret_column = 0;
+    
+    if (is_block_comment_start)
+    {
+        m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 1), auto_indent + " * ");
+        if (remainder.empty() || remainder == "*/" || remainder == "**/")
+        {
+            if (remainder.empty())
+            {
+                m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 2), auto_indent + " **/");
+            }
+            else
+            {
+                m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 2), auto_indent + " " + remainder);
+            }
+        }
+        else
+        {
+            m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 2), auto_indent + " " + remainder);
+        }
+        ++m_caret_line;
+        m_caret_column = auto_indent.size() + 3;
+    }
+    else if (is_block_comment_middle)
+    {
+        m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 1), auto_indent + "* " + remainder);
+        ++m_caret_line;
+        m_caret_column = auto_indent.size() + 2;
+    }
+    else if (is_open_brace)
+    {
+        std::string extra_indent = "    ";
+        if (remainder == "}")
+        {
+            m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 1), auto_indent + extra_indent);
+            m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 2), auto_indent + remainder);
+            ++m_caret_line;
+            m_caret_column = auto_indent.size() + extra_indent.size();
+        }
+        else
+        {
+            m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 1), auto_indent + extra_indent + remainder);
+            ++m_caret_line;
+            m_caret_column = auto_indent.size() + extra_indent.size();
+        }
+    }
+    else
+    {
+        m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 1), auto_indent + remainder);
+        ++m_caret_line;
+        m_caret_column = auto_indent.size();
+    }
 }
 
 void TextDocumentModel::delete_backward()

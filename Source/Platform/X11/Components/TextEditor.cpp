@@ -235,6 +235,29 @@ bool TextEditor::handle_pointer_press(
     {
         return false;
     }
+
+    // Check if the click is in the fold margin (rightmost part of gutter).
+    const float fold_margin = UI::Editor::StudioEditorMetrics::fold_margin_width * surface.m_dpi_scale;
+    const float fold_margin_left = layout.gutter_bounds.right() - fold_margin;
+    if (layout.gutter_bounds.contains(point_x, point_y) &&
+        point_x >= fold_margin_left)
+    {
+        const float line_height = 20.0F * surface.m_dpi_scale;
+        const std::size_t visible_count = static_cast<std::size_t>(std::max(
+            static_cast<int>(layout.editor_bounds.height / line_height), 1));
+        m_scrollbar.synchronize(document->get_line_count(), visible_count);
+        const std::size_t first_line = m_scrollbar.get_first_visible_line();
+        const std::size_t clicked_row = static_cast<std::size_t>(std::max(
+            static_cast<int>((point_y - layout.editor_bounds.y) / line_height), 0));
+        const std::size_t line_index = std::min(
+            first_line + clicked_row, document->get_line_count() - 1);
+        if (m_folding.is_fold_start(line_index))
+        {
+            m_folding.toggle_fold(line_index);
+            return true;
+        }
+    }
+
     m_focused = true;
     m_pointer_selecting = true;
     const UI::Editor::TextPosition position = position_from_point(
@@ -760,8 +783,14 @@ void TextEditor::draw_document(
         }
         return surface.m_text.primary;
     };
-    surface.draw_line(drawable, round_to_int(layout.gutter_bounds.right() - 1.0F),
-        round_to_int(layout.gutter_bounds.y), round_to_int(layout.gutter_bounds.right() - 1.0F),
+
+    // Rebuild folding model from the current document lines.
+    m_folding.rebuild(std::vector<std::string>(document->get_lines().begin(), document->get_lines().end()));
+
+    const float fold_margin = UI::Editor::StudioEditorMetrics::fold_margin_width * surface.m_dpi_scale;
+    const float gutter_line_x = layout.gutter_bounds.right() - fold_margin - 1.0F;
+    surface.draw_line(drawable, round_to_int(gutter_line_x),
+        round_to_int(layout.gutter_bounds.y), round_to_int(gutter_line_x),
         round_to_int(layout.gutter_bounds.bottom()), surface.m_pixels.border);
 
     for (std::size_t row = 0; row < render_count; ++row)
@@ -778,7 +807,7 @@ void TextEditor::draw_document(
                 surface.m_pixels.active_line_background);
         }
         const std::string number = std::to_string(line_index + 1);
-        const float number_x = layout.gutter_bounds.right() - 24.0F * surface.m_dpi_scale -
+        const float number_x = layout.gutter_bounds.right() - fold_margin - 10.0F * surface.m_dpi_scale -
             static_cast<float>(surface.m_small_font->getTextWidth(number));
         surface.draw_text(drawable, *surface.m_small_font, number, number_x, center_y,
             active_line ? surface.m_text.primary : surface.m_text.muted);
@@ -796,6 +825,78 @@ void TextEditor::draw_document(
             };
             XSetForeground(surface.m_display, surface.m_graphics_context, surface.m_pixels.text_muted);
             XDrawLines(surface.m_display, drawable, surface.m_graphics_context, points, 5, CoordModeOrigin);
+        }
+
+        // --- Fold icon and scope guide rendering ---
+        const UI::Components::FoldMarker fold_marker = m_folding.get_marker(line_index);
+        const float fold_center_x = layout.gutter_bounds.right() - fold_margin * 0.5F;
+        const int fold_cx = round_to_int(fold_center_x);
+        const int fold_cy = round_to_int(center_y);
+
+        if (fold_marker == UI::Components::FoldMarker::Expanded ||
+            fold_marker == UI::Components::FoldMarker::Collapsed)
+        {
+            const int box_half = std::max(round_to_int(5.0F * surface.m_dpi_scale), 4);
+
+            // Box background.
+            surface.fill_rectangle(drawable,
+                UI::Rect{static_cast<float>(fold_cx - box_half),
+                    static_cast<float>(fold_cy - box_half),
+                    static_cast<float>(box_half * 2),
+                    static_cast<float>(box_half * 2)},
+                surface.m_pixels.editor_background);
+
+            // Box border.
+            surface.draw_rectangle(drawable,
+                UI::Rect{static_cast<float>(fold_cx - box_half),
+                    static_cast<float>(fold_cy - box_half),
+                    static_cast<float>(box_half * 2),
+                    static_cast<float>(box_half * 2)},
+                surface.m_pixels.border);
+
+            // Horizontal line of +/- (always present).
+            const int sign_inset = std::max(round_to_int(2.0F * surface.m_dpi_scale), 2);
+            surface.draw_line(drawable,
+                fold_cx - box_half + sign_inset, fold_cy,
+                fold_cx + box_half - sign_inset, fold_cy,
+                surface.m_pixels.text_muted);
+
+            if (fold_marker == UI::Components::FoldMarker::Collapsed)
+            {
+                // Vertical line of + (only when collapsed).
+                surface.draw_line(drawable,
+                    fold_cx, fold_cy - box_half + sign_inset,
+                    fold_cx, fold_cy + box_half - sign_inset,
+                    surface.m_pixels.text_muted);
+            }
+        }
+        else if (fold_marker == UI::Components::FoldMarker::Continuation)
+        {
+            surface.draw_line(drawable,
+                fold_cx, round_to_int(center_y - line_height * 0.5F),
+                fold_cx, round_to_int(center_y + line_height * 0.5F),
+                surface.m_pixels.border);
+        }
+        else if (fold_marker == UI::Components::FoldMarker::End)
+        {
+            surface.draw_line(drawable,
+                fold_cx, round_to_int(center_y - line_height * 0.5F),
+                fold_cx, fold_cy,
+                surface.m_pixels.border);
+            surface.draw_line(drawable,
+                fold_cx, fold_cy,
+                fold_cx + round_to_int(fold_margin * 0.35F), fold_cy,
+                surface.m_pixels.border);
+        }
+
+        // Connect expanded marker to continuation line below.
+        if (fold_marker == UI::Components::FoldMarker::Expanded)
+        {
+            const int box_half = std::max(round_to_int(5.0F * surface.m_dpi_scale), 4);
+            surface.draw_line(drawable,
+                fold_cx, fold_cy + box_half,
+                fold_cx, round_to_int(center_y + line_height * 0.5F),
+                surface.m_pixels.border);
         }
         if (document->has_selection())
         {
