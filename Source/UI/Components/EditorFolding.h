@@ -20,7 +20,7 @@ struct FoldRange
 /// Determines the visual state of a single line in the folding margin.
 enum class FoldMarker
 {
-    None,       ///< No folding decoration on this line.
+    NoneMarker, ///< No folding decoration on this line.
     Expanded,   ///< Start of a foldable range that is currently expanded (show [-]).
     Collapsed,  ///< Start of a foldable range that is currently collapsed (show [+]).
     Continuation, ///< Interior line of an expanded range (vertical guide line).

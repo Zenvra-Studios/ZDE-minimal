@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=ZDE
+GenericName=Code Editor
+Comment=Zenvra Development Editor
+Exec=/home/ahmadzanisy/Projects/ZDE-minimal/build/bin/Debug/ZDE
+Icon=/home/ahmadzanisy/Projects/ZDE-minimal/Assets/icons/zenvra_logo.png
+Terminal=false
+Categories=Development;IDE;TextEditor;
+StartupNotify=true
+StartupWMClass=ZenvraDevelopmentStudio

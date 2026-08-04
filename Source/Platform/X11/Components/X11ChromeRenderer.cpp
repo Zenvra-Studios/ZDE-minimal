@@ -58,6 +58,7 @@ bool X11ChromeRenderer::initialize(Display *display, int screen,
   }
 
   m_colors.window_background = allocate_color(theme.window_background);
+  m_titlebar_background_color = theme.titlebar_background;
   m_colors.titlebar_background = allocate_color(theme.titlebar_background);
   m_colors.titlebar_border = allocate_color(theme.titlebar_border);
   m_colors.text_primary = allocate_color(theme.text_primary);
@@ -92,6 +93,10 @@ void X11ChromeRenderer::shutdown() {
 
   m_graphics_context = nullptr;
   m_display = nullptr;
+}
+
+const std::filesystem::path &X11ChromeRenderer::get_icon_asset_root() const noexcept {
+  return m_workspace_renderer.get_icon_asset_root();
 }
 
 bool X11ChromeRenderer::open_workspace_file(const std::filesystem::path &path) {
@@ -342,8 +347,17 @@ void X11ChromeRenderer::render(
       logo_size,
       logo_size,
   };
-  fill_rectangle(back_buffer, logo_bounds, m_colors.accent, static_cast<int>(logo_size * 0.25F));
-  draw_centered_text(back_buffer, "Z", logo_bounds, m_text_colors.white);
+  if (!m_workspace_renderer.draw_ico_icon(
+          back_buffer,
+          "Assets/icons/zenvra_logo48x48.ico",
+          round_to_int(logo_bounds.x + logo_bounds.width * 0.5F),
+          round_to_int(logo_bounds.y + logo_bounds.height * 0.5F),
+          round_to_int(logo_size),
+          m_titlebar_background_color))
+  {
+    fill_rectangle(back_buffer, logo_bounds, m_colors.accent, static_cast<int>(logo_size * 0.25F));
+    draw_centered_text(back_buffer, "Z", logo_bounds, m_text_colors.white);
+  }
 
   draw_window_control(back_buffer, chrome_layout.minimize_bounds, UI::Chrome::WindowControl::Minimize, interaction_state);
   draw_window_control(back_buffer, chrome_layout.maximize_bounds, UI::Chrome::WindowControl::MaximizeRestore, interaction_state);
@@ -424,7 +438,7 @@ void X11ChromeRenderer::render(
     const int chevron_y = round_to_int(chrome_layout.compiler_bounds.y + chrome_layout.compiler_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(back_buffer, "Assets/icons/chevron-down.svg",
                                        chevron_x, chevron_y, std::max(static_cast<int>(12.0F * scale), 10),
-                                       m_workspace_renderer.m_palette.text_muted, m_colors.titlebar_background);
+                                       m_workspace_renderer.m_palette.text_muted, m_titlebar_background_color);
   }
 
   if (!chrome_layout.platform_bounds.is_empty()) {
@@ -436,7 +450,7 @@ void X11ChromeRenderer::render(
     const int chevron_y = round_to_int(chrome_layout.platform_bounds.y + chrome_layout.platform_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(back_buffer, "Assets/icons/chevron-down.svg",
                                        chevron_x, chevron_y, std::max(static_cast<int>(12.0F * scale), 10),
-                                       m_workspace_renderer.m_palette.text_muted, m_colors.titlebar_background);
+                                       m_workspace_renderer.m_palette.text_muted, m_titlebar_background_color);
   }
 
   if (!chrome_layout.binary_bounds.is_empty()) {

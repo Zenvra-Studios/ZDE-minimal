@@ -209,7 +209,7 @@ FoldMarker EditorFoldingModel::get_marker(std::size_t line_index) const noexcept
         }
     }
 
-    return FoldMarker::None;
+    return FoldMarker::NoneMarker;
 }
 
 const std::vector<FoldRange>& EditorFoldingModel::get_ranges() const noexcept

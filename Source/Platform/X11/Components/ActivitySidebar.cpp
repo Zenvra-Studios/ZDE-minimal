@@ -36,8 +36,7 @@ void ActivitySidebar::render(
         float center_y = 0.0F;
         if (item.placement == UI::Editor::SidebarPlacement::Top)
         {
-            const bool tabs_are_in_titlebar =
-                layout.tab_bar_bounds.bottom() <= layout.activity_bar_bounds.y;
+            const bool tabs_are_in_titlebar = layout.tab_bar_bounds.bottom() <= layout.activity_bar_bounds.y;
             center_y = tabs_are_in_titlebar
                 ? layout.activity_bar_bounds.y +
                     (UI::Editor::StudioEditorMetrics::tab_height * 0.5F +
@@ -63,7 +62,7 @@ void ActivitySidebar::render(
                     surface.m_dpi_scale;
             ++bottom_index;
         }
-
+        
         const bool active = item.icon == UI::Editor::SidebarIcon::Terminal
             ? surface.m_terminal_panel.is_visible()
             : surface.m_tool_sidebar.is_active(item.icon);
@@ -113,8 +112,7 @@ void ActivitySidebar::draw_icon(
     int center_y,
     bool active) const
 {
-    const int size = std::max(round_to_int(
-        UI::Editor::StudioEditorMetrics::sidebar_icon_size * surface.m_dpi_scale), 14);
+    const int size = std::max(round_to_int(UI::Editor::StudioEditorMetrics::sidebar_icon_size * surface.m_dpi_scale), 14);
     std::string svg_path;
     switch (icon)
     {

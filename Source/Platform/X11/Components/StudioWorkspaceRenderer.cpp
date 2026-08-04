@@ -1,8 +1,10 @@
 #include "Platform/X11/Components/StudioWorkspaceRenderer.h"
+#include "Utility/IcoDecoder.h"
 #include "Utility/stb_image.h"
 
 #include "UI/Editor/EditorFileSystem.h"
 #include "Utility/Fonts.h"
+#include "Utility/X11Rounded.h"
 #include <lunasvg.h>
 
 #include <algorithm>
@@ -648,6 +650,11 @@ void StudioWorkspaceRenderer::render(
     }
 }
 
+const std::filesystem::path& StudioWorkspaceRenderer::get_icon_asset_root() const noexcept
+{
+    return m_icon_asset_root;
+}
+
 unsigned long StudioWorkspaceRenderer::allocate_color(const UI::Theme::Color& color) const
 {
     XColor x_color{};
@@ -676,6 +683,28 @@ void StudioWorkspaceRenderer::fill_rectangle(
         round_to_int(rectangle.x), round_to_int(rectangle.y),
         static_cast<unsigned int>(std::max(round_to_int(rectangle.width), 0)),
         static_cast<unsigned int>(std::max(round_to_int(rectangle.height), 0)));
+}
+
+void StudioWorkspaceRenderer::fill_rounded_rectangle(
+    Drawable drawable,
+    const UI::Rect& rectangle,
+    unsigned long color,
+    float radius) const
+{
+    if (rectangle.is_empty())
+    {
+        return;
+    }
+    XSetForeground(m_display, m_graphics_context, color);
+    Utility::X11Rounded::X11Rounded::fillRoundedRect(
+        m_display,
+        drawable,
+        m_graphics_context,
+        round_to_int(rectangle.x),
+        round_to_int(rectangle.y),
+        std::max(round_to_int(rectangle.width), 0),
+        std::max(round_to_int(rectangle.height), 0),
+        std::max(round_to_int(radius), 0));
 }
 
 void StudioWorkspaceRenderer::draw_rectangle(
@@ -1010,6 +1039,174 @@ void StudioWorkspaceRenderer::draw_png_icon(
         const int draw_y = center_y - image->height / 2;
         XPutImage(m_display, drawable, m_graphics_context, image, 0, 0, draw_x, draw_y, image->width, image->height);
     }
+}
+
+bool StudioWorkspaceRenderer::draw_ico_icon(
+    Drawable drawable,
+    const std::string& asset_path,
+    int center_x,
+    int center_y,
+    int max_size,
+    const UI::Theme::Color& background) const
+{
+    if (asset_path.empty() || max_size <= 0 || m_display == nullptr ||
+        m_graphics_context == nullptr)
+    {
+        return false;
+    }
+
+    std::error_code path_error;
+    std::filesystem::path resolved_path{asset_path};
+    if (resolved_path.is_relative() && !m_icon_asset_root.empty())
+    {
+        const std::filesystem::path themed_path = m_icon_asset_root / resolved_path;
+        if (std::filesystem::is_regular_file(themed_path, path_error))
+        {
+            resolved_path = themed_path;
+        }
+        else
+        {
+            // Keep compatibility with callers that pass Assets/icons/foo.ico.
+            const std::filesystem::path legacy_path =
+                m_icon_asset_root / resolved_path.filename();
+            if (std::filesystem::is_regular_file(legacy_path, path_error))
+            {
+                resolved_path = legacy_path;
+            }
+        }
+    }
+    if (!std::filesystem::is_regular_file(resolved_path, path_error))
+    {
+        return false;
+    }
+
+    const std::string resolved_string = resolved_path.string();
+    const std::string cache_key = resolved_string + "@ico#" +
+        std::to_string(max_size) + "/" + to_xft_color(background);
+
+    XImage* image = nullptr;
+    auto it = m_svg_cache.find(cache_key);
+    if (it != m_svg_cache.end())
+    {
+        image = it->second;
+    }
+    else
+    {
+        auto decoded = Utility::decode_ico_file(resolved_string);
+        if (!decoded || decoded->width <= 0 || decoded->height <= 0 ||
+            decoded->pixels.empty())
+        {
+            return false;
+        }
+
+        const int width = decoded->width;
+        const int height = decoded->height;
+        const unsigned char* data = decoded->pixels.data();
+
+        // Compute size to fit in max_size.
+        int draw_w = width;
+        int draw_h = height;
+        if (width > max_size || height > max_size)
+        {
+            const float aspect = static_cast<float>(width) / static_cast<float>(height);
+            if (width > height)
+            {
+                draw_w = max_size;
+                draw_h = static_cast<int>(max_size / aspect);
+            }
+            else
+            {
+                draw_h = max_size;
+                draw_w = static_cast<int>(max_size * aspect);
+            }
+        }
+
+        char* x11_data = static_cast<char*>(std::malloc(draw_w * draw_h * 4));
+        if (!x11_data)
+        {
+            return false;
+        }
+
+        const uint32_t bg_r = static_cast<uint32_t>(background.red);
+        const uint32_t bg_g = static_cast<uint32_t>(background.green);
+        const uint32_t bg_b = static_cast<uint32_t>(background.blue);
+
+        uint32_t* dst = reinterpret_cast<uint32_t*>(x11_data);
+
+        for (int y = 0; y < draw_h; ++y)
+        {
+            for (int x = 0; x < draw_w; ++x)
+            {
+                float gx = (x + 0.5f) * width / draw_w - 0.5f;
+                float gy = (y + 0.5f) * height / draw_h - 0.5f;
+                int gxi = static_cast<int>(gx);
+                int gyi = static_cast<int>(gy);
+                if (gxi < 0) gxi = 0;
+                if (gyi < 0) gyi = 0;
+                if (gxi >= width - 1) gxi = width - 2;
+                if (gyi >= height - 1) gyi = height - 2;
+
+                float dx = gx - gxi;
+                float dy = gy - gyi;
+
+                auto get_pixel = [&](int px, int py, int offset) -> float {
+                    return static_cast<float>(data[(py * width + px) * 4 + offset]);
+                };
+
+                float r00 = get_pixel(gxi, gyi, 0), r10 = get_pixel(gxi + 1, gyi, 0);
+                float r01 = get_pixel(gxi, gyi + 1, 0), r11 = get_pixel(gxi + 1, gyi + 1, 0);
+                float g00 = get_pixel(gxi, gyi, 1), g10 = get_pixel(gxi + 1, gyi, 1);
+                float g01 = get_pixel(gxi, gyi + 1, 1), g11 = get_pixel(gxi + 1, gyi + 1, 1);
+                float b00 = get_pixel(gxi, gyi, 2), b10 = get_pixel(gxi + 1, gyi, 2);
+                float b01 = get_pixel(gxi, gyi + 1, 2), b11 = get_pixel(gxi + 1, gyi + 1, 2);
+                float a00 = get_pixel(gxi, gyi, 3), a10 = get_pixel(gxi + 1, gyi, 3);
+                float a01 = get_pixel(gxi, gyi + 1, 3), a11 = get_pixel(gxi + 1, gyi + 1, 3);
+
+                auto bilerp = [dx, dy](float v00, float v10, float v01, float v11) -> uint32_t {
+                    float val = v00 * (1 - dx) * (1 - dy) + v10 * dx * (1 - dy) +
+                                v01 * (1 - dx) * dy + v11 * dx * dy;
+                    return static_cast<uint32_t>(val + 0.5f);
+                };
+
+                uint32_t source_r = bilerp(r00, r10, r01, r11);
+                uint32_t source_g = bilerp(g00, g10, g01, g11);
+                uint32_t source_b = bilerp(b00, b10, b01, b11);
+                uint32_t a = bilerp(a00, a10, a01, a11);
+
+                const uint32_t out_r = source_r * a / 255 + bg_r * (255 - a) / 255;
+                const uint32_t out_g = source_g * a / 255 + bg_g * (255 - a) / 255;
+                const uint32_t out_b = source_b * a / 255 + bg_b * (255 - a) / 255;
+
+                dst[y * draw_w + x] = (out_r << 16) | (out_g << 8) | out_b;
+            }
+        }
+
+        image = XCreateImage(
+            m_display,
+            DefaultVisual(m_display, m_screen),
+            static_cast<unsigned int>(DefaultDepth(m_display, m_screen)),
+            ZPixmap,
+            0,
+            x11_data,
+            draw_w,
+            draw_h,
+            32,
+            0);
+        if (!image)
+        {
+            std::free(x11_data);
+            return false;
+        }
+
+        // Reuse the SVG/PNG cache for ICOs as well.
+        m_svg_cache[cache_key] = image;
+    }
+
+    const int draw_x = center_x - image->width / 2;
+    const int draw_y = center_y - image->height / 2;
+    XPutImage(m_display, drawable, m_graphics_context, image, 0, 0, draw_x,
+              draw_y, image->width, image->height);
+    return true;
 }
 
 } // namespace Zenvra::Platform::X11::Components

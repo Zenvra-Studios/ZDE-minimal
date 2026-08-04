@@ -41,6 +41,85 @@ bool has_gutter_marker(std::string_view line)
         (line.find("::") != std::string_view::npos && line.find('(') != std::string_view::npos);
 }
 
+std::pair<std::optional<UI::Editor::TextPosition>, std::optional<UI::Editor::TextPosition>>
+find_enclosing_braces(const UI::Editor::TextDocumentModel& document)
+{
+    const std::size_t start_line = document.get_caret_line();
+    const std::size_t start_col = document.get_caret_column();
+
+    std::optional<UI::Editor::TextPosition> open_brace;
+    std::optional<UI::Editor::TextPosition> close_brace;
+
+    // Simplistic backward search for unmatched '{'
+    int brace_depth = 0;
+    bool found_open = false;
+
+    // Limit backward search to ~500 lines to avoid freezing on massive files without braces
+    const int search_limit = std::max(0, static_cast<int>(start_line) - 500);
+
+    for (int line_idx = static_cast<int>(start_line); line_idx >= search_limit; --line_idx)
+    {
+        std::string_view line = document.get_line(static_cast<std::size_t>(line_idx));
+
+        // Start searching from the character AT the cursor (start_col) or the end of the line
+        int search_end = static_cast<int>(line.size());
+        if (line_idx == static_cast<int>(start_line))
+        {
+            search_end = std::min(static_cast<int>(start_col) + 1, search_end);
+        }
+
+        for (int i = search_end - 1; i >= 0; --i)
+        {
+            if (line[i] == '}') {
+                ++brace_depth;
+            }
+            else if (line[i] == '{') {
+                if (brace_depth > 0) {
+                    --brace_depth;
+                } else {
+                    open_brace = UI::Editor::TextPosition{static_cast<std::size_t>(line_idx), static_cast<std::size_t>(i)};
+                    found_open = true;
+                    break;
+                }
+            }
+        }
+        if (found_open) break;
+    }
+
+    // Simplistic forward search for matching '}' starting from the open brace
+    if (found_open)
+    {
+        brace_depth = 0;
+        bool found_close = false;
+        const std::size_t doc_lines = document.get_line_count();
+        const std::size_t forward_limit = std::min(doc_lines, open_brace->line + 1500);
+
+        for (std::size_t line_idx = open_brace->line; line_idx < forward_limit; ++line_idx)
+        {
+            std::string_view line = document.get_line(line_idx);
+            std::size_t search_start = (line_idx == open_brace->line) ? open_brace->column : 0;
+
+            for (std::size_t i = search_start; i < line.size(); ++i)
+            {
+                if (line[i] == '{') {
+                    ++brace_depth;
+                }
+                else if (line[i] == '}') {
+                    --brace_depth;
+                    if (brace_depth == 0) {
+                        close_brace = UI::Editor::TextPosition{line_idx, i};
+                        found_close = true;
+                        break;
+                    }
+                }
+            }
+            if (found_close) break;
+        }
+    }
+
+    return {open_brace, close_brace};
+}
+
 } // namespace
 
 bool TextEditor::open_file(const std::filesystem::path& path)
@@ -518,7 +597,32 @@ bool TextEditor::tick_animations() noexcept
             }
         }
     }
-    
+
+    if (m_selection_animation.tick())
+    {
+        animating = true;
+    }
+
+    if (const UI::Editor::TextDocumentModel* doc = m_controller.get_active_document())
+    {
+        UI::Editor::TextPosition current_caret{doc->get_caret_line(), doc->get_caret_column()};
+        if (m_last_brace_caret != current_caret)
+        {
+            m_last_brace_caret = current_caret;
+            auto [open_brace, close_brace] = find_enclosing_braces(*doc);
+            m_brace_animation.set_active_braces(open_brace, close_brace);
+        }
+    }
+    else
+    {
+        m_brace_animation.clear();
+    }
+
+    if (m_brace_animation.tick())
+    {
+        animating = true;
+    }
+
     return needs_redraw || animating;
 }
 
@@ -793,6 +897,78 @@ void TextEditor::draw_document(
         round_to_int(layout.gutter_bounds.y), round_to_int(gutter_line_x),
         round_to_int(layout.gutter_bounds.bottom()), surface.m_pixels.border);
 
+    // Collect selection target rects (relative to code_x) and feed the animation model.
+    std::vector<UI::Rect> selection_targets;
+    if (document->has_selection())
+    {
+        const UI::Editor::TextSelection selection = document->get_selection();
+        const std::size_t start_line = selection.start.line;
+        const std::size_t end_line = std::min(selection.end.line, start_line + 1000);
+
+        for (std::size_t line_index = start_line; line_index <= end_line; ++line_index)
+        {
+            const std::string_view line = document->get_line(line_index);
+            const std::size_t selection_start = line_index == selection.start.line
+                ? selection.start.column
+                : 0;
+            const std::size_t selection_end = line_index == selection.end.line
+                ? selection.end.column
+                : line.size();
+
+            const float selection_x = static_cast<float>(surface.m_editor_font->getTextWidth(
+                std::string{line.substr(0, selection_start)}));
+            float selection_width = static_cast<float>(surface.m_editor_font->getTextWidth(
+                std::string{line.substr(selection_start, selection_end - selection_start)}));
+
+            if (line_index < selection.end.line)
+            {
+                selection_width += 6.0F * surface.m_dpi_scale;
+            }
+            selection_width = std::min(
+                selection_width,
+                std::max(layout.editor_bounds.right() - code_x - selection_x, 0.0F));
+
+            selection_targets.push_back(UI::Rect{
+                selection_x,
+                static_cast<float>(line_index) * line_height,
+                selection_width,
+                line_height
+            });
+        }
+    }
+    else
+    {
+        m_selection_animation.clear();
+    }
+    if (!selection_targets.empty())
+    {
+        m_selection_animation.set_targets(selection_targets);
+    }
+
+    if (m_selection_animation.has_rects())
+    {
+        const float radius = 3.0F * surface.m_dpi_scale;
+
+        for (const UI::Rect& anim_rect : m_selection_animation.get_animated_rects())
+        {
+            if (anim_rect.width <= 0.0F) continue;
+
+            const float screen_y = layout.editor_bounds.y + anim_rect.y -
+                static_cast<float>(first_line) * line_height;
+            const float screen_x = code_x + anim_rect.x;
+
+            if (screen_y + anim_rect.height >= layout.editor_bounds.y &&
+                screen_y <= layout.editor_bounds.bottom())
+            {
+                surface.fill_rounded_rectangle(
+                    drawable,
+                    UI::Rect{screen_x, screen_y, anim_rect.width, anim_rect.height},
+                    surface.m_pixels.selection_background,
+                    radius);
+            }
+        }
+    }
+
     for (std::size_t row = 0; row < render_count; ++row)
     {
         const std::size_t line_index = first_line + row;
@@ -898,37 +1074,6 @@ void TextEditor::draw_document(
                 fold_cx, round_to_int(center_y + line_height * 0.5F),
                 surface.m_pixels.border);
         }
-        if (document->has_selection())
-        {
-            const UI::Editor::TextSelection selection = document->get_selection();
-            if (line_index >= selection.start.line && line_index <= selection.end.line)
-            {
-                const std::size_t selection_start = line_index == selection.start.line
-                    ? selection.start.column
-                    : 0;
-                const std::size_t selection_end = line_index == selection.end.line
-                    ? selection.end.column
-                    : line.size();
-                const float selection_x = code_x + static_cast<float>(
-                    surface.m_editor_font->getTextWidth(
-                        std::string{line.substr(0, selection_start)}));
-                float selection_width = static_cast<float>(surface.m_editor_font->getTextWidth(
-                    std::string{line.substr(selection_start, selection_end - selection_start)}));
-                if (line_index < selection.end.line)
-                {
-                    selection_width += 6.0F * surface.m_dpi_scale;
-                }
-                selection_width = std::min(
-                    selection_width, std::max(layout.editor_bounds.right() - selection_x, 0.0F));
-                if (selection_width > 0.0F)
-                {
-                    surface.fill_rectangle(drawable,
-                        UI::Rect{selection_x, center_y - line_height * 0.5F,
-                            selection_width, line_height},
-                        surface.m_pixels.selection_background);
-                }
-            }
-        }
         if (syntax_highlighting)
         {
             float token_x = code_x;
@@ -938,10 +1083,89 @@ void TextEditor::draw_document(
             for (std::size_t token_index = 0; token_index < token_count; ++token_index)
             {
                 const UI::Editor::EditorToken& token = tokens[token_index];
-                const std::string text{token.text};
-                surface.draw_text(drawable, *surface.m_editor_font, text, token_x, center_y,
-                    token_color(token.kind));
-                token_x += static_cast<float>(surface.m_editor_font->getTextWidth(text));
+
+                bool has_animated_brace = false;
+                std::size_t brace_offset = 0;
+
+                if (m_brace_animation.has_active_braces() && m_brace_animation.get_pulse_scale() > 1.01F)
+                {
+                    if (auto open_pos = m_brace_animation.get_open_brace(); open_pos && open_pos->line == line_index)
+                    {
+                        if (open_pos->column >= rendered_bytes && open_pos->column < rendered_bytes + token.text.size())
+                        {
+                            has_animated_brace = true;
+                            brace_offset = open_pos->column - rendered_bytes;
+                        }
+                    }
+                    if (auto close_pos = m_brace_animation.get_close_brace(); close_pos && close_pos->line == line_index)
+                    {
+                        if (close_pos->column >= rendered_bytes && close_pos->column < rendered_bytes + token.text.size())
+                        {
+                            has_animated_brace = true;
+                            brace_offset = close_pos->column - rendered_bytes;
+                        }
+                    }
+                }
+
+                if (has_animated_brace)
+                {
+                    if (brace_offset > 0)
+                    {
+                        const std::string pre{token.text.substr(0, brace_offset)};
+                        surface.draw_text(drawable, *surface.m_editor_font, pre, token_x, center_y,
+                            token_color(token.kind));
+                        token_x += static_cast<float>(surface.m_editor_font->getTextWidth(pre));
+                    }
+
+                    const std::string brace_char{token.text.substr(brace_offset, 1)};
+                    const float pulse = m_brace_animation.get_pulse_scale();
+                    const float brace_w = static_cast<float>(
+                        surface.m_editor_font->getTextWidth(brace_char));
+
+                    const float extra_w = (brace_w * pulse - brace_w) * 0.5F;
+                    const float extra_h = (line_height * pulse - line_height) * 0.5F;
+                    const float screen_y = center_y - line_height * 0.5F;
+
+                    if (!m_brace_pulse_color_ready)
+                    {
+                        UI::Theme::Color pulse_color = surface.m_palette.selection_background;
+                        pulse_color.red = static_cast<std::uint8_t>(
+                            std::min(pulse_color.red + 30, 255));
+                        pulse_color.green = static_cast<std::uint8_t>(
+                            std::min(pulse_color.green + 30, 255));
+                        pulse_color.blue = static_cast<std::uint8_t>(
+                            std::min(pulse_color.blue + 30, 255));
+                        m_brace_pulse_color = surface.allocate_color(pulse_color);
+                        m_brace_pulse_color_ready = true;
+                    }
+
+                    surface.fill_rounded_rectangle(
+                        drawable,
+                        UI::Rect{token_x - extra_w - 2.0F, screen_y - extra_h,
+                            brace_w + extra_w * 2.0F + 4.0F, line_height + extra_h * 2.0F},
+                        m_brace_pulse_color,
+                        3.0F * surface.m_dpi_scale * pulse);
+
+                    // X11 cannot scale glyphs; draw the brace at normal size over the pulse box.
+                    surface.draw_text(drawable, *surface.m_editor_font, brace_char, token_x,
+                        center_y, surface.m_text.accent);
+                    token_x += brace_w;
+
+                    if (brace_offset + 1 < token.text.size())
+                    {
+                        const std::string post{token.text.substr(brace_offset + 1)};
+                        surface.draw_text(drawable, *surface.m_editor_font, post, token_x, center_y,
+                            token_color(token.kind));
+                        token_x += static_cast<float>(surface.m_editor_font->getTextWidth(post));
+                    }
+                }
+                else
+                {
+                    const std::string text{token.text};
+                    surface.draw_text(drawable, *surface.m_editor_font, text, token_x, center_y,
+                        token_color(token.kind));
+                    token_x += static_cast<float>(surface.m_editor_font->getTextWidth(text));
+                }
                 rendered_bytes += token.text.size();
             }
             if (rendered_bytes < line.size())

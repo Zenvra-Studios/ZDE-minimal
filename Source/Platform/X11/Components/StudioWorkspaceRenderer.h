@@ -133,6 +133,7 @@ public:
     [[nodiscard]] bool tick_animations() noexcept;
     void shutdown();
     void render(Drawable drawable, int client_width, int client_height, float content_top) const;
+    [[nodiscard]] const std::filesystem::path& get_icon_asset_root() const noexcept;
 
 private:
     friend class ActivitySidebar;
@@ -178,6 +179,11 @@ private:
 
     [[nodiscard]] unsigned long allocate_color(const UI::Theme::Color& color) const;
     void fill_rectangle(Drawable drawable, const UI::Rect& rectangle, unsigned long color) const;
+    void fill_rounded_rectangle(
+        Drawable drawable,
+        const UI::Rect& rectangle,
+        unsigned long color,
+        float radius) const;
     void draw_rectangle(Drawable drawable, const UI::Rect& rectangle, unsigned long color) const;
     void draw_line(Drawable drawable, int from_x, int from_y, int to_x, int to_y, unsigned long color) const;
     void draw_text(
@@ -197,6 +203,13 @@ private:
         const UI::Theme::Color& background,
         bool preserve_source_colors = true) const;
     void draw_png_icon(
+        Drawable drawable,
+        const std::string& asset_path,
+        int center_x,
+        int center_y,
+        int max_size,
+        const UI::Theme::Color& background) const;
+    [[nodiscard]] bool draw_ico_icon(
         Drawable drawable,
         const std::string& asset_path,
         int center_x,

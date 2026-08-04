@@ -78,6 +78,7 @@ public:
         float dpi_scale,
         const UI::Theme::StudioTheme& theme);
     void shutdown();
+    [[nodiscard]] const std::filesystem::path& get_icon_asset_root() const noexcept;
 
     [[nodiscard]] bool open_workspace_file(const std::filesystem::path& path);
     [[nodiscard]] std::size_t open_dropped_paths(
@@ -254,6 +255,7 @@ private:
     std::unique_ptr<AntialiasedFont> m_font;
     ThemePixels m_colors;
     ThemeTextColors m_text_colors;
+    UI::Theme::Color m_titlebar_background_color{};
     StudioWorkspaceRenderer m_workspace_renderer;
 };
 

@@ -3,8 +3,10 @@
 #include "Platform/X11/Components/EditorMinimap.h"
 #include "Platform/X11/Components/EditorScrollbar.h"
 #include "UI/Components/EditorFolding.h"
+#include "UI/Editor/BraceAnimationModel.h"
 #include "UI/Editor/CaretBlinkModel.h"
 #include "UI/Editor/EditorController.h"
+#include "UI/Editor/SelectionAnimationModel.h"
 #include "UI/Editor/StudioEditorModel.h"
 #include "Utility/DragDropModel.h"
 
@@ -112,6 +114,11 @@ private:
     mutable std::size_t m_tab_count = 0;
     std::optional<std::size_t> m_hovered_tab_index;
     std::optional<std::size_t> m_hovered_tab_close_index;
+    mutable UI::Editor::SelectionAnimationModel m_selection_animation;
+    mutable UI::Editor::BraceAnimationModel m_brace_animation;
+    mutable UI::Editor::TextPosition m_last_brace_caret;
+    mutable unsigned long m_brace_pulse_color = 0;
+    mutable bool m_brace_pulse_color_ready = false;
 };
 
 } // namespace Zenvra::Platform::X11::Components
