@@ -146,10 +146,11 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
     const UI::Rect editor_workspace_bounds = content.items[2];
 
     const float integrated_tab_height = std::min(tab_height, safe_top);
+    // The tab strip belongs to the titlebar, not to the editor column. Keep
+    // it directly beside the logo/hamburger even while the Explorer sidebar
+    // is open below it.
     const float integrated_tab_x = std::min(
-        std::max(
-            editor_workspace_bounds.x,
-            StudioEditorMetrics::titlebar_navigation_width * safe_scale),
+        StudioEditorMetrics::titlebar_navigation_width * safe_scale,
         safe_width);
     const float integrated_tab_right = std::max(
         safe_width - StudioEditorMetrics::titlebar_window_controls_width * safe_scale,

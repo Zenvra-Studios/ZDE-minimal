@@ -274,9 +274,8 @@ void TerminalPanel::render(
     const std::size_t end = lines.size() - offset;
     const std::size_t start = end > visible_rows ? end - visible_rows : 0;
     const std::size_t displayed_rows = end - start;
-    const float content_bottom = layout.terminal_content_bounds.bottom() - content_bottom_padding;
-    const float first_center_y = content_bottom - line_height * 0.5F -
-        static_cast<float>(displayed_rows > 0 ? displayed_rows - 1 : 0) * line_height;
+    const float first_center_y = layout.terminal_content_bounds.y + content_top_padding +
+        line_height * 0.5F;
     float center_y = first_center_y;
     for (std::size_t index = start; index < end; ++index)
     {

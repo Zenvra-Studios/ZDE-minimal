@@ -81,6 +81,60 @@ bool TextEditor::create_buffer()
     return created;
 }
 
+bool TextEditor::is_tab_interactive_point(
+    const StudioWorkspaceRenderer& surface,
+    const UI::Editor::StudioEditorLayoutResult& layout,
+    float point_x,
+    float point_y) const noexcept
+{
+    if (!layout.tab_bar_bounds.contains(point_x, point_y))
+    {
+        return false;
+    }
+
+    const float action_width =
+        UI::Editor::StudioEditorMetrics::editor_tab_action_width * surface.m_dpi_scale;
+    const UI::Rect create_bounds{
+        layout.tab_bar_bounds.right() - action_width * 2.0F,
+        layout.tab_bar_bounds.y,
+        action_width,
+        layout.tab_bar_bounds.height};
+    const UI::Rect delete_bounds{
+        layout.tab_bar_bounds.right() - action_width,
+        layout.tab_bar_bounds.y,
+        action_width,
+        layout.tab_bar_bounds.height};
+    if (create_bounds.contains(point_x, point_y) || delete_bounds.contains(point_x, point_y))
+    {
+        return true;
+    }
+
+    float tab_x = layout.tab_bar_bounds.x;
+    const float right_limit = create_bounds.x;
+    const std::span<const UI::Editor::EditorSessionDocument> documents =
+        m_controller.get_documents();
+    for (const UI::Editor::EditorSessionDocument& document : documents)
+    {
+        const float width = UI::Editor::calculate_editor_tab_width(
+            static_cast<float>(surface.m_ui_font->getTextWidth(
+                std::string{document.text.get_file_name()})),
+            surface.m_dpi_scale);
+        if (tab_x + width > right_limit)
+        {
+            break;
+        }
+        const UI::Rect bounds{
+            tab_x, layout.tab_bar_bounds.y, width, layout.tab_bar_bounds.height};
+        if (bounds.contains(point_x, point_y))
+        {
+            return true;
+        }
+        tab_x += width +
+            UI::Editor::StudioEditorMetrics::editor_tab_gap * surface.m_dpi_scale;
+    }
+    return false;
+}
+
 bool TextEditor::handle_pointer_press(
     const StudioWorkspaceRenderer& surface,
     const UI::Editor::StudioEditorLayoutResult& layout,
@@ -161,7 +215,9 @@ bool TextEditor::handle_pointer_press(
             tab_x += width +
                 UI::Editor::StudioEditorMetrics::editor_tab_gap * surface.m_dpi_scale;
         }
-        return true;
+        // Only consume the titlebar when a real tab/action was hit. Empty
+        // space is intentionally left for the native window drag region.
+        return false;
     }
 
     UI::Editor::TextDocumentModel* document = m_controller.get_active_document();

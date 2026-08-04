@@ -48,12 +48,15 @@ private:
     void append_character(char character);
     void append_line();
     void append_status(std::string message);
+    void clear_screen() noexcept;
     void trim_scrollback();
 
     std::unique_ptr<Implementation> m_implementation;
     std::filesystem::path m_shell_path;
     std::vector<std::string> m_lines{std::string{}};
     std::size_t m_cursor_column = 0;
+    std::size_t m_input_start_column = 0;
+    std::string m_pending_input;
     ParserState m_parser_state = ParserState::Text;
     std::string m_control_sequence;
     std::size_t m_columns = 100;

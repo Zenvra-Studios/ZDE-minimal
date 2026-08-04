@@ -286,9 +286,9 @@ void test_studio_editor_layout_and_tokenization()
         860.0F, 640.0F, 35.0F, 1.0F, false, 218.0F, false, true, 260.0F);
     expect(with_tool_sidebar.tool_sidebar_bounds.x == 38.0F &&
             with_tool_sidebar.tool_sidebar_bounds.width == 260.0F &&
-            with_tool_sidebar.tab_bar_bounds.x == 298.0F &&
+            with_tool_sidebar.tab_bar_bounds.x == 80.0F &&
             with_tool_sidebar.editor_bounds.x == 350.0F,
-        "an open activity panel must reserve a dedicated sidebar beside the activity rail");
+        "the titlebar tabs must stay beside navigation while the activity panel remains below");
     const StudioEditorLayoutResult compact = layout_engine.calculate(
         180.0F, 120.0F, 35.0F, 1.0F, true, 218.0F, false, true, 260.0F);
     expect(compact.tool_sidebar_bounds.width == 0.0F &&

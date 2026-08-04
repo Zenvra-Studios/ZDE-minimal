@@ -362,7 +362,19 @@ bool StudioWorkspaceRenderer::is_tab_bar_point(
         m_terminal_panel.is_maximized(),
         m_tool_sidebar.is_visible(),
         m_tool_sidebar.get_width());
-    return layout.tab_bar_bounds.contains(point_x, point_y);
+    if (m_ui_font == nullptr)
+    {
+        return false;
+    }
+    HDC device_context = GetDC(nullptr);
+    if (device_context == nullptr)
+    {
+        return false;
+    }
+    const bool interactive = m_text_editor.is_tab_interactive_point(
+        *this, device_context, layout, point_x, point_y);
+    ReleaseDC(nullptr, device_context);
+    return interactive;
 }
 
 bool StudioWorkspaceRenderer::is_editor_point(

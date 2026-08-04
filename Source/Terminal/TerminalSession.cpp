@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <array>
 #include <cerrno>
+#include <cctype>
 #include <cstdlib>
+#include <string_view>
 #include <system_error>
 #include <utility>
 
@@ -26,6 +28,56 @@ namespace
 {
 
 constexpr std::size_t maximum_scrollback_lines = 4000;
+
+bool is_printable_input(std::string_view text) noexcept
+{
+    return !text.empty() && static_cast<unsigned char>(text.front()) >= 0x20U &&
+        text.front() != '\x7F';
+}
+
+void remove_last_utf8_code_point(std::string& text) noexcept
+{
+    if (text.empty())
+    {
+        return;
+    }
+    text.pop_back();
+    while (!text.empty() &&
+           (static_cast<unsigned char>(text.back()) & 0xC0U) == 0x80U)
+    {
+        text.pop_back();
+    }
+}
+
+bool is_clear_command(std::string_view command) noexcept
+{
+    while (!command.empty() &&
+           (command.front() == ' ' || command.front() == '\t'))
+    {
+        command.remove_prefix(1);
+    }
+    while (!command.empty() &&
+           (command.back() == ' ' || command.back() == '\t'))
+    {
+        command.remove_suffix(1);
+    }
+    const auto equals_ignore_case = [](std::string_view left, std::string_view right) {
+        if (left.size() != right.size())
+        {
+            return false;
+        }
+        for (std::size_t index = 0; index < left.size(); ++index)
+        {
+            if (std::tolower(static_cast<unsigned char>(left[index])) !=
+                std::tolower(static_cast<unsigned char>(right[index])))
+            {
+                return false;
+            }
+        }
+        return true;
+    };
+    return equals_ignore_case(command, "clear") || equals_ignore_case(command, "cls");
+}
 
 #if defined(_WIN32)
 std::wstring quote_windows_argument(const std::wstring& argument)
@@ -150,6 +202,8 @@ bool TerminalSession::start(const std::filesystem::path& working_directory)
     stop();
     m_lines.assign(1, std::string{});
     m_cursor_column = 0;
+    m_input_start_column = 0;
+    m_pending_input.clear();
     m_parser_state = ParserState::Text;
     m_control_sequence.clear();
     m_columns = 100;
@@ -308,6 +362,42 @@ bool TerminalSession::write_input(std::string_view text)
     {
         return false;
     }
+    const bool is_enter = text == "\r" || text == "\n";
+    const bool is_backspace = text == "\x7F" || text == "\b";
+    const bool printable = is_printable_input(text);
+    const bool clear_requested = is_enter && is_clear_command(m_pending_input);
+
+    const auto track_input = [this, text, is_enter, is_backspace, printable]() {
+        if (printable)
+        {
+            if (m_pending_input.empty() && m_input_start_column == 0)
+            {
+                m_input_start_column = m_cursor_column;
+            }
+            m_pending_input.append(text);
+        }
+        else if (is_backspace)
+        {
+            if (m_pending_input.empty() && m_input_start_column == 0 &&
+                m_cursor_column > 0)
+            {
+                // The first backspace tells us where the shell prompt ends.
+                m_input_start_column = m_cursor_column;
+            }
+            remove_last_utf8_code_point(m_pending_input);
+        }
+        else if (is_enter)
+        {
+            m_pending_input.clear();
+            m_input_start_column = 0;
+        }
+        else if (!text.empty() && text.front() == '\x1B')
+        {
+            // Cursor movement makes the simple command mirror unreliable. The
+            // prompt boundary remains valid, so backspace is still protected.
+            m_pending_input.clear();
+        }
+    };
 #if defined(_WIN32)
     std::string windows_input;
     windows_input.reserve(text.size() + 1);
@@ -326,24 +416,41 @@ bool TerminalSession::write_input(std::string_view text)
         written == windows_input.size();
     if (succeeded)
     {
-        if (text == "\r")
+        if (is_enter)
         {
             append_line();
         }
-        else if (text == "\x7F")
+        else if (is_backspace)
         {
+            track_input();
             if (!m_lines.empty() && m_cursor_column > 0)
             {
-                --m_cursor_column;
-                if (m_cursor_column < m_lines.back().size())
+                if (m_cursor_column > m_input_start_column)
                 {
-                    m_lines.back().erase(m_cursor_column, 1);
+                    --m_cursor_column;
+                    if (m_cursor_column < m_lines.back().size())
+                    {
+                        m_lines.back().erase(m_cursor_column, 1);
+                    }
                 }
             }
         }
-        else if (static_cast<unsigned char>(text.front()) >= 0x20U)
+        else if (printable)
         {
+            track_input();
             consume_output(text);
+        }
+        else
+        {
+            track_input();
+        }
+        if (is_enter)
+        {
+            track_input();
+        }
+        if (clear_requested)
+        {
+            clear_screen();
         }
     }
     return succeeded;
@@ -364,7 +471,16 @@ bool TerminalSession::write_input(std::string_view text)
         }
         break;
     }
-    return total_written == text.size();
+    const bool succeeded = total_written == text.size();
+    if (succeeded)
+    {
+        track_input();
+        if (clear_requested)
+        {
+            clear_screen();
+        }
+    }
+    return succeeded;
 #endif
 }
 
@@ -475,7 +591,10 @@ void TerminalSession::consume_output(std::string_view output)
             if (character == '\x1B') m_parser_state = ParserState::Escape;
             else if (character == '\n') append_line();
             else if (character == '\r') m_cursor_column = 0;
-            else if (character == '\b' && m_cursor_column > 0) --m_cursor_column;
+            else if (character == '\b' && m_cursor_column > m_input_start_column)
+            {
+                --m_cursor_column;
+            }
             else if (character == '\t')
             {
                 const std::size_t count = 4 - (m_cursor_column % 4);
@@ -554,21 +673,30 @@ void TerminalSession::apply_control_sequence(char command)
         m_cursor_column = std::min(m_cursor_column + amount, line.size());
         break;
     case 'D':
-        m_cursor_column = amount > m_cursor_column ? 0 : m_cursor_column - amount;
+        m_cursor_column = amount > m_cursor_column
+            ? m_input_start_column
+            : std::max(m_cursor_column - amount, m_input_start_column);
         break;
     case 'G':
-        m_cursor_column = std::min(amount - 1, line.size());
+        m_cursor_column = std::max(
+            m_input_start_column,
+            std::min(amount - 1, line.size()));
         break;
     case 'K':
         if (first_parameter == "2")
         {
             line.clear();
             m_cursor_column = 0;
+            m_input_start_column = 0;
         }
         else if (first_parameter == "1")
         {
-            const std::size_t count = std::min(m_cursor_column + 1, line.size());
-            line.replace(0, count, count, ' ');
+            const std::size_t end = std::min(m_cursor_column + 1, line.size());
+            if (m_input_start_column < end)
+            {
+                const std::size_t count = end - m_input_start_column;
+                line.replace(m_input_start_column, count, count, ' ');
+            }
         }
         else if (m_cursor_column < line.size())
         {
@@ -578,12 +706,26 @@ void TerminalSession::apply_control_sequence(char command)
     case 'J':
         if (first_parameter == "2" || first_parameter == "3")
         {
-            m_lines.assign(1, std::string{});
-            m_cursor_column = 0;
+            clear_screen();
+        }
+        else if (first_parameter.empty() || first_parameter == "0")
+        {
+            line.erase(std::min(m_cursor_column, line.size()));
+        }
+        else if (first_parameter == "1")
+        {
+            const std::size_t end = std::min(m_cursor_column + 1, line.size());
+            if (m_input_start_column < end)
+            {
+                line.replace(m_input_start_column,
+                    end - m_input_start_column,
+                    end - m_input_start_column,
+                    ' ');
+            }
         }
         break;
     case 'H':
-        m_cursor_column = 0;
+        m_cursor_column = m_input_start_column;
         break;
     default:
         break;
@@ -593,6 +735,15 @@ void TerminalSession::apply_control_sequence(char command)
 void TerminalSession::append_character(char character)
 {
     if (m_lines.empty()) m_lines.emplace_back();
+    if (m_cursor_column < m_input_start_column)
+    {
+        m_cursor_column = m_input_start_column;
+    }
+    if (character == ' ' && m_cursor_column == m_input_start_column &&
+        m_pending_input.empty())
+    {
+        return;
+    }
     std::string& line = m_lines.back();
     if (m_cursor_column < line.size()) line[m_cursor_column] = character;
     else
@@ -607,6 +758,8 @@ void TerminalSession::append_line()
 {
     m_lines.emplace_back();
     m_cursor_column = 0;
+    m_input_start_column = 0;
+    m_pending_input.clear();
     trim_scrollback();
 }
 
@@ -615,6 +768,16 @@ void TerminalSession::append_status(std::string message)
     if (!m_lines.empty() && m_lines.back().empty()) m_lines.back() = std::move(message);
     else m_lines.push_back(std::move(message));
     append_line();
+}
+
+void TerminalSession::clear_screen() noexcept
+{
+    m_lines.assign(1, std::string{});
+    m_cursor_column = 0;
+    m_input_start_column = 0;
+    m_pending_input.clear();
+    m_parser_state = ParserState::Text;
+    m_control_sequence.clear();
 }
 
 void TerminalSession::trim_scrollback()
