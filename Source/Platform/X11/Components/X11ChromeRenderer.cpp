@@ -370,15 +370,6 @@ void X11ChromeRenderer::render(
         UI::Rect{0.0F, 0.0F, static_cast<float>(client_width), static_cast<float>(client_height)},
         m_colors.window_background);
     fill_rectangle(back_buffer, chrome_layout.titlebar_bounds, m_colors.titlebar_background);
-    fill_rectangle(
-        back_buffer,
-        UI::Rect{
-            0.0F,
-            chrome_layout.titlebar_bounds.bottom() - 1.0F,
-            static_cast<float>(client_width),
-            1.0F,
-        },
-        m_colors.titlebar_border);
 
     const std::span<const UI::Chrome::WindowMenu> menus = UI::Chrome::get_window_menu_model();
     for (std::size_t region_index = 0; region_index < chrome_layout.visible_menu_count; ++region_index)
@@ -494,7 +485,8 @@ void X11ChromeRenderer::render(
 
 PopupMenuGeometry X11ChromeRenderer::calculate_popup_geometry(
     const UI::Chrome::WindowChromeLayoutResult& chrome_layout,
-    std::size_t menu_index) const noexcept
+    std::size_t menu_index,
+    bool opened_from_overflow) const noexcept
 {
     PopupMenuGeometry geometry;
     const std::span<const UI::Chrome::WindowMenu> menus = UI::Chrome::get_window_menu_model();
@@ -537,6 +529,16 @@ PopupMenuGeometry X11ChromeRenderer::calculate_popup_geometry(
     float current_y = chrome_layout.titlebar_bounds.bottom();
     geometry.bounds.x = anchor_bounds->x;
     geometry.bounds.y = current_y;
+    if (opened_from_overflow)
+    {
+        const std::size_t overflow_row =
+            menu_index - chrome_layout.first_overflow_menu_index;
+        const OverflowMenuGeometry root_geometry =
+            calculate_overflow_menu_geometry(chrome_layout);
+        geometry.bounds.x = root_geometry.bounds.right() + 2.0F * m_dpi_scale;
+        geometry.bounds.y += static_cast<float>(overflow_row) * 28.0F * m_dpi_scale;
+        current_y = geometry.bounds.y;
+    }
     geometry.bounds.width = popup_width;
     geometry.item_count = std::min(menu.items.size(), max_popup_menu_items);
 
@@ -836,14 +838,18 @@ void X11ChromeRenderer::draw_popup_menu(
         return;
     }
 
-    const PopupMenuGeometry geometry = calculate_popup_geometry(chrome_layout, menu_index);
+    const PopupMenuGeometry geometry = calculate_popup_geometry(
+        chrome_layout,
+        menu_index,
+        interaction_state.overflow_menu_open);
     if (geometry.bounds.is_empty())
     {
         return;
     }
 
-    fill_rectangle(drawable, geometry.bounds, m_colors.popup_background, 6);
-    draw_rectangle(drawable, geometry.bounds, m_colors.popup_border, 6);
+    const int popup_radius = std::max(round_to_int(7.0F * m_dpi_scale), 5);
+    fill_rectangle(drawable, geometry.bounds, m_colors.popup_background, popup_radius);
+    draw_rectangle(drawable, geometry.bounds, m_colors.popup_border, popup_radius);
 
     const UI::Chrome::WindowMenu& menu = menus[menu_index];
     for (std::size_t item_index = 0; item_index < geometry.item_count; ++item_index)
@@ -883,7 +889,11 @@ void X11ChromeRenderer::draw_popup_menu(
             hover_bounds.width -= 8.0F * m_dpi_scale;
             hover_bounds.y += 2.0F * m_dpi_scale;
             hover_bounds.height -= 4.0F * m_dpi_scale;
-            fill_rectangle(drawable, hover_bounds, m_colors.accent, 4);
+            fill_rectangle(
+                drawable,
+                hover_bounds,
+                m_colors.accent,
+                std::max(round_to_int(4.0F * m_dpi_scale), 3));
         }
 
         std::string text_color = m_text_colors.secondary;
@@ -926,8 +936,9 @@ void X11ChromeRenderer::draw_overflow_menu(
         return;
     }
 
-    fill_rectangle(drawable, geometry.bounds, m_colors.popup_background, 6);
-    draw_rectangle(drawable, geometry.bounds, m_colors.popup_border, 6);
+    const int popup_radius = std::max(round_to_int(7.0F * m_dpi_scale), 5);
+    fill_rectangle(drawable, geometry.bounds, m_colors.popup_background, popup_radius);
+    draw_rectangle(drawable, geometry.bounds, m_colors.popup_border, popup_radius);
     const std::span<const UI::Chrome::WindowMenu> menus = UI::Chrome::get_window_menu_model();
     for (std::size_t item_index = 0; item_index < geometry.item_count; ++item_index)
     {
@@ -936,7 +947,8 @@ void X11ChromeRenderer::draw_overflow_menu(
         {
             break;
         }
-        const bool is_hovered = interaction_state.hovered_overflow_menu_index == menu_index;
+        const bool is_hovered = interaction_state.hovered_overflow_menu_index == menu_index ||
+            interaction_state.open_menu_index == menu_index;
         if (is_hovered)
         {
             UI::Rect hover_bounds = geometry.item_bounds[item_index];
@@ -944,7 +956,11 @@ void X11ChromeRenderer::draw_overflow_menu(
             hover_bounds.width -= 8.0F * m_dpi_scale;
             hover_bounds.y += 2.0F * m_dpi_scale;
             hover_bounds.height -= 4.0F * m_dpi_scale;
-            fill_rectangle(drawable, hover_bounds, m_colors.accent, 4);
+            fill_rectangle(
+                drawable,
+                hover_bounds,
+                m_colors.accent,
+                std::max(round_to_int(4.0F * m_dpi_scale), 3));
         }
         draw_text(
             drawable,

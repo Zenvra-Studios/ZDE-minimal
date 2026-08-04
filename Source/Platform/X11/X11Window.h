@@ -144,6 +144,7 @@ private:
     int m_last_titlebar_click_x = 0;
     int m_last_titlebar_click_y = 0;
     Cursor m_default_cursor = None;
+    Cursor m_pointer_cursor = None;
     Cursor m_text_cursor = None;
     Cursor m_split_resize_cursor = None;
     Cursor m_active_cursor = None;

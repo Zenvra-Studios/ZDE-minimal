@@ -8,7 +8,9 @@
 
 #include <windows.h>
 
+#include <array>
 #include <filesystem>
+#include <optional>
 #include <string_view>
 
 namespace Zenvra::Platform::Win32::Components
@@ -77,6 +79,8 @@ public:
         const UI::Editor::StudioEditorLayoutResult& layout) const;
 
 private:
+    static constexpr std::size_t max_visible_tabs = 128;
+
     void draw_tab_strip(
         const StudioWorkspaceRenderer& surface,
         HDC device_context,
@@ -99,6 +103,10 @@ private:
     mutable bool m_reveal_caret_pending = true;
     bool m_focused = false;
     bool m_pointer_selecting = false;
+    mutable std::array<UI::Rect, max_visible_tabs> m_tab_bounds{};
+    mutable std::size_t m_tab_count = 0;
+    std::optional<std::size_t> m_hovered_tab_index;
+    std::optional<std::size_t> m_hovered_tab_close_index;
 };
 
 } // namespace Zenvra::Platform::Win32::Components

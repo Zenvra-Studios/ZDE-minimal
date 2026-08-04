@@ -8,7 +8,9 @@
 
 #include <X11/Xlib.h>
 
+#include <array>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -75,6 +77,8 @@ public:
         const UI::Editor::StudioEditorLayoutResult& layout) const;
 
 private:
+    static constexpr std::size_t max_visible_tabs = 128;
+
     void draw_tab_strip(
         const StudioWorkspaceRenderer& surface,
         Drawable drawable,
@@ -96,6 +100,10 @@ private:
     mutable bool m_reveal_caret_pending = true;
     bool m_focused = false;
     bool m_pointer_selecting = false;
+    mutable std::array<UI::Rect, max_visible_tabs> m_tab_bounds{};
+    mutable std::size_t m_tab_count = 0;
+    std::optional<std::size_t> m_hovered_tab_index;
+    std::optional<std::size_t> m_hovered_tab_close_index;
 };
 
 } // namespace Zenvra::Platform::X11::Components

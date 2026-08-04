@@ -1,10 +1,10 @@
 #include "Platform/Win32/Components/ToolSidebar.h"
 
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
+#include "UI/Editor/FileIconModel.h"
 #include "Utility/Fonts.h"
 
 #include <algorithm>
-#include <cctype>
 #include <cmath>
 #include <string>
 #include <string_view>
@@ -18,31 +18,6 @@ namespace
 int round_to_int(float value)
 {
     return static_cast<int>(std::lround(value));
-}
-
-std::string_view file_icon_for_path()
-{
-    return "file.svg";
-}
-
-std::string_view file_badge_for_path(const std::filesystem::path& path)
-{
-    std::string extension = path.extension().string();
-    std::transform(extension.begin(), extension.end(), extension.begin(),
-        [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
-    if (extension == ".cpp" || extension == ".cxx" || extension == ".cc")
-    {
-        return "C++";
-    }
-    if (extension == ".h" || extension == ".hpp" || extension == ".hh")
-    {
-        return "h";
-    }
-    if (extension == ".c")
-    {
-        return "C";
-    }
-    return {};
 }
 
 std::string ellipsize(
@@ -321,25 +296,10 @@ void ToolSidebar::render(
         {
             const int icon_x = round_to_int(indent_x + 19.0F * scale);
             const int icon_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
-            const std::string_view badge = file_badge_for_path(item.path);
-            if (!badge.empty())
-            {
-                // The one-pixel overdraw gives the compact language badge a bold
-                // weight without changing the font used by the rest of the tree.
-                const float bold_offset = std::max(scale, 1.0F);
-                surface.draw_text(device_context, *surface.m_small_font, badge,
-                    static_cast<float>(icon_x), static_cast<float>(icon_y),
-                    surface.m_palette.accent);
-                surface.draw_text(device_context, *surface.m_small_font, badge,
-                    static_cast<float>(icon_x) + bold_offset, static_cast<float>(icon_y),
-                    surface.m_palette.accent);
-            }
-            else
-            {
-                surface.draw_svg_icon(device_context, file_icon_for_path(),
-                    icon_x, icon_y, std::max(round_to_int(16.0F * scale), 13),
-                    surface.m_palette.text_muted, row_background);
-            }
+            const std::string icon_asset = UI::Editor::file_icon_asset_for_path(item.path);
+            surface.draw_svg_icon(device_context, icon_asset,
+                icon_x, icon_y, std::max(round_to_int(14.0F * scale), 11),
+                surface.m_palette.text_muted, row_background);
         }
         const float label_x = indent_x + (item.directory ? 30.0F : 36.0F) * scale;
         const std::string label = ellipsize(device_context, *surface.m_small_font,

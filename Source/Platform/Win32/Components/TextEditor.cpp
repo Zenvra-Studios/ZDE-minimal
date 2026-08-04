@@ -1,6 +1,7 @@
 #include "Platform/Win32/Components/TextEditor.h"
 
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
+#include "UI/Editor/FileIconModel.h"
 
 #include <algorithm>
 #include <array>
@@ -54,6 +55,8 @@ bool TextEditor::open_file(const std::filesystem::path& path)
         m_scrollbar.reset();
         m_reveal_caret_pending = true;
         m_caret_blink.reset();
+        m_hovered_tab_index.reset();
+        m_hovered_tab_close_index.reset();
     }
     return opened;
 }
@@ -68,6 +71,8 @@ std::size_t TextEditor::open_dropped_paths(
         m_reveal_caret_pending = true;
         m_focused = true;
         m_caret_blink.reset();
+        m_hovered_tab_index.reset();
+        m_hovered_tab_close_index.reset();
     }
     return opened_count;
 }
@@ -81,6 +86,8 @@ bool TextEditor::create_buffer()
         m_reveal_caret_pending = true;
         m_focused = true;
         m_caret_blink.reset();
+        m_hovered_tab_index.reset();
+        m_hovered_tab_close_index.reset();
     }
     return created;
 }
@@ -211,6 +218,8 @@ bool TextEditor::handle_pointer_press(
                         m_scrollbar.reset();
                         m_reveal_caret_pending = true;
                         m_caret_blink.reset();
+                        m_hovered_tab_index.reset();
+                        m_hovered_tab_close_index.reset();
                     }
                     return closed;
                 }
@@ -289,7 +298,36 @@ bool TextEditor::handle_pointer_move(
     float point_x,
     float point_y) noexcept
 {
-    return m_scrollbar.set_hovered(layout, point_x, point_y);
+    const bool scrollbar_changed = m_scrollbar.set_hovered(layout, point_x, point_y);
+    std::optional<std::size_t> hovered_tab;
+    std::optional<std::size_t> hovered_close;
+    const float close_width =
+        UI::Editor::StudioEditorMetrics::editor_tab_close_width * layout.dpi_scale;
+    for (std::size_t index = 0; index < m_tab_count; ++index)
+    {
+        const UI::Rect& tab_bounds = m_tab_bounds[index];
+        const UI::Rect close_bounds{
+            tab_bounds.right() - close_width,
+            tab_bounds.y,
+            close_width,
+            tab_bounds.height};
+        if (tab_bounds.contains(point_x, point_y))
+        {
+            hovered_tab = index;
+            if (close_bounds.contains(point_x, point_y))
+            {
+                hovered_close = index;
+            }
+            break;
+        }
+    }
+    if (hovered_tab != m_hovered_tab_index || hovered_close != m_hovered_tab_close_index)
+    {
+        m_hovered_tab_index = hovered_tab;
+        m_hovered_tab_close_index = hovered_close;
+        return true;
+    }
+    return scrollbar_changed;
 }
 
 bool TextEditor::handle_pointer_drag(
@@ -391,6 +429,13 @@ bool TextEditor::handle_action(UI::Editor::EditorAction action)
         }
         m_reveal_caret_pending = true;
         m_caret_blink.reset();
+        if (action == UI::Editor::EditorAction::CreateDocument ||
+            action == UI::Editor::EditorAction::CloseDocument ||
+            action == UI::Editor::EditorAction::RemoveDocument)
+        {
+            m_hovered_tab_index.reset();
+            m_hovered_tab_close_index.reset();
+        }
     }
     return changed;
 }
@@ -481,6 +526,7 @@ void TextEditor::draw_tab_strip(
     HDC device_context,
     const UI::Editor::StudioEditorLayoutResult& layout) const
 {
+    m_tab_count = 0;
     float tab_x = layout.tab_bar_bounds.x;
     const float action_width =
         UI::Editor::StudioEditorMetrics::editor_tab_action_width * surface.m_dpi_scale;
@@ -501,27 +547,50 @@ void TextEditor::draw_tab_strip(
             break;
         }
         const UI::Rect bounds{tab_x, layout.tab_bar_bounds.y, width, layout.tab_bar_bounds.height};
-        if (active)
+        const std::size_t tab_index = m_tab_count;
+        if (m_tab_count < max_visible_tabs)
+        {
+            m_tab_bounds[m_tab_count] = bounds;
+            ++m_tab_count;
+        }
+        const bool close_hovered = m_hovered_tab_close_index &&
+            *m_hovered_tab_close_index == tab_index;
+        const bool tab_hovered = m_hovered_tab_index &&
+            *m_hovered_tab_index == tab_index;
+        if (active || tab_hovered)
         {
             surface.fill_rectangle(
-                device_context, bounds, surface.m_palette.tab_active_background);
-            surface.fill_rectangle(
                 device_context,
-                UI::Rect{bounds.x, bounds.bottom() - surface.m_dpi_scale,
-                    bounds.width, surface.m_dpi_scale},
-                surface.m_palette.accent);
+                bounds,
+                active ? surface.m_palette.tab_active_background
+                       : surface.m_palette.active_line_background);
         }
+        const UI::Theme::Color& tab_edge_color = surface.m_palette.text_primary;
+        const int tab_left = round_to_int(bounds.x);
+        const int tab_right = round_to_int(bounds.right()) - 1;
+        const int tab_top = round_to_int(bounds.y);
+        const int tab_bottom = round_to_int(bounds.bottom()) - 1;
+        // Keep one flush top rule and vertical separators; there is no bottom
+        // rule, so the titlebar remains visually open below the labels.
+        surface.draw_line(device_context, tab_left, tab_top, tab_right, tab_top,
+            tab_edge_color);
+        surface.draw_line(device_context, tab_left, tab_top, tab_left, tab_bottom,
+            tab_edge_color);
+        surface.draw_line(device_context, tab_right, tab_top, tab_right, tab_bottom,
+            tab_edge_color);
+        const std::string icon_asset = UI::Editor::file_icon_asset_for_path(
+            std::filesystem::path{std::string{document.get_file_name()}});
         surface.draw_svg_icon(
             device_context,
-            "file.svg",
+            icon_asset,
             round_to_int(bounds.x +
                 (UI::Editor::StudioEditorMetrics::editor_tab_icon_offset + 4.0F) *
                     surface.m_dpi_scale),
             round_to_int(bounds.y + bounds.height * 0.5F),
-            std::max(round_to_int(12.0F * surface.m_dpi_scale), 9),
-            surface.m_palette.text_muted,
-            active ? surface.m_palette.tab_active_background
-                   : surface.m_palette.tab_background);
+            std::max(round_to_int(14.0F * surface.m_dpi_scale), 10),
+            surface.m_palette.text_primary,
+            surface.m_palette.tab_background,
+            false);
         surface.draw_text(
             device_context,
             *surface.m_ui_font,
@@ -530,37 +599,32 @@ void TextEditor::draw_tab_strip(
                 surface.m_dpi_scale,
             bounds.y + bounds.height * 0.5F,
             active ? surface.m_palette.text_primary : surface.m_palette.text_muted);
-        if (document.is_dirty())
+        if (close_hovered)
         {
-            surface.fill_rectangle(
+            surface.draw_svg_icon(
                 device_context,
-                UI::Rect{bounds.right() - 36.0F * surface.m_dpi_scale,
-                    bounds.y + bounds.height * 0.5F - 2.0F * surface.m_dpi_scale,
-                    4.0F * surface.m_dpi_scale,
-                    4.0F * surface.m_dpi_scale},
-                surface.m_palette.warning);
+                "close-minimal.svg",
+                round_to_int(bounds.right() -
+                    UI::Editor::StudioEditorMetrics::editor_tab_close_width *
+                        0.5F * surface.m_dpi_scale),
+                round_to_int(bounds.y + bounds.height * 0.5F),
+                std::max(round_to_int(11.0F * surface.m_dpi_scale), 9),
+                active ? surface.m_palette.text_primary : surface.m_palette.text_muted,
+                surface.m_palette.tab_background);
         }
-        const int close_center_x = round_to_int(
-            bounds.right() -
-            UI::Editor::StudioEditorMetrics::editor_tab_close_width *
-                0.5F * surface.m_dpi_scale);
-        const int close_center_y = round_to_int(bounds.y + bounds.height * 0.5F);
-        surface.draw_svg_icon(
-            device_context,
-            "close.svg",
-            close_center_x,
-            close_center_y,
-            std::max(round_to_int(10.0F * surface.m_dpi_scale), 8),
-            surface.m_palette.text_muted,
-            active ? surface.m_palette.tab_active_background
-                   : surface.m_palette.tab_background);
-        surface.draw_line(
-            device_context,
-            round_to_int(bounds.right()),
-            round_to_int(bounds.y + 6.0F * surface.m_dpi_scale),
-            round_to_int(bounds.right()),
-            round_to_int(bounds.bottom() - 6.0F * surface.m_dpi_scale),
-            surface.m_palette.border);
+        else if (document.is_dirty())
+        {
+            surface.draw_svg_icon(
+                device_context,
+                "dirty.svg",
+                round_to_int(bounds.right() -
+                    UI::Editor::StudioEditorMetrics::editor_tab_close_width *
+                        0.5F * surface.m_dpi_scale),
+                round_to_int(bounds.y + bounds.height * 0.5F),
+                std::max(round_to_int(10.0F * surface.m_dpi_scale), 8),
+                surface.m_palette.warning,
+                surface.m_palette.tab_background);
+        }
         tab_x += width +
             UI::Editor::StudioEditorMetrics::editor_tab_gap * surface.m_dpi_scale;
     }
@@ -586,13 +650,6 @@ void TextEditor::draw_tab_strip(
     surface.draw_line(device_context, delete_center_x - trash_half - 1,
         action_center_y - trash_half, delete_center_x + trash_half + 1,
         action_center_y - trash_half, surface.m_palette.text_muted);
-    surface.draw_line(
-        device_context,
-        round_to_int(layout.tab_bar_bounds.x),
-        round_to_int(layout.tab_bar_bounds.bottom() - 1.0F),
-        round_to_int(layout.tab_bar_bounds.right()),
-        round_to_int(layout.tab_bar_bounds.bottom() - 1.0F),
-        surface.m_palette.border);
 }
 
 void TextEditor::draw_document(

@@ -49,6 +49,35 @@ void fill_rectangle(HDC device_context, const UI::Rect& rectangle, const UI::The
     DeleteObject(brush);
 }
 
+void fill_rounded_rectangle(
+    HDC device_context,
+    const UI::Rect& rectangle,
+    const UI::Theme::Color& color,
+    int radius)
+{
+    if (rectangle.is_empty())
+    {
+        return;
+    }
+
+    RECT native_rectangle = to_native_rect(rectangle);
+    HBRUSH brush = CreateSolidBrush(to_color_ref(color));
+    HGDIOBJ previous_brush = SelectObject(device_context, brush);
+    HGDIOBJ previous_pen = SelectObject(device_context, GetStockObject(NULL_PEN));
+    const int diameter = std::max(radius * 2, 2);
+    RoundRect(
+        device_context,
+        native_rectangle.left,
+        native_rectangle.top,
+        native_rectangle.right,
+        native_rectangle.bottom,
+        diameter,
+        diameter);
+    SelectObject(device_context, previous_pen);
+    SelectObject(device_context, previous_brush);
+    DeleteObject(brush);
+}
+
 void draw_centered_text(
     HDC device_context,
     const wchar_t* text,
@@ -588,9 +617,12 @@ LRESULT Win32Window::handle_message(
                 }
                 return 0;
             }
-            const std::optional<std::size_t> menu_index = m_menu_overlay_open
+            const std::optional<std::size_t> root_menu_index = m_menu_overlay_open
                 ? get_menu_overlay_index(point_x, point_y)
                 : std::nullopt;
+            const std::optional<std::size_t> visible_menu_index = m_menu_overlay_open
+                ? std::nullopt
+                : m_chrome_layout.get_menu_index(point_x, point_y);
             const std::optional<std::size_t> popup_item_index = m_open_menu_index
                 ? get_popup_menu_item_index(point_x, point_y)
                 : std::nullopt;
@@ -601,10 +633,33 @@ LRESULT Win32Window::handle_message(
                 client_bounds.right - client_bounds.left,
                 client_bounds.bottom - client_bounds.top,
                 m_chrome_layout.titlebar_bounds.bottom());
+            const std::optional<std::size_t> menu_index = root_menu_index
+                ? root_menu_index
+                : visible_menu_index;
+            bool menu_state_changed = false;
+            if (m_menu_overlay_open && root_menu_index)
+            {
+                if (m_open_menu_index != root_menu_index)
+                {
+                    m_open_menu_index = root_menu_index;
+                    m_hovered_popup_item_index.reset();
+                    menu_state_changed = true;
+                }
+            }
+            else if (m_menu_overlay_open && !popup_item_index)
+            {
+                if (m_open_menu_index || m_hovered_menu_index)
+                {
+                    m_open_menu_index.reset();
+                    m_hovered_menu_index.reset();
+                    menu_state_changed = true;
+                }
+            }
+
             if (menu_index != m_hovered_menu_index ||
                 popup_item_index != m_hovered_popup_item_index ||
                 overflow_menu_hovered != m_overflow_menu_hovered ||
-                terminal_hover_changed)
+                terminal_hover_changed || menu_state_changed)
             {
                 m_hovered_menu_index = menu_index;
                 m_hovered_popup_item_index = popup_item_index;
@@ -698,21 +753,6 @@ LRESULT Win32Window::handle_message(
                 show_overflow_menu();
                 return 0;
             }
-            if (m_menu_overlay_open)
-            {
-                const std::optional<std::size_t> menu_index =
-                    get_menu_overlay_index(point_x, point_y);
-                if (menu_index)
-                {
-                    show_menu(*menu_index);
-                }
-                else
-                {
-                    close_menu_overlay();
-                    InvalidateRect(window_handle, nullptr, FALSE);
-                }
-                return 0;
-            }
             if (m_open_menu_index)
             {
                 const std::optional<std::size_t> item_index =
@@ -721,6 +761,35 @@ LRESULT Win32Window::handle_message(
                     is_popup_menu_item_enabled(*m_open_menu_index, *item_index))
                 {
                     execute_menu_item(*m_open_menu_index, *item_index);
+                }
+                else if (m_menu_overlay_open)
+                {
+                    const std::optional<std::size_t> menu_index =
+                        get_menu_overlay_index(point_x, point_y);
+                    if (menu_index)
+                    {
+                        show_menu(*menu_index);
+                    }
+                    else
+                    {
+                        close_menu_overlay();
+                        InvalidateRect(window_handle, nullptr, FALSE);
+                    }
+                }
+                else
+                {
+                    close_menu_overlay();
+                    InvalidateRect(window_handle, nullptr, FALSE);
+                }
+                return 0;
+            }
+            if (m_menu_overlay_open)
+            {
+                const std::optional<std::size_t> menu_index =
+                    get_menu_overlay_index(point_x, point_y);
+                if (menu_index)
+                {
+                    show_menu(*menu_index);
                 }
                 else
                 {
@@ -871,6 +940,8 @@ LRESULT Win32Window::handle_message(
             POINT cursor_position{};
             GetCursorPos(&cursor_position);
             ScreenToClient(window_handle, &cursor_position);
+            RECT client_bounds{};
+            GetClientRect(window_handle, &client_bounds);
             const bool interactive = m_chrome_layout.get_menu_index(
                                          static_cast<float>(cursor_position.x),
                                          static_cast<float>(cursor_position.y))
@@ -880,14 +951,18 @@ LRESULT Win32Window::handle_message(
                     static_cast<float>(cursor_position.y)) ||
                 m_chrome_layout.command_center_bounds.contains(
                     static_cast<float>(cursor_position.x),
-                    static_cast<float>(cursor_position.y));
+                    static_cast<float>(cursor_position.y)) ||
+                m_workspace_renderer.is_tab_bar_point(
+                    static_cast<float>(cursor_position.x),
+                    static_cast<float>(cursor_position.y),
+                    client_bounds.right - client_bounds.left,
+                    client_bounds.bottom - client_bounds.top,
+                    m_chrome_layout.titlebar_bounds.bottom());
             if (interactive)
             {
                 SetCursor(LoadCursorW(nullptr, IDC_HAND));
                 return TRUE;
             }
-            RECT client_bounds{};
-            GetClientRect(window_handle, &client_bounds);
             if (m_workspace_renderer.is_terminal_resize_handle_point(
                     static_cast<float>(cursor_position.x),
                     static_cast<float>(cursor_position.y),
@@ -1249,14 +1324,27 @@ LRESULT Win32Window::hit_test_non_client(LPARAM l_param)
     POINT cursor_position{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
     ScreenToClient(m_window_handle, &cursor_position);
 
-    const LRESULT resize_result = hit_test_resize_border(cursor_position);
-    if (resize_result != HTNOWHERE)
-    {
-        return resize_result;
-    }
-
     const float point_x = static_cast<float>(cursor_position.x);
     const float point_y = static_cast<float>(cursor_position.y);
+    RECT client_bounds{};
+    GetClientRect(m_window_handle, &client_bounds);
+    const bool tab_point = m_workspace_renderer.is_tab_bar_point(
+        point_x,
+        point_y,
+        client_bounds.right - client_bounds.left,
+        client_bounds.bottom - client_bounds.top,
+        m_chrome_layout.titlebar_bounds.bottom());
+    // Tabs sit close to the top frame; let a real tab hit win over the resize
+    // border so the file buffer remains clickable at its rounded top edge.
+    if (!tab_point)
+    {
+        const LRESULT resize_result = hit_test_resize_border(cursor_position);
+        if (resize_result != HTNOWHERE)
+        {
+            return resize_result;
+        }
+    }
+
     switch (m_chrome_layout.get_window_control(point_x, point_y))
     {
     case UI::Chrome::WindowControl::Minimize:
@@ -1269,14 +1357,7 @@ LRESULT Win32Window::hit_test_non_client(LPARAM l_param)
         break;
     }
 
-    RECT client_bounds{};
-    GetClientRect(m_window_handle, &client_bounds);
-    if (m_workspace_renderer.is_tab_bar_point(
-            point_x,
-            point_y,
-            client_bounds.right - client_bounds.left,
-            client_bounds.bottom - client_bounds.top,
-            m_chrome_layout.titlebar_bounds.bottom()))
+    if (tab_point)
     {
         return HTCLIENT;
     }
@@ -1365,15 +1446,6 @@ void Win32Window::paint_custom_chrome()
         UI::Rect{0.0F, 0.0F, static_cast<float>(client_width), static_cast<float>(client_height)},
         m_theme.window_background);
     fill_rectangle(buffer_context, m_chrome_layout.titlebar_bounds, m_theme.titlebar_background);
-    fill_rectangle(
-        buffer_context,
-        UI::Rect{
-            0.0F,
-            m_chrome_layout.titlebar_bounds.bottom() - 1.0F,
-            static_cast<float>(client_width),
-            1.0F,
-        },
-        m_theme.titlebar_border);
 
     SetBkMode(buffer_context, TRANSPARENT);
     HGDIOBJ previous_font = SelectObject(buffer_context, m_ui_font);
@@ -1520,7 +1592,15 @@ void Win32Window::show_menu(std::size_t menu_index)
         return;
     }
 
-    m_menu_overlay_open = false;
+    // Keep the overflow list open while its child menu is displayed. This
+    // makes the hierarchy explicit: File -> New File, Open File, ...
+    const bool opened_from_overflow = m_menu_overlay_open &&
+        m_chrome_layout.has_overflow_menu() &&
+        menu_index >= m_chrome_layout.first_overflow_menu_index;
+    if (!opened_from_overflow)
+    {
+        m_menu_overlay_open = false;
+    }
     m_open_menu_index = menu_index;
     m_hovered_menu_index.reset();
     m_hovered_popup_item_index.reset();
@@ -1584,15 +1664,23 @@ Win32Window::MenuOverlayGeometry Win32Window::calculate_menu_overlay_geometry() 
     const std::span<const UI::Chrome::WindowMenu> menus =
         UI::Chrome::get_window_menu_model();
     const float row_height = 28.0F * m_chrome_layout.dpi_scale;
-    float popup_width = 168.0F * m_chrome_layout.dpi_scale;
-    for (const UI::Chrome::WindowMenu& menu : menus)
+    const std::size_t first_menu_index = m_chrome_layout.first_overflow_menu_index;
+    if (first_menu_index >= menus.size())
     {
+        return geometry;
+    }
+    float popup_width = 168.0F * m_chrome_layout.dpi_scale;
+    for (std::size_t menu_index = first_menu_index; menu_index < menus.size(); ++menu_index)
+    {
+        const UI::Chrome::WindowMenu& menu = menus[menu_index];
         popup_width = std::max(
             popup_width,
             static_cast<float>(menu.label.size()) * 7.0F * m_chrome_layout.dpi_scale +
                 34.0F * m_chrome_layout.dpi_scale);
     }
-    geometry.item_count = std::min(menus.size(), geometry.item_bounds.size());
+    geometry.item_count = std::min(
+        menus.size() - first_menu_index,
+        geometry.item_bounds.size());
     geometry.bounds = {
         m_chrome_layout.overflow_menu_bounds.x,
         m_chrome_layout.titlebar_bounds.bottom(),
@@ -1635,8 +1723,30 @@ Win32Window::PopupMenuGeometry Win32Window::calculate_popup_menu_geometry(
     }
     popup_width = std::min(popup_width, 380.0F * m_chrome_layout.dpi_scale);
 
-    geometry.bounds.x = m_chrome_layout.overflow_menu_bounds.x;
-    geometry.bounds.y = m_chrome_layout.titlebar_bounds.bottom();
+    if (m_menu_overlay_open)
+    {
+        const MenuOverlayGeometry root_geometry = calculate_menu_overlay_geometry();
+        const std::size_t root_index = menu_index - m_chrome_layout.first_overflow_menu_index;
+        if (root_index >= root_geometry.item_count)
+        {
+            return geometry;
+        }
+        geometry.bounds.x = root_geometry.bounds.right() + 2.0F * m_chrome_layout.dpi_scale;
+        geometry.bounds.y = root_geometry.item_bounds[root_index].y;
+    }
+    else
+    {
+        geometry.bounds.x = m_chrome_layout.overflow_menu_bounds.x;
+        geometry.bounds.y = m_chrome_layout.titlebar_bounds.bottom();
+        for (std::size_t index = 0; index < m_chrome_layout.visible_menu_count; ++index)
+        {
+            if (m_chrome_layout.menu_regions[index].menu_index == menu_index)
+            {
+                geometry.bounds.x = m_chrome_layout.menu_regions[index].bounds.x;
+                break;
+            }
+        }
+    }
     geometry.bounds.width = popup_width;
     geometry.item_count = std::min(menu.items.size(), geometry.item_bounds.size());
     float current_y = geometry.bounds.y;
@@ -1670,7 +1780,7 @@ std::optional<std::size_t> Win32Window::get_menu_overlay_index(
     {
         if (geometry.item_bounds[index].contains(point_x, point_y))
         {
-            return index;
+            return m_chrome_layout.first_overflow_menu_index + index;
         }
     }
     return std::nullopt;
@@ -1735,32 +1845,39 @@ void Win32Window::draw_menu_overlay(HDC device_context) const
     }
 
     const float scale = m_chrome_layout.dpi_scale;
-    const UI::Rect overlay_bounds = drawing_root
-        ? calculate_menu_overlay_geometry().bounds
-        : calculate_popup_menu_geometry(*m_open_menu_index).bounds;
-    if (overlay_bounds.is_empty())
-    {
-        return;
-    }
+    const int radius = std::max(round_to_int(7.0F * scale), 5);
+    const auto draw_panel = [&](const UI::Rect& panel_bounds) {
+        if (panel_bounds.is_empty())
+        {
+            return;
+        }
+        const RECT native_bounds = to_native_rect(panel_bounds);
+        HBRUSH background_brush = CreateSolidBrush(to_color_ref(m_theme.panel_background));
+        HPEN border_pen = CreatePen(PS_SOLID, 1, to_color_ref(m_theme.titlebar_border));
+        HGDIOBJ previous_brush = SelectObject(device_context, background_brush);
+        HGDIOBJ previous_pen = SelectObject(device_context, border_pen);
+        RoundRect(
+            device_context,
+            native_bounds.left,
+            native_bounds.top,
+            native_bounds.right,
+            native_bounds.bottom,
+            radius * 2,
+            radius * 2);
+        SelectObject(device_context, previous_pen);
+        SelectObject(device_context, previous_brush);
+        DeleteObject(border_pen);
+        DeleteObject(background_brush);
+    };
 
-    RECT native_bounds = to_native_rect(overlay_bounds);
-    HBRUSH background_brush = CreateSolidBrush(to_color_ref(m_theme.panel_background));
-    HPEN border_pen = CreatePen(PS_SOLID, 1, to_color_ref(m_theme.titlebar_border));
-    HGDIOBJ previous_brush = SelectObject(device_context, background_brush);
-    HGDIOBJ previous_pen = SelectObject(device_context, border_pen);
-    const int radius = std::max(round_to_int(6.0F * scale), 4);
-    RoundRect(
-        device_context,
-        native_bounds.left,
-        native_bounds.top,
-        native_bounds.right,
-        native_bounds.bottom,
-        radius,
-        radius);
-    SelectObject(device_context, previous_pen);
-    SelectObject(device_context, previous_brush);
-    DeleteObject(border_pen);
-    DeleteObject(background_brush);
+    if (drawing_root)
+    {
+        draw_panel(calculate_menu_overlay_geometry().bounds);
+    }
+    if (m_open_menu_index)
+    {
+        draw_panel(calculate_popup_menu_geometry(*m_open_menu_index).bounds);
+    }
 
     const std::span<const UI::Chrome::WindowMenu> menus =
         UI::Chrome::get_window_menu_model();
@@ -1769,7 +1886,10 @@ void Win32Window::draw_menu_overlay(HDC device_context) const
         const MenuOverlayGeometry geometry = calculate_menu_overlay_geometry();
         for (std::size_t index = 0; index < geometry.item_count; ++index)
         {
-            const bool hovered = m_hovered_menu_index == index;
+            const std::size_t menu_index =
+                m_chrome_layout.first_overflow_menu_index + index;
+            const bool hovered = m_hovered_menu_index == menu_index ||
+                m_open_menu_index == menu_index;
             UI::Rect item_bounds = geometry.item_bounds[index];
             if (hovered)
             {
@@ -1778,7 +1898,11 @@ void Win32Window::draw_menu_overlay(HDC device_context) const
                 hover_bounds.width -= 8.0F * scale;
                 hover_bounds.y += 2.0F * scale;
                 hover_bounds.height -= 4.0F * scale;
-                fill_rectangle(device_context, hover_bounds, m_theme.accent);
+                fill_rounded_rectangle(
+                    device_context,
+                    hover_bounds,
+                    m_theme.accent,
+                    std::max(round_to_int(4.0F * scale), 3));
             }
             RECT text_bounds = to_native_rect(item_bounds);
             text_bounds.left += round_to_int(12.0F * scale);
@@ -1789,14 +1913,17 @@ void Win32Window::draw_menu_overlay(HDC device_context) const
                     : m_theme.text_primary));
             DrawTextW(
                 device_context,
-                utf8_to_wide(menus[index].label).c_str(),
+                utf8_to_wide(menus[menu_index].label).c_str(),
                 -1,
                 &text_bounds,
                 DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
         }
-        return;
     }
 
+    if (!m_open_menu_index)
+    {
+        return;
+    }
     const std::size_t menu_index = *m_open_menu_index;
     if (menu_index >= menus.size())
     {
@@ -1831,7 +1958,11 @@ void Win32Window::draw_menu_overlay(HDC device_context) const
             hover_bounds.width -= 8.0F * scale;
             hover_bounds.y += 2.0F * scale;
             hover_bounds.height -= 4.0F * scale;
-            fill_rectangle(device_context, hover_bounds, m_theme.accent);
+            fill_rounded_rectangle(
+                device_context,
+                hover_bounds,
+                m_theme.accent,
+                std::max(round_to_int(4.0F * scale), 3));
         }
 
         RECT text_bounds = to_native_rect(item_bounds);

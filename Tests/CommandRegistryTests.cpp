@@ -267,7 +267,7 @@ void test_studio_editor_layout_and_tokenization()
 
     const StudioEditorLayout layout_engine;
     const StudioEditorLayoutResult layout = layout_engine.calculate(860.0F, 640.0F, 35.0F, 1.0F);
-    expect(layout.tab_bar_bounds.y == 5.0F && layout.tab_bar_bounds.bottom() == 35.0F,
+    expect(layout.tab_bar_bounds.y == 0.0F && layout.tab_bar_bounds.bottom() == 35.0F,
         "editor tabs must be integrated into the custom titlebar");
     expect(layout.editor_bounds.y == 35.0F, "the editor must begin directly below the titlebar");
     expect(layout.status_bar_bounds.y == 616.0F, "the status bar must remain pinned to the bottom");
@@ -304,7 +304,7 @@ void test_studio_editor_layout_and_tokenization()
         1720.0F, 1280.0F, 70.0F, 2.0F, false, 218.0F, false, true, 260.0F);
     expect(scaled.activity_bar_bounds.width == 76.0F &&
             scaled.tool_sidebar_bounds.width == 520.0F &&
-            scaled.tab_bar_bounds.height == 60.0F &&
+            scaled.tab_bar_bounds.height == 70.0F &&
             scaled.status_bar_bounds.height == 48.0F &&
             scaled.editor_bounds.x == 700.0F,
         "the shared editor layout must scale all platform-independent design metrics with DPI");

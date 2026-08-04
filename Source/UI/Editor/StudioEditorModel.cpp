@@ -104,7 +104,6 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
     const float safe_scale = std::max(dpi_scale, 0.5F);
     const float safe_top = std::clamp(content_top, 0.0F, safe_height);
     const float activity_width = StudioEditorMetrics::activity_width * safe_scale;
-    const float tab_height = StudioEditorMetrics::tab_height * safe_scale;
     const float status_height = StudioEditorMetrics::status_height * safe_scale;
     const float gutter_width = StudioEditorMetrics::gutter_width * safe_scale;
     const float scrollbar_width = 14.0F * safe_scale;
@@ -145,10 +144,13 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
     const UI::Rect sidebar_bounds = content.items[1];
     const UI::Rect editor_workspace_bounds = content.items[2];
 
-    const float integrated_tab_height = std::min(tab_height, safe_top);
-    // The tab strip belongs to the titlebar, not to the editor column. Keep
-    // it directly beside the logo/hamburger even while the Explorer sidebar
-    // is open below it.
+    // The tab strip fills the titlebar edge-to-edge. This keeps the Ghostty-
+    // style separators flush with the chrome instead of leaving top/bottom
+    // margins around the buffer labels.
+    const float integrated_tab_y = 0.0F;
+    const float integrated_tab_height = safe_top;
+    // Keep it directly beside the logo/hamburger even while the Explorer
+    // sidebar is open below it.
     const float integrated_tab_x = std::min(
         StudioEditorMetrics::titlebar_navigation_width * safe_scale,
         safe_width);
@@ -157,7 +159,7 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
         integrated_tab_x);
     const UI::Rect tab_bounds{
         integrated_tab_x,
-        safe_top - integrated_tab_height,
+        integrated_tab_y,
         integrated_tab_right - integrated_tab_x,
         integrated_tab_height,
     };

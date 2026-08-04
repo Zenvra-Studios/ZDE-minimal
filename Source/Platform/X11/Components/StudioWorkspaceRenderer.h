@@ -187,7 +187,8 @@ private:
         int center_y,
         int size,
         const UI::Theme::Color& color,
-        const UI::Theme::Color& background) const;
+        const UI::Theme::Color& background,
+        bool preserve_source_colors = true) const;
 
     Display* m_display = nullptr;
     int m_screen = 0;

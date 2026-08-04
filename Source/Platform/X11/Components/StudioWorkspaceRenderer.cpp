@@ -666,23 +666,40 @@ void StudioWorkspaceRenderer::draw_svg_icon(
     int center_y,
     int size,
     const UI::Theme::Color& color,
-    const UI::Theme::Color& background) const
+    const UI::Theme::Color& background,
+    bool preserve_source_colors) const
 {
     if (size <= 0 || m_display == nullptr || m_graphics_context == nullptr)
     {
         return;
     }
 
+    std::error_code path_error;
     std::filesystem::path resolved_path{path};
     if (resolved_path.is_relative() && !m_icon_asset_root.empty())
     {
-        resolved_path = m_icon_asset_root / resolved_path.filename();
+        const std::filesystem::path themed_path = m_icon_asset_root / resolved_path;
+        if (std::filesystem::is_regular_file(themed_path, path_error))
+        {
+            resolved_path = themed_path;
+        }
+        else
+        {
+            // Keep compatibility with callers that pass Assets/icons/foo.svg.
+            const std::filesystem::path legacy_path =
+                m_icon_asset_root / resolved_path.filename();
+            if (std::filesystem::is_regular_file(legacy_path, path_error))
+            {
+                resolved_path = legacy_path;
+            }
+        }
     }
-    std::error_code path_error;
     if (!std::filesystem::is_regular_file(resolved_path, path_error))
     {
         return;
     }
+    preserve_source_colors = preserve_source_colors &&
+        resolved_path.parent_path().filename() == "material-icon-theme";
 
     const int half = size / 2;
     const int draw_x = center_x - half;
@@ -732,11 +749,19 @@ void StudioWorkspaceRenderer::draw_svg_icon(
         {
             uint32_t pixel = src[i];
             uint32_t a = (pixel >> 24) & 0xFF;
-            
-            // Map the SVG alpha to the tint color, blended over the background.
-            uint32_t out_r = (tint_r * a + bg_r * (255 - a)) / 255;
-            uint32_t out_g = (tint_g * a + bg_g * (255 - a)) / 255;
-            uint32_t out_b = (tint_b * a + bg_b * (255 - a)) / 255;
+
+            const uint32_t source_r = (pixel >> 16) & 0xFF;
+            const uint32_t source_g = (pixel >> 8) & 0xFF;
+            const uint32_t source_b = pixel & 0xFF;
+            const uint32_t out_r = preserve_source_colors
+                ? source_r + (bg_r * (255 - a)) / 255
+                : (tint_r * a + bg_r * (255 - a)) / 255;
+            const uint32_t out_g = preserve_source_colors
+                ? source_g + (bg_g * (255 - a)) / 255
+                : (tint_g * a + bg_g * (255 - a)) / 255;
+            const uint32_t out_b = preserve_source_colors
+                ? source_b + (bg_b * (255 - a)) / 255
+                : (tint_b * a + bg_b * (255 - a)) / 255;
 
             // X11 ZPixmap expects BGRx for 24-bit depth on little-endian
             dst[i] = (out_r << 16) | (out_g << 8) | out_b;

@@ -173,7 +173,8 @@ public:
 
     [[nodiscard]] PopupMenuGeometry calculate_popup_geometry(
         const UI::Chrome::WindowChromeLayoutResult& chrome_layout,
-        std::size_t menu_index) const noexcept;
+        std::size_t menu_index,
+        bool opened_from_overflow = false) const noexcept;
     [[nodiscard]] OverflowMenuGeometry calculate_overflow_menu_geometry(
         const UI::Chrome::WindowChromeLayoutResult& chrome_layout) const noexcept;
 

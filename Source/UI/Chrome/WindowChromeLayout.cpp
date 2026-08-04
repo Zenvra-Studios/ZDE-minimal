@@ -100,8 +100,9 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(
         result.close_bounds = {controls_start + control_width * 2.0F, 0.0F, control_width, titlebar_height};
     }
 
-    // The full menu bar lives in a custom overlay. Keeping one stable anchor
-    // leaves the remaining titlebar width available for real editor tabs.
+    // Keep all top-level labels in the custom overlay. The titlebar remains a
+    // compact hamburger anchor, leaving the full central span available for
+    // editor tabs without any menu text underneath them.
     const float hamburger_width = std::min(
         metrics.overflow_menu_width * safe_scale,
         std::max(controls_start - result.logo_bounds.right(), 0.0F));

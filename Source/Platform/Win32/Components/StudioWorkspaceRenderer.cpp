@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <iterator>
 #include <string>
 
 namespace Zenvra::Platform::Win32::Components
@@ -649,23 +650,40 @@ void StudioWorkspaceRenderer::draw_svg_icon(
     int center_y,
     int size,
     const UI::Theme::Color& color,
-    const UI::Theme::Color& background) const
+    const UI::Theme::Color& background,
+    bool preserve_source_colors) const
 {
     if (device_context == nullptr || size <= 0 || asset_name.empty())
     {
         return;
     }
 
+    std::error_code path_error;
     std::filesystem::path resolved_path{asset_name};
     if (resolved_path.is_relative() && !m_icon_asset_root.empty())
     {
-        resolved_path = m_icon_asset_root / resolved_path.filename();
+        const std::filesystem::path themed_path = m_icon_asset_root / resolved_path;
+        if (std::filesystem::is_regular_file(themed_path, path_error))
+        {
+            resolved_path = themed_path;
+        }
+        else
+        {
+            // Keep compatibility with callers that pass Assets/icons/foo.svg.
+            const std::filesystem::path legacy_path =
+                m_icon_asset_root / resolved_path.filename();
+            if (std::filesystem::is_regular_file(legacy_path, path_error))
+            {
+                resolved_path = legacy_path;
+            }
+        }
     }
-    std::error_code path_error;
     if (!std::filesystem::is_regular_file(resolved_path, path_error))
     {
         return;
     }
+    preserve_source_colors = preserve_source_colors &&
+        resolved_path.parent_path().filename() == "material-icon-theme";
 
     const std::string resolved_string = resolved_path.string();
     const std::string cache_key = resolved_string + "@" + std::to_string(size) + "#" +
@@ -692,18 +710,21 @@ void StudioWorkspaceRenderer::draw_svg_icon(
         {
             const std::uint32_t alpha = (source[index] >> 24U) & 0xFFU;
             const std::uint32_t inverse_alpha = 255U - alpha;
-            const std::uint32_t red =
-                (static_cast<std::uint32_t>(color.red) * alpha +
-                    static_cast<std::uint32_t>(background.red) * inverse_alpha) /
-                255U;
-            const std::uint32_t green =
-                (static_cast<std::uint32_t>(color.green) * alpha +
-                    static_cast<std::uint32_t>(background.green) * inverse_alpha) /
-                255U;
-            const std::uint32_t blue =
-                (static_cast<std::uint32_t>(color.blue) * alpha +
-                    static_cast<std::uint32_t>(background.blue) * inverse_alpha) /
-                255U;
+            const std::uint32_t source_red = (source[index] >> 16U) & 0xFFU;
+            const std::uint32_t source_green = (source[index] >> 8U) & 0xFFU;
+            const std::uint32_t source_blue = source[index] & 0xFFU;
+            const std::uint32_t red = preserve_source_colors
+                ? source_red + (static_cast<std::uint32_t>(background.red) * inverse_alpha) / 255U
+                : (static_cast<std::uint32_t>(color.red) * alpha +
+                    static_cast<std::uint32_t>(background.red) * inverse_alpha) / 255U;
+            const std::uint32_t green = preserve_source_colors
+                ? source_green + (static_cast<std::uint32_t>(background.green) * inverse_alpha) / 255U
+                : (static_cast<std::uint32_t>(color.green) * alpha +
+                    static_cast<std::uint32_t>(background.green) * inverse_alpha) / 255U;
+            const std::uint32_t blue = preserve_source_colors
+                ? source_blue + (static_cast<std::uint32_t>(background.blue) * inverse_alpha) / 255U
+                : (static_cast<std::uint32_t>(color.blue) * alpha +
+                    static_cast<std::uint32_t>(background.blue) * inverse_alpha) / 255U;
             pixels[index] = blue | (green << 8U) | (red << 16U);
         }
         cached = m_svg_cache.emplace(cache_key, std::move(pixels)).first;

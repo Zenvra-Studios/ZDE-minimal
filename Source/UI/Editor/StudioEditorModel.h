@@ -125,7 +125,7 @@ struct StudioEditorMetrics final
     static constexpr float editor_tab_minimum_width = 112.0F;
     static constexpr float editor_tab_maximum_width = 224.0F;
     static constexpr float editor_tab_chrome_width = 68.0F;
-    static constexpr float editor_tab_gap = 1.0F;
+    static constexpr float editor_tab_gap = 6.0F;
     static constexpr float editor_tab_icon_offset = 10.0F;
     static constexpr float editor_tab_label_offset = 26.0F;
     static constexpr float editor_tab_close_width = 30.0F;
