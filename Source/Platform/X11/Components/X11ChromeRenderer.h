@@ -54,6 +54,7 @@ struct ChromeInteractionState
     bool debug_button_hovered = false;
     bool ellipsis_button_hovered = false;
     bool compiler_button_hovered = false;
+    bool platform_button_hovered = false;
     bool binary_button_hovered = false;
     bool mode_button_hovered = false;
     bool build_button_hovered = false;

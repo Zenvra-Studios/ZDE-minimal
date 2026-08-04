@@ -67,29 +67,38 @@ constexpr std::array help_items{
 };
 
 constexpr std::array compiler_items{
-    MenuItem{"Debug Profile", "build_debug"},
-    MenuItem{"Release Profile", "build_release"},
+    MenuItem{"Debug Profile", Commands::CommandIds::build_debug},
+    MenuItem{"Release Profile", Commands::CommandIds::build_release},
     separator,
-    MenuItem{"Edit Profiles...", "edit_profiles"},
+    MenuItem{"Configuration Manager...", Commands::CommandIds::edit_profiles},
+};
+
+constexpr std::array platform_items{
+    MenuItem{"x64", Commands::CommandIds::platform_x64},
+    MenuItem{"x86", Commands::CommandIds::platform_x86},
+    MenuItem{"Win32", Commands::CommandIds::platform_win32},
+    MenuItem{"ARM64", Commands::CommandIds::platform_arm64},
+    MenuItem{"AArch64", Commands::CommandIds::platform_aarch64},
+    MenuItem{"Apple ARM", Commands::CommandIds::platform_apple_arm},
 };
 
 constexpr std::array binary_items{
-    MenuItem{"ZDE", "run_zde"},
-    MenuItem{"Tests", "run_tests"},
+    MenuItem{"ZDE", Commands::CommandIds::run_zde},
+    MenuItem{"Tests", Commands::CommandIds::run_tests},
 };
 
 constexpr std::array gear_items{
-    MenuItem{"Settings...", "open_settings"},
-    MenuItem{"Themes...", "open_themes"},
+    MenuItem{"Settings...", Commands::CommandIds::open_settings},
+    MenuItem{"Themes...", Commands::CommandIds::open_themes},
     separator,
-    MenuItem{"Plugins...", "open_plugins"},
+    MenuItem{"Plugins...", Commands::CommandIds::open_plugins},
 };
 
 constexpr std::array ellipsis_items{
     MenuItem{"Search...", Commands::CommandIds::view_search},
     MenuItem{"Terminal", Commands::CommandIds::view_output},
     separator,
-    MenuItem{"More Tools...", "more_tools"},
+    MenuItem{"More Tools...", Commands::CommandIds::more_tools},
 };
 
 constexpr std::array menus{
@@ -105,6 +114,7 @@ constexpr std::array menus{
     Menu{"Help", help_items},
     // Overlay menus
     Menu{"Compiler", compiler_items},
+    Menu{"Platform", platform_items},
     Menu{"Binary", binary_items},
     Menu{"Gear", gear_items},
     Menu{"Ellipsis", ellipsis_items},
@@ -120,6 +130,11 @@ std::span<const Menu> get_window_menus() noexcept
 std::span<const MenuItem> get_compiler_menu() noexcept
 {
     return compiler_items;
+}
+
+std::span<const MenuItem> get_platform_menu() noexcept
+{
+    return platform_items;
 }
 
 std::span<const MenuItem> get_binary_menu() noexcept

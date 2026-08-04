@@ -1,5 +1,4 @@
 #include "Application/Application.h"
-
 #include "Platform/PlatformWindowFactory.h"
 
 #include <chrono>

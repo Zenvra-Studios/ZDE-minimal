@@ -118,6 +118,7 @@ private:
     bool m_debug_button_hovered = false;
     bool m_ellipsis_button_hovered = false;
     bool m_compiler_button_hovered = false;
+    bool m_platform_button_hovered = false;
     bool m_binary_button_hovered = false;
     bool m_build_button_hovered = false;
     bool m_gear_button_hovered = false;

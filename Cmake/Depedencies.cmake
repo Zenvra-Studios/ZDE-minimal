@@ -42,6 +42,15 @@ CPMAddPackage(
     GIT_TAG v1.3.18
 )
 
+# # nlohmann/json - JSON for Modern C++
+# CPMAddPackage(
+#     NAME nlohmann_json
+#     GITHUB_REPOSITORY nlohmann/json
+#     GIT_TAG v3.11.3
+#     OPTIONS
+#         "JSON_BuildTests OFF"
+# )
+
 # gtest - Google Testing and Mocking Framework
 set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 CPMAddPackage(
@@ -51,3 +60,14 @@ CPMAddPackage(
     OPTIONS
         "INSTALL_GTEST OFF"
 )
+
+# gtest 1.14.0 enables /WX (warnings as errors) under MSVC, which clang-cl turns
+# into -Werror. Newer clang warns about the char8_t -> char32_t conversion in
+# gtest-printers.h (-Wcharacter-conversion), so suppress it for the gtest targets.
+if(MSVC AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    foreach(gtest_target IN ITEMS gtest gtest_main gmock gmock_main)
+        if(TARGET ${gtest_target})
+            target_compile_options(${gtest_target} PRIVATE -Wno-character-conversion)
+        endif()
+    endforeach()
+endif()

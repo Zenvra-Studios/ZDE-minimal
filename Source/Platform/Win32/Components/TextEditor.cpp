@@ -2,6 +2,7 @@
 
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
 #include "UI/Editor/FileIconModel.h"
+#include "Utility/Fonts.h"
 
 #include <algorithm>
 #include <array>
@@ -104,25 +105,8 @@ bool TextEditor::is_tab_interactive_point(
         return false;
     }
 
-    const float action_width =
-        UI::Editor::StudioEditorMetrics::editor_tab_action_width * surface.m_dpi_scale;
-    const UI::Rect create_bounds{
-        layout.tab_bar_bounds.right() - action_width * 2.0F,
-        layout.tab_bar_bounds.y,
-        action_width,
-        layout.tab_bar_bounds.height};
-    const UI::Rect delete_bounds{
-        layout.tab_bar_bounds.right() - action_width,
-        layout.tab_bar_bounds.y,
-        action_width,
-        layout.tab_bar_bounds.height};
-    if (create_bounds.contains(point_x, point_y) || delete_bounds.contains(point_x, point_y))
-    {
-        return true;
-    }
-
-    float tab_x = layout.tab_bar_bounds.x;
-    const float right_limit = create_bounds.x;
+    float tab_x = layout.tab_bar_bounds.x - m_tab_scroll_offset;
+    const float right_limit = layout.tab_bar_bounds.right();
     const std::span<const UI::Editor::EditorSessionDocument> documents =
         m_controller.get_documents();
     for (const UI::Editor::EditorSessionDocument& document : documents)
@@ -133,7 +117,7 @@ bool TextEditor::is_tab_interactive_point(
                 *surface.m_ui_font,
                 document.text.get_file_name())),
             surface.m_dpi_scale);
-        if (tab_x + width > right_limit)
+        if (tab_x > right_limit)
         {
             break;
         }
@@ -159,30 +143,8 @@ bool TextEditor::handle_pointer_press(
 {
     if (layout.tab_bar_bounds.contains(point_x, point_y))
     {
-        const float action_width =
-            UI::Editor::StudioEditorMetrics::editor_tab_action_width * surface.m_dpi_scale;
-        const UI::Rect create_bounds{
-            layout.tab_bar_bounds.right() - action_width * 2.0F,
-            layout.tab_bar_bounds.y,
-            action_width,
-            layout.tab_bar_bounds.height};
-        const UI::Rect delete_bounds{
-            layout.tab_bar_bounds.right() - action_width,
-            layout.tab_bar_bounds.y,
-            action_width,
-            layout.tab_bar_bounds.height};
-        if (create_bounds.contains(point_x, point_y))
-        {
-            m_focused = true;
-            return handle_action(UI::Editor::EditorAction::CreateDocument);
-        }
-        if (delete_bounds.contains(point_x, point_y))
-        {
-            return handle_action(UI::Editor::EditorAction::RemoveDocument);
-        }
-
-        float tab_x = layout.tab_bar_bounds.x;
-        const float right_limit = create_bounds.x;
+        float tab_x = layout.tab_bar_bounds.x - m_tab_scroll_offset;
+        const float right_limit = layout.tab_bar_bounds.right();
         const std::span<const UI::Editor::EditorSessionDocument> documents =
             m_controller.get_documents();
         for (std::size_t index = 0; index < documents.size(); ++index)
@@ -193,7 +155,7 @@ bool TextEditor::handle_pointer_press(
                     *surface.m_ui_font,
                     documents[index].text.get_file_name())),
                 surface.m_dpi_scale);
-            if (tab_x + width > right_limit)
+            if (tab_x > right_limit)
             {
                 break;
             }
@@ -426,19 +388,38 @@ bool TextEditor::handle_pointer_release() noexcept
 bool TextEditor::handle_scroll(
     const StudioWorkspaceRenderer& surface,
     const UI::Editor::StudioEditorLayoutResult& layout,
-    std::ptrdiff_t line_delta) noexcept
+    const Event::ScrollEvent& event) noexcept
 {
-    const UI::Editor::TextDocumentModel* document = m_controller.get_active_document();
-    if (document == nullptr)
+    if (event.delta_x != 0)
     {
-        return false;
+        float speed = 20.0f; // px per delta
+        if (layout.tab_bar_bounds.contains(event.point_x, event.point_y))
+        {
+            m_tab_scroll_offset += static_cast<float>(event.delta_x) * speed;
+            if (m_tab_scroll_offset < 0.0f) m_tab_scroll_offset = 0.0f;
+            if (m_tab_scroll_offset > m_max_tab_scroll) m_tab_scroll_offset = m_max_tab_scroll;
+            return true;
+        }
+        else if (layout.editor_bounds.contains(event.point_x, event.point_y))
+        {
+            m_text_scroll_offset += static_cast<float>(event.delta_x) * speed;
+            if (m_text_scroll_offset < 0.0f) m_text_scroll_offset = 0.0f;
+            if (m_text_scroll_offset > m_max_text_scroll) m_text_scroll_offset = m_max_text_scroll;
+            return true;
+        }
     }
-    const float line_height = 20.0F * surface.m_dpi_scale;
-    const std::size_t visible_count = static_cast<std::size_t>(std::max(
-        static_cast<int>(layout.editor_bounds.height / line_height), 1));
-    m_scrollbar.synchronize(document->get_line_count(), visible_count);
+
+    if (event.delta_y == 0) return false;
+
+    if (const UI::Editor::TextDocumentModel* document = m_controller.get_active_document())
+    {
+        const float line_height = 20.0F * surface.m_dpi_scale;
+        const std::size_t visible_count = static_cast<std::size_t>(std::max(
+            static_cast<int>(layout.editor_bounds.height / line_height), 1));
+        m_scrollbar.synchronize(document->get_line_count(), visible_count);
+    }
     m_reveal_caret_pending = false;
-    return m_scrollbar.scroll_lines(line_delta);
+    return m_scrollbar.scroll_lines(event.delta_y);
 }
 
 bool TextEditor::handle_input(
@@ -584,12 +565,35 @@ void TextEditor::draw_tab_strip(
     HDC device_context,
     const UI::Editor::StudioEditorLayoutResult& layout) const
 {
-    m_tab_count = 0;
-    float tab_x = layout.tab_bar_bounds.x;
-    const float action_width = UI::Editor::StudioEditorMetrics::editor_tab_action_width * surface.m_dpi_scale;
-    const float right_limit = layout.tab_bar_bounds.right() - action_width * 2.0F;
     const std::span<const UI::Editor::EditorSessionDocument> documents =
         m_controller.get_documents();
+    
+    float total_width = 0.0f;
+    for (std::size_t index = 0; index < documents.size(); ++index)
+    {
+        total_width += UI::Editor::calculate_editor_tab_width(
+            static_cast<float>(surface.get_text_width(
+                device_context, *surface.m_ui_font, documents[index].text.get_file_name())),
+            surface.m_dpi_scale);
+        total_width += UI::Editor::StudioEditorMetrics::editor_tab_gap * surface.m_dpi_scale;
+    }
+    
+    m_max_tab_scroll = std::max(0.0f, total_width - layout.tab_bar_bounds.width);
+    if (m_max_tab_scroll == 0.0f) {
+        // Reset tab scroll if it fits entirely
+        const_cast<TextEditor*>(this)->m_tab_scroll_offset = 0.0f;
+    }
+
+    SaveDC(device_context);
+    IntersectClipRect(device_context, 
+        static_cast<int>(layout.tab_bar_bounds.x),
+        static_cast<int>(layout.tab_bar_bounds.y),
+        static_cast<int>(layout.tab_bar_bounds.right()),
+        static_cast<int>(layout.tab_bar_bounds.bottom()));
+
+    m_tab_count = 0;
+    float tab_x = layout.tab_bar_bounds.x - m_tab_scroll_offset;
+    const float right_limit = layout.tab_bar_bounds.right();
     const std::optional<std::size_t> active_index = m_controller.get_active_index();
     for (std::size_t index = 0; index < documents.size(); ++index)
     {
@@ -599,7 +603,7 @@ void TextEditor::draw_tab_strip(
             static_cast<float>(surface.get_text_width(
                 device_context, *surface.m_ui_font, document.get_file_name())),
             surface.m_dpi_scale);
-        if (tab_x + width > right_limit)
+        if (tab_x > right_limit)
         {
             break;
         }
@@ -714,27 +718,7 @@ void TextEditor::draw_tab_strip(
         draw_single_tab(m_tab_drag_drop.get_dragged_index());
     }
 
-    const int action_center_y = round_to_int(
-        layout.tab_bar_bounds.y + layout.tab_bar_bounds.height * 0.5F);
-    const int add_center_x = round_to_int(layout.tab_bar_bounds.right() - action_width * 1.5F);
-    const int action_half = std::max(round_to_int(4.0F * surface.m_dpi_scale), 3);
-    surface.draw_line(device_context, add_center_x - action_half, action_center_y,
-        add_center_x + action_half, action_center_y, surface.m_palette.text_muted);
-    surface.draw_line(device_context, add_center_x, action_center_y - action_half,
-        add_center_x, action_center_y + action_half, surface.m_palette.text_muted);
 
-    const int delete_center_x = round_to_int(layout.tab_bar_bounds.right() - action_width * 0.5F);
-    const int trash_half = std::max(round_to_int(4.0F * surface.m_dpi_scale), 3);
-    surface.draw_rectangle(
-        device_context,
-        UI::Rect{static_cast<float>(delete_center_x - trash_half),
-            static_cast<float>(action_center_y - trash_half + 2),
-            static_cast<float>(trash_half * 2),
-            static_cast<float>(trash_half * 2)},
-        surface.m_palette.text_muted);
-    surface.draw_line(device_context, delete_center_x - trash_half - 1,
-        action_center_y - trash_half, delete_center_x + trash_half + 1,
-        action_center_y - trash_half, surface.m_palette.text_muted);
 
     const int tab_bar_bottom = round_to_int(layout.tab_bar_bounds.bottom()) - 1;
     const int tab_bar_left = round_to_int(layout.tab_bar_bounds.x);
@@ -752,6 +736,17 @@ void TextEditor::draw_tab_strip(
     else
     {
         surface.draw_line(device_context, tab_bar_left, tab_bar_bottom, tab_bar_right, tab_bar_bottom, surface.m_palette.border);
+    }
+
+    RestoreDC(device_context, -1);
+
+    if (m_max_tab_scroll > 0.0f)
+    {
+        const float track_width = layout.tab_bar_bounds.width;
+        const float thumb_width = std::max(20.0F * surface.m_dpi_scale, track_width * (track_width / (track_width + m_max_tab_scroll)));
+        const float thumb_x = layout.tab_bar_bounds.x + (m_tab_scroll_offset / m_max_tab_scroll) * (track_width - thumb_width);
+        const UI::Rect thumb_bounds { thumb_x, layout.tab_bar_bounds.bottom() - 3.0F * surface.m_dpi_scale, thumb_width, 3.0F * surface.m_dpi_scale };
+        surface.fill_rectangle(device_context, thumb_bounds, surface.m_palette.accent);
     }
 }
 
@@ -812,13 +807,15 @@ void TextEditor::draw_document(
     }
     const float line_height = 20.0F * surface.m_dpi_scale;
     const float first_center_y = layout.editor_bounds.y + line_height * 0.5F;
-    const float code_x = layout.editor_bounds.x + 14.0F * surface.m_dpi_scale;
+    const float code_x = layout.editor_bounds.x + 14.0F * surface.m_dpi_scale - m_text_scroll_offset;
     const std::size_t visible_count = static_cast<std::size_t>(std::max(
         static_cast<int>(layout.editor_bounds.height / line_height), 1));
     m_scrollbar.synchronize(document->get_line_count(), visible_count);
     if (m_reveal_caret_pending)
     {
         static_cast<void>(m_scrollbar.reveal_line(document->get_caret_line()));
+        // If caret is off-screen horizontally, we might want to reveal it too, 
+        // but for now we just handle vertical.
         m_reveal_caret_pending = false;
     }
     const std::size_t first_line = m_scrollbar.get_first_visible_line();
@@ -848,6 +845,7 @@ void TextEditor::draw_document(
         round_to_int(layout.gutter_bounds.bottom()),
         surface.m_palette.border);
 
+    // Pass 1: Gutter and backgrounds
     for (std::size_t row = 0; row < render_count; ++row)
     {
         const std::size_t line_index = first_line + row;
@@ -893,6 +891,30 @@ void TextEditor::draw_document(
             SelectObject(device_context, previous_pen);
             DeleteObject(pen);
         }
+    }
+
+    // Pass 2: Text rendering with clipping
+    SaveDC(device_context);
+    const float hscroll_height = (m_max_text_scroll > 0.0f) ? 14.0F * surface.m_dpi_scale : 0.0f;
+    IntersectClipRect(device_context,
+        static_cast<int>(layout.editor_bounds.x),
+        static_cast<int>(layout.editor_bounds.y),
+        static_cast<int>(layout.editor_bounds.right()),
+        static_cast<int>(layout.editor_bounds.bottom() - hscroll_height));
+
+    float max_line_width = 0.0f;
+
+    for (std::size_t row = 0; row < render_count; ++row)
+    {
+        const std::size_t line_index = first_line + row;
+        const std::string_view line = document->get_line(line_index);
+        const float center_y = first_center_y + static_cast<float>(row) * line_height;
+        const bool active_line = line_index == document->get_caret_line();
+        
+        const float current_line_width = static_cast<float>(surface.get_text_width(
+            device_context, *surface.m_editor_font, line));
+        if (current_line_width > max_line_width) max_line_width = current_line_width;
+
         if (document->has_selection())
         {
             const UI::Editor::TextSelection selection = document->get_selection();
@@ -914,8 +936,7 @@ void TextEditor::draw_document(
                 {
                     selection_width += 6.0F * surface.m_dpi_scale;
                 }
-                selection_width = std::min(
-                    selection_width, std::max(layout.editor_bounds.right() - selection_x, 0.0F));
+                
                 if (selection_width > 0.0F)
                 {
                     surface.fill_rectangle(
@@ -978,6 +999,42 @@ void TextEditor::draw_document(
                 surface.m_palette.text_primary);
         }
     }
+
+    RestoreDC(device_context, -1);
+
+    // Update max scroll
+    const float content_width = max_line_width + 28.0F * surface.m_dpi_scale; // with padding
+    const float new_max_scroll = std::max(0.0f, content_width - layout.editor_bounds.width);
+    if (new_max_scroll > m_max_text_scroll) 
+    {
+        m_max_text_scroll = new_max_scroll;
+    }
+    else if (new_max_scroll < m_max_text_scroll * 0.8f) // decay slowly if max shrunk (e.g. file changed)
+    {
+        m_max_text_scroll = new_max_scroll;
+    }
+    
+    // clamp
+    if (m_max_text_scroll == 0.0f) const_cast<TextEditor*>(this)->m_text_scroll_offset = 0.0f;
+    else if (m_text_scroll_offset > m_max_text_scroll) const_cast<TextEditor*>(this)->m_text_scroll_offset = m_max_text_scroll;
+
+    // Draw horizontal scrollbar thumb if needed
+    if (m_max_text_scroll > 0.0f)
+    {
+        const float track_width = layout.editor_bounds.width;
+        const float track_height = 14.0F * surface.m_dpi_scale;
+        const float track_y = layout.editor_bounds.bottom() - track_height;
+        const float thumb_width = std::max(20.0F * surface.m_dpi_scale, track_width * (track_width / content_width));
+        const float thumb_x = layout.editor_bounds.x + (m_text_scroll_offset / m_max_text_scroll) * (track_width - thumb_width);
+        const float thumb_height = 6.0F * surface.m_dpi_scale;
+        const UI::Rect thumb_bounds { 
+            thumb_x, 
+            track_y + (track_height - thumb_height) * 0.5F, 
+            thumb_width, 
+            thumb_height 
+        };
+        surface.fill_rectangle(device_context, thumb_bounds, surface.m_palette.text_muted);
+    }
 }
 
 UI::Editor::TextPosition TextEditor::position_from_point(
@@ -1004,7 +1061,7 @@ UI::Editor::TextPosition TextEditor::position_from_point(
     const std::size_t line_index = std::min(
         first_line + clicked_row, document->get_line_count() - 1);
     const std::string_view line = document->get_line(line_index);
-    const float code_x = layout.editor_bounds.x + 14.0F * surface.m_dpi_scale;
+    const float code_x = layout.editor_bounds.x + 14.0F * surface.m_dpi_scale - m_text_scroll_offset;
     const float target_x = std::max(point_x - code_x, 0.0F);
     std::size_t column = 0;
     int previous_width = 0;

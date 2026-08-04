@@ -2,6 +2,7 @@
 
 #include "Platform/Win32/Components/EditorMinimap.h"
 #include "Platform/Win32/Components/EditorScrollbar.h"
+#include "Platform/Win32/Event/ScrollEvent.h"
 #include "UI/Editor/CaretBlinkModel.h"
 #include "UI/Editor/EditorController.h"
 #include "UI/Editor/StudioEditorModel.h"
@@ -56,7 +57,7 @@ public:
     [[nodiscard]] bool handle_scroll(
         const StudioWorkspaceRenderer& surface,
         const UI::Editor::StudioEditorLayoutResult& layout,
-        std::ptrdiff_t line_delta) noexcept;
+        const Event::ScrollEvent& event) noexcept;
     [[nodiscard]] bool handle_input(
         UI::Editor::EditorInputCommand command,
         bool extend_selection);
@@ -115,6 +116,10 @@ private:
     mutable std::size_t m_tab_count = 0;
     std::optional<std::size_t> m_hovered_tab_index;
     std::optional<std::size_t> m_hovered_tab_close_index;
+    float m_tab_scroll_offset = 0.0F;
+    mutable float m_max_tab_scroll = 0.0F;
+    float m_text_scroll_offset = 0.0F;
+    mutable float m_max_text_scroll = 0.0F;
 };
 
 } // namespace Zenvra::Platform::Win32::Components

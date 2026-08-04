@@ -1,6 +1,8 @@
 #include "resource.h"
 #include <windows.h>
 
+IDI_APP_ICON ICON "../../../../Assets/icons/zenvra_logo128x128.ico"
+
 IDR_MAINMENU MENU
 BEGIN
     POPUP "&File"

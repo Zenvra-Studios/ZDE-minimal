@@ -7,15 +7,10 @@
 namespace Zenvra::Platform::Win32::Components
 {
 
-namespace
-{
-
 int round_to_int(float value)
 {
     return static_cast<int>(std::lround(value));
 }
-
-} // namespace
 
 void ActivitySidebar::render(
     const StudioWorkspaceRenderer& surface,
@@ -36,13 +31,11 @@ void ActivitySidebar::render(
         float center_y = 0.0F;
         if (item.placement == UI::Editor::SidebarPlacement::Top)
         {
-            const bool tabs_are_in_titlebar =
-                layout.tab_bar_bounds.bottom() <= layout.activity_bar_bounds.y;
+            const bool tabs_are_in_titlebar = layout.tab_bar_bounds.bottom() <= layout.activity_bar_bounds.y;
             center_y = tabs_are_in_titlebar
                 ? layout.activity_bar_bounds.y +
                     (UI::Editor::StudioEditorMetrics::tab_height * 0.5F +
-                        static_cast<float>(top_index) *
-                            UI::Editor::StudioEditorMetrics::sidebar_item_spacing) *
+                        static_cast<float>(top_index) * UI::Editor::StudioEditorMetrics::sidebar_item_spacing) *
                         surface.m_dpi_scale
                 : top_index == 0
                     ? layout.tab_bar_bounds.y + layout.tab_bar_bounds.height * 0.5F

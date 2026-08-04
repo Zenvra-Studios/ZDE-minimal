@@ -5,6 +5,7 @@
 #include "Platform/Win32/Components/TerminalPanel.h"
 #include "Platform/Win32/Components/TextEditor.h"
 #include "Platform/Win32/Components/ToolSidebar.h"
+#include "Platform/Win32/Event/ScrollEvent.h"
 #include "UI/Editor/StudioEditorModel.h"
 
 #include <windows.h>
@@ -21,6 +22,11 @@
 #include <vector>
 
 class AntialiasedFont;
+
+namespace Zenvra::Platform::Win32
+{
+class Win32Window;
+}
 
 namespace Zenvra::Platform::Win32::Components
 {
@@ -68,7 +74,7 @@ public:
         float content_top);
     [[nodiscard]] bool handle_pointer_release() noexcept;
     [[nodiscard]] bool handle_scroll(
-        std::ptrdiff_t line_delta,
+        const Event::ScrollEvent& event,
         int client_width,
         int client_height,
         float content_top) noexcept;
@@ -82,7 +88,7 @@ public:
     [[nodiscard]] bool handle_text_input(std::string_view utf8_text);
     [[nodiscard]] bool handle_terminal_key(Terminal::TerminalInputKey key);
     [[nodiscard]] bool handle_terminal_control(char letter);
-    [[nodiscard]] bool handle_terminal_scroll(std::ptrdiff_t line_delta) noexcept;
+    [[nodiscard]] bool handle_terminal_scroll(const Event::ScrollEvent& event) noexcept;
     [[nodiscard]] bool handle_tool_sidebar_scroll(
         std::ptrdiff_t line_delta,
         int client_width,
@@ -171,7 +177,7 @@ private:
     friend class TerminalPanel;
     friend class TextEditor;
     friend class ToolSidebar;
-    friend class Win32Window;
+    friend class ::Zenvra::Platform::Win32::Win32Window;
 
     void fill_rectangle(HDC device_context, const UI::Rect& rectangle, const UI::Theme::Color& color) const;
     void draw_rectangle(HDC device_context, const UI::Rect& rectangle, const UI::Theme::Color& color) const;

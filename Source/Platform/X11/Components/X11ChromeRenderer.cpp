@@ -422,11 +422,21 @@ void X11ChromeRenderer::render(
     draw_text(back_buffer, "Debug", chrome_layout.compiler_bounds, 12.0F * scale, m_text_colors.primary);
     const int chevron_x = round_to_int(chrome_layout.compiler_bounds.right() - 14.0F * scale);
     const int chevron_y = round_to_int(chrome_layout.compiler_bounds.y + chrome_layout.compiler_bounds.height * 0.5F);
-    m_workspace_renderer.draw_svg_icon(
-        back_buffer, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
-        std::max(round_to_int(12.0F * scale), 10),
-        m_workspace_renderer.m_palette.text_muted,
-        m_workspace_renderer.m_palette.sidebar_background);
+    m_workspace_renderer.draw_svg_icon(back_buffer, "Assets/icons/chevron-down.svg",
+                                       chevron_x, chevron_y, std::max(static_cast<int>(12.0F * scale), 10),
+                                       m_workspace_renderer.m_palette.text_muted, m_colors.titlebar_background);
+  }
+
+  if (!chrome_layout.platform_bounds.is_empty()) {
+    if (interaction_state.platform_button_hovered) {
+      fill_rectangle(back_buffer, chrome_layout.platform_bounds, m_colors.hover);
+    }
+    draw_text(back_buffer, "x64", chrome_layout.platform_bounds, 8.0F * scale, m_text_colors.primary);
+    const int chevron_x = round_to_int(chrome_layout.platform_bounds.right() - 14.0F * scale);
+    const int chevron_y = round_to_int(chrome_layout.platform_bounds.y + chrome_layout.platform_bounds.height * 0.5F);
+    m_workspace_renderer.draw_svg_icon(back_buffer, "Assets/icons/chevron-down.svg",
+                                       chevron_x, chevron_y, std::max(static_cast<int>(12.0F * scale), 10),
+                                       m_workspace_renderer.m_palette.text_muted, m_colors.titlebar_background);
   }
 
   if (!chrome_layout.binary_bounds.is_empty()) {
@@ -506,11 +516,14 @@ PopupMenuGeometry X11ChromeRenderer::calculate_popup_geometry(
   // Overlay toolbar menus: resolve anchor from button bounds
   if (anchor_bounds == nullptr) {
     static constexpr std::size_t compiler_menu_index = 10;
-    static constexpr std::size_t binary_menu_index   = 11;
-    static constexpr std::size_t gear_menu_index     = 12;
-    static constexpr std::size_t ellipsis_menu_index = 13;
+    static constexpr std::size_t platform_menu_index = 11;
+    static constexpr std::size_t binary_menu_index   = 12;
+    static constexpr std::size_t gear_menu_index     = 13;
+    static constexpr std::size_t ellipsis_menu_index = 14;
     if (menu_index == compiler_menu_index)
       anchor_bounds = &chrome_layout.compiler_bounds;
+    else if (menu_index == platform_menu_index)
+      anchor_bounds = &chrome_layout.platform_bounds;
     else if (menu_index == binary_menu_index)
       anchor_bounds = &chrome_layout.binary_bounds;
     else if (menu_index == gear_menu_index)

@@ -1,8 +1,11 @@
+#include "Platform/Win32/Event/ScrollEvent.h"
 #include "Platform/Win32/Win32Window.h"
+#include "Config/resource.h"
 
 #include "Platform/Win32/Components/FileDropTarget.h"
+#include "Commands/CommandIds.h"
 #include "UI/Components/MenuModel.h"
-#include "Utility/Math.h"
+#include "Utility/MathUtil.h"
 #include "Utility/TextEncoding.h"
 #include <dwmapi.h>
 #include <uxtheme.h>
@@ -227,9 +230,11 @@ bool Win32Window::initialize()
     window_class.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
     window_class.lpfnWndProc = window_proc;
     window_class.hInstance = m_instance_handle;
+    window_class.hIcon = LoadIconW(m_instance_handle, MAKEINTRESOURCEW(IDI_APP_ICON));
     window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     window_class.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     window_class.lpszClassName = window_class_name;
+    window_class.hIconSm = LoadIconW(m_instance_handle, MAKEINTRESOURCEW(IDI_APP_ICON));
 
     if (RegisterClassExW(&window_class) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
     {
@@ -635,9 +640,8 @@ LRESULT Win32Window::handle_message(
             const bool debug_button_hovered = m_chrome_layout.is_debug_button(point_x, point_y);
             const bool ellipsis_button_hovered = m_chrome_layout.is_ellipsis_button(point_x, point_y);
             const bool compiler_button_hovered = m_chrome_layout.is_compiler_button(point_x, point_y);
+            const bool platform_button_hovered = m_chrome_layout.is_platform_button(point_x, point_y);
             const bool binary_button_hovered = m_chrome_layout.is_binary_button(point_x, point_y);
-            const bool build_button_hovered = m_chrome_layout.is_build_button(point_x, point_y);
-            const bool gear_button_hovered = m_chrome_layout.is_gear_button(point_x, point_y);
             const bool build_button_hovered = m_chrome_layout.is_build_button(point_x, point_y);
             const bool gear_button_hovered = m_chrome_layout.is_gear_button(point_x, point_y);
             const bool terminal_hover_changed = m_workspace_renderer.handle_pointer_move(
@@ -676,6 +680,7 @@ LRESULT Win32Window::handle_message(
                 debug_button_hovered != m_debug_button_hovered ||
                 ellipsis_button_hovered != m_ellipsis_button_hovered ||
                 compiler_button_hovered != m_compiler_button_hovered ||
+                platform_button_hovered != m_platform_button_hovered ||
                 binary_button_hovered != m_binary_button_hovered ||
                 build_button_hovered != m_build_button_hovered ||
                 gear_button_hovered != m_gear_button_hovered ||
@@ -688,6 +693,7 @@ LRESULT Win32Window::handle_message(
                 m_debug_button_hovered = debug_button_hovered;
                 m_ellipsis_button_hovered = ellipsis_button_hovered;
                 m_compiler_button_hovered = compiler_button_hovered;
+                m_platform_button_hovered = platform_button_hovered;
                 m_binary_button_hovered = binary_button_hovered;
                 m_build_button_hovered = build_button_hovered;
                 m_gear_button_hovered = gear_button_hovered;
@@ -726,27 +732,89 @@ LRESULT Win32Window::handle_message(
                 point_x, point_y, client_width, client_height, content_top);
             const bool over_tool_sidebar = m_workspace_renderer.is_tool_sidebar_point(
                 point_x, point_y, client_width, client_height, content_top);
+            const bool over_tab_bar = m_workspace_renderer.is_tab_bar_point(
+                point_x, point_y, client_width, client_height, content_top);
+            
             const short wheel_delta = GET_WHEEL_DELTA_WPARAM(w_param);
             const std::ptrdiff_t line_delta = wheel_delta == 0
                 ? 0
                 : (wheel_delta > 0 ? -3 : 3);
-            if (over_tool_sidebar && line_delta != 0 &&
+            Event::ScrollEvent scroll_event;
+            scroll_event.is_mouse_wheel = true;
+            scroll_event.point_x = point_x;
+            scroll_event.point_y = point_y;
+            if (GET_KEYSTATE_WPARAM(w_param) & MK_SHIFT)
+            {
+                scroll_event.delta_x = line_delta;
+            }
+            else
+            {
+                scroll_event.delta_y = line_delta;
+            }
+
+            if (over_tool_sidebar && scroll_event.delta_y != 0 &&
                 m_workspace_renderer.handle_tool_sidebar_scroll(
-                    line_delta, client_width, client_height, content_top))
+                    scroll_event.delta_y, client_width, client_height, content_top))
             {
                 InvalidateRect(window_handle, nullptr, FALSE);
                 return 0;
             }
-            if (over_terminal && line_delta != 0 &&
-                m_workspace_renderer.handle_terminal_scroll(line_delta))
+            if (over_terminal && (scroll_event.delta_x != 0 || scroll_event.delta_y != 0) &&
+                m_workspace_renderer.handle_terminal_scroll(scroll_event))
             {
                 InvalidateRect(window_handle, nullptr, FALSE);
                 return 0;
             }
-            if (over_editor && line_delta != 0 && m_workspace_renderer.handle_scroll(
-                    line_delta, client_width, client_height, content_top))
+            if ((over_editor || over_tab_bar) && (scroll_event.delta_x != 0 || scroll_event.delta_y != 0) && m_workspace_renderer.handle_scroll(
+                    scroll_event, client_width, client_height, content_top))
             {
                 InvalidateRect(window_handle, nullptr, FALSE);
+            }
+            return 0;
+        }
+        break;
+
+    case WM_MOUSEHWHEEL:
+        if (m_custom_chrome_enabled)
+        {
+            POINT point{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
+            ScreenToClient(window_handle, &point);
+            RECT client_bounds{};
+            GetClientRect(window_handle, &client_bounds);
+            const float point_x = static_cast<float>(point.x);
+            const float point_y = static_cast<float>(point.y);
+            const int client_width = client_bounds.right - client_bounds.left;
+            const int client_height = client_bounds.bottom - client_bounds.top;
+            const float content_top = m_chrome_layout.titlebar_bounds.bottom();
+            const bool over_terminal = m_workspace_renderer.is_terminal_point(
+                point_x, point_y, client_width, client_height, content_top);
+            const bool over_editor = m_workspace_renderer.is_editor_point(
+                point_x, point_y, client_width, client_height, content_top);
+            const bool over_tab_bar = m_workspace_renderer.is_tab_bar_point(
+                point_x, point_y, client_width, client_height, content_top);
+            
+            const short wheel_delta = GET_WHEEL_DELTA_WPARAM(w_param);
+            const std::ptrdiff_t line_delta = wheel_delta == 0
+                ? 0
+                : (wheel_delta > 0 ? 3 : -3); // horizontal scroll direction
+
+            Event::ScrollEvent scroll_event;
+            scroll_event.is_mouse_wheel = true;
+            scroll_event.point_x = point_x;
+            scroll_event.point_y = point_y;
+            scroll_event.delta_x = line_delta;
+
+            if (over_terminal && scroll_event.delta_x != 0 &&
+                m_workspace_renderer.handle_terminal_scroll(scroll_event))
+            {
+                InvalidateRect(window_handle, nullptr, FALSE);
+                return 0;
+            }
+            if ((over_editor || over_tab_bar) && scroll_event.delta_x != 0 && m_workspace_renderer.handle_scroll(
+                    scroll_event, client_width, client_height, content_top))
+            {
+                InvalidateRect(window_handle, nullptr, FALSE);
+                return 0;
             }
             return 0;
         }
@@ -1076,6 +1144,23 @@ LRESULT Win32Window::handle_message(
         }
         if (m_custom_chrome_enabled && m_workspace_renderer.is_terminal_focused())
         {
+            const bool shift_pressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            if (shift_pressed && (w_param == VK_LEFT || w_param == VK_RIGHT || w_param == VK_UP || w_param == VK_DOWN))
+            {
+                Event::ScrollEvent scroll_event;
+                scroll_event.is_keyboard = true;
+                if (w_param == VK_LEFT) scroll_event.delta_x = 3;
+                else if (w_param == VK_RIGHT) scroll_event.delta_x = -3;
+                else if (w_param == VK_UP) scroll_event.delta_y = 3;
+                else if (w_param == VK_DOWN) scroll_event.delta_y = -3;
+
+                if (m_workspace_renderer.handle_terminal_scroll(scroll_event))
+                {
+                    InvalidateRect(window_handle, nullptr, FALSE);
+                }
+                return 0;
+            }
+
             std::optional<Terminal::TerminalInputKey> terminal_key;
             switch (w_param)
             {
@@ -1563,10 +1648,26 @@ void Win32Window::paint_custom_chrome()
         logo_size,
         logo_size,
     };
-    fill_rounded_rectangle(buffer_context, logo_mark, m_theme.accent, static_cast<int>(logo_size * 0.25F));
-    RECT logo_text_bounds = to_native_rect(logo_mark);
-    draw_centered_text(buffer_context, L"Z", logo_text_bounds, UI::Theme::Color{255, 255, 255, 255});
-
+    HICON app_icon = reinterpret_cast<HICON>(GetClassLongPtrW(m_window_handle, GCLP_HICONSM));
+    if (app_icon != nullptr)
+    {
+        DrawIconEx(
+            buffer_context,
+            static_cast<int>(logo_mark.x),
+            static_cast<int>(logo_mark.y),
+            app_icon,
+            static_cast<int>(logo_size),
+            static_cast<int>(logo_size),
+            0,
+            nullptr,
+            DI_NORMAL);
+    }
+    else
+    {
+        fill_rounded_rectangle(buffer_context, logo_mark, m_theme.accent, static_cast<int>(logo_size * 0.25F));
+        RECT logo_text_bounds = to_native_rect(logo_mark);
+        draw_centered_text(buffer_context, L"Z", logo_text_bounds, UI::Theme::Color{255, 255, 255, 255});
+    }
     m_workspace_renderer.render(
         buffer_context,
         client_width,
@@ -1611,11 +1712,20 @@ void Win32Window::paint_custom_chrome()
         m_theme,
         scale);
 
+    auto draw_toolbar_hover = [&](const UI::Rect& bounds) {
+        UI::Rect hover_bounds = bounds;
+        hover_bounds.y += 4.0F * scale;
+        hover_bounds.height -= 8.0F * scale;
+        hover_bounds.x += 2.0F * scale;
+        hover_bounds.width -= 4.0F * scale;
+        fill_rounded_rectangle(buffer_context, hover_bounds, m_theme.hover, 4);
+    };
+
     if (!m_chrome_layout.build_bounds.is_empty())
     {
         if (m_build_button_hovered)
         {
-            fill_rectangle(buffer_context, m_chrome_layout.build_bounds, m_theme.hover);
+            draw_toolbar_hover(m_chrome_layout.build_bounds);
         }
         const int center_x = static_cast<int>(m_chrome_layout.build_bounds.x + m_chrome_layout.build_bounds.width * 0.5F);
         const int center_y = static_cast<int>(m_chrome_layout.build_bounds.y + m_chrome_layout.build_bounds.height * 0.5F);
@@ -1627,18 +1737,18 @@ void Win32Window::paint_custom_chrome()
             center_y,
             icon_size,
             m_workspace_renderer.m_palette.text_primary,
-            m_theme.titlebar_background);
+            m_build_button_hovered ? m_theme.hover : m_theme.titlebar_background);
     }
 
     if (!m_chrome_layout.run_bounds.is_empty())
     {
         if (m_run_button_hovered)
         {
-            fill_rectangle(buffer_context, m_chrome_layout.run_bounds, m_theme.hover);
+            draw_toolbar_hover(m_chrome_layout.run_bounds);
         }
         const int center_x = static_cast<int>(m_chrome_layout.run_bounds.x + m_chrome_layout.run_bounds.width * 0.5F);
         const int center_y = static_cast<int>(m_chrome_layout.run_bounds.y + m_chrome_layout.run_bounds.height * 0.5F);
-        const int icon_size = std::max(static_cast<int>(25.0F * scale), 16);
+        const int icon_size = std::max(static_cast<int>(20.0F * scale), 14);
         m_workspace_renderer.draw_svg_icon(
             buffer_context,
             "Assets/icons/play.svg",
@@ -1646,18 +1756,18 @@ void Win32Window::paint_custom_chrome()
             center_y,
             icon_size,
             m_workspace_renderer.m_palette.success,
-            m_theme.titlebar_background);
+            m_run_button_hovered ? m_theme.hover : m_theme.titlebar_background);
     }
 
     if (!m_chrome_layout.debug_bounds.is_empty())
     {
         if (m_debug_button_hovered)
         {
-            fill_rectangle(buffer_context, m_chrome_layout.debug_bounds, m_theme.hover);
+            draw_toolbar_hover(m_chrome_layout.debug_bounds);
         }
         const int center_x = static_cast<int>(m_chrome_layout.debug_bounds.x + m_chrome_layout.debug_bounds.width * 0.5F);
         const int center_y = static_cast<int>(m_chrome_layout.debug_bounds.y + m_chrome_layout.debug_bounds.height * 0.5F);
-        const int icon_size = std::max(static_cast<int>(20.0F * scale), 16);
+        const int icon_size = std::max(static_cast<int>(18.0F * scale), 14);
         m_workspace_renderer.draw_svg_icon(
             buffer_context,
             "Assets/icons/bug.svg",
@@ -1665,14 +1775,14 @@ void Win32Window::paint_custom_chrome()
             center_y,
             icon_size,
             m_workspace_renderer.m_palette.warning,
-            m_theme.titlebar_background);
+            m_debug_button_hovered ? m_theme.hover : m_theme.titlebar_background);
     }
 
     if (!m_chrome_layout.gear_bounds.is_empty())
     {
         if (m_gear_button_hovered)
         {
-            fill_rectangle(buffer_context, m_chrome_layout.gear_bounds, m_theme.hover);
+            draw_toolbar_hover(m_chrome_layout.gear_bounds);
         }
         const int center_x = static_cast<int>(m_chrome_layout.gear_bounds.x + m_chrome_layout.gear_bounds.width * 0.5F);
         const int center_y = static_cast<int>(m_chrome_layout.gear_bounds.y + m_chrome_layout.gear_bounds.height * 0.5F);
@@ -1684,18 +1794,18 @@ void Win32Window::paint_custom_chrome()
             center_y,
             icon_size,
             m_workspace_renderer.m_palette.text_primary,
-            m_theme.titlebar_background);
+            m_gear_button_hovered ? m_theme.hover : m_theme.titlebar_background);
     }
 
     if (!m_chrome_layout.ellipsis_bounds.is_empty())
     {
         if (m_ellipsis_button_hovered)
         {
-            fill_rectangle(buffer_context, m_chrome_layout.ellipsis_bounds, m_theme.hover);
+            draw_toolbar_hover(m_chrome_layout.ellipsis_bounds);
         }
         const int center_x = static_cast<int>(m_chrome_layout.ellipsis_bounds.x + m_chrome_layout.ellipsis_bounds.width * 0.5F);
         const int center_y = static_cast<int>(m_chrome_layout.ellipsis_bounds.y + m_chrome_layout.ellipsis_bounds.height * 0.5F);
-        const int icon_size = std::max(static_cast<int>(19.0F * scale), 16);
+        const int icon_size = std::max(static_cast<int>(16.0F * scale), 14);
         m_workspace_renderer.draw_svg_icon(
             buffer_context,
             "Assets/icons/ellipsis.svg",
@@ -1703,7 +1813,7 @@ void Win32Window::paint_custom_chrome()
             center_y,
             icon_size,
             m_workspace_renderer.m_palette.text_primary,
-            m_theme.titlebar_background);
+            m_ellipsis_button_hovered ? m_theme.hover : m_theme.titlebar_background);
     }
 
     // Build toolbar: Compiler | Binary
@@ -1711,36 +1821,57 @@ void Win32Window::paint_custom_chrome()
     {
         if (m_compiler_button_hovered)
         {
-            fill_rectangle(buffer_context, m_chrome_layout.compiler_bounds, m_theme.hover);
+            draw_toolbar_hover(m_chrome_layout.compiler_bounds);
         }
         RECT text_rect = {
             static_cast<LONG>(m_chrome_layout.compiler_bounds.x + 12.0F * scale),
             static_cast<LONG>(m_chrome_layout.compiler_bounds.y),
             static_cast<LONG>(m_chrome_layout.compiler_bounds.right() - 16.0F * scale),
             static_cast<LONG>(m_chrome_layout.compiler_bounds.bottom())};
-        draw_centered_text(buffer_context, L"Debug | GDB", text_rect, m_theme.text_primary);
+        draw_centered_text(buffer_context, L"Debug", text_rect, m_theme.text_primary);
         const int chevron_x = static_cast<int>(m_chrome_layout.compiler_bounds.right() - 14.0F * scale);
         const int chevron_y = static_cast<int>(m_chrome_layout.compiler_bounds.y + m_chrome_layout.compiler_bounds.height * 0.5F);
         m_workspace_renderer.draw_svg_icon(buffer_context, "Assets/icons/chevron-down.svg",
             chevron_x, chevron_y, std::max(static_cast<int>(12.0F * scale), 10),
-            m_workspace_renderer.m_palette.text_muted, m_theme.titlebar_background);
+            m_workspace_renderer.m_palette.text_muted,
+            m_theme.titlebar_background);
+    }
+
+    if (!m_chrome_layout.platform_bounds.is_empty())
+    {
+        if (m_platform_button_hovered)
+        {
+            draw_toolbar_hover(m_chrome_layout.platform_bounds);
+        }
+        RECT text_rect = {
+            static_cast<LONG>(m_chrome_layout.platform_bounds.x + 12.0F * scale),
+            static_cast<LONG>(m_chrome_layout.platform_bounds.y),
+            static_cast<LONG>(m_chrome_layout.platform_bounds.right() - 16.0F * scale),
+            static_cast<LONG>(m_chrome_layout.platform_bounds.bottom())};
+        draw_centered_text(buffer_context, L"x64", text_rect, m_theme.text_primary);
+        const int chevron_x = static_cast<int>(m_chrome_layout.platform_bounds.right() - 14.0F * scale);
+        const int chevron_y = static_cast<int>(m_chrome_layout.platform_bounds.y + m_chrome_layout.platform_bounds.height * 0.5F);
+        m_workspace_renderer.draw_svg_icon(buffer_context, "Assets/icons/chevron-down.svg",
+            chevron_x, chevron_y, std::max(static_cast<int>(12.0F * scale), 10),
+            m_workspace_renderer.m_palette.text_muted,
+            m_platform_button_hovered ? m_theme.hover : m_theme.titlebar_background);
     }
 
     if (!m_chrome_layout.binary_bounds.is_empty())
     {
         if (m_binary_button_hovered)
         {
-            fill_rectangle(buffer_context, m_chrome_layout.binary_bounds, m_theme.hover);
+            draw_toolbar_hover(m_chrome_layout.binary_bounds);
         }
-        const int binary_icon_size = std::max(static_cast<int>(14.0F * scale), 12);
+        const int binary_icon_size = std::max(static_cast<int>(16.0F * scale), 14);
         m_workspace_renderer.draw_svg_icon(
             buffer_context,
             "Assets/icons/terminal.svg",
-            static_cast<int>(m_chrome_layout.binary_bounds.x + 18.0F * scale),
+            static_cast<int>(m_chrome_layout.binary_bounds.x + 16.0F * scale),
             static_cast<int>(m_chrome_layout.binary_bounds.y + m_chrome_layout.binary_bounds.height * 0.5F),
             binary_icon_size,
             m_workspace_renderer.m_palette.text_primary,
-            m_theme.titlebar_background);
+            m_binary_button_hovered ? m_theme.hover : m_theme.titlebar_background);
         RECT text_rect = {
             static_cast<LONG>(m_chrome_layout.binary_bounds.x + 36.0F * scale),
             static_cast<LONG>(m_chrome_layout.binary_bounds.y),
@@ -1751,7 +1882,8 @@ void Win32Window::paint_custom_chrome()
         const int chevron_y = static_cast<int>(m_chrome_layout.binary_bounds.y + m_chrome_layout.binary_bounds.height * 0.5F);
         m_workspace_renderer.draw_svg_icon(buffer_context, "Assets/icons/chevron-down.svg",
             chevron_x, chevron_y, std::max(static_cast<int>(12.0F * scale), 10),
-            m_workspace_renderer.m_palette.text_muted, m_theme.titlebar_background);
+            m_workspace_renderer.m_palette.text_muted,
+            m_binary_button_hovered ? m_theme.hover : m_theme.titlebar_background);
     }
 
     draw_menu_overlay(buffer_context);

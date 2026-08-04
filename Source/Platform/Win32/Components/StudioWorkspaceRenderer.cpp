@@ -128,6 +128,7 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi)
         ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
     m_editor_font = std::make_unique<AntialiasedFont>(
         editor_font_name, std::max(round_to_int(14.0F * m_dpi_scale), 10));
+    m_editor_font->setLigaturesEnabled(true);
     m_minimap_font = std::make_unique<AntialiasedFont>(
         editor_font_name, std::max(round_to_int(3.0F * m_dpi_scale), 3));
     if (!m_ui_font->isValid() || !m_small_font->isValid() ||
@@ -287,7 +288,7 @@ bool StudioWorkspaceRenderer::handle_pointer_release() noexcept
 }
 
 bool StudioWorkspaceRenderer::handle_scroll(
-    std::ptrdiff_t line_delta,
+    const Event::ScrollEvent& event,
     int client_width,
     int client_height,
     float content_top) noexcept
@@ -302,7 +303,7 @@ bool StudioWorkspaceRenderer::handle_scroll(
         m_terminal_panel.is_maximized(),
         m_tool_sidebar.is_visible(),
         m_tool_sidebar.get_width());
-    return m_text_editor.handle_scroll(*this, layout, line_delta);
+    return m_text_editor.handle_scroll(*this, layout, event);
 }
 
 bool StudioWorkspaceRenderer::handle_editor_input(
@@ -346,9 +347,9 @@ bool StudioWorkspaceRenderer::handle_terminal_control(char letter)
     return m_terminal_panel.handle_control(letter);
 }
 
-bool StudioWorkspaceRenderer::handle_terminal_scroll(std::ptrdiff_t line_delta) noexcept
+bool StudioWorkspaceRenderer::handle_terminal_scroll(const Event::ScrollEvent& event) noexcept
 {
-    return m_terminal_panel.handle_scroll(line_delta);
+    return m_terminal_panel.handle_scroll(event);
 }
 
 bool StudioWorkspaceRenderer::handle_tool_sidebar_scroll(
@@ -834,7 +835,7 @@ void StudioWorkspaceRenderer::draw_png_icon(
 
     const std::string resolved_string = resolved_path.string();
     const std::string cache_key = resolved_string + "@png#" +
-        std::to_string(max_size) + "/" + to_color_ref(background);
+        std::to_string(max_size) + "/" + to_font_color(background);
     
     auto it = m_svg_cache.find(cache_key);
     if (it == m_svg_cache.end())
@@ -866,14 +867,15 @@ void StudioWorkspaceRenderer::draw_png_icon(
         }
         
         // Make the buffer square to fit in m_svg_cache perfectly with max_size x max_size
-        std::vector<char> bmp_data(max_size * max_size * 4);
+        std::vector<std::uint32_t> bmp_data(
+            static_cast<std::size_t>(max_size) * static_cast<std::size_t>(max_size));
 
         const uint32_t bg_r = static_cast<uint32_t>(background.red);
         const uint32_t bg_g = static_cast<uint32_t>(background.green);
         const uint32_t bg_b = static_cast<uint32_t>(background.blue);
         const uint32_t bg_pixel = (bg_r << 16) | (bg_g << 8) | bg_b;
 
-        uint32_t* dst = reinterpret_cast<uint32_t*>(bmp_data.data());
+        uint32_t* dst = bmp_data.data();
 
         int pad_x = (max_size - draw_w) / 2;
         int pad_y = (max_size - draw_h) / 2;

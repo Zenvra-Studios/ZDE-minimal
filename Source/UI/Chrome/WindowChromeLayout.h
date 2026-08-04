@@ -57,6 +57,7 @@ struct WindowChromeLayoutResult
     Rect debug_bounds;
     Rect ellipsis_bounds;
     Rect compiler_bounds;
+    Rect platform_bounds;
     Rect binary_bounds;
     Rect mode_bounds;
     Rect build_bounds;
@@ -73,6 +74,7 @@ struct WindowChromeLayoutResult
     [[nodiscard]] bool is_debug_button(float point_x, float point_y) const noexcept;
     [[nodiscard]] bool is_ellipsis_button(float point_x, float point_y) const noexcept;
     [[nodiscard]] bool is_compiler_button(float point_x, float point_y) const noexcept;
+    [[nodiscard]] bool is_platform_button(float point_x, float point_y) const noexcept;
     [[nodiscard]] bool is_binary_button(float point_x, float point_y) const noexcept;
     [[nodiscard]] bool is_mode_button(float point_x, float point_y) const noexcept;
     [[nodiscard]] bool is_build_button(float point_x, float point_y) const noexcept;

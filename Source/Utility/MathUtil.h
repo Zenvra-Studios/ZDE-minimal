@@ -1,5 +1,5 @@
-#ifndef ZENVRA_UTILITY_MATH_H
-#define ZENVRA_UTILITY_MATH_H
+#ifndef ZENVRA_UTILITY_MATHUTIL_H
+#define ZENVRA_UTILITY_MATHUTIL_H
 
 #include <cmath>
 
@@ -16,4 +16,4 @@ namespace Zenvra::Utility
     }
 } // namespace Zenvra::Utility
 
-#endif // ZENVRA_UTILITY_MATH_H
+#endif // ZENVRA_UTILITY_MATHUTIL_H

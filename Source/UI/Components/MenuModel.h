@@ -21,6 +21,7 @@ struct Menu
 
 [[nodiscard]] std::span<const Menu> get_window_menus() noexcept;
 [[nodiscard]] std::span<const MenuItem> get_compiler_menu() noexcept;
+[[nodiscard]] std::span<const MenuItem> get_platform_menu() noexcept;
 [[nodiscard]] std::span<const MenuItem> get_binary_menu() noexcept;
 [[nodiscard]] std::span<const MenuItem> get_gear_menu() noexcept;
 [[nodiscard]] std::span<const MenuItem> get_ellipsis_menu() noexcept;

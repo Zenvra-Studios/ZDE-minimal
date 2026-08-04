@@ -9,6 +9,7 @@
 #if defined(_WIN32) || defined(_WIN64)
 
 #include <windows.h>
+#include <Usp10.h> // Uniscribe for ligatures
 
 /**
  * @class AntialiasedFont
@@ -43,6 +44,9 @@ public:
 
   bool isValid() const noexcept { return m_font != nullptr; }
 
+  void setLigaturesEnabled(bool enabled) { m_ligaturesEnabled = enabled; }
+  bool isLigaturesEnabled() const { return m_ligaturesEnabled; }
+
   /**
    * @brief Draw a string on a device context.
    * @param hdc Device Context (HDC).
@@ -67,7 +71,24 @@ public:
     TEXTMETRIC tm;
     GetTextMetrics(hdc, &tm);
 
-    TextOutA(hdc, x, y - tm.tmAscent, text.c_str(), text.length());
+    if (m_ligaturesEnabled && text.length() > 0) {
+        int wlen = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), NULL, 0);
+        if (wlen > 0) {
+            std::wstring wtext(wlen, 0);
+            MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), &wtext[0], wlen);
+
+            SCRIPT_STRING_ANALYSIS ssa = nullptr;
+            HRESULT hr = ScriptStringAnalyse(hdc, wtext.c_str(), wtext.length(), wtext.length() * 3 / 2 + 16, -1, SSA_GLYPHS | SSA_FALLBACK | SSA_LINK, 0, NULL, NULL, NULL, NULL, NULL, &ssa);
+            if (SUCCEEDED(hr)) {
+                ScriptStringOut(ssa, x, y - tm.tmAscent, 0, NULL, 0, 0, FALSE);
+                ScriptStringFree(&ssa);
+            } else {
+                TextOutA(hdc, x, y - tm.tmAscent, text.c_str(), static_cast<int>(text.length()));
+            }
+        }
+    } else {
+        TextOutA(hdc, x, y - tm.tmAscent, text.c_str(), text.length());
+    }
 
     SelectObject(hdc, oldFont);
   }
@@ -97,17 +118,43 @@ public:
   }
 
   int getTextWidth(HDC hdc, const std::string &text) const {
-    if (!m_font || !hdc)
+    if (!m_font || !hdc || text.empty())
       return 0;
-    SIZE size;
+      
+    int width = 0;
     HFONT oldFont = (HFONT)SelectObject(hdc, m_font);
-    GetTextExtentPoint32A(hdc, text.c_str(), text.length(), &size);
+
+    if (m_ligaturesEnabled) {
+        int wlen = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), NULL, 0);
+        if (wlen > 0) {
+            std::wstring wtext(wlen, 0);
+            MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), &wtext[0], wlen);
+
+            SCRIPT_STRING_ANALYSIS ssa = nullptr;
+            HRESULT hr = ScriptStringAnalyse(hdc, wtext.c_str(), wtext.length(), wtext.length() * 3 / 2 + 16, -1, SSA_GLYPHS | SSA_FALLBACK | SSA_LINK, 0, NULL, NULL, NULL, NULL, NULL, &ssa);
+            if (SUCCEEDED(hr)) {
+                const SIZE* pSize = ScriptString_pSize(ssa);
+                if (pSize) {
+                    width = pSize->cx;
+                }
+                ScriptStringFree(&ssa);
+            }
+        }
+    }
+
+    if (width == 0) {
+        SIZE size;
+        GetTextExtentPoint32A(hdc, text.c_str(), static_cast<int>(text.length()), &size);
+        width = size.cx;
+    }
+
     SelectObject(hdc, oldFont);
-    return size.cx;
+    return width;
   }
 
 private:
   HFONT m_font;
+  bool m_ligaturesEnabled = false;
 
   COLORREF parseColor(const std::string &color_name) {
     if (color_name.empty())
@@ -192,6 +239,9 @@ public:
 
   bool isValid() const noexcept { return m_font != nullptr; }
 
+  void setLigaturesEnabled(bool enabled) { m_ligaturesEnabled = enabled; }
+  bool isLigaturesEnabled() const { return m_ligaturesEnabled; }
+
   /**
    * @brief Draw an UTF-8 string on a drawable.
    * @param drawable Window or Pixmap target.
@@ -262,6 +312,7 @@ private:
   Colormap m_colormap;
   XftFont *m_font;
   std::unordered_map<std::string, XftColor> m_allocated_colors;
+  bool m_ligaturesEnabled = false;
 };
 
 #endif /* defined(_WIN32) || defined(__unix__) */

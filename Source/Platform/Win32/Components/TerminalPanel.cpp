@@ -57,6 +57,7 @@ bool TerminalPanel::handle_pointer_press(
         return false;
     }
     m_model.set_focused(true);
+    m_caret_blink.reset();
     if (close_button_bounds(layout).contains(point_x, point_y))
     {
         return m_model.close_active_session();
@@ -111,13 +112,35 @@ bool TerminalPanel::handle_pointer_release() noexcept
     return m_resize_model.end_resize();
 }
 
-bool TerminalPanel::handle_text_input(std::string_view text) { return m_model.send_text(text); }
-bool TerminalPanel::handle_key(Terminal::TerminalInputKey key) { return m_model.send_key(key); }
-bool TerminalPanel::handle_control(char letter) { return m_model.send_control(letter); }
-bool TerminalPanel::handle_scroll(std::ptrdiff_t line_delta) noexcept { return m_model.scroll(line_delta); }
+bool TerminalPanel::handle_text_input(std::string_view text) { m_caret_blink.reset(); return m_model.send_text(text); }
+bool TerminalPanel::handle_key(Terminal::TerminalInputKey key) { m_caret_blink.reset(); return m_model.send_key(key); }
+bool TerminalPanel::handle_control(char letter) { m_caret_blink.reset(); return m_model.send_control(letter); }
+bool TerminalPanel::handle_scroll(const Event::ScrollEvent& event) noexcept
+{
+    bool changed = false;
+    if (event.delta_y != 0)
+    {
+        changed |= m_model.scroll(event.delta_y);
+    }
+    if (event.delta_x != 0)
+    {
+        std::ptrdiff_t new_offset = static_cast<std::ptrdiff_t>(m_horizontal_scroll_offset) + event.delta_x;
+        if (new_offset < 0) new_offset = 0;
+        if (m_horizontal_scroll_offset != static_cast<std::size_t>(new_offset))
+        {
+            m_horizontal_scroll_offset = static_cast<std::size_t>(new_offset);
+            changed = true;
+        }
+    }
+    return changed;
+}
 bool TerminalPanel::poll()
 {
-    const bool changed = m_model.poll();
+    bool changed = m_model.poll();
+    if (m_model.is_visible() && m_model.is_focused())
+    {
+        changed |= m_caret_blink.tick();
+    }
     if (!m_model.is_visible())
     {
         static_cast<void>(m_resize_model.end_resize());
@@ -275,7 +298,26 @@ void TerminalPanel::render(
         return;
     }
     const std::span<const std::string> lines = session->get_lines();
+    std::size_t max_line_length = 0;
+    for (const auto& line : lines)
+    {
+        max_line_length = std::max(max_line_length, line.size());
+    }
+
     const std::size_t offset = std::min(m_model.get_scroll_offset(), lines.size());
+    if (is_focused() && offset == 0 && !lines.empty())
+    {
+        const std::size_t last_line_len = lines.back().size();
+        if (last_line_len > m_horizontal_scroll_offset + visible_columns)
+        {
+            m_horizontal_scroll_offset = last_line_len - visible_columns;
+        }
+        else if (last_line_len < m_horizontal_scroll_offset)
+        {
+            m_horizontal_scroll_offset = last_line_len > visible_columns ? last_line_len - visible_columns : 0;
+        }
+    }
+
     const std::size_t end = lines.size() - offset;
     const std::size_t start = end > visible_rows ? end - visible_rows : 0;
     const std::size_t displayed_rows = end - start;
@@ -284,9 +326,11 @@ void TerminalPanel::render(
     float center_y = first_center_y;
     for (std::size_t index = start; index < end; ++index)
     {
-        const std::string_view line = lines[index].size() > visible_columns
-            ? std::string_view{lines[index]}.substr(0, visible_columns)
-            : std::string_view{lines[index]};
+        const std::size_t h_offset = m_horizontal_scroll_offset;
+        const std::size_t len = lines[index].size();
+        const std::string_view line = len > h_offset
+            ? std::string_view{lines[index]}.substr(h_offset, std::min(visible_columns, len - h_offset))
+            : std::string_view{};
         surface.draw_text(device_context, *surface.m_editor_font, line,
             layout.terminal_content_bounds.x + padding_x, center_y, surface.m_palette.text_primary);
         center_y += line_height;
@@ -311,12 +355,35 @@ void TerminalPanel::render(
                 std::min(thumb_height, track_height)},
             surface.m_palette.text_muted);
     }
-    if (is_focused() && offset == 0 && !lines.empty())
+    if (max_line_length > visible_columns)
     {
+        const float track_left = layout.terminal_content_bounds.x + padding_x;
+        const float track_right = layout.terminal_content_bounds.right() - 14.0F * surface.m_dpi_scale;
+        const float track_width = std::max(track_right - track_left, 1.0F);
+        const float thumb_width = std::max(
+            track_width * static_cast<float>(visible_columns) / static_cast<float>(max_line_length),
+            18.0F * surface.m_dpi_scale);
+        const std::size_t maximum_start = max_line_length - visible_columns;
+        const float progress = maximum_start == 0
+            ? 0.0F
+            : static_cast<float>(m_horizontal_scroll_offset) / static_cast<float>(maximum_start);
+        surface.fill_rectangle(device_context,
+            UI::Rect{track_left + progress * std::max(track_width - thumb_width, 0.0F),
+                layout.terminal_content_bounds.bottom() - 4.0F * surface.m_dpi_scale,
+                std::min(thumb_width, track_width),
+                2.0F * surface.m_dpi_scale},
+            surface.m_palette.text_muted);
+    }
+    if (is_focused() && offset == 0 && !lines.empty() && m_caret_blink.is_visible())
+    {
+        const std::size_t h_offset = m_horizontal_scroll_offset;
         const std::string& last = lines.back();
-        const std::string cursor_text = last.substr(0, std::min(last.size(), visible_columns));
+        const std::size_t len = last.size();
+        const std::string cursor_text = len > h_offset
+            ? last.substr(h_offset, std::min(visible_columns, len - h_offset))
+            : "";
         const int cursor_x = round_to_int(layout.terminal_content_bounds.x + padding_x) +
-            surface.get_text_width(device_context, *surface.m_editor_font, cursor_text);
+            surface.get_text_width(device_context, *surface.m_editor_font, cursor_text) + round_to_int(2.0F * surface.m_dpi_scale);
         const float cursor_y = first_center_y + static_cast<float>(displayed_rows - 1) * line_height -
             line_height * 0.5F;
         surface.fill_rectangle(device_context,

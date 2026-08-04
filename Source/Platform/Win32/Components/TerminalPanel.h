@@ -1,7 +1,9 @@
 #pragma once
 
+#include "Platform/Win32/Event/ScrollEvent.h"
 #include "Terminal/TerminalPanelModel.h"
 #include "Terminal/TerminalResizeModel.h"
+#include "UI/Editor/CaretBlinkModel.h"
 #include "UI/Editor/StudioEditorModel.h"
 
 #include <windows.h>
@@ -37,7 +39,7 @@ public:
     [[nodiscard]] bool handle_text_input(std::string_view text);
     [[nodiscard]] bool handle_key(Terminal::TerminalInputKey key);
     [[nodiscard]] bool handle_control(char letter);
-    [[nodiscard]] bool handle_scroll(std::ptrdiff_t line_delta) noexcept;
+    [[nodiscard]] bool handle_scroll(const Event::ScrollEvent& event) noexcept;
     [[nodiscard]] bool poll();
     void shutdown() noexcept;
 
@@ -74,6 +76,11 @@ private:
 
     Terminal::TerminalPanelModel m_model;
     Terminal::TerminalResizeModel m_resize_model;
+    UI::Editor::CaretBlinkModel m_caret_blink;
+    std::size_t m_horizontal_scroll_offset = 0;
+    bool m_dragging_horizontal_scrollbar = false;
+    float m_drag_start_x = 0.0F;
+    std::size_t m_drag_start_offset = 0;
 };
 
 } // namespace Zenvra::Platform::Win32::Components

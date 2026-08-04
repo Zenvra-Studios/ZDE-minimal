@@ -99,25 +99,8 @@ bool TextEditor::is_tab_interactive_point(
         return false;
     }
 
-    const float action_width =
-        UI::Editor::StudioEditorMetrics::editor_tab_action_width * surface.m_dpi_scale;
-    const UI::Rect create_bounds{
-        layout.tab_bar_bounds.right() - action_width * 2.0F,
-        layout.tab_bar_bounds.y,
-        action_width,
-        layout.tab_bar_bounds.height};
-    const UI::Rect delete_bounds{
-        layout.tab_bar_bounds.right() - action_width,
-        layout.tab_bar_bounds.y,
-        action_width,
-        layout.tab_bar_bounds.height};
-    if (create_bounds.contains(point_x, point_y) || delete_bounds.contains(point_x, point_y))
-    {
-        return true;
-    }
-
     float tab_x = layout.tab_bar_bounds.x;
-    const float right_limit = create_bounds.x;
+    const float right_limit = layout.tab_bar_bounds.right();
     const std::span<const UI::Editor::EditorSessionDocument> documents =
         m_controller.get_documents();
     for (const UI::Editor::EditorSessionDocument& document : documents)
@@ -151,30 +134,8 @@ bool TextEditor::handle_pointer_press(
 {
     if (layout.tab_bar_bounds.contains(point_x, point_y))
     {
-        const float action_width =
-            UI::Editor::StudioEditorMetrics::editor_tab_action_width * surface.m_dpi_scale;
-        const UI::Rect create_bounds{
-            layout.tab_bar_bounds.right() - action_width * 2.0F,
-            layout.tab_bar_bounds.y,
-            action_width,
-            layout.tab_bar_bounds.height};
-        const UI::Rect delete_bounds{
-            layout.tab_bar_bounds.right() - action_width,
-            layout.tab_bar_bounds.y,
-            action_width,
-            layout.tab_bar_bounds.height};
-        if (create_bounds.contains(point_x, point_y))
-        {
-            m_focused = true;
-            return handle_action(UI::Editor::EditorAction::CreateDocument);
-        }
-        if (delete_bounds.contains(point_x, point_y))
-        {
-            return handle_action(UI::Editor::EditorAction::RemoveDocument);
-        }
-
         float tab_x = layout.tab_bar_bounds.x;
-        const float right_limit = create_bounds.x;
+        const float right_limit = layout.tab_bar_bounds.right();
         const std::span<const UI::Editor::EditorSessionDocument> documents =
             m_controller.get_documents();
         for (std::size_t index = 0; index < documents.size(); ++index)
@@ -573,8 +534,7 @@ void TextEditor::draw_tab_strip(
 {
     m_tab_count = 0;
     float tab_x = layout.tab_bar_bounds.x;
-    const float action_width = UI::Editor::StudioEditorMetrics::editor_tab_action_width * surface.m_dpi_scale;
-    const float right_limit = layout.tab_bar_bounds.right() - action_width;
+    const float right_limit = layout.tab_bar_bounds.right();
     const std::span<const UI::Editor::EditorSessionDocument> documents = m_controller.get_documents();
     const std::optional<std::size_t> active_index = m_controller.get_active_index();
     for (std::size_t index = 0; index < documents.size(); ++index)
@@ -695,7 +655,7 @@ void TextEditor::draw_tab_strip(
         draw_single_tab(m_tab_drag_drop.get_dragged_index());
     }
 
-    const int action_center_y = round_to_int(layout.tab_bar_bounds.y + layout.tab_bar_bounds.height * 0.5F);
+
     const int tab_bar_bottom = round_to_int(layout.tab_bar_bounds.bottom()) - 1;
     const int tab_bar_left = round_to_int(layout.tab_bar_bounds.x);
     const int tab_bar_right = round_to_int(layout.tab_bar_bounds.right());

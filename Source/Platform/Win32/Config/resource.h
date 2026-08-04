@@ -1,6 +1,7 @@
 #pragma once
 
 #define IDR_MAINMENU 101
+#define IDI_APP_ICON 102
 
 #define ID_FILE_NEW 40001
 #define ID_FILE_OPEN 40002

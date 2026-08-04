@@ -28,5 +28,20 @@ inline constexpr std::string_view project_close = "zde.project.close";
 inline constexpr std::string_view build_build_project = "zde.build.buildProject";
 inline constexpr std::string_view run_start = "zde.run.start";
 inline constexpr std::string_view help_about = "zde.help.about";
+inline constexpr std::string_view build_debug = "zde.build.debug";
+inline constexpr std::string_view build_release = "zde.build.release";
+inline constexpr std::string_view edit_profiles = "zde.build.editProfiles";
+inline constexpr std::string_view platform_x64 = "zde.platform.x64";
+inline constexpr std::string_view platform_x86 = "zde.platform.x86";
+inline constexpr std::string_view platform_win32 = "zde.platform.win32";
+inline constexpr std::string_view platform_arm64 = "zde.platform.arm64";
+inline constexpr std::string_view platform_aarch64 = "zde.platform.aarch64";
+inline constexpr std::string_view platform_apple_arm = "zde.platform.appleArm";
+inline constexpr std::string_view run_zde = "zde.run.zde";
+inline constexpr std::string_view run_tests = "zde.run.tests";
+inline constexpr std::string_view open_settings = "zde.settings.open";
+inline constexpr std::string_view open_themes = "zde.themes.open";
+inline constexpr std::string_view open_plugins = "zde.plugins.open";
+inline constexpr std::string_view more_tools = "zde.tools.more";
 
 } // namespace Zenvra::Commands::CommandIds
