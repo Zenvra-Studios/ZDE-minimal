@@ -208,7 +208,8 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     int client_height,
     float content_top,
     bool extend_selection,
-    Time event_time)
+    Time event_time,
+    std::string& command_out)
 {
     const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
         static_cast<float>(client_width),
@@ -238,7 +239,11 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
         m_terminal_panel.set_focused(false);
         if (sidebar_file)
         {
-            static_cast<void>(m_text_editor.open_file(*sidebar_file));
+            if (sidebar_file->string() == "::OPEN_FOLDER::") {
+                command_out = "zde.project.open";
+            } else {
+                static_cast<void>(m_text_editor.open_file(*sidebar_file));
+            }
         }
         return true;
     }
@@ -248,7 +253,7 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     }
     m_terminal_panel.set_focused(false);
     return m_text_editor.handle_pointer_press(
-        *this, layout, point_x, point_y, extend_selection);
+        *this, layout, point_x, point_y, extend_selection, command_out);
 }
 
 bool StudioWorkspaceRenderer::handle_pointer_move(
@@ -573,6 +578,11 @@ bool StudioWorkspaceRenderer::is_terminal_resizing() const noexcept
     return m_terminal_panel.is_resizing();
 }
 
+bool StudioWorkspaceRenderer::is_empty_state_button_hovered() const noexcept
+{
+    return m_text_editor.is_empty_state_button_hovered();
+}
+
 bool StudioWorkspaceRenderer::tick_animations() noexcept
 {
     const bool caret_changed = m_text_editor.tick_animations();
@@ -587,6 +597,7 @@ void StudioWorkspaceRenderer::shutdown()
     m_editor_font.reset();
     m_small_font.reset();
     m_ui_font.reset();
+    m_large_font.reset();
     if (m_display != nullptr && m_graphics_context != nullptr)
     {
         XFreeGC(m_display, m_graphics_context);

@@ -1,6 +1,8 @@
 ﻿# CMakeLists.txt for Panels module.
 
-file(GLOB_RECURSE Panels_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
+set(Panels_SOURCES
+    # Add source files here as they are implemented.
+)
 
 if(Panels_SOURCES)
     add_library(Panels STATIC ${Panels_SOURCES})

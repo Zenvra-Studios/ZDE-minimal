@@ -120,7 +120,7 @@ void ActivitySidebar::draw_icon(
         svg_path = "Assets/icons/folder.svg";
         break;
     case UI::Editor::SidebarIcon::VersionControl:
-        svg_path = "Assets/icons/git-branch.svg";
+        svg_path = "Assets/icons/git_branch.svg";
         break;
     case UI::Editor::SidebarIcon::Search:
         svg_path = "Assets/icons/search.svg";

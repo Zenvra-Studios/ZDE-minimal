@@ -34,7 +34,7 @@ public:
     [[nodiscard]] bool has_rects() const noexcept;
 
 private:
-    static constexpr float lerp_factor_per_sec = 15.0F;
+    static constexpr float lerp_factor_per_sec = 45.0F;
     static constexpr float snap_threshold = 0.5F;
     unsigned long long m_last_tick_ms = 0;
 

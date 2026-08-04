@@ -44,7 +44,8 @@ public:
         int client_height,
         float content_top,
         bool extend_selection,
-        Time event_time);
+        Time event_time,
+        std::string& command_out);
     [[nodiscard]] bool handle_pointer_move(
         float point_x,
         float point_y,
@@ -130,6 +131,7 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_terminal_resizing() const noexcept;
+    [[nodiscard]] bool is_empty_state_button_hovered() const noexcept;
     [[nodiscard]] bool tick_animations() noexcept;
     void shutdown();
     void render(Drawable drawable, int client_width, int client_height, float content_top) const;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "UI/Editor/ActivityPanelModel.h"
+#include "UI/Components/Button.h"
 #include "UI/Editor/StudioEditorModel.h"
 
 #include <X11/Xlib.h>
@@ -60,6 +61,8 @@ private:
         const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
 
     UI::Editor::ActivityPanelModel m_model;
+    mutable UI::Components::Button m_empty_state_open_btn;
+    mutable UI::Components::Button m_empty_state_clone_btn;
     std::optional<std::size_t> m_hovered_row;
     std::optional<UI::Editor::SidebarIcon> m_hovered_icon;
     bool m_hovered_scrollbar = false;

@@ -1,6 +1,8 @@
 #include "UI/Editor/TextDocumentModel.h"
 
+#include "Language/LanguageConfiguration.h"
 #include <algorithm>
+#include <filesystem>
 
 namespace Zenvra::UI::Editor
 {
@@ -472,6 +474,16 @@ bool TextDocumentModel::toggle_line_comment()
     }
     const TextSelection selection = has_selection() ? get_selection() : TextSelection{{m_caret_line, 0}, {m_caret_line, m_lines[m_caret_line].size()}};
     
+    std::string ext = "";
+    std::size_t dot_pos = m_file_name.find_last_of('.');
+    if (dot_pos != std::string::npos)
+    {
+        ext = m_file_name.substr(dot_pos);
+    }
+    
+    const Language::LanguageConfiguration config = Language::LanguageConfiguration::get_for_extension(ext);
+    const std::string comment_str = config.line_comment;
+    
     bool all_commented = true;
     std::size_t min_indent = std::string::npos;
     
@@ -483,7 +495,7 @@ bool TextDocumentModel::toggle_line_comment()
         
         if (first_non_ws < min_indent) min_indent = first_non_ws;
         
-        if (first_non_ws + 1 >= line.size() || line[first_non_ws] != '/' || line[first_non_ws + 1] != '/')
+        if (first_non_ws + comment_str.size() > line.size() || line.substr(first_non_ws, comment_str.size()) != comment_str)
         {
             all_commented = false;
         }
@@ -499,18 +511,16 @@ bool TextDocumentModel::toggle_line_comment()
         
         if (all_commented)
         {
-            if (first_non_ws + 2 < line.size() && line[first_non_ws + 2] == ' ')
+            std::size_t erase_len = comment_str.size();
+            if (first_non_ws + erase_len < line.size() && line[first_non_ws + erase_len] == ' ')
             {
-                line.erase(first_non_ws, 3);
+                erase_len++;
             }
-            else
-            {
-                line.erase(first_non_ws, 2);
-            }
+            line.erase(first_non_ws, erase_len);
         }
         else
         {
-            line.insert(min_indent, "// ");
+            line.insert(min_indent, comment_str + " ");
         }
     }
     

@@ -1,6 +1,8 @@
 ﻿# CMakeLists.txt for AI module.
 
-file(GLOB_RECURSE AI_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
+set(AI_SOURCES
+    # Add source files here as they are implemented.
+)
 
 if(AI_SOURCES)
     add_library(AI STATIC ${AI_SOURCES})

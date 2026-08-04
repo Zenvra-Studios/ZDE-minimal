@@ -1,6 +1,8 @@
 ﻿# CMakeLists.txt for Editors module.
 
-file(GLOB_RECURSE Editors_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
+set(Editors_SOURCES
+    # Add source files here as they are implemented.
+)
 
 if(Editors_SOURCES)
     add_library(Editors STATIC ${Editors_SOURCES})

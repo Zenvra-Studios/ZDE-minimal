@@ -4,8 +4,10 @@
 #include "Platform/X11/Components/EditorScrollbar.h"
 #include "UI/Components/EditorFolding.h"
 #include "UI/Editor/BraceAnimationModel.h"
+#include "UI/Editor/BraceAnimationModel.h"
 #include "UI/Editor/CaretBlinkModel.h"
 #include "UI/Editor/EditorController.h"
+#include "UI/Components/Button.h"
 #include "UI/Editor/SelectionAnimationModel.h"
 #include "UI/Editor/StudioEditorModel.h"
 #include "Utility/DragDropModel.h"
@@ -36,7 +38,8 @@ public:
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y,
-        bool extend_selection);
+        bool extend_selection,
+        std::string& command_out);
     [[nodiscard]] bool is_tab_interactive_point(
         const StudioWorkspaceRenderer& surface,
         const UI::Editor::StudioEditorLayoutResult& layout,
@@ -75,6 +78,9 @@ public:
         float point_y) const noexcept;
     [[nodiscard]] bool tick_animations() noexcept;
     [[nodiscard]] const UI::Editor::TextDocumentModel* get_document() const noexcept;
+    [[nodiscard]] bool is_empty_state_button_hovered() const noexcept {
+        return m_empty_state_open_btn.get_state().hovered || m_empty_state_clone_btn.get_state().hovered;
+    }
 
     void render(
         const StudioWorkspaceRenderer& surface,
@@ -110,12 +116,15 @@ private:
     mutable bool m_reveal_caret_pending = true;
     bool m_focused = false;
     bool m_pointer_selecting = false;
+
     mutable std::array<UI::Rect, max_visible_tabs> m_tab_bounds{};
     mutable std::size_t m_tab_count = 0;
     std::optional<std::size_t> m_hovered_tab_index;
     std::optional<std::size_t> m_hovered_tab_close_index;
     mutable UI::Editor::SelectionAnimationModel m_selection_animation;
     mutable UI::Editor::BraceAnimationModel m_brace_animation;
+    mutable UI::Components::Button m_empty_state_open_btn;
+    mutable UI::Components::Button m_empty_state_clone_btn;
     mutable UI::Editor::TextPosition m_last_brace_caret;
     mutable unsigned long m_brace_pulse_color = 0;
     mutable bool m_brace_pulse_color_ready = false;

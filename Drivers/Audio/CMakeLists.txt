@@ -1,6 +1,8 @@
 # CMakeLists.txt for Audio module.
 
-file(GLOB_RECURSE Audio_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
+set(Audio_SOURCES
+    AudioDevice.h
+)
 
 if(Audio_SOURCES)
     add_library(Audio STATIC ${Audio_SOURCES})

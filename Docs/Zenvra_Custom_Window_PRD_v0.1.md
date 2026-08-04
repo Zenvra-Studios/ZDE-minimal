@@ -177,7 +177,7 @@ Window window;
 
 window.Create();
 window.Show();
-window.SetTitle("Zenvra Studio");
+window.SetTitle("Zenvra Development Studio");
 window.Maximize();
 window.Restore();
 window.Close();

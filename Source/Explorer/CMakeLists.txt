@@ -1,6 +1,8 @@
 ﻿# CMakeLists.txt for Explorer module.
 
-file(GLOB_RECURSE Explorer_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
+set(Explorer_SOURCES
+    # Add source files here as they are implemented.
+)
 
 if(Explorer_SOURCES)
     add_library(Explorer STATIC ${Explorer_SOURCES})

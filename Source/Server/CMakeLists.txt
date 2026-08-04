@@ -1,6 +1,8 @@
 ﻿# CMakeLists.txt for Server module.
 
-file(GLOB_RECURSE Server_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
+set(Server_SOURCES
+    # Add source files here as they are implemented.
+)
 
 if(Server_SOURCES)
     add_library(Server STATIC ${Server_SOURCES})

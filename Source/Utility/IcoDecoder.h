@@ -44,36 +44,20 @@ inline std::uint32_t read_u32_le(const unsigned char* data)
 /// Handles both PNG-compressed entries (delegated to stb_image) and classic
 /// BITMAPINFOHEADER entries with 32/24-bit uncompressed pixels plus the
 /// trailing 1-bit AND mask.
-[[nodiscard]] inline std::optional<DecodedImage> decode_ico_file(std::string_view path)
+[[nodiscard]] inline std::optional<DecodedImage> decode_ico_memory(const unsigned char* data_ptr, std::size_t data_size)
 {
-    FILE* file = std::fopen(path.data(), "rb");
-    if (file == nullptr)
-    {
-        return std::nullopt;
-    }
-    std::fseek(file, 0, SEEK_END);
-    const long file_size = std::ftell(file);
-    std::fseek(file, 0, SEEK_SET);
-    if (file_size < 22)
-    {
-        std::fclose(file);
-        return std::nullopt;
-    }
-    std::vector<unsigned char> data(static_cast<std::size_t>(file_size));
-    const std::size_t bytes_read = std::fread(data.data(), 1, data.size(), file);
-    std::fclose(file);
-    if (bytes_read != data.size())
+    if (data_size < 22)
     {
         return std::nullopt;
     }
 
     // ICONDIR: reserved(2) = 0, type(2) = 1 (icon), count(2).
-    if (data[0] != 0 || data[1] != 0 ||
-        detail::read_u16_le(data.data() + 2) != 1)
+    if (data_ptr[0] != 0 || data_ptr[1] != 0 ||
+        detail::read_u16_le(data_ptr + 2) != 1)
     {
         return std::nullopt;
     }
-    const std::uint16_t icon_count = detail::read_u16_le(data.data() + 4);
+    const std::uint16_t icon_count = detail::read_u16_le(data_ptr + 4);
     if (icon_count == 0)
     {
         return std::nullopt;
@@ -85,11 +69,11 @@ inline std::uint32_t read_u32_le(const unsigned char* data)
     for (std::uint16_t index = 0; index < icon_count; ++index)
     {
         const std::size_t entry_offset = 6U + static_cast<std::size_t>(index) * 16U;
-        if (entry_offset + 16U > data.size())
+        if (entry_offset + 16U > data_size)
         {
             break;
         }
-        const unsigned char raw_width = data[entry_offset];
+        const unsigned char raw_width = data_ptr[entry_offset];
         const int entry_width = raw_width == 0 ? 256 : static_cast<int>(raw_width);
         if (entry_width > best_width)
         {
@@ -101,14 +85,14 @@ inline std::uint32_t read_u32_le(const unsigned char* data)
     const std::size_t entry_offset = 6U + best_index * 16U;
     // ICONDIRENTRY: dwBytesInRes at +8, dwImageOffset at +12.
     const std::size_t image_size =
-        detail::read_u32_le(data.data() + entry_offset + 8);
+        detail::read_u32_le(data_ptr + entry_offset + 8);
     const std::size_t image_offset =
-        detail::read_u32_le(data.data() + entry_offset + 12);
-    if (image_offset >= data.size() || image_size > data.size() - image_offset)
+        detail::read_u32_le(data_ptr + entry_offset + 12);
+    if (image_offset >= data_size || image_size > data_size - image_offset)
     {
         return std::nullopt;
     }
-    const unsigned char* image_data = data.data() + image_offset;
+    const unsigned char* image_data = data_ptr + image_offset;
 
     // PNG-compressed entry: delegate to stb_image.
     static constexpr unsigned char png_magic[8]{
@@ -157,9 +141,6 @@ inline std::uint32_t read_u32_le(const unsigned char* data)
         return std::nullopt;
     }
 
-    // Positive height encodes the image plus its 1-bit AND mask; negative
-    // height means top-down pixels without a mask. Square icons store the
-    // doubled height (image + mask), matching the classic ICO layout.
     const bool top_down = raw_height < 0;
     const bool has_and_mask = !top_down && raw_height == width * 2;
     int height = std::abs(raw_height);
@@ -182,7 +163,7 @@ inline std::uint32_t read_u32_le(const unsigned char* data)
                 static_cast<std::size_t>(height)
             : 0U;
     if (pixel_start + pixel_bytes + mask_bytes >
-        data.data() + image_offset + image_size)
+        data_ptr + image_offset + image_size)
     {
         return std::nullopt;
     }
@@ -240,4 +221,28 @@ inline std::uint32_t read_u32_le(const unsigned char* data)
     return result;
 }
 
+[[nodiscard]] inline std::optional<DecodedImage> decode_ico_file(std::string_view path)
+{
+    FILE* file = std::fopen(path.data(), "rb");
+    if (file == nullptr)
+    {
+        return std::nullopt;
+    }
+    std::fseek(file, 0, SEEK_END);
+    const long file_size = std::ftell(file);
+    std::fseek(file, 0, SEEK_SET);
+    if (file_size < 22)
+    {
+        std::fclose(file);
+        return std::nullopt;
+    }
+    std::vector<unsigned char> data(static_cast<std::size_t>(file_size));
+    const std::size_t bytes_read = std::fread(data.data(), 1, data.size(), file);
+    std::fclose(file);
+    if (bytes_read != data.size())
+    {
+        return std::nullopt;
+    }
+    return decode_ico_memory(data.data(), data.size());
+}
 } // namespace Zenvra::Utility

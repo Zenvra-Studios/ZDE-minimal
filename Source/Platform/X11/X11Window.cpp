@@ -1,9 +1,11 @@
 #include "Platform/X11/X11Window.h"
+#include "Assets/Logo.h"
 
 // #include "Workspace/Workspace.h"
 #include "Commands/CommandIds.h"
 #include "Platform/X11/Runtime/X11Context.h"
 #include "UI/Components/MenuModel.h"
+#include "Utility/IcoDecoder.h"
 #include "Utility/IcoDecoder.h"
 
 #include <X11/Xatom.h>
@@ -17,6 +19,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <filesystem>
 #include <iostream>
 #include <string_view>
@@ -39,6 +42,52 @@ unsigned long to_argb(const UI::Theme::Color &color) {
          static_cast<unsigned long>(color.red) << 16U |
          static_cast<unsigned long>(color.green) << 8U |
          static_cast<unsigned long>(color.blue);
+}
+
+/// Bilinear resample of an RGBA image into target_width x target_height.
+std::vector<unsigned char> downsample_rgba(const unsigned char *source,
+                                           int source_width,
+                                           int source_height,
+                                           int target_width,
+                                           int target_height) {
+  std::vector<unsigned char> result(
+      static_cast<std::size_t>(target_width * target_height) * 4);
+  if (source == nullptr || source_width <= 0 || source_height <= 0 ||
+      target_width <= 0 || target_height <= 0) {
+    return result;
+  }
+  const float scale_x =
+      static_cast<float>(source_width) / static_cast<float>(target_width);
+  const float scale_y =
+      static_cast<float>(source_height) / static_cast<float>(target_height);
+  for (int y = 0; y < target_height; ++y) {
+    const float source_y = (static_cast<float>(y) + 0.5F) * scale_y - 0.5F;
+    const int y0 = std::max(static_cast<int>(std::floor(source_y)), 0);
+    const int y1 = std::min(y0 + 1, source_height - 1);
+    const float fy = source_y - static_cast<float>(y0);
+    for (int x = 0; x < target_width; ++x) {
+      const float source_x = (static_cast<float>(x) + 0.5F) * scale_x - 0.5F;
+      const int x0 = std::max(static_cast<int>(std::floor(source_x)), 0);
+      const int x1 = std::min(x0 + 1, source_width - 1);
+      const float fx = source_x - static_cast<float>(x0);
+      for (int channel = 0; channel < 4; ++channel) {
+        const float top =
+            static_cast<float>(source[(y0 * source_width + x0) * 4 + channel]) *
+                (1.0F - fx) +
+            static_cast<float>(source[(y0 * source_width + x1) * 4 + channel]) *
+                fx;
+        const float bottom =
+            static_cast<float>(source[(y1 * source_width + x0) * 4 + channel]) *
+                (1.0F - fx) +
+            static_cast<float>(source[(y1 * source_width + x1) * 4 + channel]) *
+                fx;
+        result[static_cast<std::size_t>(y * target_width + x) * 4 + channel] =
+            static_cast<unsigned char>(
+                top * (1.0F - fy) + bottom * fy + 0.5F);
+      }
+    }
+  }
+  return result;
 }
 
 /// Bilinear resample of an RGBA image into target_width x target_height.
@@ -189,9 +238,8 @@ bool X11Window::initialize() {
     release_native_resources();
     return false;
   }
-  static_cast<void>(m_chrome_renderer.create_workspace_buffer());
+  
   apply_window_icon();
-
   refresh_chrome_layout();
   apply_size_hints();
   set_custom_chrome_enabled(m_specification.custom_chrome_enabled);
@@ -436,15 +484,8 @@ void X11Window::apply_window_icon() const {
 
   std::vector<unsigned long> icon_data;
 
-  // Prefer the bundled logo asset; fall back to a procedural glyph when the
-  // asset cannot be resolved or decoded.
-  std::error_code path_error;
-  const std::filesystem::path icon_path =
-      m_chrome_renderer.get_icon_asset_root() / "zenvra_logo128x128.ico";
-  std::optional<Utility::DecodedImage> decoded;
-  if (std::filesystem::is_regular_file(icon_path, path_error)) {
-    decoded = Utility::decode_ico_file(icon_path.string());
-  }
+  // Use the compiled-in bundled logo asset
+  std::optional<Utility::DecodedImage> decoded = Utility::decode_ico_memory(Assets_icons_zenvra_logo_build_ico, Assets_icons_zenvra_logo_build_ico_len);
 
   if (decoded.has_value() && !decoded->pixels.empty()) {
     std::size_t icon_data_size = 0;
@@ -481,7 +522,37 @@ void X11Window::apply_window_icon() const {
       icon_data_size += 2U + static_cast<std::size_t>(icon_size * icon_size);
     }
     icon_data.reserve(icon_data_size);
+    std::size_t icon_data_size = 0;
+    for (const int icon_size : icon_sizes) {
+      icon_data_size += 2U + static_cast<std::size_t>(icon_size * icon_size);
+    }
+    icon_data.reserve(icon_data_size);
 
+    for (const int icon_size : icon_sizes) {
+      const int icon_margin = std::max(icon_size * 3 / 32, 1);
+      const int glyph_start = icon_size / 4;
+      const int glyph_end = icon_size - glyph_start - 1;
+      const int glyph_thickness = std::max(icon_size / 24, 1);
+      icon_data.push_back(static_cast<unsigned long>(icon_size));
+      icon_data.push_back(static_cast<unsigned long>(icon_size));
+      for (int point_y = 0; point_y < icon_size; ++point_y) {
+        for (int point_x = 0; point_x < icon_size; ++point_x) {
+          const bool in_background =
+              point_x >= icon_margin && point_x < icon_size - icon_margin &&
+              point_y >= icon_margin && point_y < icon_size - icon_margin;
+          const bool on_horizontal =
+              point_x >= glyph_start && point_x <= glyph_end &&
+              (std::abs(point_y - glyph_start) <= glyph_thickness ||
+               std::abs(point_y - glyph_end) <= glyph_thickness);
+          const bool on_diagonal =
+              point_x >= glyph_start && point_x <= glyph_end &&
+              point_y >= glyph_start && point_y <= glyph_end &&
+              std::abs(point_x + point_y - glyph_start - glyph_end) <=
+                  glyph_thickness;
+          icon_data.push_back(on_horizontal || on_diagonal
+                                  ? glyph_color
+                                  : (in_background ? background_color : 0UL));
+        }
     for (const int icon_size : icon_sizes) {
       const int icon_margin = std::max(icon_size * 3 / 32, 1);
       const int glyph_start = icon_size / 4;
@@ -811,8 +882,7 @@ void X11Window::handle_motion(const XMotionEvent &event) {
       hovered_control != m_interaction_state.hovered_control ||
       hovered_menu != m_interaction_state.hovered_menu_index ||
       hovered_popup_item != m_interaction_state.hovered_popup_item_index ||
-      hovered_overflow_menu !=
-          m_interaction_state.hovered_overflow_menu_index ||
+      hovered_overflow_menu != m_interaction_state.hovered_overflow_menu_index ||
       overflow_menu_hovered != m_interaction_state.overflow_menu_hovered ||
       command_center_hovered != m_interaction_state.command_center_hovered ||
       run_button_hovered != m_interaction_state.run_button_hovered ||
@@ -842,32 +912,37 @@ void X11Window::handle_motion(const XMotionEvent &event) {
   m_interaction_state.build_button_hovered = build_button_hovered;
   m_interaction_state.gear_button_hovered = gear_button_hovered;
 
-  // Hover-switching is only active for the main menubar (indices 0..window_menu_count-1).
-  // Overlay dropdowns (compiler, binary, gear, ellipsis) only open/close on click.
+  std::optional<std::size_t> combined_hovered_menu = hovered_menu;
+  if (!combined_hovered_menu) {
+    if (compiler_button_hovered) combined_hovered_menu = 10;
+    else if (platform_button_hovered) combined_hovered_menu = 11;
+    else if (binary_button_hovered) combined_hovered_menu = 12;
+    else if (gear_button_hovered) combined_hovered_menu = 13;
+    else if (ellipsis_button_hovered) combined_hovered_menu = 14;
+  }
+
+  // Hover-switching is now active for all dropdowns (menubar and overlays).
   const bool menu_interaction_active =
       m_interaction_state.open_menu_index.has_value() ||
       m_interaction_state.overflow_menu_open || m_menu_pointer_tracking;
-  const bool current_is_menubar = !m_interaction_state.open_menu_index.has_value() ||
-      *m_interaction_state.open_menu_index < UI::Chrome::window_menu_count;
-  const bool menubar_interaction_active = menu_interaction_active && current_is_menubar;
 
-  if (menubar_interaction_active && hovered_overflow_menu &&
+  if (menu_interaction_active && hovered_overflow_menu &&
       m_interaction_state.overflow_menu_open &&
       m_interaction_state.open_menu_index != hovered_overflow_menu) {
     m_interaction_state.open_menu_index = hovered_overflow_menu;
     m_interaction_state.hovered_popup_item_index.reset();
     m_pressed_popup_item_index.reset();
     changed = true;
-  } else if (menubar_interaction_active && hovered_menu &&
-             (m_interaction_state.open_menu_index != hovered_menu ||
+  } else if (menu_interaction_active && combined_hovered_menu &&
+             (m_interaction_state.open_menu_index != combined_hovered_menu ||
               m_interaction_state.overflow_menu_open)) {
-    m_interaction_state.open_menu_index = hovered_menu;
+    m_interaction_state.open_menu_index = combined_hovered_menu;
     m_interaction_state.overflow_menu_open = false;
     m_interaction_state.hovered_popup_item_index.reset();
     m_interaction_state.hovered_overflow_menu_index.reset();
     m_pressed_popup_item_index.reset();
     changed = true;
-  } else if (menubar_interaction_active && overflow_menu_hovered &&
+  } else if (menu_interaction_active && overflow_menu_hovered &&
              !m_interaction_state.overflow_menu_open) {
     m_interaction_state.open_menu_index.reset();
     m_interaction_state.overflow_menu_open = true;
@@ -1093,10 +1168,14 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
     return;
   }
 
+  std::string command_out;
   if (m_chrome_renderer.handle_workspace_pointer_press(
           point_x, point_y, m_client_width, m_client_height,
           m_chrome_layout.titlebar_bounds.bottom(),
-          (event.state & ShiftMask) != 0, event.time)) {
+          (event.state & ShiftMask) != 0, event.time, command_out)) {
+    if (!command_out.empty() && m_command_invoked_callback) {
+      m_command_invoked_callback(command_out);
+    }
     if (m_chrome_renderer.is_terminal_resizing()) {
       XGrabPointer(m_display, m_window_handle, False,
                    ButtonReleaseMask | PointerMotionMask, GrabModeAsync,
@@ -1547,11 +1626,12 @@ void X11Window::update_cursor(int point_x, int point_y) {
                                     static_cast<float>(point_y)) ||
       m_chrome_layout.is_debug_button(static_cast<float>(point_x),
                                       static_cast<float>(point_y));
+  const bool is_empty_state_button = m_chrome_renderer.is_empty_state_button_hovered();
   const std::optional<MoveResizeDirection> direction =
-      (tab_point || is_run_or_debug || is_sidebar)
+      (tab_point || is_run_or_debug || is_sidebar || is_empty_state_button)
           ? std::nullopt
           : get_resize_direction(point_x, point_y);
-  if (tab_point || is_run_or_debug || is_sidebar) {
+  if (tab_point || is_run_or_debug || is_sidebar || is_empty_state_button) {
     desired_cursor = m_pointer_cursor;
   } else if (direction) {
     desired_cursor =

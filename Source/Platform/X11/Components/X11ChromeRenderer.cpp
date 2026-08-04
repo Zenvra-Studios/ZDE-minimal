@@ -59,6 +59,7 @@ bool X11ChromeRenderer::initialize(Display *display, int screen,
 
   m_colors.window_background = allocate_color(theme.window_background);
   m_titlebar_background_color = theme.titlebar_background;
+  m_hover_color = theme.hover;
   m_colors.titlebar_background = allocate_color(theme.titlebar_background);
   m_colors.titlebar_border = allocate_color(theme.titlebar_border);
   m_colors.text_primary = allocate_color(theme.text_primary);
@@ -95,7 +96,8 @@ void X11ChromeRenderer::shutdown() {
   m_display = nullptr;
 }
 
-const std::filesystem::path &X11ChromeRenderer::get_icon_asset_root() const noexcept {
+const std::filesystem::path &
+X11ChromeRenderer::get_icon_asset_root() const noexcept {
   return m_workspace_renderer.get_icon_asset_root();
 }
 
@@ -114,10 +116,11 @@ bool X11ChromeRenderer::create_workspace_buffer() {
 
 bool X11ChromeRenderer::handle_workspace_pointer_press(
     float point_x, float point_y, int client_width, int client_height,
-    float content_top, bool extend_selection, Time event_time) {
+    float content_top, bool extend_selection, Time event_time,
+    std::string &command_out) {
   return m_workspace_renderer.handle_pointer_press(
       point_x, point_y, client_width, client_height, content_top,
-      extend_selection, event_time);
+      extend_selection, event_time, command_out);
 }
 
 bool X11ChromeRenderer::handle_workspace_pointer_move(
@@ -260,6 +263,10 @@ bool X11ChromeRenderer::is_terminal_resizing() const noexcept {
   return m_workspace_renderer.is_terminal_resizing();
 }
 
+bool X11ChromeRenderer::is_empty_state_button_hovered() const noexcept {
+  return m_workspace_renderer.is_empty_state_button_hovered();
+}
+
 bool X11ChromeRenderer::tick_animations() noexcept {
   return m_workspace_renderer.tick_animations();
 }
@@ -290,7 +297,8 @@ void X11ChromeRenderer::render(
   fill_rectangle(back_buffer, chrome_layout.titlebar_bounds,
                  m_colors.titlebar_background);
 
-  const std::span<const UI::Components::Menu> menus = UI::Components::get_window_menus();
+  const std::span<const UI::Components::Menu> menus =
+      UI::Components::get_window_menus();
   for (std::size_t region_index = 0;
        region_index < chrome_layout.visible_menu_count; ++region_index) {
     const UI::Chrome::MenuRegion &region =
@@ -348,147 +356,200 @@ void X11ChromeRenderer::render(
       logo_size,
   };
   if (!m_workspace_renderer.draw_ico_icon(
-          back_buffer,
-          "Assets/icons/zenvra_logo48x48.ico",
+          back_buffer, "Assets/icons/zenvra_logo48x48.ico",
           round_to_int(logo_bounds.x + logo_bounds.width * 0.5F),
           round_to_int(logo_bounds.y + logo_bounds.height * 0.5F),
-          round_to_int(logo_size),
-          m_titlebar_background_color))
-  {
-    fill_rectangle(back_buffer, logo_bounds, m_colors.accent, static_cast<int>(logo_size * 0.25F));
+          round_to_int(logo_size), m_titlebar_background_color)) {
+    fill_rectangle(back_buffer, logo_bounds, m_colors.accent,
+                   static_cast<int>(logo_size * 0.25F));
     draw_centered_text(back_buffer, "Z", logo_bounds, m_text_colors.white);
   }
 
-  draw_window_control(back_buffer, chrome_layout.minimize_bounds, UI::Chrome::WindowControl::Minimize, interaction_state);
-  draw_window_control(back_buffer, chrome_layout.maximize_bounds, UI::Chrome::WindowControl::MaximizeRestore, interaction_state);
-  draw_window_control(back_buffer, chrome_layout.close_bounds, UI::Chrome::WindowControl::Close, interaction_state);
+  draw_window_control(back_buffer, chrome_layout.minimize_bounds,
+                      UI::Chrome::WindowControl::Minimize, interaction_state);
+  draw_window_control(back_buffer, chrome_layout.maximize_bounds,
+                      UI::Chrome::WindowControl::MaximizeRestore,
+                      interaction_state);
+  draw_window_control(back_buffer, chrome_layout.close_bounds,
+                      UI::Chrome::WindowControl::Close, interaction_state);
+
+  auto draw_toolbar_hover = [&](const UI::Rect &bounds) {
+    UI::Rect hover_bounds = bounds;
+    hover_bounds.y += 4.0F * scale;
+    hover_bounds.height -= 8.0F * scale;
+    hover_bounds.x += 2.0F * scale;
+    hover_bounds.width -= 4.0F * scale;
+    fill_rectangle(back_buffer, hover_bounds, m_colors.hover, 4);
+  };
 
   if (!chrome_layout.build_bounds.is_empty()) {
     if (interaction_state.build_button_hovered) {
-      fill_rectangle(back_buffer, chrome_layout.build_bounds, m_colors.hover);
+      draw_toolbar_hover(chrome_layout.build_bounds);
     }
-    const int center_x = round_to_int(chrome_layout.build_bounds.x + chrome_layout.build_bounds.width * 0.5F);
-    const int center_y = round_to_int(chrome_layout.build_bounds.y + chrome_layout.build_bounds.height * 0.5F);
+    const int center_x = round_to_int(chrome_layout.build_bounds.x +
+                                      chrome_layout.build_bounds.width * 0.5F);
+    const int center_y = round_to_int(chrome_layout.build_bounds.y +
+                                      chrome_layout.build_bounds.height * 0.5F);
     const int icon_size = std::max(round_to_int(16.0F * scale), 14);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/build.svg", center_x, center_y, icon_size,
         m_workspace_renderer.m_palette.text_primary,
-        m_workspace_renderer.m_palette.sidebar_background);
+        interaction_state.build_button_hovered ? m_hover_color
+                                               : m_titlebar_background_color);
   }
 
   if (!chrome_layout.run_bounds.is_empty()) {
     if (interaction_state.run_button_hovered) {
-      fill_rectangle(back_buffer, chrome_layout.run_bounds, m_colors.hover);
+      draw_toolbar_hover(chrome_layout.run_bounds);
     }
-    const int center_x = round_to_int(chrome_layout.run_bounds.x + chrome_layout.run_bounds.width * 0.5F);
-    const int center_y = round_to_int(chrome_layout.run_bounds.y + chrome_layout.run_bounds.height * 0.5F);
+    const int center_x = round_to_int(chrome_layout.run_bounds.x +
+                                      chrome_layout.run_bounds.width * 0.5F);
+    const int center_y = round_to_int(chrome_layout.run_bounds.y +
+                                      chrome_layout.run_bounds.height * 0.5F);
     const int icon_size = std::max(round_to_int(20.0F * scale), 14);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/play.svg", center_x, center_y, icon_size,
         m_workspace_renderer.m_palette.success,
-        m_workspace_renderer.m_palette.sidebar_background);
+        interaction_state.run_button_hovered ? m_hover_color
+                                             : m_titlebar_background_color);
   }
 
   if (!chrome_layout.debug_bounds.is_empty()) {
     if (interaction_state.debug_button_hovered) {
-      fill_rectangle(back_buffer, chrome_layout.debug_bounds, m_colors.hover);
+      draw_toolbar_hover(chrome_layout.debug_bounds);
     }
-    const int center_x = round_to_int(chrome_layout.debug_bounds.x + chrome_layout.debug_bounds.width * 0.5F);
-    const int center_y = round_to_int(chrome_layout.debug_bounds.y + chrome_layout.debug_bounds.height * 0.5F);
+    const int center_x = round_to_int(chrome_layout.debug_bounds.x +
+                                      chrome_layout.debug_bounds.width * 0.5F);
+    const int center_y = round_to_int(chrome_layout.debug_bounds.y +
+                                      chrome_layout.debug_bounds.height * 0.5F);
     const int icon_size = std::max(round_to_int(18.0F * scale), 14);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/bug.svg", center_x, center_y, icon_size,
         m_workspace_renderer.m_palette.warning,
-        m_workspace_renderer.m_palette.sidebar_background);
+        interaction_state.debug_button_hovered ? m_hover_color
+                                               : m_titlebar_background_color);
   }
 
   if (!chrome_layout.gear_bounds.is_empty()) {
     if (interaction_state.gear_button_hovered) {
-      fill_rectangle(back_buffer, chrome_layout.gear_bounds, m_colors.hover);
+      draw_toolbar_hover(chrome_layout.gear_bounds);
     }
-    const int center_x = round_to_int(chrome_layout.gear_bounds.x + chrome_layout.gear_bounds.width * 0.5F);
-    const int center_y = round_to_int(chrome_layout.gear_bounds.y + chrome_layout.gear_bounds.height * 0.5F);
+    const int center_x = round_to_int(chrome_layout.gear_bounds.x +
+                                      chrome_layout.gear_bounds.width * 0.5F);
+    const int center_y = round_to_int(chrome_layout.gear_bounds.y +
+                                      chrome_layout.gear_bounds.height * 0.5F);
     const int icon_size = std::max(round_to_int(16.0F * scale), 14);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/gear.svg", center_x, center_y, icon_size,
         m_workspace_renderer.m_palette.text_primary,
-        m_workspace_renderer.m_palette.sidebar_background);
+        interaction_state.gear_button_hovered ? m_hover_color
+                                              : m_titlebar_background_color);
   }
 
   if (!chrome_layout.ellipsis_bounds.is_empty()) {
     if (interaction_state.ellipsis_button_hovered) {
-      fill_rectangle(back_buffer, chrome_layout.ellipsis_bounds, m_colors.hover);
+      draw_toolbar_hover(chrome_layout.ellipsis_bounds);
     }
-    const int center_x = round_to_int(chrome_layout.ellipsis_bounds.x + chrome_layout.ellipsis_bounds.width * 0.5F);
-    const int center_y = round_to_int(chrome_layout.ellipsis_bounds.y + chrome_layout.ellipsis_bounds.height * 0.5F);
+    const int center_x =
+        round_to_int(chrome_layout.ellipsis_bounds.x +
+                     chrome_layout.ellipsis_bounds.width * 0.5F);
+    const int center_y =
+        round_to_int(chrome_layout.ellipsis_bounds.y +
+                     chrome_layout.ellipsis_bounds.height * 0.5F);
     const int icon_size = std::max(round_to_int(16.0F * scale), 14);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/ellipsis.svg", center_x, center_y, icon_size,
         m_workspace_renderer.m_palette.text_primary,
-        m_workspace_renderer.m_palette.sidebar_background);
+        interaction_state.ellipsis_button_hovered
+            ? m_hover_color
+            : m_titlebar_background_color);
   }
 
   // Build toolbar: Compiler | Binary | Mode
   if (!chrome_layout.compiler_bounds.is_empty()) {
     if (interaction_state.compiler_button_hovered) {
-      fill_rectangle(back_buffer, chrome_layout.compiler_bounds, m_colors.hover);
+      draw_toolbar_hover(chrome_layout.compiler_bounds);
     }
-    draw_text(back_buffer, "Debug", chrome_layout.compiler_bounds, 12.0F * scale, m_text_colors.primary);
-    const int chevron_x = round_to_int(chrome_layout.compiler_bounds.right() - 14.0F * scale);
-    const int chevron_y = round_to_int(chrome_layout.compiler_bounds.y + chrome_layout.compiler_bounds.height * 0.5F);
-    m_workspace_renderer.draw_svg_icon(back_buffer, "Assets/icons/chevron-down.svg",
-                                       chevron_x, chevron_y, std::max(static_cast<int>(12.0F * scale), 10),
-                                       m_workspace_renderer.m_palette.text_muted, m_titlebar_background_color);
+    draw_text(back_buffer, "Debug", chrome_layout.compiler_bounds,
+              12.0F * scale, m_text_colors.primary);
+    const int chevron_x =
+        round_to_int(chrome_layout.compiler_bounds.right() - 14.0F * scale);
+    const int chevron_y =
+        round_to_int(chrome_layout.compiler_bounds.y +
+                     chrome_layout.compiler_bounds.height * 0.5F);
+    m_workspace_renderer.draw_svg_icon(
+        back_buffer, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
+        std::max(static_cast<int>(12.0F * scale), 10),
+        m_workspace_renderer.m_palette.text_muted,
+        interaction_state.compiler_button_hovered
+            ? m_hover_color
+            : m_titlebar_background_color);
   }
 
   if (!chrome_layout.platform_bounds.is_empty()) {
     if (interaction_state.platform_button_hovered) {
-      fill_rectangle(back_buffer, chrome_layout.platform_bounds, m_colors.hover);
+      draw_toolbar_hover(chrome_layout.platform_bounds);
     }
-    draw_text(back_buffer, "x64", chrome_layout.platform_bounds, 8.0F * scale, m_text_colors.primary);
-    const int chevron_x = round_to_int(chrome_layout.platform_bounds.right() - 14.0F * scale);
-    const int chevron_y = round_to_int(chrome_layout.platform_bounds.y + chrome_layout.platform_bounds.height * 0.5F);
-    m_workspace_renderer.draw_svg_icon(back_buffer, "Assets/icons/chevron-down.svg",
-                                       chevron_x, chevron_y, std::max(static_cast<int>(12.0F * scale), 10),
-                                       m_workspace_renderer.m_palette.text_muted, m_titlebar_background_color);
+    draw_text(back_buffer, "x64", chrome_layout.platform_bounds, 8.0F * scale,
+              m_text_colors.primary);
+    const int chevron_x =
+        round_to_int(chrome_layout.platform_bounds.right() - 14.0F * scale);
+    const int chevron_y =
+        round_to_int(chrome_layout.platform_bounds.y +
+                     chrome_layout.platform_bounds.height * 0.5F);
+    m_workspace_renderer.draw_svg_icon(
+        back_buffer, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
+        std::max(static_cast<int>(12.0F * scale), 10),
+        m_workspace_renderer.m_palette.text_muted,
+        interaction_state.platform_button_hovered
+            ? m_hover_color
+            : m_titlebar_background_color);
   }
 
   if (!chrome_layout.binary_bounds.is_empty()) {
     if (interaction_state.binary_button_hovered) {
-      fill_rectangle(back_buffer, chrome_layout.binary_bounds, m_colors.hover);
+      draw_toolbar_hover(chrome_layout.binary_bounds);
     }
     const int binary_icon_size = std::max(round_to_int(16.0F * scale), 14);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/terminal.svg",
         round_to_int(chrome_layout.binary_bounds.x + 16.0F * scale),
-        round_to_int(chrome_layout.binary_bounds.y + chrome_layout.binary_bounds.height * 0.5F),
-        binary_icon_size,
-        m_workspace_renderer.m_palette.text_primary,
-        m_workspace_renderer.m_palette.sidebar_background);
+        round_to_int(chrome_layout.binary_bounds.y +
+                     chrome_layout.binary_bounds.height * 0.5F),
+        binary_icon_size, m_workspace_renderer.m_palette.text_primary,
+        interaction_state.binary_button_hovered ? m_hover_color
+                                                : m_titlebar_background_color);
     draw_text(back_buffer, "untitled", chrome_layout.binary_bounds,
               36.0F * scale, m_text_colors.primary);
-    const int chevron_x = round_to_int(chrome_layout.binary_bounds.right() - 14.0F * scale);
-    const int chevron_y = round_to_int(chrome_layout.binary_bounds.y + chrome_layout.binary_bounds.height * 0.5F);
+    const int chevron_x =
+        round_to_int(chrome_layout.binary_bounds.right() - 14.0F * scale);
+    const int chevron_y =
+        round_to_int(chrome_layout.binary_bounds.y +
+                     chrome_layout.binary_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
         std::max(round_to_int(12.0F * scale), 10),
         m_workspace_renderer.m_palette.text_muted,
-        m_workspace_renderer.m_palette.sidebar_background);
+        interaction_state.binary_button_hovered ? m_hover_color
+                                                : m_titlebar_background_color);
   }
 
   if (!chrome_layout.mode_bounds.is_empty()) {
     if (interaction_state.mode_button_hovered) {
-      fill_rectangle(back_buffer, chrome_layout.mode_bounds, m_colors.hover);
+      draw_toolbar_hover(chrome_layout.mode_bounds);
     }
-    draw_text(back_buffer, "Debug", chrome_layout.mode_bounds,
-              8.0F * scale, m_text_colors.primary);
-    const int chevron_x = round_to_int(chrome_layout.mode_bounds.right() - 14.0F * scale);
-    const int chevron_y = round_to_int(chrome_layout.mode_bounds.y + chrome_layout.mode_bounds.height * 0.5F);
+    draw_text(back_buffer, "Debug", chrome_layout.mode_bounds, 8.0F * scale,
+              m_text_colors.primary);
+    const int chevron_x =
+        round_to_int(chrome_layout.mode_bounds.right() - 14.0F * scale);
+    const int chevron_y = round_to_int(chrome_layout.mode_bounds.y +
+                                       chrome_layout.mode_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
         std::max(round_to_int(12.0F * scale), 10),
         m_workspace_renderer.m_palette.text_muted,
-        m_workspace_renderer.m_palette.sidebar_background);
+        interaction_state.mode_button_hovered ? m_hover_color
+                                              : m_titlebar_background_color);
   }
 
   m_workspace_renderer.render(back_buffer, client_width, client_height,
@@ -531,8 +592,8 @@ PopupMenuGeometry X11ChromeRenderer::calculate_popup_geometry(
   if (anchor_bounds == nullptr) {
     static constexpr std::size_t compiler_menu_index = 10;
     static constexpr std::size_t platform_menu_index = 11;
-    static constexpr std::size_t binary_menu_index   = 12;
-    static constexpr std::size_t gear_menu_index     = 13;
+    static constexpr std::size_t binary_menu_index = 12;
+    static constexpr std::size_t gear_menu_index = 13;
     static constexpr std::size_t ellipsis_menu_index = 14;
     if (menu_index == compiler_menu_index)
       anchor_bounds = &chrome_layout.compiler_bounds;
@@ -921,6 +982,18 @@ void X11ChromeRenderer::draw_overflow_menu(
     draw_text(drawable, menus[menu_index].label,
               geometry.item_bounds[item_index], 12.0F * m_dpi_scale,
               is_hovered ? m_text_colors.white : m_text_colors.primary);
+
+    const int chevron_x = round_to_int(
+        geometry.item_bounds[item_index].right() - 14.0F * m_dpi_scale);
+    const int chevron_y =
+        round_to_int(geometry.item_bounds[item_index].y +
+                     geometry.item_bounds[item_index].height * 0.5F);
+    m_workspace_renderer.draw_svg_icon(
+        drawable, "Assets/icons/chevron-right.svg", chevron_x, chevron_y,
+        std::max(round_to_int(12.0F * m_dpi_scale), 10),
+        m_workspace_renderer.m_palette.text_muted,
+        is_hovered ? UI::Theme::StudioTheme::zenvra_dark().accent
+                   : UI::Theme::StudioTheme::zenvra_dark().panel_background);
   }
 }
 

@@ -1,6 +1,8 @@
 ﻿# CMakeLists.txt for Services module.
 
-file(GLOB_RECURSE Services_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
+set(Services_SOURCES
+    # Add source files here as they are implemented.
+)
 
 if(Services_SOURCES)
     add_library(Services STATIC ${Services_SOURCES})

@@ -1,6 +1,8 @@
 ﻿# CMakeLists.txt for Config module.
 
-file(GLOB_RECURSE Config_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
+set(Config_SOURCES
+    # Add source files here as they are implemented.
+)
 
 if(Config_SOURCES)
     add_library(Config STATIC ${Config_SOURCES})

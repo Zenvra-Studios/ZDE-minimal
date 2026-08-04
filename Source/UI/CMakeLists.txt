@@ -3,6 +3,8 @@ add_library(ZDEUI STATIC
     Chrome/WindowMenuModel.cpp
     Components/EditorFolding.cpp
     Components/MenuModel.cpp
+    Components/Button.cpp
+    Components/Input.cpp
     Editor/ActivityPanelModel.cpp
     Editor/BraceAnimationModel.cpp
     Editor/CaretBlinkModel.cpp

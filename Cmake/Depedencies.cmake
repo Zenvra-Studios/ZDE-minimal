@@ -42,14 +42,14 @@ CPMAddPackage(
     GIT_TAG v1.3.18
 )
 
-# # nlohmann/json - JSON for Modern C++
-# CPMAddPackage(
-#     NAME nlohmann_json
-#     GITHUB_REPOSITORY nlohmann/json
-#     GIT_TAG v3.11.3
-#     OPTIONS
-#         "JSON_BuildTests OFF"
-# )
+# nlohmann/json - JSON for Modern C++
+CPMAddPackage(
+    NAME nlohmann_json
+    GITHUB_REPOSITORY nlohmann/json
+    GIT_TAG v3.11.3
+    OPTIONS
+        "JSON_BuildTests OFF"
+)
 
 # gtest - Google Testing and Mocking Framework
 set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)

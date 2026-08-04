@@ -1,6 +1,8 @@
 # CMakeLists.txt for Graphics module.
 
-file(GLOB_RECURSE Graphics_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
+set(Graphics_SOURCES
+    shaders/BackdropBlur.h
+)
 
 if(Graphics_SOURCES)
     add_library(Graphics STATIC ${Graphics_SOURCES})
