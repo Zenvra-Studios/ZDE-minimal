@@ -42,6 +42,7 @@ public:
     [[nodiscard]] bool delete_active_file();
     [[nodiscard]] bool rename_active_file(const std::filesystem::path& destination);
     [[nodiscard]] bool activate_file(std::size_t index) noexcept;
+    [[nodiscard]] bool reorder_file(std::size_t from_index, std::size_t to_index) noexcept;
 
     [[nodiscard]] TextDocumentModel* get_active_document() noexcept;
     [[nodiscard]] const TextDocumentModel* get_active_document() const noexcept;

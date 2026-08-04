@@ -14,15 +14,13 @@ namespace Zenvra::UI::Editor
 namespace
 {
 
-constexpr std::array<SidebarItem, 8> sidebar_items{
+constexpr std::array<SidebarItem, 6> sidebar_items{
     SidebarItem{"project", "Project", SidebarIcon::Project, SidebarPlacement::Top, true},
     SidebarItem{"version-control", "Version Control", SidebarIcon::VersionControl, SidebarPlacement::Top, false},
     SidebarItem{"search", "Search", SidebarIcon::Search, SidebarPlacement::Top, false},
     SidebarItem{"services", "Services", SidebarIcon::Services, SidebarPlacement::Top, false},
     SidebarItem{"more", "More Tool Windows", SidebarIcon::More, SidebarPlacement::Top, false},
-    SidebarItem{"run", "Run", SidebarIcon::Run, SidebarPlacement::Bottom, false},
     SidebarItem{"terminal", "Terminal", SidebarIcon::Terminal, SidebarPlacement::Bottom, false},
-    SidebarItem{"problems", "Problems", SidebarIcon::Problems, SidebarPlacement::Bottom, false},
 };
 
 constexpr auto keywords = std::to_array<std::string_view>({

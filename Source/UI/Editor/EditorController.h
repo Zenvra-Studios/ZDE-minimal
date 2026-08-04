@@ -18,6 +18,7 @@ public:
         std::span<const std::filesystem::path> dropped_paths);
     [[nodiscard]] bool create_buffer();
     [[nodiscard]] bool activate_file(std::size_t index) noexcept;
+    [[nodiscard]] bool reorder_file(std::size_t from_index, std::size_t to_index) noexcept;
     [[nodiscard]] bool close_file(std::size_t index);
     [[nodiscard]] bool execute_action(EditorAction action);
     [[nodiscard]] bool can_execute_action(EditorAction action) const noexcept;

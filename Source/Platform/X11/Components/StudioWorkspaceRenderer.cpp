@@ -1,4 +1,5 @@
 #include "Platform/X11/Components/StudioWorkspaceRenderer.h"
+#include "Utility/stb_image.h"
 
 #include "UI/Editor/EditorFileSystem.h"
 #include "Utility/Fonts.h"
@@ -7,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <fontconfig/fontconfig.h>
 
 namespace Zenvra::Platform::X11::Components
 {
@@ -80,29 +82,72 @@ bool StudioWorkspaceRenderer::initialize(Display* display, int screen, float dpi
         return false;
     }
 
-    char ui_pattern[80]{};
-    char small_pattern[80]{};
-    char editor_pattern[80]{};
-    char minimap_pattern[80]{};
+    // Load bundled fonts from Assets/fonts/. For each font, register the TTF
+    // file with Fontconfig when found (and not a placeholder). If not found or
+    // the file is invalid, fall back to the system default family.
+    bool hack_loaded = false;
+    bool opensans_loaded = false;
+    if (project_root)
+    {
+        const std::filesystem::path hack_ttf =
+            *project_root / "Assets" / "fonts" / "Hack" / "ttf" / "Hack-Regular.ttf";
+        const std::filesystem::path opensans_ttf =
+            *project_root / "Assets" / "fonts" / "OpenSans" / "OpenSans-Regular.ttf";
+        std::error_code size_error;
+
+        // Hack – editor / minimap / terminal font
+        if (std::filesystem::exists(hack_ttf) &&
+            std::filesystem::file_size(hack_ttf, size_error) > 100)
+        {
+            hack_loaded = FcConfigAppFontAddFile(nullptr,
+                reinterpret_cast<const FcChar8*>(hack_ttf.c_str()));
+        }
+
+        // Open Sans – UI / sidebar / tab / large title font
+        if (std::filesystem::exists(opensans_ttf) &&
+            std::filesystem::file_size(opensans_ttf, size_error) > 100)
+        {
+            opensans_loaded = FcConfigAppFontAddFile(nullptr,
+                reinterpret_cast<const FcChar8*>(opensans_ttf.c_str()));
+        }
+    }
+
+    const char* editor_font_family  = hack_loaded     ? "Hack"      : "monospace";
+    const char* ui_font_family      = opensans_loaded  ? "Open Sans" : "sans";
+
+    char ui_pattern[128]{};
+    char small_pattern[128]{};
+    char editor_pattern[128]{};
+    char minimap_pattern[128]{};
+    char large_pattern[128]{};
     std::snprintf(ui_pattern, sizeof(ui_pattern),
-        "sans:pixelsize=%d:antialias=true:hinting=true",
+        "%s:pixelsize=%d:antialias=true:hinting=true",
+        ui_font_family,
         std::max(round_to_int(12.0F * m_dpi_scale), 9));
     std::snprintf(small_pattern, sizeof(small_pattern),
-        "sans:pixelsize=%d:antialias=true:hinting=true",
+        "%s:pixelsize=%d:antialias=true:hinting=true",
+        ui_font_family,
         std::max(round_to_int(12.0F * m_dpi_scale), 9));
     std::snprintf(editor_pattern, sizeof(editor_pattern),
-        "monospace:pixelsize=%d:antialias=true:hinting=true",
+        "%s:pixelsize=%d:antialias=true:hinting=true",
+        editor_font_family,
         std::max(round_to_int(14.0F * m_dpi_scale), 10));
     std::snprintf(minimap_pattern, sizeof(minimap_pattern),
-        "monospace:pixelsize=%d:antialias=false:hinting=false",
+        "%s:pixelsize=%d:antialias=false:hinting=false",
+        editor_font_family,
         std::max(round_to_int(3.0F * m_dpi_scale), 3));
+    std::snprintf(large_pattern, sizeof(large_pattern),
+        "%s:pixelsize=%d:antialias=true:hinting=true:weight=bold",
+        ui_font_family,
+        std::max(round_to_int(24.0F * m_dpi_scale), 18));
     m_ui_font = std::make_unique<AntialiasedFont>(m_display, m_screen, ui_pattern);
     m_small_font = std::make_unique<AntialiasedFont>(m_display, m_screen, small_pattern);
     m_editor_font = std::make_unique<AntialiasedFont>(m_display, m_screen, editor_pattern);
     m_minimap_font = std::make_unique<AntialiasedFont>(
         m_display, m_screen, minimap_pattern);
+    m_large_font = std::make_unique<AntialiasedFont>(m_display, m_screen, large_pattern);
     if (m_ui_font->getHeight() <= 0 || m_small_font->getHeight() <= 0 ||
-        m_editor_font->getHeight() <= 0 || m_minimap_font->getHeight() <= 0)
+        m_editor_font->getHeight() <= 0 || m_minimap_font->getHeight() <= 0 || m_large_font->getHeight() <= 0)
     {
         shutdown();
         return false;
@@ -354,6 +399,26 @@ bool StudioWorkspaceRenderer::is_terminal_focused() const noexcept
     return m_terminal_panel.is_focused();
 }
 
+bool StudioWorkspaceRenderer::is_activity_bar_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
+        static_cast<float>(client_width),
+        static_cast<float>(client_height),
+        content_top,
+        m_dpi_scale,
+        m_terminal_panel.is_visible(),
+        m_terminal_panel.get_height(),
+        m_terminal_panel.is_maximized(),
+        m_tool_sidebar.is_visible(),
+        m_tool_sidebar.get_width());
+    return layout.activity_bar_bounds.contains(point_x, point_y);
+}
+
 bool StudioWorkspaceRenderer::is_tab_bar_point(
     float point_x,
     float point_y,
@@ -506,9 +571,9 @@ bool StudioWorkspaceRenderer::is_terminal_resizing() const noexcept
     return m_terminal_panel.is_resizing();
 }
 
-bool StudioWorkspaceRenderer::tick_caret_blink() noexcept
+bool StudioWorkspaceRenderer::tick_animations() noexcept
 {
-    const bool caret_changed = m_text_editor.tick_caret_blink();
+    const bool caret_changed = m_text_editor.tick_animations();
     const bool terminal_changed = m_terminal_panel.poll();
     return caret_changed || terminal_changed;
 }
@@ -546,7 +611,7 @@ void StudioWorkspaceRenderer::render(
 {
     if (m_display == nullptr || m_graphics_context == nullptr || drawable == 0 ||
         m_ui_font == nullptr || m_small_font == nullptr || m_editor_font == nullptr ||
-        m_minimap_font == nullptr)
+        m_minimap_font == nullptr || m_large_font == nullptr)
     {
         return;
     }
@@ -789,6 +854,161 @@ void StudioWorkspaceRenderer::draw_svg_icon(
     if (image)
     {
         XPutImage(m_display, drawable, m_graphics_context, image, 0, 0, draw_x, draw_y, size, size);
+    }
+}
+
+
+void StudioWorkspaceRenderer::draw_png_icon(
+    Drawable drawable,
+    const std::string& asset_path,
+    int center_x,
+    int center_y,
+    int max_size,
+    const UI::Theme::Color& background) const
+{
+    if (asset_path.empty())
+    {
+        return;
+    }
+
+    std::error_code path_error;
+    std::filesystem::path resolved_path{asset_path};
+    if (!std::filesystem::is_regular_file(resolved_path, path_error))
+    {
+        resolved_path = m_icon_asset_root / resolved_path;
+    }
+    if (!std::filesystem::is_regular_file(resolved_path, path_error))
+    {
+        return;
+    }
+
+    const std::string resolved_string = resolved_path.string();
+    const std::string cache_key = resolved_string + "@png#" +
+        std::to_string(max_size) + "/" + to_xft_color(background);
+    
+    XImage* image = nullptr;
+    auto it = m_svg_cache.find(cache_key);
+    if (it != m_svg_cache.end())
+    {
+        image = it->second;
+    }
+    else
+    {
+        int width = 0;
+        int height = 0;
+        int channels = 0;
+        unsigned char* data = stbi_load(resolved_string.c_str(), &width, &height, &channels, 4);
+        if (!data)
+        {
+            return;
+        }
+
+        // Compute size to fit in max_size
+        int draw_w = width;
+        int draw_h = height;
+        if (width > max_size || height > max_size)
+        {
+            float aspect = static_cast<float>(width) / static_cast<float>(height);
+            if (width > height)
+            {
+                draw_w = max_size;
+                draw_h = static_cast<int>(max_size / aspect);
+            }
+            else
+            {
+                draw_h = max_size;
+                draw_w = static_cast<int>(max_size * aspect);
+            }
+        }
+        
+        char* x11_data = static_cast<char*>(std::malloc(draw_w * draw_h * 4));
+        if (!x11_data)
+        {
+            stbi_image_free(data);
+            return;
+        }
+
+        const uint32_t bg_r = static_cast<uint32_t>(background.red);
+        const uint32_t bg_g = static_cast<uint32_t>(background.green);
+        const uint32_t bg_b = static_cast<uint32_t>(background.blue);
+
+        uint32_t* dst = reinterpret_cast<uint32_t*>(x11_data);
+
+        for (int y = 0; y < draw_h; ++y)
+        {
+            for (int x = 0; x < draw_w; ++x)
+            {
+                float gx = (x + 0.5f) * width / draw_w - 0.5f;
+                float gy = (y + 0.5f) * height / draw_h - 0.5f;
+                int gxi = static_cast<int>(gx);
+                int gyi = static_cast<int>(gy);
+                if (gxi < 0) gxi = 0;
+                if (gyi < 0) gyi = 0;
+                if (gxi >= width - 1) gxi = width - 2;
+                if (gyi >= height - 1) gyi = height - 2;
+
+                float dx = gx - gxi;
+                float dy = gy - gyi;
+
+                auto get_pixel = [&](int px, int py, int offset) -> float {
+                    return static_cast<float>(data[(py * width + px) * 4 + offset]);
+                };
+
+                float r00 = get_pixel(gxi, gyi, 0), r10 = get_pixel(gxi + 1, gyi, 0);
+                float r01 = get_pixel(gxi, gyi + 1, 0), r11 = get_pixel(gxi + 1, gyi + 1, 0);
+                float g00 = get_pixel(gxi, gyi, 1), g10 = get_pixel(gxi + 1, gyi, 1);
+                float g01 = get_pixel(gxi, gyi + 1, 1), g11 = get_pixel(gxi + 1, gyi + 1, 1);
+                float b00 = get_pixel(gxi, gyi, 2), b10 = get_pixel(gxi + 1, gyi, 2);
+                float b01 = get_pixel(gxi, gyi + 1, 2), b11 = get_pixel(gxi + 1, gyi + 1, 2);
+                float a00 = get_pixel(gxi, gyi, 3), a10 = get_pixel(gxi + 1, gyi, 3);
+                float a01 = get_pixel(gxi, gyi + 1, 3), a11 = get_pixel(gxi + 1, gyi + 1, 3);
+
+                auto bilerp = [dx, dy](float v00, float v10, float v01, float v11) -> uint32_t {
+                    float val = v00 * (1 - dx) * (1 - dy) + v10 * dx * (1 - dy) +
+                                v01 * (1 - dx) * dy + v11 * dx * dy;
+                    return static_cast<uint32_t>(val + 0.5f);
+                };
+
+                uint32_t source_r = bilerp(r00, r10, r01, r11);
+                uint32_t source_g = bilerp(g00, g10, g01, g11);
+                uint32_t source_b = bilerp(b00, b10, b01, b11);
+                uint32_t a = bilerp(a00, a10, a01, a11);
+
+                const uint32_t out_r = source_r * a / 255 + bg_r * (255 - a) / 255;
+                const uint32_t out_g = source_g * a / 255 + bg_g * (255 - a) / 255;
+                const uint32_t out_b = source_b * a / 255 + bg_b * (255 - a) / 255;
+
+                dst[y * draw_w + x] = (out_r << 16) | (out_g << 8) | out_b;
+            }
+        }
+        stbi_image_free(data);
+
+        image = XCreateImage(
+            m_display,
+            DefaultVisual(m_display, m_screen),
+            static_cast<unsigned int>(DefaultDepth(m_display, m_screen)),
+            ZPixmap,
+            0,
+            x11_data,
+            draw_w,
+            draw_h,
+            32,
+            0);
+        if (!image)
+        {
+            std::free(x11_data);
+            return;
+        }
+        
+        // We abuse m_svg_cache to also store PNGs for simplicity
+        m_svg_cache[cache_key] = image;
+    }
+
+    if (image)
+    {
+        const int draw_x = center_x - image->width / 2;
+        const int draw_y = center_y - image->height / 2;
+        XPutImage(m_display, drawable, m_graphics_context, image, 0, 0, draw_x, draw_y, image->width, image->height);
     }
 }
 

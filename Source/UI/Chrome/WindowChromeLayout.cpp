@@ -28,7 +28,14 @@ bool WindowChromeLayoutResult::is_drag_region(float point_x, float point_y) cons
     if (!titlebar_bounds.contains(point_x, point_y) || logo_bounds.contains(point_x, point_y) ||
         command_center_bounds.contains(point_x, point_y) || is_overflow_menu(point_x, point_y) ||
         get_window_control(point_x, point_y) != WindowControl::NoControl ||
-        get_menu_index(point_x, point_y).has_value())
+        get_menu_index(point_x, point_y).has_value() ||
+        run_bounds.contains(point_x, point_y) ||
+        debug_bounds.contains(point_x, point_y) ||
+        ellipsis_bounds.contains(point_x, point_y) ||
+        compiler_bounds.contains(point_x, point_y) ||
+        binary_bounds.contains(point_x, point_y) ||
+        build_bounds.contains(point_x, point_y) ||
+        gear_bounds.contains(point_x, point_y))
     {
         return false;
     }
@@ -44,6 +51,41 @@ bool WindowChromeLayoutResult::has_overflow_menu() const noexcept
 bool WindowChromeLayoutResult::is_overflow_menu(float point_x, float point_y) const noexcept
 {
     return has_overflow_menu() && overflow_menu_bounds.contains(point_x, point_y);
+}
+
+bool WindowChromeLayoutResult::is_run_button(float point_x, float point_y) const noexcept
+{
+    return run_bounds.contains(point_x, point_y);
+}
+
+bool WindowChromeLayoutResult::is_debug_button(float point_x, float point_y) const noexcept
+{
+    return debug_bounds.contains(point_x, point_y);
+}
+
+bool WindowChromeLayoutResult::is_ellipsis_button(float point_x, float point_y) const noexcept
+{
+    return ellipsis_bounds.contains(point_x, point_y);
+}
+
+bool WindowChromeLayoutResult::is_compiler_button(float point_x, float point_y) const noexcept
+{
+    return compiler_bounds.contains(point_x, point_y);
+}
+
+bool WindowChromeLayoutResult::is_binary_button(float point_x, float point_y) const noexcept
+{
+    return binary_bounds.contains(point_x, point_y);
+}
+
+bool WindowChromeLayoutResult::is_build_button(float point_x, float point_y) const noexcept
+{
+    return build_bounds.contains(point_x, point_y);
+}
+
+bool WindowChromeLayoutResult::is_gear_button(float point_x, float point_y) const noexcept
+{
+    return gear_bounds.contains(point_x, point_y);
 }
 
 WindowControl WindowChromeLayoutResult::get_window_control(float point_x, float point_y) const noexcept
@@ -115,6 +157,49 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(
             hamburger_width,
             titlebar_height,
         };
+    }
+
+    const float button_width = 36.0F * safe_scale;
+    float current_right = controls_start;
+    // Right-to-left: ellipsis | gear | debug | run | build | mode | binary | compiler
+    if (current_right - button_width >= result.logo_bounds.right() + hamburger_width)
+    {
+        current_right -= button_width;
+        result.ellipsis_bounds = {current_right, 0.0F, button_width, titlebar_height};
+    }
+    if (current_right - button_width >= result.logo_bounds.right() + hamburger_width)
+    {
+        current_right -= button_width;
+        result.gear_bounds = {current_right, 0.0F, button_width, titlebar_height};
+    }
+    if (current_right - button_width >= result.logo_bounds.right() + hamburger_width)
+    {
+        current_right -= button_width;
+        result.debug_bounds = {current_right, 0.0F, button_width, titlebar_height};
+    }
+    if (current_right - button_width >= result.logo_bounds.right() + hamburger_width)
+    {
+        current_right -= button_width;
+        result.run_bounds = {current_right, 0.0F, button_width, titlebar_height};
+    }
+    if (current_right - button_width >= result.logo_bounds.right() + hamburger_width)
+    {
+        current_right -= button_width;
+        result.build_bounds = {current_right, 0.0F, button_width, titlebar_height};
+    }
+
+    const float binary_width = 120.0F * safe_scale;
+    const float compiler_width = 140.0F * safe_scale;
+
+    if (current_right - binary_width >= result.logo_bounds.right() + hamburger_width)
+    {
+        current_right -= binary_width;
+        result.binary_bounds = {current_right, 0.0F, binary_width, titlebar_height};
+    }
+    if (current_right - compiler_width >= result.logo_bounds.right() + hamburger_width)
+    {
+        current_right -= compiler_width;
+        result.compiler_bounds = {current_right, 0.0F, compiler_width, titlebar_height};
     }
 
     return result;

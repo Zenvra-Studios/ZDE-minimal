@@ -4,18 +4,13 @@
 #include <string_view>
 #include <utility>
 
-namespace
-{
-
-bool has_argument(int argument_count, char** argument_values, std::string_view expected_argument)
+static bool has_argument(int argument_count, char** argument_values, std::string_view expected_argument)
 {
     return std::any_of(
         argument_values + 1,
         argument_values + argument_count,
         [expected_argument](const char* argument) { return argument == expected_argument; });
 }
-
-} // namespace
 
 int main(int argument_count, char** argument_values)
 {

@@ -1,6 +1,6 @@
 add_library(ZDEUI STATIC
     Chrome/WindowChromeLayout.cpp
-    Chrome/WindowMenuModel.cpp
+    Components/MenuModel.cpp
     Editor/ActivityPanelModel.cpp
     Editor/CaretBlinkModel.cpp
     Editor/EditorController.cpp

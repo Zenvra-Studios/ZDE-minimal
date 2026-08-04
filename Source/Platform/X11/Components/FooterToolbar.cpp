@@ -9,15 +9,10 @@
 namespace Zenvra::Platform::X11::Components
 {
 
-namespace
-{
-
-int round_to_int(float value)
+static int round_to_int(float value)
 {
     return static_cast<int>(std::lround(value));
 }
-
-} // namespace
 
 void FooterToolbar::render(
     const StudioWorkspaceRenderer& surface,

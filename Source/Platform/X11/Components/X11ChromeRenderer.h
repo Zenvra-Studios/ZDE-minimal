@@ -3,7 +3,7 @@
 #include "Platform/IPlatformWindow.h"
 #include "Platform/X11/Components/StudioWorkspaceRenderer.h"
 #include "UI/Chrome/WindowChromeLayout.h"
-#include "UI/Chrome/WindowMenuModel.h"
+#include "UI/Components/MenuModel.h"
 #include "UI/Theme/StudioTheme.h"
 
 #include <X11/Xlib.h>
@@ -50,6 +50,14 @@ struct ChromeInteractionState
     bool overflow_menu_hovered = false;
     bool overflow_menu_open = false;
     bool command_center_hovered = false;
+    bool run_button_hovered = false;
+    bool debug_button_hovered = false;
+    bool ellipsis_button_hovered = false;
+    bool compiler_button_hovered = false;
+    bool binary_button_hovered = false;
+    bool mode_button_hovered = false;
+    bool build_button_hovered = false;
+    bool gear_button_hovered = false;
     bool maximized = false;
     bool focused = false;
 };
@@ -118,6 +126,12 @@ public:
         float content_top) noexcept;
     [[nodiscard]] bool is_editor_focused() const noexcept;
     [[nodiscard]] bool is_terminal_focused() const noexcept;
+    [[nodiscard]] bool is_activity_bar_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
     [[nodiscard]] bool is_tab_bar_point(
         float point_x,
         float point_y,
@@ -161,7 +175,7 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_terminal_resizing() const noexcept;
-    [[nodiscard]] bool tick_caret_blink() noexcept;
+    [[nodiscard]] bool tick_animations() noexcept;
 
     void render(
         Window window_handle,

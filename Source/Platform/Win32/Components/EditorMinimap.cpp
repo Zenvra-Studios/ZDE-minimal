@@ -106,15 +106,19 @@ void EditorMinimap::render(
         surface.m_palette.border);
 
     m_model.synchronize(document.get_line_count(), visible_lines, first_visible_line);
-    const UI::Rect viewport = m_model.calculate_viewport_bounds(
-        bounds, 18.0F * layout.dpi_scale);
-    surface.fill_rectangle(device_context, viewport, surface.m_palette.active_line_background);
 
-    const float font_height = static_cast<float>(
-        surface.m_minimap_font->getHeight(device_context));
+    const float font_height = static_cast<float>(surface.m_minimap_font->getHeight(device_context));
     const float row_height = std::max(
         font_height * 0.55F,
         2.0F * layout.dpi_scale);
+
+    UI::Rect content_bounds = bounds;
+    content_bounds.height = std::min(bounds.height, static_cast<float>(document.get_line_count()) * row_height);
+
+    const UI::Rect viewport = m_model.calculate_viewport_bounds(
+        content_bounds, 18.0F * layout.dpi_scale);
+    surface.fill_rectangle(device_context, viewport, surface.m_palette.active_line_background);
+
     const UI::Rect text_bounds{
         bounds.x,
         bounds.y + std::max((font_height - row_height) * 0.5F, 0.0F),

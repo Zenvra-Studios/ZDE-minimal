@@ -94,7 +94,7 @@ std::size_t EditorScrollModel::get_first_visible_line() const noexcept
 
 std::size_t EditorScrollModel::get_maximum_first_line() const noexcept
 {
-    return m_total_lines > m_visible_lines ? m_total_lines - m_visible_lines : 0;
+    return m_total_lines > 0 ? m_total_lines - 1 : 0;
 }
 
 bool EditorScrollModel::is_dragging() const noexcept
@@ -112,8 +112,9 @@ EditorScrollbarGeometry EditorScrollModel::calculate_geometry(
         return geometry;
     }
 
+    const std::size_t virtual_total_lines = m_total_lines + m_visible_lines > 1 ? m_total_lines + m_visible_lines - 1 : 1;
     const float visible_ratio = std::min(
-        static_cast<float>(m_visible_lines) / static_cast<float>(m_total_lines), 1.0F);
+        static_cast<float>(m_visible_lines) / static_cast<float>(virtual_total_lines), 1.0F);
     const float thumb_height = std::clamp(
         track.height * visible_ratio,
         std::min(std::max(minimum_thumb_height, 1.0F), track.height),

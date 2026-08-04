@@ -1,7 +1,7 @@
 #pragma once
 #include <X11/Xlib.h>
 
-namespace Utility::X11Rounded {
+namespace Zenvra::Utility::X11Rounded {
 
 class X11Rounded {
 public:

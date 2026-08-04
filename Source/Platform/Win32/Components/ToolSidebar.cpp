@@ -256,13 +256,37 @@ void ToolSidebar::render(
         {
             const int guide_x = round_to_int(
                 panel.x + (13.0F + static_cast<float>(level) * 16.0F) * scale);
-            surface.draw_line(
-                device_context,
-                guide_x,
-                round_to_int(row_bounds.y),
-                guide_x,
-                round_to_int(row_bounds.bottom()),
-                surface.m_palette.border);
+
+            bool line_active = false;
+            for (std::size_t next = item_index + 1; next < items.size(); ++next)
+            {
+                if (items[next].depth <= level + 1)
+                {
+                    line_active = (items[next].depth == level + 1);
+                    break;
+                }
+            }
+
+            if (level == item.depth - 1)
+            {
+                surface.draw_line(
+                    device_context,
+                    guide_x,
+                    round_to_int(row_bounds.y),
+                    guide_x,
+                    line_active ? round_to_int(row_bounds.bottom()) : guide_y,
+                    surface.m_palette.border);
+            }
+            else if (line_active)
+            {
+                surface.draw_line(
+                    device_context,
+                    guide_x,
+                    round_to_int(row_bounds.y),
+                    guide_x,
+                    round_to_int(row_bounds.bottom()),
+                    surface.m_palette.border);
+            }
         }
         if (item.depth > 0)
         {
@@ -307,7 +331,7 @@ void ToolSidebar::render(
             std::max(round_to_int(panel.right() - label_x - 10.0F * scale), 1));
         surface.draw_text(device_context, *surface.m_small_font, label,
             label_x, row_bounds.y + row_bounds.height * 0.5F,
-            item.directory ? surface.m_palette.text_primary : surface.m_palette.text_muted);
+            surface.m_palette.text_primary);
     }
 
     if (items.size() > row_count)

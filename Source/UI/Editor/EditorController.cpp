@@ -35,6 +35,11 @@ bool EditorController::activate_file(std::size_t index) noexcept
     return m_session.activate_file(index);
 }
 
+bool EditorController::reorder_file(std::size_t from_index, std::size_t to_index) noexcept
+{
+    return m_session.reorder_file(from_index, to_index);
+}
+
 bool EditorController::close_file(std::size_t index)
 {
     return m_session.close_file(index);

@@ -90,6 +90,12 @@ public:
         float content_top) noexcept;
     [[nodiscard]] bool is_editor_focused() const noexcept;
     [[nodiscard]] bool is_terminal_focused() const noexcept;
+    [[nodiscard]] bool is_activity_bar_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
     [[nodiscard]] bool is_tab_bar_point(
         float point_x,
         float point_y,
@@ -133,7 +139,7 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_terminal_resizing() const noexcept;
-    [[nodiscard]] bool tick_caret_blink() noexcept;
+    [[nodiscard]] bool tick_animations() noexcept;
     void shutdown();
     void render(
         HDC device_context,
@@ -149,6 +155,13 @@ public:
         const UI::Theme::Color& color,
         const UI::Theme::Color& background,
         bool preserve_source_colors = true) const;
+    void draw_png_icon(
+        HDC device_context,
+        const std::string& asset_path,
+        int center_x,
+        int center_y,
+        int max_size,
+        const UI::Theme::Color& background) const;
 
 private:
     friend class ActivitySidebar;
@@ -158,6 +171,7 @@ private:
     friend class TerminalPanel;
     friend class TextEditor;
     friend class ToolSidebar;
+    friend class Win32Window;
 
     void fill_rectangle(HDC device_context, const UI::Rect& rectangle, const UI::Theme::Color& color) const;
     void draw_rectangle(HDC device_context, const UI::Rect& rectangle, const UI::Theme::Color& color) const;
@@ -186,6 +200,7 @@ private:
     std::unique_ptr<AntialiasedFont> m_small_font;
     std::unique_ptr<AntialiasedFont> m_editor_font;
     std::unique_ptr<AntialiasedFont> m_minimap_font;
+    std::unique_ptr<AntialiasedFont> m_large_font;
     std::filesystem::path m_icon_asset_root;
     UI::Editor::StudioEditorLayout m_layout_engine;
     UI::Editor::StudioEditorPalette m_palette = UI::Editor::StudioEditorPalette::jetbrains_dark();

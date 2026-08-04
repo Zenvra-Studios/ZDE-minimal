@@ -26,6 +26,6 @@ add_library(ZDEPlatformX11 STATIC
 target_include_directories(ZDEPlatformX11 PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 target_link_libraries(ZDEPlatformX11
     PUBLIC Zenvra::Core X11::X11
-    PRIVATE Zenvra::UI Zenvra::Terminal X11::Xft lunasvg
+    PRIVATE Zenvra::UI Zenvra::Terminal X11::Xft lunasvg ZDEUtility
 )
 zde_enable_warnings(ZDEPlatformX11)

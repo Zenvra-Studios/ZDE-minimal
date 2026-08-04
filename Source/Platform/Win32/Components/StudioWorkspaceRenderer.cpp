@@ -1,4 +1,5 @@
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
+#include "Utility/stb_image.h"
 
 #include "UI/Editor/EditorFileSystem.h"
 #include "Utility/Fonts.h"
@@ -88,14 +89,47 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi)
         m_icon_asset_root = *project_root / "Assets" / "icons";
     }
 
+    // Load bundled fonts from Assets/fonts/. For each font, register the TTF
+    // file privately using AddFontResourceExA when found (and not a placeholder).
+    // If not found or the file is invalid, fall back to the system default.
+    bool hack_loaded = false;
+    bool opensans_loaded = false;
+    if (project_root)
+    {
+        const std::filesystem::path hack_ttf =
+            *project_root / "Assets" / "fonts" / "Hack" / "ttf" / "Hack-Regular.ttf";
+        const std::filesystem::path opensans_ttf =
+            *project_root / "Assets" / "fonts" / "OpenSans" / "OpenSans-Regular.ttf";
+        std::error_code size_error;
+
+        // Hack – editor / minimap / terminal font
+        if (std::filesystem::exists(hack_ttf, size_error) &&
+            std::filesystem::file_size(hack_ttf, size_error) > 100)
+        {
+            hack_loaded = AddFontResourceExA(
+                hack_ttf.string().c_str(), FR_PRIVATE, nullptr) > 0;
+        }
+
+        // Open Sans – UI / sidebar / tab / large title font
+        if (std::filesystem::exists(opensans_ttf, size_error) &&
+            std::filesystem::file_size(opensans_ttf, size_error) > 100)
+        {
+            opensans_loaded = AddFontResourceExA(
+                opensans_ttf.string().c_str(), FR_PRIVATE, nullptr) > 0;
+        }
+    }
+
+    const char* editor_font_name = hack_loaded    ? "Hack"      : "Consolas";
+    const char* ui_font_name     = opensans_loaded ? "Open Sans" : "Segoe UI";
+
     m_ui_font = std::make_unique<AntialiasedFont>(
-        "Segoe UI", std::max(round_to_int(12.0F * m_dpi_scale), 9));
+        ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
     m_small_font = std::make_unique<AntialiasedFont>(
-        "Segoe UI", std::max(round_to_int(12.0F * m_dpi_scale), 9));
+        ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
     m_editor_font = std::make_unique<AntialiasedFont>(
-        "Consolas", std::max(round_to_int(14.0F * m_dpi_scale), 10));
+        editor_font_name, std::max(round_to_int(14.0F * m_dpi_scale), 10));
     m_minimap_font = std::make_unique<AntialiasedFont>(
-        "Consolas", std::max(round_to_int(3.0F * m_dpi_scale), 3));
+        editor_font_name, std::max(round_to_int(3.0F * m_dpi_scale), 3));
     if (!m_ui_font->isValid() || !m_small_font->isValid() ||
         !m_editor_font->isValid() || !m_minimap_font->isValid())
     {
@@ -346,6 +380,26 @@ bool StudioWorkspaceRenderer::is_terminal_focused() const noexcept
     return m_terminal_panel.is_focused();
 }
 
+bool StudioWorkspaceRenderer::is_activity_bar_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
+        static_cast<float>(client_width),
+        static_cast<float>(client_height),
+        content_top,
+        m_dpi_scale,
+        m_terminal_panel.is_visible(),
+        m_terminal_panel.get_height(),
+        m_terminal_panel.is_maximized(),
+        m_tool_sidebar.is_visible(),
+        m_tool_sidebar.get_width());
+    return layout.activity_bar_bounds.contains(point_x, point_y);
+}
+
 bool StudioWorkspaceRenderer::is_tab_bar_point(
     float point_x,
     float point_y,
@@ -506,9 +560,9 @@ bool StudioWorkspaceRenderer::is_terminal_resizing() const noexcept
     return m_terminal_panel.is_resizing();
 }
 
-bool StudioWorkspaceRenderer::tick_caret_blink() noexcept
+bool StudioWorkspaceRenderer::tick_animations() noexcept
 {
-    const bool caret_changed = m_text_editor.tick_caret_blink();
+    const bool caret_changed = m_text_editor.tick_animations();
     const bool terminal_changed = m_terminal_panel.poll();
     return caret_changed || terminal_changed;
 }
@@ -749,6 +803,164 @@ void StudioWorkspaceRenderer::draw_svg_icon(
         0,
         static_cast<UINT>(size),
         cached->second.data(),
+        &bitmap_info,
+        DIB_RGB_COLORS);
+}
+
+
+void StudioWorkspaceRenderer::draw_png_icon(
+    HDC device_context,
+    const std::string& asset_path,
+    int center_x,
+    int center_y,
+    int max_size,
+    const UI::Theme::Color& background) const
+{
+    if (device_context == nullptr || max_size <= 0 || asset_path.empty())
+    {
+        return;
+    }
+
+    std::error_code path_error;
+    std::filesystem::path resolved_path{asset_path};
+    if (!std::filesystem::is_regular_file(resolved_path, path_error))
+    {
+        resolved_path = m_icon_asset_root / resolved_path;
+    }
+    if (!std::filesystem::is_regular_file(resolved_path, path_error))
+    {
+        return;
+    }
+
+    const std::string resolved_string = resolved_path.string();
+    const std::string cache_key = resolved_string + "@png#" +
+        std::to_string(max_size) + "/" + to_color_ref(background);
+    
+    auto it = m_svg_cache.find(cache_key);
+    if (it == m_svg_cache.end())
+    {
+        int width = 0;
+        int height = 0;
+        int channels = 0;
+        unsigned char* data = stbi_load(resolved_string.c_str(), &width, &height, &channels, 4);
+        if (!data)
+        {
+            return;
+        }
+
+        int draw_w = width;
+        int draw_h = height;
+        if (width > max_size || height > max_size)
+        {
+            float aspect = static_cast<float>(width) / static_cast<float>(height);
+            if (width > height)
+            {
+                draw_w = max_size;
+                draw_h = static_cast<int>(max_size / aspect);
+            }
+            else
+            {
+                draw_h = max_size;
+                draw_w = static_cast<int>(max_size * aspect);
+            }
+        }
+        
+        // Make the buffer square to fit in m_svg_cache perfectly with max_size x max_size
+        std::vector<char> bmp_data(max_size * max_size * 4);
+
+        const uint32_t bg_r = static_cast<uint32_t>(background.red);
+        const uint32_t bg_g = static_cast<uint32_t>(background.green);
+        const uint32_t bg_b = static_cast<uint32_t>(background.blue);
+        const uint32_t bg_pixel = (bg_r << 16) | (bg_g << 8) | bg_b;
+
+        uint32_t* dst = reinterpret_cast<uint32_t*>(bmp_data.data());
+
+        int pad_x = (max_size - draw_w) / 2;
+        int pad_y = (max_size - draw_h) / 2;
+
+        for (int y = 0; y < max_size; ++y)
+        {
+            for (int x = 0; x < max_size; ++x)
+            {
+                // BMP is bottom-up, so y=0 is the bottom row
+                int img_y = max_size - 1 - y;
+                
+                if (x >= pad_x && x < pad_x + draw_w && img_y >= pad_y && img_y < pad_y + draw_h)
+                {
+                    float gx = ((x - pad_x) + 0.5f) * width / draw_w - 0.5f;
+                    float gy = ((img_y - pad_y) + 0.5f) * height / draw_h - 0.5f;
+                    int gxi = static_cast<int>(gx);
+                    int gyi = static_cast<int>(gy);
+                    if (gxi < 0) gxi = 0;
+                    if (gyi < 0) gyi = 0;
+                    if (gxi >= width - 1) gxi = width - 2;
+                    if (gyi >= height - 1) gyi = height - 2;
+
+                    float dx = gx - gxi;
+                    float dy = gy - gyi;
+
+                    auto get_pixel = [&](int px, int py, int offset) -> float {
+                        return static_cast<float>(data[(py * width + px) * 4 + offset]);
+                    };
+
+                    float r00 = get_pixel(gxi, gyi, 0), r10 = get_pixel(gxi + 1, gyi, 0);
+                    float r01 = get_pixel(gxi, gyi + 1, 0), r11 = get_pixel(gxi + 1, gyi + 1, 0);
+                    float g00 = get_pixel(gxi, gyi, 1), g10 = get_pixel(gxi + 1, gyi, 1);
+                    float g01 = get_pixel(gxi, gyi + 1, 1), g11 = get_pixel(gxi + 1, gyi + 1, 1);
+                    float b00 = get_pixel(gxi, gyi, 2), b10 = get_pixel(gxi + 1, gyi, 2);
+                    float b01 = get_pixel(gxi, gyi + 1, 2), b11 = get_pixel(gxi + 1, gyi + 1, 2);
+                    float a00 = get_pixel(gxi, gyi, 3), a10 = get_pixel(gxi + 1, gyi, 3);
+                    float a01 = get_pixel(gxi, gyi + 1, 3), a11 = get_pixel(gxi + 1, gyi + 1, 3);
+
+                    auto bilerp = [dx, dy](float v00, float v10, float v01, float v11) -> uint32_t {
+                        float val = v00 * (1 - dx) * (1 - dy) + v10 * dx * (1 - dy) +
+                                    v01 * (1 - dx) * dy + v11 * dx * dy;
+                        return static_cast<uint32_t>(val + 0.5f);
+                    };
+
+                    uint32_t source_r = bilerp(r00, r10, r01, r11);
+                    uint32_t source_g = bilerp(g00, g10, g01, g11);
+                    uint32_t source_b = bilerp(b00, b10, b01, b11);
+                    uint32_t a = bilerp(a00, a10, a01, a11);
+
+                    const uint32_t out_r = source_r * a / 255 + bg_r * (255 - a) / 255;
+                    const uint32_t out_g = source_g * a / 255 + bg_g * (255 - a) / 255;
+                    const uint32_t out_b = source_b * a / 255 + bg_b * (255 - a) / 255;
+
+                    dst[y * max_size + x] = (out_r << 16) | (out_g << 8) | out_b;
+                }
+                else
+                {
+                    dst[y * max_size + x] = bg_pixel;
+                }
+            }
+        }
+        stbi_image_free(data);
+
+        auto emplaced = m_svg_cache.emplace(cache_key, std::move(bmp_data));
+        it = emplaced.first;
+    }
+
+    BITMAPINFO bitmap_info{};
+    bitmap_info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bitmap_info.bmiHeader.biWidth = max_size;
+    bitmap_info.bmiHeader.biHeight = max_size;
+    bitmap_info.bmiHeader.biPlanes = 1;
+    bitmap_info.bmiHeader.biBitCount = 32;
+    bitmap_info.bmiHeader.biCompression = BI_RGB;
+
+    const int half = max_size / 2;
+    SetDIBitsToDevice(
+        device_context,
+        center_x - half,
+        center_y - half,
+        static_cast<DWORD>(max_size),
+        static_cast<DWORD>(max_size),
+        0,
+        0,
+        0,
+        static_cast<UINT>(max_size),
+        it->second.data(),
         &bitmap_info,
         DIB_RGB_COLORS);
 }

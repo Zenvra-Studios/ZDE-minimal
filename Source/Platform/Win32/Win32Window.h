@@ -114,6 +114,13 @@ private:
     bool m_menu_pointer_tracking = false;
     bool m_workspace_pointer_captured = false;
     bool m_command_center_hovered = false;
+    bool m_run_button_hovered = false;
+    bool m_debug_button_hovered = false;
+    bool m_ellipsis_button_hovered = false;
+    bool m_compiler_button_hovered = false;
+    bool m_binary_button_hovered = false;
+    bool m_build_button_hovered = false;
+    bool m_gear_button_hovered = false;
     HFONT m_ui_font = nullptr;
     UINT m_dpi = 96;
     wchar_t m_pending_high_surrogate = 0;

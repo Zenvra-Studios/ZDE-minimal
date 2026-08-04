@@ -172,6 +172,34 @@ bool EditorSessionModel::activate_file(std::size_t index) noexcept
     return changed;
 }
 
+bool EditorSessionModel::reorder_file(std::size_t from_index, std::size_t to_index) noexcept
+{
+    if (from_index >= m_documents.size() || to_index >= m_documents.size() || from_index == to_index)
+    {
+        return false;
+    }
+    EditorSessionDocument doc = std::move(m_documents[from_index]);
+    m_documents.erase(m_documents.begin() + static_cast<std::ptrdiff_t>(from_index));
+    m_documents.insert(m_documents.begin() + static_cast<std::ptrdiff_t>(to_index), std::move(doc));
+
+    if (m_active_index)
+    {
+        if (*m_active_index == from_index)
+        {
+            m_active_index = to_index;
+        }
+        else if (*m_active_index > from_index && *m_active_index <= to_index)
+        {
+            --(*m_active_index);
+        }
+        else if (*m_active_index < from_index && *m_active_index >= to_index)
+        {
+            ++(*m_active_index);
+        }
+    }
+    return true;
+}
+
 TextDocumentModel* EditorSessionModel::get_active_document() noexcept
 {
     return m_active_index ? &m_documents[*m_active_index].text : nullptr;

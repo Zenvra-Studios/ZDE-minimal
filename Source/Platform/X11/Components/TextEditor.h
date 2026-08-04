@@ -5,6 +5,7 @@
 #include "UI/Editor/CaretBlinkModel.h"
 #include "UI/Editor/EditorController.h"
 #include "UI/Editor/StudioEditorModel.h"
+#include "Utility/DragDropModel.h"
 
 #include <X11/Xlib.h>
 
@@ -13,6 +14,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 namespace Zenvra::Platform::X11::Components
 {
@@ -68,7 +70,7 @@ public:
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y) const noexcept;
-    [[nodiscard]] bool tick_caret_blink() noexcept;
+    [[nodiscard]] bool tick_animations() noexcept;
     [[nodiscard]] const UI::Editor::TextDocumentModel* get_document() const noexcept;
 
     void render(
@@ -96,6 +98,10 @@ private:
     UI::Editor::EditorController m_controller;
     mutable EditorMinimap m_minimap;
     mutable EditorScrollbar m_scrollbar;
+    Utility::DragDropModel m_tab_drag_drop;
+    mutable std::unordered_map<const UI::Editor::TextDocumentModel*, float> m_tab_animated_x;
+    mutable std::unordered_map<const UI::Editor::TextDocumentModel*, float> m_tab_target_x;
+    float m_drag_initial_tab_x = 0.0F;
     UI::Editor::CaretBlinkModel m_caret_blink;
     mutable bool m_reveal_caret_pending = true;
     bool m_focused = false;

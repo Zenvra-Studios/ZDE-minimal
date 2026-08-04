@@ -26,7 +26,7 @@ target_compile_definitions(ZDEPlatformWin32 PRIVATE
 )
 target_link_libraries(ZDEPlatformWin32
     PUBLIC Zenvra::Core
-    PRIVATE Zenvra::Commands Zenvra::UI Zenvra::Terminal lunasvg
+    PRIVATE Zenvra::Commands Zenvra::UI Zenvra::Terminal lunasvg ZDEUtility
             user32 gdi32 shell32 dwmapi uxtheme
 )
 zde_enable_warnings(ZDEPlatformWin32)

@@ -78,8 +78,8 @@ Rect EditorMinimapModel::calculate_viewport_bounds(
     const std::size_t maximum_first_line = m_total_lines - m_visible_lines;
     const float ratio = maximum_first_line == 0
         ? 0.0F
-        : static_cast<float>(m_first_visible_line) /
-            static_cast<float>(maximum_first_line);
+        : std::clamp(static_cast<float>(m_first_visible_line) /
+            static_cast<float>(maximum_first_line), 0.0F, 1.0F);
     return {
         bounds.x,
         bounds.y + (bounds.height - height) * ratio,
