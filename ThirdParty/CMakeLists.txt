@@ -1,8 +1,6 @@
 ﻿# CMakeLists.txt for ThirdParty module.
 
-set(ThirdParty_SOURCES
-    # Add source files here as they are implemented.
-)
+file(GLOB_RECURSE ThirdParty_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
 
 if(ThirdParty_SOURCES)
     add_library(ThirdParty STATIC ${ThirdParty_SOURCES})

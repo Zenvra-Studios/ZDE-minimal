@@ -1,8 +1,6 @@
 ﻿# CMakeLists.txt for Scripts module.
 
-set(Scripts_SOURCES
-    # Add source files here as they are implemented.
-)
+file(GLOB_RECURSE Scripts_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
 
 if(Scripts_SOURCES)
     add_library(Scripts STATIC ${Scripts_SOURCES})

@@ -4,7 +4,6 @@
 #include "Platform/X11/Components/EditorScrollbar.h"
 #include "UI/Components/EditorFolding.h"
 #include "UI/Editor/BraceAnimationModel.h"
-#include "UI/Editor/BraceAnimationModel.h"
 #include "UI/Editor/CaretBlinkModel.h"
 #include "UI/Editor/EditorController.h"
 #include "UI/Components/Button.h"

@@ -6,7 +6,6 @@
 #include "Platform/X11/Runtime/X11Context.h"
 #include "UI/Components/MenuModel.h"
 #include "Utility/IcoDecoder.h"
-#include "Utility/IcoDecoder.h"
 
 #include <X11/Xatom.h>
 #include <X11/Xresource.h>
@@ -19,7 +18,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <filesystem>
 #include <filesystem>
 #include <iostream>
 #include <string_view>
@@ -42,52 +40,6 @@ unsigned long to_argb(const UI::Theme::Color &color) {
          static_cast<unsigned long>(color.red) << 16U |
          static_cast<unsigned long>(color.green) << 8U |
          static_cast<unsigned long>(color.blue);
-}
-
-/// Bilinear resample of an RGBA image into target_width x target_height.
-std::vector<unsigned char> downsample_rgba(const unsigned char *source,
-                                           int source_width,
-                                           int source_height,
-                                           int target_width,
-                                           int target_height) {
-  std::vector<unsigned char> result(
-      static_cast<std::size_t>(target_width * target_height) * 4);
-  if (source == nullptr || source_width <= 0 || source_height <= 0 ||
-      target_width <= 0 || target_height <= 0) {
-    return result;
-  }
-  const float scale_x =
-      static_cast<float>(source_width) / static_cast<float>(target_width);
-  const float scale_y =
-      static_cast<float>(source_height) / static_cast<float>(target_height);
-  for (int y = 0; y < target_height; ++y) {
-    const float source_y = (static_cast<float>(y) + 0.5F) * scale_y - 0.5F;
-    const int y0 = std::max(static_cast<int>(std::floor(source_y)), 0);
-    const int y1 = std::min(y0 + 1, source_height - 1);
-    const float fy = source_y - static_cast<float>(y0);
-    for (int x = 0; x < target_width; ++x) {
-      const float source_x = (static_cast<float>(x) + 0.5F) * scale_x - 0.5F;
-      const int x0 = std::max(static_cast<int>(std::floor(source_x)), 0);
-      const int x1 = std::min(x0 + 1, source_width - 1);
-      const float fx = source_x - static_cast<float>(x0);
-      for (int channel = 0; channel < 4; ++channel) {
-        const float top =
-            static_cast<float>(source[(y0 * source_width + x0) * 4 + channel]) *
-                (1.0F - fx) +
-            static_cast<float>(source[(y0 * source_width + x1) * 4 + channel]) *
-                fx;
-        const float bottom =
-            static_cast<float>(source[(y1 * source_width + x0) * 4 + channel]) *
-                (1.0F - fx) +
-            static_cast<float>(source[(y1 * source_width + x1) * 4 + channel]) *
-                fx;
-        result[static_cast<std::size_t>(y * target_width + x) * 4 + channel] =
-            static_cast<unsigned char>(
-                top * (1.0F - fy) + bottom * fy + 0.5F);
-      }
-    }
-  }
-  return result;
 }
 
 /// Bilinear resample of an RGBA image into target_width x target_height.
@@ -522,37 +474,7 @@ void X11Window::apply_window_icon() const {
       icon_data_size += 2U + static_cast<std::size_t>(icon_size * icon_size);
     }
     icon_data.reserve(icon_data_size);
-    std::size_t icon_data_size = 0;
-    for (const int icon_size : icon_sizes) {
-      icon_data_size += 2U + static_cast<std::size_t>(icon_size * icon_size);
-    }
-    icon_data.reserve(icon_data_size);
 
-    for (const int icon_size : icon_sizes) {
-      const int icon_margin = std::max(icon_size * 3 / 32, 1);
-      const int glyph_start = icon_size / 4;
-      const int glyph_end = icon_size - glyph_start - 1;
-      const int glyph_thickness = std::max(icon_size / 24, 1);
-      icon_data.push_back(static_cast<unsigned long>(icon_size));
-      icon_data.push_back(static_cast<unsigned long>(icon_size));
-      for (int point_y = 0; point_y < icon_size; ++point_y) {
-        for (int point_x = 0; point_x < icon_size; ++point_x) {
-          const bool in_background =
-              point_x >= icon_margin && point_x < icon_size - icon_margin &&
-              point_y >= icon_margin && point_y < icon_size - icon_margin;
-          const bool on_horizontal =
-              point_x >= glyph_start && point_x <= glyph_end &&
-              (std::abs(point_y - glyph_start) <= glyph_thickness ||
-               std::abs(point_y - glyph_end) <= glyph_thickness);
-          const bool on_diagonal =
-              point_x >= glyph_start && point_x <= glyph_end &&
-              point_y >= glyph_start && point_y <= glyph_end &&
-              std::abs(point_x + point_y - glyph_start - glyph_end) <=
-                  glyph_thickness;
-          icon_data.push_back(on_horizontal || on_diagonal
-                                  ? glyph_color
-                                  : (in_background ? background_color : 0UL));
-        }
     for (const int icon_size : icon_sizes) {
       const int icon_margin = std::max(icon_size * 3 / 32, 1);
       const int glyph_start = icon_size / 4;

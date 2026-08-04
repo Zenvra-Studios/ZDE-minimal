@@ -1,9 +1,6 @@
 ﻿# CMakeLists.txt for Plugins module.
 
-set(Plugins_SOURCES
-    Editor/EditorPluginManager.cpp
-    Editor/EditorPluginManager.h
-)
+file(GLOB_RECURSE Plugins_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
 
 if(Plugins_SOURCES)
     add_library(Plugins STATIC ${Plugins_SOURCES})

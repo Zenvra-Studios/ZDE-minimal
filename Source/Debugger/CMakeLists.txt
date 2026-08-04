@@ -1,8 +1,6 @@
 ﻿# CMakeLists.txt for Debugger module.
 
-set(Debugger_SOURCES
-    # Add source files here as they are implemented.
-)
+file(GLOB_RECURSE Debugger_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
 
 if(Debugger_SOURCES)
     add_library(Debugger STATIC ${Debugger_SOURCES})

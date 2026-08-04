@@ -1,8 +1,6 @@
 ﻿# CMakeLists.txt for Workspace module.
 
-set(Workspace_SOURCES
-    # Add source files here as they are implemented.
-)
+file(GLOB_RECURSE Workspace_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
 
 if(Workspace_SOURCES)
     add_library(Workspace STATIC ${Workspace_SOURCES})

@@ -1,10 +1,6 @@
 ﻿# CMakeLists.txt for Language module.
 
-set(Language_SOURCES
-    LanguageConfiguration.h
-    Server/LanguageServer.cpp
-    Server/LanguageServer.h
-)
+file(GLOB_RECURSE Language_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
 
 if(Language_SOURCES)
     add_library(Language STATIC ${Language_SOURCES})
