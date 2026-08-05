@@ -49,7 +49,7 @@ public:
     [[nodiscard]] bool send_key(TerminalInputKey key);
     [[nodiscard]] bool send_control(char letter);
     [[nodiscard]] bool poll();
-    [[nodiscard]] bool scroll(std::ptrdiff_t line_delta) noexcept;
+    [[nodiscard]] bool scroll(std::ptrdiff_t line_delta, std::size_t maximum_offset) noexcept;
     void resize(std::size_t columns, std::size_t rows) noexcept;
 
     [[nodiscard]] bool is_visible() const noexcept;

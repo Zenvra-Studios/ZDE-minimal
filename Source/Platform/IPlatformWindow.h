@@ -61,6 +61,11 @@ public:
     virtual void set_titlebar_hit_test_callback(TitlebarHitTestCallback callback) = 0;
     virtual void set_command_invoked_callback(CommandInvokedCallback callback) = 0;
     virtual void set_command_state_query_callback(CommandStateQueryCallback callback) = 0;
+
+    /// Prompts the user to select a workspace folder (e.g. "Open Project").
+    /// Returns true when the dialog was shown (regardless of the user's
+    /// choice); returns false when the platform cannot show a folder dialog.
+    [[nodiscard]] virtual bool open_project_folder() { return false; }
 };
 
 } // namespace Zenvra::Platform

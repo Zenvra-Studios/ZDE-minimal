@@ -44,6 +44,8 @@ public:
     void set_command_invoked_callback(CommandInvokedCallback callback) override;
     void set_command_state_query_callback(CommandStateQueryCallback callback) override;
 
+    [[nodiscard]] bool open_project_folder() override;
+
 private:
     struct Atoms
     {
@@ -143,6 +145,10 @@ private:
     Time m_last_titlebar_click_time = 0;
     int m_last_titlebar_click_x = 0;
     int m_last_titlebar_click_y = 0;
+    Time m_last_workspace_click_time = 0;
+    int m_last_workspace_click_x = 0;
+    int m_last_workspace_click_y = 0;
+    int m_workspace_click_count = 0;
     Cursor m_default_cursor = None;
     Cursor m_pointer_cursor = None;
     Cursor m_text_cursor = None;

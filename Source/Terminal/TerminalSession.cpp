@@ -400,27 +400,74 @@ bool TerminalSession::write_input(std::string_view text)
     };
 #if defined(_WIN32)
     std::string windows_input;
-    windows_input.reserve(text.size() + 1);
-    for (std::size_t index = 0; index < text.size(); ++index)
+    bool send_now = false;
+
+    if (is_enter)
     {
-        windows_input.push_back(text[index]);
-        if (text[index] == '\r' && (index + 1 == text.size() || text[index + 1] != '\n'))
-        {
-            windows_input.push_back('\n');
-        }
+        windows_input = m_pending_input;
+        windows_input.push_back('\r');
+        windows_input.push_back('\n');
+        send_now = true;
     }
-    DWORD written = 0;
-    const bool succeeded = m_implementation->input_write != nullptr &&
-        WriteFile(m_implementation->input_write, windows_input.data(),
-            static_cast<DWORD>(windows_input.size()), &written, nullptr) != FALSE &&
-        written == windows_input.size();
-    if (succeeded)
+    else if (printable && (text.find('\n') != std::string_view::npos || text.find('\r') != std::string_view::npos))
     {
-        if (is_enter)
+        windows_input = m_pending_input;
+        windows_input.append(text);
+        send_now = true;
+    }
+    else if (!printable && !is_backspace && !is_enter && text != "\t")
+    {
+        windows_input = std::string(text);
+        send_now = true;
+    }
+
+    if (send_now)
+    {
+        std::string formatted;
+        formatted.reserve(windows_input.size() + 1);
+        for (std::size_t index = 0; index < windows_input.size(); ++index)
         {
-            append_line();
+            formatted.push_back(windows_input[index]);
+            if (windows_input[index] == '\r' && (index + 1 == windows_input.size() || windows_input[index + 1] != '\n'))
+            {
+                formatted.push_back('\n');
+            }
         }
-        else if (is_backspace)
+
+        DWORD written = 0;
+        const bool succeeded = m_implementation->input_write != nullptr &&
+            WriteFile(m_implementation->input_write, formatted.data(),
+                static_cast<DWORD>(formatted.size()), &written, nullptr) != FALSE &&
+            written == formatted.size();
+
+        if (succeeded)
+        {
+            if (is_enter)
+            {
+                append_line();
+                track_input();
+                if (clear_requested)
+                {
+                    clear_screen();
+                }
+            }
+            else if (printable)
+            {
+                track_input();
+                consume_output(text);
+                m_pending_input.clear();
+                m_input_start_column = m_cursor_column;
+            }
+            else
+            {
+                track_input();
+            }
+        }
+        return succeeded;
+    }
+    else
+    {
+        if (is_backspace)
         {
             track_input();
             if (!m_lines.empty() && m_cursor_column > 0)
@@ -435,25 +482,28 @@ bool TerminalSession::write_input(std::string_view text)
                 }
             }
         }
-        else if (printable)
+        else if (printable || text == "\t")
         {
-            track_input();
+            if (text == "\t")
+            {
+                if (m_pending_input.empty() && m_input_start_column == 0)
+                {
+                    m_input_start_column = m_cursor_column;
+                }
+                m_pending_input.append("\t");
+            }
+            else
+            {
+                track_input();
+            }
             consume_output(text);
         }
         else
         {
             track_input();
         }
-        if (is_enter)
-        {
-            track_input();
-        }
-        if (clear_requested)
-        {
-            clear_screen();
-        }
+        return true;
     }
-    return succeeded;
 #else
     std::size_t total_written = 0;
     while (total_written < text.size())
@@ -570,8 +620,39 @@ void TerminalSession::resize(std::size_t columns, std::size_t rows) noexcept
         static_cast<void>(::ioctl(m_implementation->master_fd, TIOCSWINSZ, &size));
     }
 #else
-    static_cast<void>(columns);
-    static_cast<void>(rows);
+    if (m_implementation->process != nullptr)
+    {
+        const DWORD process_id = GetProcessId(m_implementation->process);
+        if (process_id > 0)
+        {
+            FreeConsole();
+            if (AttachConsole(process_id))
+            {
+                HANDLE console_output = CreateFileW(L"CONOUT$", GENERIC_READ | GENERIC_WRITE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+                if (console_output != INVALID_HANDLE_VALUE)
+                {
+                    COORD size;
+                    size.X = static_cast<SHORT>(columns);
+                    size.Y = static_cast<SHORT>(rows);
+                    
+                    SMALL_RECT rect;
+                    rect.Left = 0;
+                    rect.Top = 0;
+                    rect.Right = size.X - 1;
+                    rect.Bottom = size.Y - 1;
+                    
+                    SMALL_RECT min_rect = {0, 0, 1, 1};
+                    SetConsoleWindowInfo(console_output, TRUE, &min_rect);
+                    SetConsoleScreenBufferSize(console_output, size);
+                    SetConsoleWindowInfo(console_output, TRUE, &rect);
+                    
+                    CloseHandle(console_output);
+                }
+                FreeConsole();
+            }
+        }
+    }
 #endif
 }
 
@@ -743,6 +824,13 @@ void TerminalSession::append_character(char character)
         m_pending_input.empty())
     {
         return;
+    }
+    if (m_cursor_column >= m_columns)
+    {
+        m_lines.emplace_back();
+        m_cursor_column = 0;
+        m_input_start_column = 0;
+        trim_scrollback();
     }
     std::string& line = m_lines.back();
     if (m_cursor_column < line.size()) line[m_cursor_column] = character;

@@ -45,6 +45,8 @@ public:
     void set_command_invoked_callback(CommandInvokedCallback callback) override;
     void set_command_state_query_callback(CommandStateQueryCallback callback) override;
 
+    [[nodiscard]] bool open_project_folder() override;
+
 private:
     static constexpr std::size_t max_popup_menu_items = 16;
 

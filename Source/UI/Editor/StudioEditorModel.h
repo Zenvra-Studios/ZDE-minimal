@@ -89,6 +89,9 @@ struct StudioEditorPalette
     Theme::Color warning;
     Theme::Color success;
     Theme::Color tooltip_background;
+    Theme::Color hover_background;
+    Theme::Color indent_guide;
+    Theme::Color indent_guide_active;
 
     [[nodiscard]] static StudioEditorPalette jetbrains_dark() noexcept;
 };

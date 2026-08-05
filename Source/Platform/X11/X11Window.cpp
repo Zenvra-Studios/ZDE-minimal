@@ -3,6 +3,7 @@
 
 // #include "Workspace/Workspace.h"
 #include "Commands/CommandIds.h"
+#include "Platform/PlatformDialogs.h"
 #include "Platform/X11/Runtime/X11Context.h"
 #include "UI/Components/MenuModel.h"
 #include "Utility/IcoDecoder.h"
@@ -324,6 +325,45 @@ void X11Window::set_command_invoked_callback(CommandInvokedCallback callback) {
 void X11Window::set_command_state_query_callback(
     CommandStateQueryCallback callback) {
   m_command_state_query_callback = std::move(callback);
+}
+
+bool X11Window::open_project_folder() {
+  if (!Zenvra::Platform::folder_dialog_available()) {
+    std::cerr << "No folder dialog backend available (install kdialog, "
+                 "zenity or yad).\n";
+    return false;
+  }
+  const std::optional<std::filesystem::path> selected =
+      Zenvra::Platform::open_folder_dialog();
+  if (!selected || selected->empty()) {
+    return true;
+  }
+  if (!m_chrome_renderer.set_workspace_root(*selected)) {
+    std::cerr << "Could not open workspace folder: " << selected->string()
+              << '\n';
+    return true;
+  }
+
+  std::error_code path_error;
+  const std::filesystem::path canonical =
+      std::filesystem::weakly_canonical(*selected, path_error);
+  const std::filesystem::path display_root =
+      path_error ? *selected : canonical;
+  const std::string folder_name = display_root.filename().empty()
+                                      ? display_root.string()
+                                      : display_root.filename().string();
+  const std::string window_title =
+      folder_name + " - " + m_specification.title;
+  m_specification.title = window_title;
+  XStoreName(m_display, m_window_handle, m_specification.title.c_str());
+  XChangeProperty(
+      m_display, m_window_handle, m_atoms.net_wm_name, m_atoms.utf8_string, 8,
+      PropModeReplace,
+      reinterpret_cast<const unsigned char *>(m_specification.title.data()),
+      static_cast<int>(m_specification.title.size()));
+  XSetIconName(m_display, m_window_handle, m_specification.title.c_str());
+  render();
+  return true;
 }
 
 void X11Window::initialize_atoms() {
@@ -880,7 +920,7 @@ void X11Window::handle_motion(const XMotionEvent &event) {
 }
 
 void X11Window::handle_button_press(const XButtonEvent &event) {
-  if (event.button == Button4 || event.button == Button5) {
+  if (event.button >= Button4 && event.button <= 7) {
     const float point_x = static_cast<float>(event.x);
     const float point_y = static_cast<float>(event.y);
     const float content_top = m_chrome_layout.titlebar_bounds.bottom();
@@ -895,20 +935,24 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
         point_x, point_y, m_client_width, m_client_height, content_top);
     const bool over_tool_sidebar = m_chrome_renderer.is_tool_sidebar_point(
         point_x, point_y, m_client_width, m_client_height, content_top);
+
+    bool horizontal = (event.state & ShiftMask) != 0 || event.button == 6 || event.button == 7;
+    int delta = (event.button == Button4 || event.button == 6) ? -3 : 3;
+
     if (over_tool_sidebar &&
         m_chrome_renderer.handle_tool_sidebar_scroll(
-            event.button == Button4 ? -3 : 3, m_client_width, m_client_height,
+            delta, m_client_width, m_client_height,
             content_top)) {
       render();
       return;
     }
     if (over_terminal && m_chrome_renderer.handle_terminal_scroll(
-                             event.button == Button4 ? -3 : 3)) {
+                             delta, horizontal)) {
       render();
       return;
     }
     if (over_editor && m_chrome_renderer.handle_workspace_scroll(
-                           event.button == Button4 ? -3 : 3, m_client_width,
+                           delta, m_client_width,
                            m_client_height, content_top)) {
       render();
     }
@@ -1090,11 +1134,24 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
     return;
   }
 
+  const bool is_repeat_click =
+      m_last_workspace_click_time != 0 &&
+      event.time - m_last_workspace_click_time <= double_click_interval_ms &&
+      std::abs(event.x - m_last_workspace_click_x) <= double_click_distance &&
+      std::abs(event.y - m_last_workspace_click_y) <= double_click_distance;
+  const int click_count =
+      is_repeat_click ? std::min(m_workspace_click_count + 1, 3) : 1;
+  m_last_workspace_click_time = event.time;
+  m_last_workspace_click_x = event.x;
+  m_last_workspace_click_y = event.y;
+  m_workspace_click_count = click_count;
+
   std::string command_out;
   if (m_chrome_renderer.handle_workspace_pointer_press(
           point_x, point_y, m_client_width, m_client_height,
           m_chrome_layout.titlebar_bounds.bottom(),
-          (event.state & ShiftMask) != 0, event.time, command_out)) {
+          (event.state & ShiftMask) != 0, click_count, event.time,
+          command_out)) {
     if (!command_out.empty() && m_command_invoked_callback) {
       m_command_invoked_callback(command_out);
     }
@@ -1376,6 +1433,7 @@ void X11Window::handle_key_press(XKeyEvent &event) {
 
   if (!m_interaction_state.open_menu_index &&
       !m_interaction_state.overflow_menu_open &&
+      m_chrome_renderer.is_editor_focused() &&
       (event.state & ControlMask) != 0) {
     std::optional<UI::Editor::EditorAction> action;
     if ((event.state & ShiftMask) != 0 &&
@@ -1548,12 +1606,32 @@ void X11Window::update_cursor(int point_x, int point_y) {
                                     static_cast<float>(point_y)) ||
       m_chrome_layout.is_debug_button(static_cast<float>(point_x),
                                       static_cast<float>(point_y));
+  const bool is_toolbar_button =
+      m_chrome_layout.is_ellipsis_button(static_cast<float>(point_x),
+                                         static_cast<float>(point_y)) ||
+      m_chrome_layout.is_compiler_button(static_cast<float>(point_x),
+                                         static_cast<float>(point_y)) ||
+      m_chrome_layout.is_platform_button(static_cast<float>(point_x),
+                                         static_cast<float>(point_y)) ||
+      m_chrome_layout.is_binary_button(static_cast<float>(point_x),
+                                       static_cast<float>(point_y)) ||
+      m_chrome_layout.is_build_button(static_cast<float>(point_x),
+                                      static_cast<float>(point_y)) ||
+      m_chrome_layout.is_gear_button(static_cast<float>(point_x),
+                                     static_cast<float>(point_y));
   const bool is_empty_state_button = m_chrome_renderer.is_empty_state_button_hovered();
+  const bool is_fold_marker =
+      m_chrome_renderer.is_fold_margin_point(
+          static_cast<float>(point_x), static_cast<float>(point_y),
+          m_client_width, m_client_height,
+          m_chrome_layout.titlebar_bounds.bottom());
   const std::optional<MoveResizeDirection> direction =
-      (tab_point || is_run_or_debug || is_sidebar || is_empty_state_button)
+      (tab_point || is_run_or_debug || is_toolbar_button || is_sidebar ||
+       is_empty_state_button)
           ? std::nullopt
           : get_resize_direction(point_x, point_y);
-  if (tab_point || is_run_or_debug || is_sidebar || is_empty_state_button) {
+  if (tab_point || is_run_or_debug || is_toolbar_button || is_sidebar ||
+      is_empty_state_button || is_fold_marker) {
     desired_cursor = m_pointer_cursor;
   } else if (direction) {
     desired_cursor =

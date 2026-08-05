@@ -75,6 +75,8 @@ public:
         std::size_t byte_column,
         bool extend_selection = false) noexcept;
     bool select_all() noexcept;
+    bool select_word_at(std::size_t line_index, std::size_t byte_column);
+    bool select_line_at(std::size_t line_index) noexcept;
     bool clear_selection() noexcept;
     bool insert_text(std::string_view utf8_text);
     bool execute(EditorInputCommand command, bool extend_selection = false);

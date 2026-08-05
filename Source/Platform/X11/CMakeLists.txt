@@ -21,6 +21,7 @@ add_library(ZDEPlatformX11 STATIC
     Components/ToolSidebar.cpp
     Components/X11ChromeRenderer.cpp
     Runtime/X11Context.cpp
+    Utility/X11Dialogs.cpp
 )
 
 target_include_directories(ZDEPlatformX11 PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../..")

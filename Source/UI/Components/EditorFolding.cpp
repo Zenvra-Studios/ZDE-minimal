@@ -240,4 +240,47 @@ bool EditorFoldingModel::is_fold_start(std::size_t line_index) const noexcept
     return false;
 }
 
+std::vector<const FoldRange*> EditorFoldingModel::get_indent_guide_ranges(
+    std::size_t first_line,
+    std::size_t last_line) const
+{
+    std::vector<const FoldRange*> result;
+    for (const auto& r : m_ranges)
+    {
+        // Skip collapsed ranges and ranges hidden by parent folds.
+        if (m_collapsed.count(r.start_line) || is_line_hidden(r.start_line))
+        {
+            continue;
+        }
+        // Include if the range overlaps the viewport.
+        if (r.end_line >= first_line && r.start_line <= last_line)
+        {
+            result.push_back(&r);
+        }
+    }
+    return result;
+}
+
+const FoldRange* EditorFoldingModel::get_active_indent_range(
+    std::size_t line_index) const noexcept
+{
+    const FoldRange* best = nullptr;
+    for (const auto& r : m_ranges)
+    {
+        if (m_collapsed.count(r.start_line))
+        {
+            continue;
+        }
+        if (line_index >= r.start_line && line_index <= r.end_line)
+        {
+            // Pick the innermost (deepest) range.
+            if (best == nullptr || r.indent_level > best->indent_level)
+            {
+                best = &r;
+            }
+        }
+    }
+    return best;
+}
+
 } // namespace Zenvra::UI::Components

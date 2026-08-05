@@ -79,6 +79,7 @@ bool Application::initialize()
     m_studio_view_model = std::make_unique<ViewModels::StudioViewModel>(ViewModels::StudioActions{
         .request_close = [this] { request_close(); },
         .show_about = [this] { show_about(); },
+        .request_open_project = [this] { return m_window->open_project_folder(); },
     });
 
     if (!m_studio_view_model->initialize())

@@ -17,6 +17,7 @@ class ToolSidebar
 {
 public:
     [[nodiscard]] bool initialize();
+    [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root);
     [[nodiscard]] bool activate(UI::Editor::SidebarIcon icon) noexcept;
     [[nodiscard]] bool handle_pointer_press(
         const UI::Editor::StudioEditorLayoutResult& layout,
@@ -38,7 +39,17 @@ public:
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y) const noexcept;
+    [[nodiscard]] bool is_resize_handle_point(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) const noexcept;
+    [[nodiscard]] bool is_resizing() const noexcept;
     [[nodiscard]] float get_width() const noexcept;
+    
+    [[nodiscard]] bool handle_pointer_drag(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x) noexcept;
+    [[nodiscard]] bool handle_pointer_release() noexcept;
 
     void render(
         const StudioWorkspaceRenderer& surface,
@@ -52,18 +63,25 @@ private:
     static constexpr float header_height = UI::Editor::StudioEditorMetrics::tab_height;
     static constexpr float row_height = 22.0F;
 
-    [[nodiscard]] std::size_t viewport_row_count(
-        const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
+    [[nodiscard]] std::size_t viewport_row_count(const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
     [[nodiscard]] std::optional<std::size_t> row_from_point(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_y) const noexcept;
     [[nodiscard]] UI::Rect scrollbar_bounds(
         const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
+    [[nodiscard]] std::vector<std::size_t> get_sticky_items() const;
 
     UI::Editor::ActivityPanelModel m_model;
     std::optional<std::size_t> m_hovered_row;
+    std::optional<std::size_t> m_hovered_sticky_index;
     std::optional<UI::Editor::SidebarIcon> m_hovered_icon;
     bool m_hovered_scrollbar = false;
+
+    float m_width = default_width;
+    bool m_resizing = false;
+    bool m_resize_hovered = false;
+    float m_drag_start_x = 0.0F;
+    float m_drag_start_width = 0.0F;
 };
 
 } // namespace Zenvra::Platform::Win32::Components

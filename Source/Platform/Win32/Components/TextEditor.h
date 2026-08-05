@@ -7,6 +7,7 @@
 #include "UI/Editor/BraceAnimationModel.h"
 #include "UI/Editor/CaretBlinkModel.h"
 #include "UI/Editor/EditorController.h"
+#include "UI/Components/Button.h"
 #include "UI/Editor/SelectionAnimationModel.h"
 #include "UI/Editor/StudioEditorModel.h"
 #include "Utility/DragDropModel.h"
@@ -39,11 +40,15 @@ public:
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y,
-        bool extend_selection);
+        bool extend_selection,
+        std::string& command_out);
     [[nodiscard]] bool is_tab_interactive_point(
         const StudioWorkspaceRenderer& surface,
         HDC device_context,
         const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) const noexcept;
+    [[nodiscard]] bool is_empty_state_interactive_point(
         float point_x,
         float point_y) const noexcept;
     [[nodiscard]] bool handle_pointer_move(
@@ -75,6 +80,10 @@ public:
         float point_x,
         float point_y) const noexcept;
     [[nodiscard]] bool is_minimap_point(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) const noexcept;
+    [[nodiscard]] bool is_fold_margin_point(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y) const noexcept;
@@ -120,12 +129,15 @@ private:
     mutable std::size_t m_tab_count = 0;
     std::optional<std::size_t> m_hovered_tab_index;
     std::optional<std::size_t> m_hovered_tab_close_index;
+    mutable std::optional<std::size_t> m_hovered_fold_line;
     float m_tab_scroll_offset = 0.0F;
     mutable float m_max_tab_scroll = 0.0F;
     float m_text_scroll_offset = 0.0F;
     mutable float m_max_text_scroll = 0.0F;
     mutable UI::Editor::SelectionAnimationModel m_selection_animation;
     mutable UI::Editor::BraceAnimationModel m_brace_animation;
+    mutable UI::Components::Button m_empty_state_open_btn;
+    mutable UI::Components::Button m_empty_state_clone_btn;
     mutable UI::Editor::TextPosition m_last_brace_caret;
 };
 

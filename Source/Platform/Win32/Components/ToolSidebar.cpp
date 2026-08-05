@@ -1,11 +1,11 @@
 #include "Platform/Win32/Components/ToolSidebar.h"
-
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
 #include "UI/Editor/FileIconModel.h"
 #include "Utility/Fonts.h"
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <string>
 #include <string_view>
 
@@ -45,6 +45,12 @@ bool ToolSidebar::initialize() {
   return m_model.initialize();
 }
 
+bool ToolSidebar::set_workspace_root(const std::filesystem::path &root) {
+  m_hovered_row.reset();
+  m_hovered_scrollbar = false;
+  return m_model.initialize(root);
+}
+
 bool ToolSidebar::activate(UI::Editor::SidebarIcon icon) noexcept {
   m_hovered_row.reset();
   m_hovered_scrollbar = false;
@@ -54,6 +60,12 @@ bool ToolSidebar::activate(UI::Editor::SidebarIcon icon) noexcept {
 bool ToolSidebar::handle_pointer_press(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y, std::optional<std::filesystem::path> &file_to_open) {
+  if (is_resize_handle_point(layout, point_x, point_y)) {
+    m_resizing = true;
+    m_drag_start_x = point_x;
+    m_drag_start_width = m_width;
+    return true;
+  }
   if (!contains(layout, point_x, point_y)) {
     return false;
   }
@@ -73,6 +85,19 @@ bool ToolSidebar::handle_pointer_press(
       refresh_bounds.contains(point_x, point_y)) {
     return m_model.refresh();
   }
+  const float tree_top = layout.tool_sidebar_bounds.y + header_height * scale;
+  const auto sticky = get_sticky_items();
+  const float sticky_height = static_cast<float>(sticky.size()) * row_height * scale;
+  
+  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project &&
+      point_y >= tree_top && point_y < tree_top + sticky_height) {
+      std::size_t sticky_index = static_cast<std::size_t>((point_y - tree_top) / (row_height * scale));
+      if (sticky_index < sticky.size()) {
+          m_model.set_scroll_offset(sticky[sticky_index]);
+          return true;
+      }
+  }
+
   const std::optional<std::size_t> row = row_from_point(layout, point_y);
   if (row && m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
     const UI::Editor::ActivityPanelAction action =
@@ -86,33 +111,57 @@ bool ToolSidebar::handle_pointer_press(
 bool ToolSidebar::handle_pointer_move(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) noexcept {
-  std::optional<UI::Editor::SidebarIcon> next_icon;
-  if (const std::optional<std::size_t> sidebar_index =
-          UI::Editor::hit_test_studio_sidebar(layout, point_x, point_y)) {
-    next_icon = UI::Editor::get_studio_sidebar_items()[*sidebar_index].icon;
-  }
-  std::optional<std::size_t> next_row;
-  bool next_scrollbar = false;
-  if (contains(layout, point_x, point_y) &&
-      m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
-    next_row = row_from_point(layout, point_y);
-    next_scrollbar =
-        scrollbar_bounds(layout).contains(point_x, point_y) &&
-        m_model.get_project_items().size() > viewport_row_count(layout);
-  }
-  const bool changed = next_row != m_hovered_row ||
-                       next_icon != m_hovered_icon ||
-                       next_scrollbar != m_hovered_scrollbar;
-  m_hovered_row = next_row;
-  m_hovered_icon = next_icon;
-  m_hovered_scrollbar = next_scrollbar;
-  return changed;
+    std::optional<UI::Editor::SidebarIcon> next_icon;
+    if (const std::optional<std::size_t> sidebar_index =
+            UI::Editor::hit_test_studio_sidebar(layout, point_x, point_y)) {
+        next_icon = UI::Editor::get_studio_sidebar_items()[*sidebar_index].icon;
+    }
+    std::optional<std::size_t> next_sticky_hover;
+    std::optional<std::size_t> next_row;
+    bool next_scrollbar = false;
+    
+    if (contains(layout, point_x, point_y) &&
+        m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
+        
+        const float scale = layout.dpi_scale;
+        const float tree_top = layout.tool_sidebar_bounds.y + header_height * scale;
+        const auto sticky = get_sticky_items();
+        const float sticky_height = static_cast<float>(sticky.size()) * row_height * scale;
+
+        if (point_y >= tree_top && point_y < tree_top + sticky_height) {
+            std::size_t sticky_index = static_cast<std::size_t>((point_y - tree_top) / (row_height * scale));
+            if (sticky_index < sticky.size()) {
+                next_sticky_hover = sticky[sticky_index];
+            }
+        } else {
+            next_row = row_from_point(layout, point_y);
+        }
+        
+        next_scrollbar =
+            scrollbar_bounds(layout).contains(point_x, point_y) &&
+            m_model.get_project_items().size() > viewport_row_count(layout);
+    }
+    
+    bool next_resize_hovered = is_resize_handle_point(layout, point_x, point_y);
+
+    const bool changed = next_row != m_hovered_row ||
+                         next_sticky_hover != m_hovered_sticky_index ||
+                         next_icon != m_hovered_icon ||
+                         next_scrollbar != m_hovered_scrollbar ||
+                         next_resize_hovered != m_resize_hovered;
+    m_hovered_row = next_row;
+    m_hovered_sticky_index = next_sticky_hover;
+    m_hovered_icon = next_icon;
+    m_hovered_scrollbar = next_scrollbar;
+    m_resize_hovered = next_resize_hovered;
+    return changed;
 }
 
 bool ToolSidebar::handle_scroll(
     const UI::Editor::StudioEditorLayoutResult &layout,
     std::ptrdiff_t line_delta) noexcept {
   m_hovered_row.reset();
+  m_hovered_sticky_index.reset();
   return m_model.scroll(line_delta, viewport_row_count(layout));
 }
 
@@ -129,21 +178,83 @@ bool ToolSidebar::contains(const UI::Editor::StudioEditorLayoutResult &layout,
   return is_visible() && layout.tool_sidebar_bounds.contains(point_x, point_y);
 }
 
-float ToolSidebar::get_width() const noexcept { return default_width; }
+bool ToolSidebar::is_resize_handle_point(
+    const UI::Editor::StudioEditorLayoutResult& layout,
+    float point_x,
+    float point_y) const noexcept {
+    const float scale = layout.dpi_scale;
+    const UI::Rect handle_bounds{
+        layout.tool_sidebar_bounds.right() - 3.0F * scale,
+        layout.tool_sidebar_bounds.y,
+        6.0F * scale,
+        layout.tool_sidebar_bounds.height
+    };
+    return handle_bounds.contains(point_x, point_y);
+}
+
+bool ToolSidebar::is_resizing() const noexcept { return m_resizing; }
+
+float ToolSidebar::get_width() const noexcept { return m_width; }
+
+bool ToolSidebar::handle_pointer_drag(
+    const UI::Editor::StudioEditorLayoutResult& layout,
+    float point_x) noexcept {
+    if (!m_resizing) return false;
+    
+    const float delta = point_x - m_drag_start_x;
+    float new_width = m_drag_start_width + delta / layout.dpi_scale;
+    
+    if (!m_model.is_visible()) {
+        if (new_width >= 100.0F) {
+            m_model.set_visible(true);
+            m_width = new_width;
+        } else {
+            m_width = 0.0F;
+        }
+    } else {
+        if (new_width < 100.0F) {
+            m_model.set_visible(false);
+            m_width = 0.0F;
+        } else {
+            m_width = new_width;
+        }
+    }
+    
+    return true;
+}
+
+bool ToolSidebar::handle_pointer_release() noexcept {
+    if (m_resizing) {
+        m_resizing = false;
+        return true;
+    }
+    return false;
+}
 
 void ToolSidebar::render(
     const StudioWorkspaceRenderer &surface, HDC device_context,
     const UI::Editor::StudioEditorLayoutResult &layout) const {
   const UI::Rect panel = layout.tool_sidebar_bounds;
+  const float scale = layout.dpi_scale;
+
   if (!is_visible() || panel.is_empty()) {
+    if (m_resize_hovered || m_resizing) {
+      surface.draw_line(device_context, round_to_int(panel.right() - scale),
+                        round_to_int(panel.y), round_to_int(panel.right() - scale),
+                        round_to_int(panel.bottom()), surface.m_palette.accent);
+    }
     return;
   }
-  const float scale = layout.dpi_scale;
+
   surface.fill_rectangle(device_context, panel,
                          surface.m_palette.sidebar_background);
+  
+  const UI::Theme::Color border_color = (m_resize_hovered || m_resizing) 
+                                        ? surface.m_palette.accent 
+                                        : surface.m_palette.border;
   surface.draw_line(device_context, round_to_int(panel.right() - scale),
                     round_to_int(panel.y), round_to_int(panel.right() - scale),
-                    round_to_int(panel.bottom()), surface.m_palette.border);
+                    round_to_int(panel.bottom()), border_color);
   surface.draw_text(device_context, *surface.m_ui_font, m_model.get_title(),
                     panel.x + 14.0F * scale,
                     panel.y + header_height * 0.5F * scale,
@@ -194,18 +305,16 @@ void ToolSidebar::render(
     surface.draw_text(device_context, *surface.m_ui_font,
                       m_model.get_content_heading(), panel.x + 14.0F * scale,
                       message_y, surface.m_palette.text_primary);
-    const std::string detail =
-        ellipsize(device_context, *surface.m_small_font,
-                  std::string{m_model.get_content_detail()},
-                  std::max(round_to_int(panel.width - 28.0F * scale), 1));
+    const std::string detail = ellipsize(
+        device_context, *surface.m_small_font, std::string{m_model.get_content_detail()},
+        std::max(round_to_int(panel.width - 28.0F * scale), 1));
     surface.draw_text(device_context, *surface.m_small_font, detail,
                       panel.x + 14.0F * scale, message_y + 24.0F * scale,
                       surface.m_palette.text_muted);
     return;
   }
 
-  const std::span<const UI::Editor::ProjectTreeItem> items =
-      m_model.get_project_items();
+  const std::span<const UI::Editor::ProjectTreeItem> items = m_model.get_project_items();
   const std::size_t first = m_model.get_scroll_offset();
   const std::size_t row_count = viewport_row_count(layout);
   const std::size_t end = std::min(items.size(), first + row_count);
@@ -228,7 +337,7 @@ void ToolSidebar::render(
     const int guide_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
     for (std::size_t level = 0; level < item.depth; ++level) {
       const int guide_x = round_to_int(
-          panel.x + (13.0F + static_cast<float>(level) * 16.0F) * scale);
+          panel.x + (17.0F + static_cast<float>(level) * 16.0F) * scale);
 
       bool line_active = false;
       for (std::size_t next = item_index + 1; next < items.size(); ++next) {
@@ -252,7 +361,7 @@ void ToolSidebar::render(
     if (item.depth > 0) {
       const int parent_x = round_to_int(
           panel.x +
-          (13.0F + static_cast<float>(item.depth - 1) * 16.0F) * scale);
+          (17.0F + static_cast<float>(item.depth - 1) * 16.0F) * scale);
       const int child_x = round_to_int(indent_x + 3.0F * scale);
       surface.draw_line(device_context, parent_x, guide_y, child_x, guide_y,
                         surface.m_palette.border);
@@ -264,35 +373,102 @@ void ToolSidebar::render(
     if (item.directory) {
       const int arrow_x = round_to_int(indent_x + 3.0F * scale);
       const int arrow_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
-      surface.draw_svg_icon(
-          device_context,
-          item.expanded ? "chevron-down.svg" : "chevron-down.svg", arrow_x,
-          arrow_y, std::max(round_to_int(8.0F * scale), 7),
-          surface.m_palette.text_muted, row_background);
-      surface.draw_svg_icon(device_context,
-                            item.expanded ? "folder-open.svg" : "folder.svg",
-                            round_to_int(indent_x + 19.0F * scale), arrow_y,
-                            std::max(round_to_int(16.0F * scale), 13),
-                            surface.m_palette.text_muted, row_background);
+      if (arrow_x + 8.0F * scale < panel.right()) {
+        surface.draw_svg_icon(
+            device_context,
+            item.expanded ? "chevron-down.svg" : "chevron-right.svg", arrow_x,
+            arrow_y, std::max(round_to_int(8.0F * scale), 7),
+            surface.m_palette.text_muted, row_background);
+      }
+      const int folder_x = round_to_int(indent_x + 19.0F * scale);
+      if (folder_x + 16.0F * scale < panel.right()) {
+        surface.draw_svg_icon(device_context,
+                              item.expanded ? "folder-open.svg" : "folder.svg",
+                              folder_x, arrow_y,
+                              std::max(round_to_int(16.0F * scale), 13),
+                              surface.m_palette.text_muted, row_background);
+      }
     } else {
       const int icon_x = round_to_int(indent_x + 19.0F * scale);
       const int icon_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
-      const std::string icon_asset =
-          UI::Editor::file_icon_asset_for_path(item.path);
-      surface.draw_svg_icon(device_context, icon_asset, icon_x, icon_y,
-                            std::max(round_to_int(14.0F * scale), 11),
-                            surface.m_palette.text_muted, row_background);
+      if (icon_x + 14.0F * scale < panel.right()) {
+        const std::string icon_asset =
+            UI::Editor::file_icon_asset_for_path(item.path);
+        surface.draw_svg_icon(device_context, icon_asset, icon_x, icon_y,
+                              std::max(round_to_int(14.0F * scale), 11),
+                              surface.m_palette.text_muted, row_background);
+      }
     }
     const float label_x = indent_x + (item.directory ? 30.0F : 36.0F) * scale;
-    const std::string label = ellipsize(
-        device_context, *surface.m_small_font, item.label,
-        std::max(round_to_int(panel.right() - label_x - 10.0F * scale), 1));
-    surface.draw_text(device_context, *surface.m_small_font, label, label_x,
-                      row_bounds.y + row_bounds.height * 0.5F,
-                      surface.m_palette.text_primary);
+    if (label_x < panel.right()) {
+      const float available_width = panel.right() - label_x - 10.0F * scale;
+      if (available_width > 0.0F) {
+        const std::string label = ellipsize(
+            device_context, *surface.m_small_font, item.label,
+            round_to_int(available_width));
+        surface.draw_text(device_context, *surface.m_small_font, label, label_x,
+                          row_bounds.y + row_bounds.height * 0.5F,
+                          surface.m_palette.text_primary);
+      }
+    }
   }
 
-  if (items.size() > row_count) {
+  // Draw Sticky Items
+  const auto sticky = get_sticky_items();
+  for (std::size_t i = 0; i < sticky.size(); ++i) {
+      const std::size_t absolute_index = sticky[i];
+      const UI::Editor::ProjectTreeItem &item = items[absolute_index];
+      const UI::Rect row_bounds{
+          panel.x,
+          tree_top + static_cast<float>(i) * row_height * scale,
+          panel.width,
+          row_height * scale,
+      };
+
+      // Background to overlay standard items
+      surface.fill_rectangle(device_context, row_bounds, surface.m_palette.sidebar_background);
+
+      if (m_hovered_sticky_index && *m_hovered_sticky_index == absolute_index) {
+          surface.fill_rectangle(device_context, row_bounds, surface.m_palette.hover_background);
+      }
+
+      const float chevron_x = panel.x + 18.0F * scale + static_cast<float>(item.depth) * 12.0F * scale;
+      const float content_y = row_bounds.y + row_bounds.height * 0.5F;
+      const int icon_size = std::max(round_to_int(12.0F * scale), 10);
+
+      surface.draw_svg_icon(
+          device_context, "chevron-down.svg",
+          round_to_int(chevron_x), round_to_int(content_y), icon_size,
+          surface.m_palette.text_muted,
+          (m_hovered_sticky_index && *m_hovered_sticky_index == absolute_index)
+              ? surface.m_palette.hover_background
+              : surface.m_palette.sidebar_background);
+
+      surface.draw_svg_icon(
+          device_context, "folder-open.svg",
+          round_to_int(chevron_x + 16.0F * scale), round_to_int(content_y),
+          icon_size, surface.m_palette.text_muted,
+          (m_hovered_sticky_index && *m_hovered_sticky_index == absolute_index)
+              ? surface.m_palette.hover_background
+              : surface.m_palette.sidebar_background);
+
+      const float text_x = chevron_x + 28.0F * scale;
+      surface.draw_text(device_context, *surface.m_ui_font, item.label, text_x,
+                        content_y, surface.m_palette.text_primary);
+
+      if (i == sticky.size() - 1) {
+          surface.draw_line(
+              device_context,
+              round_to_int(row_bounds.x),
+              round_to_int(row_bounds.bottom()),
+              round_to_int(row_bounds.right()),
+              round_to_int(row_bounds.bottom()),
+              surface.m_palette.border);
+      }
+  }
+
+  // Draw Scrollbar
+  if (m_model.get_project_items().size() > row_count) {
     const UI::Rect track = scrollbar_bounds(layout);
     const float visible_fraction =
         static_cast<float>(row_count) / static_cast<float>(items.size());
@@ -351,6 +527,27 @@ UI::Rect ToolSidebar::scrollbar_bounds(
       8.0F * scale,
       std::max(layout.tool_sidebar_bounds.bottom() - tree_top, 0.0F),
   };
+}
+
+std::vector<std::size_t> ToolSidebar::get_sticky_items() const {
+  std::vector<std::size_t> sticky;
+  if (m_model.get_active_icon() != UI::Editor::SidebarIcon::Project) return sticky;
+  const auto items = m_model.get_project_items();
+  const std::size_t first = m_model.get_scroll_offset();
+  if (first > 0 && first < items.size()) {
+      std::size_t current_depth = items[first].depth;
+      std::size_t search = first - 1;
+      while (current_depth > 0) {
+          if (items[search].depth < current_depth) {
+              sticky.push_back(search);
+              current_depth = items[search].depth;
+          }
+          if (search == 0) break;
+          --search;
+      }
+      std::reverse(sticky.begin(), sticky.end());
+  }
+  return sticky;
 }
 
 } // namespace Zenvra::Platform::Win32::Components

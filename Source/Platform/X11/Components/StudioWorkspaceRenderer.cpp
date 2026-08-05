@@ -169,6 +169,9 @@ bool StudioWorkspaceRenderer::initialize(Display* display, int screen, float dpi
     m_pixels.accent = allocate_color(m_palette.accent);
     m_pixels.warning = allocate_color(m_palette.warning);
     m_pixels.success = allocate_color(m_palette.success);
+    m_pixels.hover_background = allocate_color(m_palette.hover_background);
+    m_pixels.indent_guide = allocate_color(m_palette.indent_guide);
+    m_pixels.indent_guide_active = allocate_color(m_palette.indent_guide_active);
     m_text.primary = to_xft_color(m_palette.text_primary);
     m_text.muted = to_xft_color(m_palette.text_muted);
     m_text.keyword = to_xft_color(m_palette.keyword);
@@ -190,6 +193,16 @@ bool StudioWorkspaceRenderer::open_file(const std::filesystem::path& path)
     return m_text_editor.open_file(path);
 }
 
+bool StudioWorkspaceRenderer::set_workspace_root(const std::filesystem::path& root)
+{
+    if (!m_tool_sidebar.set_workspace_root(root))
+    {
+        return false;
+    }
+    m_terminal_panel.set_working_directory(root);
+    return true;
+}
+
 std::size_t StudioWorkspaceRenderer::open_dropped_paths(
     std::span<const std::filesystem::path> dropped_paths)
 {
@@ -208,6 +221,7 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     int client_height,
     float content_top,
     bool extend_selection,
+    int click_count,
     Time event_time,
     std::string& command_out)
 {
@@ -253,7 +267,8 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     }
     m_terminal_panel.set_focused(false);
     return m_text_editor.handle_pointer_press(
-        *this, layout, point_x, point_y, extend_selection, command_out);
+        *this, layout, point_x, point_y, extend_selection, click_count,
+        command_out);
 }
 
 bool StudioWorkspaceRenderer::handle_pointer_move(
@@ -372,9 +387,9 @@ bool StudioWorkspaceRenderer::handle_terminal_control(char letter)
     return m_terminal_panel.handle_control(letter);
 }
 
-bool StudioWorkspaceRenderer::handle_terminal_scroll(std::ptrdiff_t line_delta) noexcept
+bool StudioWorkspaceRenderer::handle_terminal_scroll(std::ptrdiff_t line_delta, bool horizontal) noexcept
 {
-    return m_terminal_panel.handle_scroll(line_delta);
+    return m_terminal_panel.handle_scroll(line_delta, horizontal);
 }
 
 bool StudioWorkspaceRenderer::handle_tool_sidebar_scroll(
@@ -513,6 +528,26 @@ bool StudioWorkspaceRenderer::is_minimap_point(
     return m_text_editor.is_minimap_point(layout, point_x, point_y);
 }
 
+bool StudioWorkspaceRenderer::is_fold_margin_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
+        static_cast<float>(client_width),
+        static_cast<float>(client_height),
+        content_top,
+        m_dpi_scale,
+        m_terminal_panel.is_visible(),
+        m_terminal_panel.get_height(),
+        m_terminal_panel.is_maximized(),
+        m_tool_sidebar.is_visible(),
+        m_tool_sidebar.get_width());
+    return m_text_editor.is_fold_margin_point(*this, layout, point_x, point_y);
+}
+
 bool StudioWorkspaceRenderer::is_terminal_point(
     float point_x,
     float point_y,
@@ -587,7 +622,8 @@ bool StudioWorkspaceRenderer::tick_animations() noexcept
 {
     const bool caret_changed = m_text_editor.tick_animations();
     const bool terminal_changed = m_terminal_panel.poll();
-    return caret_changed || terminal_changed;
+    const bool terminal_blink_changed = m_terminal_panel.tick_animations();
+    return caret_changed || terminal_changed || terminal_blink_changed;
 }
 
 void StudioWorkspaceRenderer::shutdown()

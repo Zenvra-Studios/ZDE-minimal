@@ -18,8 +18,13 @@ int round_to_int(float value)
     return static_cast<int>(std::lround(value));
 }
 
-std::filesystem::path current_terminal_directory()
+std::filesystem::path current_terminal_directory(
+    const std::filesystem::path& workspace_root)
 {
+    if (!workspace_root.empty())
+    {
+        return workspace_root;
+    }
     std::error_code error;
     const std::filesystem::path current = std::filesystem::current_path(error);
     return error ? std::filesystem::path{} : current;
@@ -30,7 +35,7 @@ std::filesystem::path current_terminal_directory()
 bool TerminalPanel::toggle()
 {
     const bool was_visible = m_model.is_visible();
-    const bool changed = m_model.toggle(current_terminal_directory());
+    const bool changed = m_model.toggle(current_terminal_directory(m_working_directory));
     if (m_model.is_visible() && !was_visible)
     {
         m_resize_model.reset();
@@ -64,7 +69,7 @@ bool TerminalPanel::handle_pointer_press(
     }
     if (add_button_bounds(layout).contains(point_x, point_y))
     {
-        return m_model.create_session(current_terminal_directory());
+        return m_model.create_session(current_terminal_directory(m_working_directory));
     }
     const std::span<const Terminal::TerminalSessionEntry> sessions = m_model.get_sessions();
     for (std::size_t index = 0; index < sessions.size(); ++index)
@@ -120,7 +125,10 @@ bool TerminalPanel::handle_scroll(const Event::ScrollEvent& event) noexcept
     bool changed = false;
     if (event.delta_y != 0)
     {
-        changed |= m_model.scroll(event.delta_y);
+        const std::size_t maximum_offset = m_last_total_rows > m_last_visible_rows
+            ? m_last_total_rows - m_last_visible_rows
+            : 0;
+        changed |= m_model.scroll(event.delta_y, maximum_offset);
     }
     if (event.delta_x != 0)
     {
@@ -154,6 +162,12 @@ void TerminalPanel::shutdown() noexcept
     m_resize_model.reset();
 }
 bool TerminalPanel::is_visible() const noexcept { return m_model.is_visible(); }
+
+void TerminalPanel::set_working_directory(
+    const std::filesystem::path& directory) noexcept
+{
+    m_working_directory = directory;
+}
 bool TerminalPanel::is_focused() const noexcept { return m_model.is_focused(); }
 bool TerminalPanel::is_resizing() const noexcept { return m_resize_model.is_resizing(); }
 bool TerminalPanel::is_maximized() const noexcept { return m_resize_model.is_maximized(); }
@@ -320,6 +334,8 @@ void TerminalPanel::render(
 
     const std::size_t end = lines.size() - offset;
     const std::size_t start = end > visible_rows ? end - visible_rows : 0;
+    m_last_total_rows = lines.size();
+    m_last_visible_rows = visible_rows;
     const std::size_t displayed_rows = end - start;
     const float first_center_y = layout.terminal_content_bounds.y + content_top_padding +
         line_height * 0.5F;
@@ -382,13 +398,15 @@ void TerminalPanel::render(
         const std::string cursor_text = len > h_offset
             ? last.substr(h_offset, std::min(visible_columns, len - h_offset))
             : "";
+        const float line_center_y = first_center_y +
+            static_cast<float>(displayed_rows - 1) * line_height;
+        const float caret_height = line_height - 2.0F * surface.m_dpi_scale;
         const int cursor_x = round_to_int(layout.terminal_content_bounds.x + padding_x) +
-            surface.get_text_width(device_context, *surface.m_editor_font, cursor_text) + round_to_int(2.0F * surface.m_dpi_scale);
-        const float cursor_y = first_center_y + static_cast<float>(displayed_rows - 1) * line_height -
-            line_height * 0.5F;
+            surface.get_text_width(device_context, *surface.m_editor_font, cursor_text);
+        const float cursor_y = line_center_y - caret_height * 0.5F;
         surface.fill_rectangle(device_context,
-            UI::Rect{static_cast<float>(cursor_x), cursor_y, std::max(surface.m_dpi_scale, 1.0F),
-                line_height - 2.0F * surface.m_dpi_scale},
+            UI::Rect{static_cast<float>(cursor_x), cursor_y,
+                std::max(surface.m_dpi_scale, 1.0F), caret_height},
             surface.m_palette.text_primary);
     }
 }

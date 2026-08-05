@@ -148,6 +148,16 @@ bool StudioWorkspaceRenderer::open_file(const std::filesystem::path& path)
     return m_text_editor.open_file(path);
 }
 
+bool StudioWorkspaceRenderer::set_workspace_root(const std::filesystem::path& root)
+{
+    if (!m_tool_sidebar.set_workspace_root(root))
+    {
+        return false;
+    }
+    m_terminal_panel.set_working_directory(root);
+    return true;
+}
+
 std::size_t StudioWorkspaceRenderer::open_dropped_paths(
     std::span<const std::filesystem::path> dropped_paths)
 {
@@ -166,7 +176,8 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     int client_width,
     int client_height,
     float content_top,
-    bool extend_selection)
+    bool extend_selection,
+    std::string& command_out)
 {
     const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
         static_cast<float>(client_width),
@@ -206,7 +217,7 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     }
     m_terminal_panel.set_focused(false);
     return m_text_editor.handle_pointer_press(
-        *this, device_context, layout, point_x, point_y, extend_selection);
+        *this, device_context, layout, point_x, point_y, extend_selection, command_out);
 }
 
 bool StudioWorkspaceRenderer::handle_double_click(
@@ -272,6 +283,10 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(
         m_terminal_panel.is_maximized(),
         m_tool_sidebar.is_visible(),
         m_tool_sidebar.get_width());
+    if (m_tool_sidebar.is_resizing())
+    {
+        return m_tool_sidebar.handle_pointer_drag(layout, point_x);
+    }
     if (m_terminal_panel.is_resizing())
     {
         return m_terminal_panel.handle_pointer_drag(layout, point_y);
@@ -283,8 +298,9 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(
 bool StudioWorkspaceRenderer::handle_pointer_release() noexcept
 {
     const bool terminal_changed = m_terminal_panel.handle_pointer_release();
+    const bool sidebar_changed = m_tool_sidebar.handle_pointer_release();
     const bool editor_changed = m_text_editor.handle_pointer_release();
-    return terminal_changed || editor_changed;
+    return terminal_changed || sidebar_changed || editor_changed;
 }
 
 bool StudioWorkspaceRenderer::handle_scroll(
@@ -456,6 +472,13 @@ bool StudioWorkspaceRenderer::is_editor_point(
         !layout.scrollbar_bounds.contains(point_x, point_y);
 }
 
+bool StudioWorkspaceRenderer::is_editor_interactive_point(
+    float point_x,
+    float point_y) const noexcept
+{
+    return m_text_editor.is_empty_state_interactive_point(point_x, point_y);
+}
+
 bool StudioWorkspaceRenderer::is_scrollbar_point(
     float point_x,
     float point_y,
@@ -475,6 +498,27 @@ bool StudioWorkspaceRenderer::is_scrollbar_point(
         m_tool_sidebar.get_width());
     return m_text_editor.is_scrollbar_point(layout, point_x, point_y);
 }
+
+bool StudioWorkspaceRenderer::is_fold_margin_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
+        static_cast<float>(client_width),
+        static_cast<float>(client_height),
+        content_top,
+        m_dpi_scale,
+        m_terminal_panel.is_visible(),
+        m_terminal_panel.get_height(),
+        m_terminal_panel.is_maximized(),
+        m_tool_sidebar.is_visible(),
+        m_tool_sidebar.get_width());
+    return m_text_editor.is_fold_margin_point(layout, point_x, point_y);
+}
+
 
 bool StudioWorkspaceRenderer::is_minimap_point(
     float point_x,
@@ -559,6 +603,31 @@ bool StudioWorkspaceRenderer::is_terminal_resize_handle_point(
 bool StudioWorkspaceRenderer::is_terminal_resizing() const noexcept
 {
     return m_terminal_panel.is_resizing();
+}
+
+bool StudioWorkspaceRenderer::is_sidebar_resize_handle_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
+        static_cast<float>(client_width),
+        static_cast<float>(client_height),
+        content_top,
+        m_dpi_scale,
+        m_terminal_panel.is_visible(),
+        m_terminal_panel.get_height(),
+        m_terminal_panel.is_maximized(),
+        m_tool_sidebar.is_visible(),
+        m_tool_sidebar.get_width());
+    return m_tool_sidebar.is_resize_handle_point(layout, point_x, point_y);
+}
+
+bool StudioWorkspaceRenderer::is_sidebar_resizing() const noexcept
+{
+    return m_tool_sidebar.is_resizing();
 }
 
 bool StudioWorkspaceRenderer::tick_animations() noexcept

@@ -105,6 +105,11 @@ bool X11ChromeRenderer::open_workspace_file(const std::filesystem::path &path) {
   return m_workspace_renderer.open_file(path);
 }
 
+bool X11ChromeRenderer::set_workspace_root(
+    const std::filesystem::path &root) {
+  return m_workspace_renderer.set_workspace_root(root);
+}
+
 std::size_t X11ChromeRenderer::open_dropped_paths(
     std::span<const std::filesystem::path> dropped_paths) {
   return m_workspace_renderer.open_dropped_paths(dropped_paths);
@@ -116,11 +121,11 @@ bool X11ChromeRenderer::create_workspace_buffer() {
 
 bool X11ChromeRenderer::handle_workspace_pointer_press(
     float point_x, float point_y, int client_width, int client_height,
-    float content_top, bool extend_selection, Time event_time,
-    std::string &command_out) {
+    float content_top, bool extend_selection, int click_count,
+    Time event_time, std::string &command_out) {
   return m_workspace_renderer.handle_pointer_press(
       point_x, point_y, client_width, client_height, content_top,
-      extend_selection, event_time, command_out);
+      extend_selection, click_count, event_time, command_out);
 }
 
 bool X11ChromeRenderer::handle_workspace_pointer_move(
@@ -183,8 +188,8 @@ bool X11ChromeRenderer::handle_terminal_control(char letter) {
 }
 
 bool X11ChromeRenderer::handle_terminal_scroll(
-    std::ptrdiff_t line_delta) noexcept {
-  return m_workspace_renderer.handle_terminal_scroll(line_delta);
+    std::ptrdiff_t line_delta, bool horizontal) noexcept {
+  return m_workspace_renderer.handle_terminal_scroll(line_delta, horizontal);
 }
 
 bool X11ChromeRenderer::handle_tool_sidebar_scroll(std::ptrdiff_t line_delta,
@@ -236,6 +241,13 @@ bool X11ChromeRenderer::is_minimap_point(float point_x, float point_y,
                                          float content_top) const noexcept {
   return m_workspace_renderer.is_minimap_point(point_x, point_y, client_width,
                                                client_height, content_top);
+}
+
+bool X11ChromeRenderer::is_fold_margin_point(
+    float point_x, float point_y, int client_width, int client_height,
+    float content_top) const noexcept {
+  return m_workspace_renderer.is_fold_margin_point(
+      point_x, point_y, client_width, client_height, content_top);
 }
 
 bool X11ChromeRenderer::is_terminal_point(float point_x, float point_y,

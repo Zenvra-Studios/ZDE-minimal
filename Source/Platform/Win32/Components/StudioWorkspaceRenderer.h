@@ -42,6 +42,7 @@ public:
 
     [[nodiscard]] bool initialize(UINT dpi);
     [[nodiscard]] bool open_file(const std::filesystem::path& path);
+    [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root);
     [[nodiscard]] std::size_t open_dropped_paths(
         std::span<const std::filesystem::path> dropped_paths);
     [[nodiscard]] bool create_buffer();
@@ -52,7 +53,8 @@ public:
         int client_width,
         int client_height,
         float content_top,
-        bool extend_selection);
+        bool extend_selection,
+        std::string& command_out);
     [[nodiscard]] bool handle_double_click(
         float point_x,
         float point_y,
@@ -138,6 +140,15 @@ public:
         int client_width,
         int client_height,
         float content_top) const noexcept;
+    [[nodiscard]] bool is_editor_interactive_point(
+        float point_x,
+        float point_y) const noexcept;
+    [[nodiscard]] bool is_fold_margin_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
     [[nodiscard]] bool is_terminal_resize_handle_point(
         float point_x,
         float point_y,
@@ -145,6 +156,13 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_terminal_resizing() const noexcept;
+    [[nodiscard]] bool is_sidebar_resize_handle_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_sidebar_resizing() const noexcept;
     [[nodiscard]] bool tick_animations() noexcept;
     void shutdown();
     void render(

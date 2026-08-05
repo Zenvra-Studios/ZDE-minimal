@@ -90,6 +90,20 @@ bool StudioViewModel::register_available_commands()
                  }) &&
         registered;
 
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::project_open),
+                     .name = "Open Project",
+                     .description = "Open a folder as the ZDE workspace.",
+                     .category = "Project",
+                     .shortcut_binding = {},
+                     .execute = m_actions.request_open_project,
+                     .is_enabled = [this] {
+                         return static_cast<bool>(m_actions.request_open_project);
+                     },
+                     .is_checked = {},
+                 }) &&
+        registered;
+
     return registered;
 }
 
@@ -198,11 +212,6 @@ bool StudioViewModel::register_future_commands()
         "Toggle Fullscreen",
         "Toggle the main window fullscreen state.",
         "Window"));
-    add_command(create_unavailable_command(
-        Commands::CommandIds::project_open,
-        "Open Project",
-        "Open a ZDE project.",
-        "Project"));
     add_command(create_unavailable_command(
         Commands::CommandIds::project_close,
         "Close Project",

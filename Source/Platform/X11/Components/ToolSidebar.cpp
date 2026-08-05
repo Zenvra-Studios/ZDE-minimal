@@ -45,6 +45,12 @@ bool ToolSidebar::initialize() {
   return m_model.initialize();
 }
 
+bool ToolSidebar::set_workspace_root(const std::filesystem::path &root) {
+  m_hovered_row.reset();
+  m_hovered_scrollbar = false;
+  return m_model.initialize(root);
+}
+
 bool ToolSidebar::activate(UI::Editor::SidebarIcon icon) noexcept {
   m_hovered_row.reset();
   m_hovered_scrollbar = false;
@@ -313,7 +319,7 @@ void ToolSidebar::render(
     const int guide_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
     for (std::size_t level = 0; level < item.depth; ++level) {
       const int guide_x = round_to_int(
-          panel.x + (13.0F + static_cast<float>(level) * 16.0F) * scale);
+          panel.x + (17.0F + static_cast<float>(level) * 16.0F) * scale);
 
       bool line_active = false;
       for (std::size_t next = item_index + 1; next < items.size(); ++next) {
@@ -337,7 +343,7 @@ void ToolSidebar::render(
     if (item.depth > 0) {
       const int parent_x = round_to_int(
           panel.x +
-          (13.0F + static_cast<float>(item.depth - 1) * 16.0F) * scale);
+          (17.0F + static_cast<float>(item.depth - 1) * 16.0F) * scale);
       const int child_x = round_to_int(indent_x + 3.0F * scale);
       surface.draw_line(drawable, parent_x, guide_y, child_x, guide_y,
                         surface.m_pixels.border);

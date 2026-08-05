@@ -154,6 +154,9 @@ StudioEditorPalette StudioEditorPalette::jetbrains_dark() noexcept {
       .warning = {219, 139, 72, 255},
       .success = {83, 157, 84, 255},
       .tooltip_background = {43, 45, 49, 255},
+      .hover_background = {53, 53, 56, 255},
+      .indent_guide = {43, 45, 50, 255},
+      .indent_guide_active = {58, 60, 68, 255},
   };
 }
 

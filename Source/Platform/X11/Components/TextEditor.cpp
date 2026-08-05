@@ -10,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <string>
+#include <utility>
 
 namespace Zenvra::Platform::X11::Components {
 
@@ -33,6 +34,66 @@ bool has_gutter_marker(std::string_view line) {
   return line.find("namespace ") != std::string_view::npos ||
          (line.find("::") != std::string_view::npos &&
           line.find('(') != std::string_view::npos);
+}
+
+std::size_t visual_row_to_physical_line(const UI::Components::EditorFoldingModel &folding,
+                                        std::size_t visual_row,
+                                        std::size_t total_lines) {
+  std::size_t current_visual = 0;
+  for (std::size_t i = 0; i < total_lines; ++i) {
+    if (!folding.is_line_hidden(i)) {
+      if (current_visual == visual_row) return i;
+      current_visual++;
+    }
+  }
+  return total_lines > 0 ? total_lines - 1 : 0;
+}
+
+std::size_t physical_line_to_visual_row(const UI::Components::EditorFoldingModel &folding,
+                                        std::size_t physical_line,
+                                        std::size_t total_lines) {
+  std::size_t visual_row = 0;
+  for (std::size_t i = 0; i < physical_line && i < total_lines; ++i) {
+    if (!folding.is_line_hidden(i)) {
+      visual_row++;
+    }
+  }
+  return visual_row;
+}
+
+std::size_t count_visible_lines(const UI::Components::EditorFoldingModel &folding,
+                                std::size_t total_lines) {
+  std::size_t visible = 0;
+  for (std::size_t i = 0; i < total_lines; ++i) {
+    if (!folding.is_line_hidden(i)) visible++;
+  }
+  return visible;
+}
+
+/// Returns the physical line of a foldable marker under the pointer, or
+/// std::nullopt when the pointer is not over a foldable fold widget.
+std::optional<std::size_t>
+fold_start_line_at_point(const UI::Components::EditorFoldingModel &folding,
+                         const UI::Editor::StudioEditorLayoutResult &layout,
+                         float point_x, float point_y, float dpi_scale,
+                         std::size_t first_visual_row,
+                         std::size_t total_lines) {
+  const float fold_margin =
+      UI::Editor::StudioEditorMetrics::fold_margin_width * dpi_scale;
+  const float fold_margin_left = layout.gutter_bounds.right() - fold_margin;
+  if (!layout.gutter_bounds.contains(point_x, point_y) ||
+      point_x < fold_margin_left) {
+    return std::nullopt;
+  }
+  const float line_height = 20.0F * dpi_scale;
+  const std::size_t clicked_row = static_cast<std::size_t>(std::max(
+      static_cast<int>((point_y - layout.editor_bounds.y) / line_height), 0));
+  const std::size_t line_index = visual_row_to_physical_line(
+      folding, first_visual_row + clicked_row, total_lines);
+  if (!folding.is_fold_start(line_index)) {
+    return std::nullopt;
+  }
+  return line_index;
 }
 
 std::pair<std::optional<UI::Editor::TextPosition>,
@@ -141,6 +202,7 @@ std::size_t TextEditor::open_dropped_paths(
     m_caret_blink.reset();
     m_hovered_tab_index.reset();
     m_hovered_tab_close_index.reset();
+    m_hovered_fold_line.reset();
   }
   return opened_count;
 }
@@ -154,6 +216,7 @@ bool TextEditor::create_buffer() {
     m_caret_blink.reset();
     m_hovered_tab_index.reset();
     m_hovered_tab_close_index.reset();
+    m_hovered_fold_line.reset();
   }
   return created;
 }
@@ -192,7 +255,8 @@ bool TextEditor::is_tab_interactive_point(
 bool TextEditor::handle_pointer_press(
     const StudioWorkspaceRenderer &surface,
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
-    float point_y, bool extend_selection, std::string &command_out) {
+    float point_y, bool extend_selection, int click_count,
+    std::string &command_out) {
   if (layout.tab_bar_bounds.contains(point_x, point_y)) {
     float tab_x = layout.tab_bar_bounds.x;
     const float right_limit = layout.tab_bar_bounds.right();
@@ -226,6 +290,7 @@ bool TextEditor::handle_pointer_press(
             m_caret_blink.reset();
             m_hovered_tab_index.reset();
             m_hovered_tab_close_index.reset();
+            m_hovered_fold_line.reset();
           }
           return closed;
         }
@@ -251,10 +316,12 @@ bool TextEditor::handle_pointer_press(
     const float line_height = 20.0F * surface.m_dpi_scale;
     const std::size_t visible_count = static_cast<std::size_t>(std::max(
         static_cast<int>(layout.editor_bounds.height / line_height), 1));
-    m_scrollbar.synchronize(document->get_line_count(), visible_count);
+    const std::size_t total_lines = document->get_line_count();
+    m_scrollbar.synchronize(count_visible_lines(m_folding, total_lines),
+                            visible_count);
     const std::optional<std::size_t> target = m_minimap.handle_pointer_press(
-        layout, point_x, point_y, document->get_line_count(), visible_count,
-        m_scrollbar.get_first_visible_line());
+        layout, point_x, point_y, count_visible_lines(m_folding, total_lines),
+        visible_count, m_scrollbar.get_first_visible_line());
     if (target) {
       static_cast<void>(m_scrollbar.scroll_to(*target));
     }
@@ -268,7 +335,9 @@ bool TextEditor::handle_pointer_press(
     const float line_height = 20.0F * surface.m_dpi_scale;
     const std::size_t visible_count = static_cast<std::size_t>(std::max(
         static_cast<int>(layout.editor_bounds.height / line_height), 1));
-    m_scrollbar.synchronize(document->get_line_count(), visible_count);
+    m_scrollbar.synchronize(count_visible_lines(m_folding,
+                                                document->get_line_count()),
+                            visible_count);
     m_focused = true;
     m_pointer_selecting = false;
     m_reveal_caret_pending = false;
@@ -286,9 +355,10 @@ bool TextEditor::handle_pointer_press(
       const int gap2 = round_to_int(40.0F * dpi);
       const int total_height =
           logo_size + gap1 + gap2 + 3 * round_to_int(28.0F * dpi);
+      const float full_height = layout.editor_bounds.height + layout.terminal_panel_bounds.height;
       int current_y =
           round_to_int(layout.editor_bounds.y +
-                       (layout.editor_bounds.height - total_height) * 0.5F);
+                       (full_height - total_height) * 0.5F);
       current_y += logo_size + gap1;
       current_y += gap2;
 
@@ -327,14 +397,19 @@ bool TextEditor::handle_pointer_press(
     const float line_height = 20.0F * surface.m_dpi_scale;
     const std::size_t visible_count = static_cast<std::size_t>(std::max(
         static_cast<int>(layout.editor_bounds.height / line_height), 1));
-    m_scrollbar.synchronize(document->get_line_count(), visible_count);
-    const std::size_t first_line = m_scrollbar.get_first_visible_line();
+    const std::size_t total_lines = document->get_line_count();
+    m_scrollbar.synchronize(count_visible_lines(m_folding, total_lines),
+                            visible_count);
     const std::size_t clicked_row = static_cast<std::size_t>(std::max(
         static_cast<int>((point_y - layout.editor_bounds.y) / line_height), 0));
-    const std::size_t line_index =
-        std::min(first_line + clicked_row, document->get_line_count() - 1);
+    const std::size_t line_index = visual_row_to_physical_line(
+        m_folding, m_scrollbar.get_first_visible_line() + clicked_row,
+        total_lines);
     if (m_folding.is_fold_start(line_index)) {
       m_folding.toggle_fold(line_index);
+      m_scrollbar.synchronize(count_visible_lines(m_folding, total_lines),
+                              visible_count);
+      m_reveal_caret_pending = true;
       return true;
     }
   }
@@ -343,8 +418,21 @@ bool TextEditor::handle_pointer_press(
   m_pointer_selecting = true;
   const UI::Editor::TextPosition position =
       position_from_point(surface, layout, point_x, point_y);
-  static_cast<void>(
-      document->set_caret(position.line, position.column, extend_selection));
+  const bool gutter_click = layout.gutter_bounds.contains(point_x, point_y);
+  bool selected = false;
+  if (click_count >= 3 || (click_count >= 2 && gutter_click))
+  {
+    selected = document->select_line_at(position.line);
+  }
+  else if (click_count == 2)
+  {
+    selected = document->select_word_at(position.line, position.column);
+  }
+  if (!selected)
+  {
+    static_cast<void>(
+        document->set_caret(position.line, position.column, extend_selection));
+  }
   m_reveal_caret_pending = true;
   m_caret_blink.reset();
   return true;
@@ -363,6 +451,22 @@ bool TextEditor::handle_pointer_move(
     changed |= m_empty_state_clone_btn.handle_pointer_move(point_x, point_y);
     if (changed)
       return true;
+  }
+  std::optional<std::size_t> hovered_fold_line;
+  if (document != nullptr) {
+    const std::size_t total_lines = document->get_line_count();
+    const float line_height = 20.0F * layout.dpi_scale;
+    const std::size_t visible_count = static_cast<std::size_t>(std::max(
+        static_cast<int>(layout.editor_bounds.height / line_height), 1));
+    m_scrollbar.synchronize(count_visible_lines(m_folding, total_lines),
+                            visible_count);
+    hovered_fold_line = fold_start_line_at_point(
+        m_folding, layout, point_x, point_y, layout.dpi_scale,
+        m_scrollbar.get_first_visible_line(), total_lines);
+  }
+  if (hovered_fold_line != m_hovered_fold_line) {
+    m_hovered_fold_line = hovered_fold_line;
+    return true;
   }
   std::optional<std::size_t> hovered_tab;
   std::optional<std::size_t> hovered_close;
@@ -424,9 +528,10 @@ bool TextEditor::handle_pointer_drag(
     const float line_height = 20.0F * surface.m_dpi_scale;
     const std::size_t visible_count = static_cast<std::size_t>(std::max(
         static_cast<int>(layout.editor_bounds.height / line_height), 1));
+    const std::size_t total_lines = document->get_line_count();
     const std::optional<std::size_t> target = m_minimap.handle_pointer_drag(
-        layout, point_y, document->get_line_count(), visible_count,
-        m_scrollbar.get_first_visible_line());
+        layout, point_y, count_visible_lines(m_folding, total_lines),
+        visible_count, m_scrollbar.get_first_visible_line());
     if (target) {
       static_cast<void>(m_scrollbar.scroll_to(*target));
       m_reveal_caret_pending = false;
@@ -481,6 +586,39 @@ bool TextEditor::handle_scroll(
   const UI::Editor::TextDocumentModel *document =
       m_controller.get_active_document();
   if (document == nullptr) {
+    if (layout.editor_bounds.contains(point_x, point_y)) {
+      const float dpi = surface.m_dpi_scale;
+      const int center_x = round_to_int(layout.editor_bounds.x +
+                                        layout.editor_bounds.width * 0.5F);
+      const int logo_size = round_to_int(150.0F * dpi);
+      const int gap1 = round_to_int(30.0F * dpi);
+      const int gap2 = round_to_int(40.0F * dpi);
+      const int total_height =
+          logo_size + gap1 + gap2 + 3 * round_to_int(28.0F * dpi);
+      int current_y =
+          round_to_int(layout.editor_bounds.y +
+                       (layout.editor_bounds.height - total_height) * 0.5F);
+      current_y += logo_size + gap1;
+      current_y += gap2;
+
+      const float btn_w = 300.0F * dpi;
+      const float btn_h = 40.0F * dpi;
+      const float btn_x = center_x - btn_w * 0.5F;
+
+      m_empty_state_open_btn.set_bounds(
+          UI::Rect{btn_x, static_cast<float>(current_y), btn_w, btn_h});
+      current_y += round_to_int(btn_h) + round_to_int(10.0F * dpi);
+      m_empty_state_clone_btn.set_bounds(
+          UI::Rect{btn_x, static_cast<float>(current_y), btn_w, btn_h});
+
+      if (m_empty_state_open_btn.handle_pointer_press(point_x, point_y)) {
+        command_out = "zde.project.open";
+        return true;
+      }
+      if (m_empty_state_clone_btn.handle_pointer_press(point_x, point_y)) {
+        return true;
+      }
+    }
     return false;
   }
   const float line_height = 20.0F * surface.m_dpi_scale;
@@ -898,14 +1036,26 @@ void TextEditor::draw_document(
   const float code_x = layout.editor_bounds.x + 14.0F * surface.m_dpi_scale;
   const std::size_t visible_count = static_cast<std::size_t>(
       std::max(static_cast<int>(layout.editor_bounds.height / line_height), 1));
-  m_scrollbar.synchronize(document->get_line_count(), visible_count);
+  const std::size_t total_lines = document->get_line_count();
+
+  // Rebuild folding model from the current document lines.
+  m_folding.rebuild(std::vector<std::string>(document->get_lines().begin(),
+                                             document->get_lines().end()));
+
+  // The scrollbar tracks *visual* rows (hidden/folded lines are skipped).
+  m_scrollbar.synchronize(count_visible_lines(m_folding, total_lines),
+                          visible_count);
   if (m_reveal_caret_pending) {
-    static_cast<void>(m_scrollbar.reveal_line(document->get_caret_line()));
+    static_cast<void>(m_scrollbar.reveal_line(physical_line_to_visual_row(
+        m_folding, document->get_caret_line(), total_lines)));
     m_reveal_caret_pending = false;
   }
-  const std::size_t first_line = m_scrollbar.get_first_visible_line();
-  const std::size_t render_count =
-      std::min(visible_count, document->get_line_count() - first_line);
+  // Map the scrollbar's visual first row back to the physical line it lands
+  // on, then walk forward skipping hidden lines while drawing.
+  const std::size_t first_line = visual_row_to_physical_line(
+      m_folding, m_scrollbar.get_first_visible_line(), total_lines);
+  const std::size_t first_visual_row = m_scrollbar.get_first_visible_line();
+  const std::size_t render_count = visible_count;
   const bool syntax_highlighting =
       UI::Editor::supports_editor_syntax_highlighting(
           document->get_file_name());
@@ -930,10 +1080,6 @@ void TextEditor::draw_document(
     return surface.m_text.primary;
   };
 
-  // Rebuild folding model from the current document lines.
-  m_folding.rebuild(std::vector<std::string>(document->get_lines().begin(),
-                                             document->get_lines().end()));
-
   const float fold_margin =
       UI::Editor::StudioEditorMetrics::fold_margin_width * surface.m_dpi_scale;
   const float gutter_line_x = layout.gutter_bounds.right() - fold_margin - 1.0F;
@@ -941,6 +1087,68 @@ void TextEditor::draw_document(
       drawable, round_to_int(gutter_line_x),
       round_to_int(layout.gutter_bounds.y), round_to_int(gutter_line_x),
       round_to_int(layout.gutter_bounds.bottom()), surface.m_pixels.border);
+
+  // --- Indent guide rendering ---
+  {
+    // Width of a single space character in the editor font.
+    const float space_width = static_cast<float>(
+        surface.m_editor_font->getTextWidth(" "));
+    const std::size_t last_line_in_view =
+        visual_row_to_physical_line(m_folding, first_visual_row + render_count, total_lines);
+    const auto guide_ranges =
+        m_folding.get_indent_guide_ranges(first_line, last_line_in_view);
+    const UI::Components::FoldRange* active_range =
+        m_folding.get_active_indent_range(document->get_caret_line());
+
+    for (const UI::Components::FoldRange* range : guide_ranges) {
+      // The guide sits at the indent column of the opening brace line.
+      // indent_level is already in "character columns" (tab=4 spaces).
+      const float guide_x =
+          code_x + static_cast<float>(range->indent_level) * space_width;
+
+      // Skip guides that would land outside the editor area.
+      if (guide_x < layout.editor_bounds.x ||
+          guide_x > layout.editor_bounds.right()) {
+        continue;
+      }
+
+      // Compute Y range from physical lines, converting to visual rows.
+      // Use std::ptrdiff_t to prevent unsigned integer underflow when
+      // range->start_line is above the current viewport top (first_visual_row).
+      const std::ptrdiff_t start_vis_row = static_cast<std::ptrdiff_t>(
+          physical_line_to_visual_row(m_folding, range->start_line + 1, total_lines));
+      const std::ptrdiff_t end_vis_row = static_cast<std::ptrdiff_t>(
+          physical_line_to_visual_row(m_folding, range->end_line, total_lines));
+      const std::ptrdiff_t first_vis_row = static_cast<std::ptrdiff_t>(first_visual_row);
+
+      const float y_top_raw =
+          layout.editor_bounds.y +
+          static_cast<float>(start_vis_row - first_vis_row) * line_height;
+      const float y_bottom_raw =
+          layout.editor_bounds.y +
+          static_cast<float>(end_vis_row - first_vis_row + 1) * line_height;
+
+      // Clip to the editor viewport.
+      const float y_top =
+          std::max(y_top_raw, layout.editor_bounds.y);
+      const float y_bottom =
+          std::min(y_bottom_raw, layout.editor_bounds.bottom());
+      if (y_top >= y_bottom) {
+        continue;
+      }
+
+      const bool is_active =
+          active_range != nullptr &&
+          range->start_line == active_range->start_line &&
+          range->end_line == active_range->end_line;
+
+      surface.draw_line(
+          drawable, round_to_int(guide_x), round_to_int(y_top),
+          round_to_int(guide_x), round_to_int(y_bottom),
+          is_active ? surface.m_pixels.indent_guide_active
+                    : surface.m_pixels.indent_guide);
+    }
+  }
 
   // Collect selection target rects (relative to code_x) and feed the animation
   // model.
@@ -974,7 +1182,10 @@ void TextEditor::draw_document(
           std::max(layout.editor_bounds.right() - code_x - selection_x, 0.0F));
 
       selection_targets.push_back(
-          UI::Rect{selection_x, static_cast<float>(line_index) * line_height,
+          UI::Rect{selection_x,
+                   static_cast<float>(physical_line_to_visual_row(
+                       m_folding, line_index, total_lines)) *
+                       line_height,
                    selection_width, line_height});
     }
   } else {
@@ -993,7 +1204,7 @@ void TextEditor::draw_document(
         continue;
 
       const float screen_y = layout.editor_bounds.y + anim_rect.y -
-                             static_cast<float>(first_line) * line_height;
+                             static_cast<float>(first_visual_row) * line_height;
       const float screen_x = code_x + anim_rect.x;
 
       if (screen_y + anim_rect.height >= layout.editor_bounds.y &&
@@ -1006,11 +1217,16 @@ void TextEditor::draw_document(
     }
   }
 
-  for (std::size_t row = 0; row < render_count; ++row) {
-    const std::size_t line_index = first_line + row;
+  std::size_t row = 0;
+  for (std::size_t line_index = first_line;
+       row < render_count && line_index < total_lines; ++line_index) {
+    if (m_folding.is_line_hidden(line_index)) {
+      continue;
+    }
     const std::string_view line = document->get_line(line_index);
     const float center_y =
         first_center_y + static_cast<float>(row) * line_height;
+    ++row;
     const bool active_line = line_index == document->get_caret_line();
     if (active_line) {
       surface.fill_rectangle(
@@ -1021,9 +1237,11 @@ void TextEditor::draw_document(
           surface.m_pixels.active_line_background);
     }
     const std::string number = std::to_string(line_index + 1);
+    // Tuck the line number in tight against the fold margin so the gutter
+    // reads as one continuous column rather than three disjoint blocks.
     const float number_x =
         layout.gutter_bounds.right() - fold_margin -
-        10.0F * surface.m_dpi_scale -
+        4.0F * surface.m_dpi_scale -
         static_cast<float>(surface.m_small_font->getTextWidth(number));
     surface.draw_text(
         drawable, *surface.m_small_font, number, number_x, center_y,
@@ -1063,35 +1281,43 @@ void TextEditor::draw_document(
         fold_marker == UI::Components::FoldMarker::Collapsed) {
       const int box_half =
           std::max(round_to_int(5.0F * surface.m_dpi_scale), 4);
+      const bool fold_hovered =
+          m_hovered_fold_line && *m_hovered_fold_line == line_index;
 
-      // Box background.
-      surface.fill_rectangle(drawable,
-                             UI::Rect{static_cast<float>(fold_cx - box_half),
-                                      static_cast<float>(fold_cy - box_half),
-                                      static_cast<float>(box_half * 2),
-                                      static_cast<float>(box_half * 2)},
-                             surface.m_pixels.editor_background);
+      // Box background. Match the active-line highlight when present so the
+      // fold widget blends into the gutter instead of sitting on a flat box.
+      surface.fill_rectangle(
+          drawable,
+          UI::Rect{static_cast<float>(fold_cx - box_half),
+                   static_cast<float>(fold_cy - box_half),
+                   static_cast<float>(box_half * 2),
+                   static_cast<float>(box_half * 2)},
+          active_line ? surface.m_pixels.active_line_background
+                      : surface.m_pixels.editor_background);
 
       // Box border.
-      surface.draw_rectangle(drawable,
-                             UI::Rect{static_cast<float>(fold_cx - box_half),
-                                      static_cast<float>(fold_cy - box_half),
-                                      static_cast<float>(box_half * 2),
-                                      static_cast<float>(box_half * 2)},
-                             surface.m_pixels.border);
+      surface.draw_rectangle(
+          drawable,
+          UI::Rect{static_cast<float>(fold_cx - box_half),
+                   static_cast<float>(fold_cy - box_half),
+                   static_cast<float>(box_half * 2),
+                   static_cast<float>(box_half * 2)},
+          fold_hovered ? surface.m_pixels.accent : surface.m_pixels.border);
 
       // Horizontal line of +/- (always present).
       const int sign_inset =
           std::max(round_to_int(2.0F * surface.m_dpi_scale), 2);
       surface.draw_line(drawable, fold_cx - box_half + sign_inset, fold_cy,
                         fold_cx + box_half - sign_inset, fold_cy,
-                        surface.m_pixels.text_muted);
+                        fold_hovered ? surface.m_pixels.accent
+                                     : surface.m_pixels.text_muted);
 
       if (fold_marker == UI::Components::FoldMarker::Collapsed) {
         // Vertical line of + (only when collapsed).
         surface.draw_line(drawable, fold_cx, fold_cy - box_half + sign_inset,
                           fold_cx, fold_cy + box_half - sign_inset,
-                          surface.m_pixels.text_muted);
+                          fold_hovered ? surface.m_pixels.accent
+                                       : surface.m_pixels.text_muted);
       }
     } else if (fold_marker == UI::Components::FoldMarker::Continuation) {
       surface.draw_line(drawable, fold_cx,
@@ -1245,15 +1471,17 @@ UI::Editor::TextPosition TextEditor::position_from_point(
   const float line_height = 20.0F * surface.m_dpi_scale;
   const std::size_t visible_count = static_cast<std::size_t>(
       std::max(static_cast<int>(layout.editor_bounds.height / line_height), 1));
-  m_scrollbar.synchronize(document->get_line_count(), visible_count);
+  const std::size_t total_lines = document->get_line_count();
+  m_scrollbar.synchronize(count_visible_lines(m_folding, total_lines),
+                          visible_count);
   const std::size_t first_line = m_scrollbar.get_first_visible_line();
   const float clamped_y = std::clamp(
       point_y, layout.editor_bounds.y,
       std::max(layout.editor_bounds.bottom() - 1.0F, layout.editor_bounds.y));
   const std::size_t clicked_row = static_cast<std::size_t>(std::max(
       static_cast<int>((clamped_y - layout.editor_bounds.y) / line_height), 0));
-  const std::size_t line_index =
-      std::min(first_line + clicked_row, document->get_line_count() - 1);
+  const std::size_t line_index = visual_row_to_physical_line(
+      m_folding, first_line + clicked_row, total_lines);
   const std::string_view line = document->get_line(line_index);
   const float code_x = layout.editor_bounds.x + 14.0F * surface.m_dpi_scale;
   const float target_x = std::max(point_x - code_x, 0.0F);

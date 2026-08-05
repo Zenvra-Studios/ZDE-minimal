@@ -38,6 +38,7 @@ public:
         float point_x,
         float point_y,
         bool extend_selection,
+        int click_count,
         std::string& command_out);
     [[nodiscard]] bool is_tab_interactive_point(
         const StudioWorkspaceRenderer& surface,
@@ -72,6 +73,11 @@ public:
         float point_x,
         float point_y) const noexcept;
     [[nodiscard]] bool is_minimap_point(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) const noexcept;
+    [[nodiscard]] bool is_fold_margin_point(
+        const StudioWorkspaceRenderer& surface,
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y) const noexcept;
@@ -120,6 +126,7 @@ private:
     mutable std::size_t m_tab_count = 0;
     std::optional<std::size_t> m_hovered_tab_index;
     std::optional<std::size_t> m_hovered_tab_close_index;
+    mutable std::optional<std::size_t> m_hovered_fold_line;
     mutable UI::Editor::SelectionAnimationModel m_selection_animation;
     mutable UI::Editor::BraceAnimationModel m_brace_animation;
     mutable UI::Components::Button m_empty_state_open_btn;

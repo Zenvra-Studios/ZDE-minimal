@@ -18,6 +18,7 @@ class ToolSidebar
 {
 public:
     [[nodiscard]] bool initialize();
+    [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root);
     [[nodiscard]] bool activate(UI::Editor::SidebarIcon icon) noexcept;
     [[nodiscard]] bool handle_pointer_press(
         const UI::Editor::StudioEditorLayoutResult& layout,

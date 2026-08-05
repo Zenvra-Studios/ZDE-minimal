@@ -61,6 +61,19 @@ std::size_t character_count(std::string_view text)
         }));
 }
 
+bool is_word_character(char character)
+{
+    const unsigned char value = static_cast<unsigned char>(character);
+    if (value >= 0x80U)
+    {
+        return true;
+    }
+    return (value >= 'a' && value <= 'z') ||
+        (value >= 'A' && value <= 'Z') ||
+        (value >= '0' && value <= '9') ||
+        value == '_';
+}
+
 } // namespace
 
 TextDocumentModel::TextDocumentModel()
@@ -224,6 +237,98 @@ bool TextDocumentModel::select_all() noexcept
     m_selection_anchor = {};
     m_caret_line = m_lines.size() - 1;
     m_caret_column = m_lines.back().size();
+    update_preferred_column();
+    return previous_anchor != m_selection_anchor ||
+        previous_caret != TextPosition{m_caret_line, m_caret_column};
+}
+
+bool TextDocumentModel::select_word_at(std::size_t line_index, std::size_t byte_column)
+{
+    if (m_read_only || line_index >= m_lines.size())
+    {
+        return false;
+    }
+    const std::string& line = m_lines[line_index];
+    if (line.empty())
+    {
+        return false;
+    }
+    byte_column = clamp_to_character_boundary(line, byte_column);
+    if (byte_column >= line.size())
+    {
+        byte_column = previous_character_column(line, byte_column);
+    }
+    const char clicked = line[byte_column];
+    if (clicked == ' ' || clicked == '\t')
+    {
+        return false;
+    }
+    const bool clicked_word = is_word_character(clicked);
+    std::size_t start = byte_column;
+    std::size_t end = byte_column;
+    if (clicked_word)
+    {
+        while (start > 0)
+        {
+            const std::size_t previous = previous_character_column(line, start);
+            if (!is_word_character(line[previous]))
+            {
+                break;
+            }
+            start = previous;
+        }
+        std::size_t next = next_character_column(line, end);
+        while (next < line.size() && is_word_character(line[next]))
+        {
+            end = next;
+            next = next_character_column(line, end);
+        }
+        end = next;
+    }
+    else
+    {
+        while (start > 0)
+        {
+            const std::size_t previous = previous_character_column(line, start);
+            const char character = line[previous];
+            if (character == ' ' || character == '\t' || is_word_character(character))
+            {
+                break;
+            }
+            start = previous;
+        }
+        std::size_t next = next_character_column(line, end);
+        while (next < line.size())
+        {
+            const char character = line[next];
+            if (character == ' ' || character == '\t' || is_word_character(character))
+            {
+                break;
+            }
+            end = next;
+            next = next_character_column(line, end);
+        }
+        end = next;
+    }
+
+    m_caret_line = line_index;
+    m_caret_column = end;
+    m_selection_anchor = {line_index, start};
+    update_preferred_column();
+    return true;
+}
+
+bool TextDocumentModel::select_line_at(std::size_t line_index) noexcept
+{
+    if (m_read_only || line_index >= m_lines.size())
+    {
+        return false;
+    }
+    const TextPosition previous_caret{m_caret_line, m_caret_column};
+    const TextPosition previous_anchor = m_selection_anchor;
+    m_caret_line = line_index;
+    m_caret_column = m_lines[line_index].size();
+    m_selection_anchor = {line_index, 0};
     update_preferred_column();
     return previous_anchor != m_selection_anchor ||
         previous_caret != TextPosition{m_caret_line, m_caret_column};
@@ -395,8 +500,11 @@ bool TextDocumentModel::execute(EditorInputCommand command, bool extend_selectio
         break;
     case EditorInputCommand::InsertTab:
         edited = delete_selection() || edited;
-        m_lines[m_caret_line].insert(m_caret_column, 4, ' ');
-        m_caret_column += 4;
+        {
+            const std::size_t spaces_to_add = 4 - (m_caret_column % 4);
+            m_lines[m_caret_line].insert(m_caret_column, spaces_to_add, ' ');
+            m_caret_column += spaces_to_add;
+        }
         edited = true;
         break;
     case EditorInputCommand::DeleteBackward:
@@ -565,7 +673,7 @@ void TextDocumentModel::insert_new_line()
         {
             is_block_comment_middle = true;
         }
-        else if (trimmed_prev.ends_with("{"))
+        else if (trimmed_prev.ends_with("{") || trimmed_prev.ends_with("(") || trimmed_prev.ends_with("["))
         {
             is_open_brace = true;
         }
@@ -629,10 +737,20 @@ void TextDocumentModel::delete_backward()
 {
     if (m_caret_column > 0)
     {
-        const std::size_t previous_column = previous_character_column(
-            m_lines[m_caret_line], m_caret_column);
-        m_lines[m_caret_line].erase(previous_column, m_caret_column - previous_column);
-        m_caret_column = previous_column;
+        const std::string& line = m_lines[m_caret_line];
+        constexpr std::size_t kIndentWidth = 4;
+        std::size_t erase_start = previous_character_column(line, m_caret_column);
+        if (line.find_first_not_of(' ') >= m_caret_column)
+        {
+            std::size_t width = m_caret_column % kIndentWidth;
+            if (width == 0)
+            {
+                width = kIndentWidth;
+            }
+            erase_start = m_caret_column - width;
+        }
+        m_lines[m_caret_line].erase(erase_start, m_caret_column - erase_start);
+        m_caret_column = erase_start;
         return;
     }
     const std::size_t previous_line = m_caret_line - 1;

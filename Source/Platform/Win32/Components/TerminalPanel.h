@@ -9,6 +9,7 @@
 #include <windows.h>
 
 #include <cstddef>
+#include <filesystem>
 #include <string_view>
 
 namespace Zenvra::Platform::Win32::Components
@@ -49,6 +50,7 @@ public:
     [[nodiscard]] bool is_maximized() const noexcept;
     [[nodiscard]] float get_height() const noexcept;
     void set_focused(bool focused) noexcept;
+    void set_working_directory(const std::filesystem::path& directory) noexcept;
     [[nodiscard]] bool contains(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
@@ -77,6 +79,9 @@ private:
     Terminal::TerminalPanelModel m_model;
     Terminal::TerminalResizeModel m_resize_model;
     UI::Editor::CaretBlinkModel m_caret_blink;
+    std::filesystem::path m_working_directory;
+    std::size_t m_last_total_rows = 0;
+    std::size_t m_last_visible_rows = 0;
     std::size_t m_horizontal_scroll_offset = 0;
     bool m_dragging_horizontal_scrollbar = false;
     float m_drag_start_x = 0.0F;

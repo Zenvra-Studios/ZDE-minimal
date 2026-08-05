@@ -60,6 +60,19 @@ public:
     /// Check if a line is the start of any fold range.
     [[nodiscard]] bool is_fold_start(std::size_t line_index) const noexcept;
 
+    /// Returns pointers to all expanded (non-collapsed) fold ranges whose
+    /// line span overlaps the viewport [first_line, last_line].  Used by the
+    /// indent-guide renderer.
+    [[nodiscard]] std::vector<const FoldRange*> get_indent_guide_ranges(
+        std::size_t first_line,
+        std::size_t last_line) const;
+
+    /// Returns the innermost expanded fold range that contains `line_index`,
+    /// or nullptr if the line is not inside any expanded range.  Used to
+    /// highlight the "active" indent guide near the caret.
+    [[nodiscard]] const FoldRange* get_active_indent_range(
+        std::size_t line_index) const noexcept;
+
 private:
     std::vector<FoldRange> m_ranges;
     std::unordered_set<std::size_t> m_collapsed;

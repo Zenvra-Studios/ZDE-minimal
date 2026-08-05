@@ -14,6 +14,7 @@ add_library(ZDEPlatformWin32 STATIC
     Components/TerminalPanel.cpp
     Components/TextEditor.cpp
     Components/ToolSidebar.cpp
+    Utility/Win32Dialogs.cpp
 )
 
 target_include_directories(ZDEPlatformWin32 PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../..")
@@ -27,6 +28,6 @@ target_compile_definitions(ZDEPlatformWin32 PRIVATE
 target_link_libraries(ZDEPlatformWin32
     PUBLIC Zenvra::Core
     PRIVATE Zenvra::Commands Zenvra::UI Zenvra::Terminal lunasvg ZDEUtility
-            user32 gdi32 shell32 dwmapi uxtheme usp10
+            user32 gdi32 shell32 dwmapi uxtheme usp10 ole32 uuid
 )
 zde_enable_warnings(ZDEPlatformWin32)

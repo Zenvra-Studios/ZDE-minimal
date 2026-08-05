@@ -1,12 +1,13 @@
 #include "Platform/Win32/Win32Window.h"
 #include "Config/resource.h"
 #include "Platform/Win32/Event/ScrollEvent.h"
-
 #include "Commands/CommandIds.h"
+#include "Platform/PlatformDialogs.h"
 #include "Platform/Win32/Components/FileDropTarget.h"
 #include "UI/Components/MenuModel.h"
 #include "Utility/MathUtil.h"
 #include "Utility/TextEncoding.h"
+
 #include <dwmapi.h>
 #include <uxtheme.h>
 #include <vssym32.h>
@@ -15,6 +16,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <utility>
 
@@ -352,6 +354,33 @@ void Win32Window::set_command_state_query_callback(
                    ? m_command_state_query_callback(command_id)
                    : CommandPresentationState{true, false};
       });
+}
+
+bool Win32Window::open_project_folder() {
+  const std::optional<std::filesystem::path> selected =
+      Zenvra::Platform::open_folder_dialog();
+  if (!selected || selected->empty()) {
+    return true;
+  }
+  if (!m_workspace_renderer.set_workspace_root(*selected)) {
+    std::cerr << "Could not open workspace folder: " << selected->string()
+              << '\n';
+    return true;
+  }
+
+  std::error_code path_error;
+  const std::filesystem::path canonical =
+      std::filesystem::weakly_canonical(*selected, path_error);
+  const std::filesystem::path display_root = path_error ? *selected : canonical;
+  const std::string folder_name = display_root.filename().empty()
+                                      ? display_root.string()
+                                      : display_root.filename().string();
+  m_window_title = utf8_to_wide(folder_name + " - " + m_specification.title);
+  if (m_window_handle != nullptr) {
+    SetWindowTextW(m_window_handle, m_window_title.c_str());
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+  }
+  return true;
 }
 
 LRESULT CALLBACK Win32Window::window_proc(HWND window_handle, UINT message,
@@ -866,19 +895,27 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           client_bounds.bottom - client_bounds.top,
           m_chrome_layout.titlebar_bounds.bottom());
       HDC device_context = GetDC(window_handle);
+      std::string command_out;
       const bool handled = device_context != nullptr &&
                            m_workspace_renderer.handle_pointer_press(
                                device_context, point_x, point_y,
                                client_bounds.right - client_bounds.left,
                                client_bounds.bottom - client_bounds.top,
                                m_chrome_layout.titlebar_bounds.bottom(),
-                               (w_param & MK_SHIFT) != 0);
+                               (w_param & MK_SHIFT) != 0,
+                               command_out);
       if (device_context != nullptr) {
         ReleaseDC(window_handle, device_context);
       }
       if (handled) {
+        if (!command_out.empty()) {
+          if (command_out == "zde.project.open") {
+            open_project_folder();
+          }
+        }
         if (editor_point || scrollbar_point || minimap_point ||
-            m_workspace_renderer.is_terminal_resizing()) {
+            m_workspace_renderer.is_terminal_resizing() ||
+            m_workspace_renderer.is_sidebar_resizing()) {
           m_workspace_pointer_captured = true;
           SetCapture(window_handle);
         }
@@ -1000,7 +1037,16 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
               static_cast<float>(cursor_position.y),
               client_bounds.right - client_bounds.left,
               client_bounds.bottom - client_bounds.top,
-              m_chrome_layout.titlebar_bounds.bottom());
+              m_chrome_layout.titlebar_bounds.bottom()) ||
+          m_workspace_renderer.is_fold_margin_point(
+              static_cast<float>(cursor_position.x),
+              static_cast<float>(cursor_position.y),
+              client_bounds.right - client_bounds.left,
+              client_bounds.bottom - client_bounds.top,
+              m_chrome_layout.titlebar_bounds.bottom()) ||
+          m_workspace_renderer.is_editor_interactive_point(
+              static_cast<float>(cursor_position.x),
+              static_cast<float>(cursor_position.y));
       if (interactive) {
         SetCursor(LoadCursorW(nullptr, IDC_HAND));
         return TRUE;
@@ -1012,6 +1058,15 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
               client_bounds.bottom - client_bounds.top,
               m_chrome_layout.titlebar_bounds.bottom())) {
         SetCursor(LoadCursorW(nullptr, IDC_SIZENS));
+        return TRUE;
+      }
+      if (m_workspace_renderer.is_sidebar_resize_handle_point(
+              static_cast<float>(cursor_position.x),
+              static_cast<float>(cursor_position.y),
+              client_bounds.right - client_bounds.left,
+              client_bounds.bottom - client_bounds.top,
+              m_chrome_layout.titlebar_bounds.bottom())) {
+        SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
         return TRUE;
       }
       if (m_workspace_renderer.is_editor_point(
@@ -1647,7 +1702,7 @@ void Win32Window::paint_custom_chrome() {
         static_cast<int>(m_chrome_layout.compiler_bounds.y +
                          m_chrome_layout.compiler_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(
-        buffer_context, "Assets/icons/chevron-right.svg", chevron_x, chevron_y,
+        buffer_context, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
         std::max(static_cast<int>(12.0F * scale), 10),
         m_workspace_renderer.m_palette.text_muted, m_theme.titlebar_background);
   }
@@ -1669,7 +1724,7 @@ void Win32Window::paint_custom_chrome() {
         static_cast<int>(m_chrome_layout.platform_bounds.y +
                          m_chrome_layout.platform_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(
-        buffer_context, "Assets/icons/chevron-right.svg", chevron_x, chevron_y,
+        buffer_context, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
         std::max(static_cast<int>(12.0F * scale), 10),
         m_workspace_renderer.m_palette.text_muted,
         m_platform_button_hovered ? m_theme.hover
@@ -1702,7 +1757,7 @@ void Win32Window::paint_custom_chrome() {
         static_cast<int>(m_chrome_layout.binary_bounds.y +
                          m_chrome_layout.binary_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(
-        buffer_context, "Assets/icons/chevron-right.svg", chevron_x, chevron_y,
+        buffer_context, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
         std::max(static_cast<int>(12.0F * scale), 10),
         m_workspace_renderer.m_palette.text_muted,
         m_binary_button_hovered ? m_theme.hover : m_theme.titlebar_background);

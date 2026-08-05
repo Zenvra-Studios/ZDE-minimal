@@ -34,6 +34,7 @@ public:
 
     [[nodiscard]] bool initialize(Display* display, int screen, float dpi_scale);
     [[nodiscard]] bool open_file(const std::filesystem::path& path);
+    [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root);
     [[nodiscard]] std::size_t open_dropped_paths(
         std::span<const std::filesystem::path> dropped_paths);
     [[nodiscard]] bool create_buffer();
@@ -44,6 +45,7 @@ public:
         int client_height,
         float content_top,
         bool extend_selection,
+        int click_count,
         Time event_time,
         std::string& command_out);
     [[nodiscard]] bool handle_pointer_move(
@@ -74,7 +76,7 @@ public:
     [[nodiscard]] bool handle_text_input(std::string_view utf8_text);
     [[nodiscard]] bool handle_terminal_key(Terminal::TerminalInputKey key);
     [[nodiscard]] bool handle_terminal_control(char letter);
-    [[nodiscard]] bool handle_terminal_scroll(std::ptrdiff_t line_delta) noexcept;
+    [[nodiscard]] bool handle_terminal_scroll(std::ptrdiff_t line_delta, bool horizontal) noexcept;
     [[nodiscard]] bool handle_tool_sidebar_scroll(
         std::ptrdiff_t line_delta,
         int client_width,
@@ -107,6 +109,12 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_minimap_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_fold_margin_point(
         float point_x,
         float point_y,
         int client_width,
@@ -163,6 +171,9 @@ private:
         unsigned long accent = 0;
         unsigned long warning = 0;
         unsigned long success = 0;
+        unsigned long hover_background = 0;
+        unsigned long indent_guide = 0;
+        unsigned long indent_guide_active = 0;
     };
 
     struct PaletteText

@@ -127,11 +127,21 @@ ActivityPanelAction ActivityPanelModel::activate_project_row(std::size_t visible
         return {};
     }
     const std::size_t item_index = m_scroll_offset + visible_row;
+    return activate_project_item(item_index);
+}
+
+ActivityPanelAction ActivityPanelModel::activate_project_item(std::size_t item_index)
+{
+    if (!m_visible || m_active_icon != SidebarIcon::Project)
+    {
+        return {};
+    }
     if (item_index >= m_project_items.size())
     {
         return {};
     }
-    const ProjectTreeItem item = m_project_items[item_index];
+
+    const ProjectTreeItem& item = m_project_items[item_index];
     if (!item.directory)
     {
         return ActivityPanelAction{.handled = true, .file_to_open = item.path};
@@ -168,10 +178,21 @@ bool ActivityPanelModel::scroll(
         const std::size_t amount = static_cast<std::size_t>(-line_delta);
         m_scroll_offset = amount > m_scroll_offset ? 0 : m_scroll_offset - amount;
     }
-    return previous != m_scroll_offset;
+    return m_scroll_offset != previous;
+}
+
+void ActivityPanelModel::set_scroll_offset(std::size_t offset) noexcept
+{
+    m_scroll_offset = std::min(offset, m_project_items.empty() ? 0U : m_project_items.size() - 1);
 }
 
 bool ActivityPanelModel::is_visible() const noexcept { return m_visible; }
+
+void ActivityPanelModel::set_visible(bool visible) noexcept
+{
+    m_visible = visible;
+}
+
 bool ActivityPanelModel::is_active(SidebarIcon icon) const noexcept
 {
     return m_visible && m_active_icon == icon;

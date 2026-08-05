@@ -18,8 +18,14 @@ int round_to_int(float value)
     return static_cast<int>(std::lround(value));
 }
 
-std::filesystem::path current_terminal_directory()
+
+std::filesystem::path current_terminal_directory(
+    const std::filesystem::path& workspace_root)
 {
+    if (!workspace_root.empty())
+    {
+        return workspace_root;
+    }
     std::error_code error;
     const std::filesystem::path current = std::filesystem::current_path(error);
     return error ? std::filesystem::path{} : current;
@@ -30,7 +36,8 @@ std::filesystem::path current_terminal_directory()
 bool TerminalPanel::toggle()
 {
     const bool was_visible = m_model.is_visible();
-    const bool changed = m_model.toggle(current_terminal_directory());
+    const std::filesystem::path initial_directory = current_terminal_directory(m_working_directory);
+    const bool changed = m_model.toggle(initial_directory);
     if (m_model.is_visible() && !was_visible)
     {
         m_resize_model.reset();
@@ -72,13 +79,14 @@ bool TerminalPanel::handle_pointer_press(
         return false;
     }
     m_model.set_focused(true);
+    m_cursor_blink.reset();
     if (close_button_bounds(layout).contains(point_x, point_y))
     {
         return m_model.close_active_session();
     }
     if (add_button_bounds(layout).contains(point_x, point_y))
     {
-        return m_model.create_session(current_terminal_directory());
+        return m_model.create_session(current_terminal_directory(m_working_directory));
     }
     const std::span<const Terminal::TerminalSessionEntry> sessions = m_model.get_sessions();
     for (std::size_t index = 0; index < sessions.size(); ++index)
@@ -86,6 +94,7 @@ bool TerminalPanel::handle_pointer_press(
         if (session_tab_bounds(layout, index).contains(point_x, point_y))
         {
             static_cast<void>(m_model.activate_session(index));
+            m_cursor_blink.reset();
             return true;
         }
     }
@@ -117,13 +126,59 @@ bool TerminalPanel::handle_pointer_release() noexcept
     return m_resize_model.end_resize();
 }
 
-bool TerminalPanel::handle_text_input(std::string_view text) { return m_model.send_text(text); }
-bool TerminalPanel::handle_key(Terminal::TerminalInputKey key) { return m_model.send_key(key); }
-bool TerminalPanel::handle_control(char letter) { return m_model.send_control(letter); }
-bool TerminalPanel::handle_scroll(std::ptrdiff_t line_delta) noexcept { return m_model.scroll(line_delta); }
+bool TerminalPanel::handle_text_input(std::string_view text) {
+  const bool changed = m_model.send_text(text);
+  if (changed) {
+    m_cursor_blink.reset();
+    m_force_horizontal_scroll_to_cursor = true;
+  }
+  return changed;
+}
+bool TerminalPanel::handle_key(Terminal::TerminalInputKey key) {
+  const bool changed = m_model.send_key(key);
+  if (changed) {
+    m_cursor_blink.reset();
+    m_force_horizontal_scroll_to_cursor = true;
+  }
+  return changed;
+}
+bool TerminalPanel::handle_control(char letter) {
+  const bool changed = m_model.send_control(letter);
+  if (changed) {
+    m_cursor_blink.reset();
+    m_force_horizontal_scroll_to_cursor = true;
+  }
+  return changed;
+}
+bool TerminalPanel::handle_scroll(std::ptrdiff_t line_delta, bool horizontal) noexcept
+{
+    if (horizontal)
+    {
+        std::ptrdiff_t new_offset = static_cast<std::ptrdiff_t>(m_horizontal_scroll_offset) + line_delta;
+        if (new_offset < 0) new_offset = 0;
+        if (m_horizontal_scroll_offset != static_cast<std::size_t>(new_offset))
+        {
+            m_horizontal_scroll_offset = static_cast<std::size_t>(new_offset);
+            return true;
+        }
+        return false;
+    }
+
+    const std::size_t maximum_offset = m_last_total_rows > m_last_visible_rows
+        ? m_last_total_rows - m_last_visible_rows
+        : 0;
+    return m_model.scroll(line_delta, maximum_offset);
+}
 bool TerminalPanel::poll()
 {
     const bool changed = m_model.poll();
+    if (changed)
+    {
+        // New output should wake the cursor so it is visible right after
+        // activity.
+        m_cursor_blink.reset();
+        m_force_horizontal_scroll_to_cursor = true;
+    }
     if (!m_model.is_visible())
     {
         static_cast<void>(m_resize_model.end_resize());
@@ -131,18 +186,40 @@ bool TerminalPanel::poll()
     }
     return changed;
 }
+
+bool TerminalPanel::tick_animations() noexcept
+{
+    if (!m_model.is_visible() || !m_model.is_focused())
+    {
+        return false;
+    }
+    return m_cursor_blink.tick();
+}
 void TerminalPanel::shutdown() noexcept
 {
     m_model.shutdown();
     m_resize_model.reset();
     m_last_resize_click_time = 0;
 }
-bool TerminalPanel::is_visible() const noexcept { return m_model.is_visible(); }
+bool TerminalPanel::is_visible() const noexcept
+{
+    return m_model.is_visible();
+}
+
+void TerminalPanel::set_working_directory(
+    const std::filesystem::path& directory) noexcept
+{
+    m_working_directory = directory;
+}
 bool TerminalPanel::is_focused() const noexcept { return m_model.is_focused(); }
 bool TerminalPanel::is_resizing() const noexcept { return m_resize_model.is_resizing(); }
 bool TerminalPanel::is_maximized() const noexcept { return m_resize_model.is_maximized(); }
 float TerminalPanel::get_height() const noexcept { return m_resize_model.get_height(); }
-void TerminalPanel::set_focused(bool focused) noexcept { m_model.set_focused(focused); }
+void TerminalPanel::set_focused(bool focused) noexcept
+{
+    m_model.set_focused(focused);
+    m_cursor_blink.reset();
+}
 
 bool TerminalPanel::contains(
     const UI::Editor::StudioEditorLayoutResult& layout,
@@ -264,13 +341,47 @@ void TerminalPanel::render(
         (layout.terminal_content_bounds.width - 22.0F * surface.m_dpi_scale) /
             static_cast<float>(glyph_width),
         1.0F));
-    m_model.resize(visible_columns, std::max<std::size_t>(visible_rows, 1));
+    // Only resize the PTY row count – never shrink the column count.
+    // Shrinking columns triggers a SIGWINCH that makes bash/readline
+    // re-wrap its output with escape sequences this basic emulator
+    // can't handle, which corrupts the displayed text.
+    constexpr std::size_t minimum_pty_columns = 200;
+    const std::size_t pty_columns = std::max(visible_columns, minimum_pty_columns);
+    m_model.resize(pty_columns, std::max<std::size_t>(visible_rows, 1));
     if (visible_rows == 0)
     {
         return;
     }
     const std::span<const std::string> lines = session->get_lines();
-    const std::size_t offset = std::min(m_model.get_scroll_offset(), lines.size());
+    std::size_t max_line_length = 0;
+    for (const auto& line : lines)
+    {
+        max_line_length = std::max(max_line_length, line.size());
+    }
+
+    const std::size_t maximum_offset = lines.size() > visible_rows
+        ? lines.size() - visible_rows
+        : 0;
+    const std::size_t offset = std::min(m_model.get_scroll_offset(), maximum_offset);
+    m_last_total_rows = lines.size();
+    m_last_visible_rows = visible_rows;
+
+    // Auto-scroll horizontally to keep the cursor visible on the
+    // active (bottom) line while the user is typing.
+    if (m_force_horizontal_scroll_to_cursor && is_focused() && offset == 0 && !lines.empty())
+    {
+        const std::size_t last_line_len = lines.back().size();
+        if (last_line_len > m_horizontal_scroll_offset + visible_columns)
+        {
+            m_horizontal_scroll_offset = last_line_len - visible_columns;
+        }
+        else if (m_horizontal_scroll_offset > 0 && last_line_len <= visible_columns)
+        {
+            m_horizontal_scroll_offset = 0;
+        }
+        m_force_horizontal_scroll_to_cursor = false;
+    }
+
     const std::size_t end = lines.size() - offset;
     const std::size_t start = end > visible_rows ? end - visible_rows : 0;
     const std::size_t displayed_rows = end - start;
@@ -279,13 +390,16 @@ void TerminalPanel::render(
     float center_y = first_center_y;
     for (std::size_t index = start; index < end; ++index)
     {
-        const std::string_view line = lines[index].size() > visible_columns
-            ? std::string_view{lines[index]}.substr(0, visible_columns)
-            : std::string_view{lines[index]};
+        const std::size_t h_offset = m_horizontal_scroll_offset;
+        const std::size_t len = lines[index].size();
+        const std::string_view line = len > h_offset
+            ? std::string_view{lines[index]}.substr(h_offset, std::min(visible_columns, len - h_offset))
+            : std::string_view{};
         surface.draw_text(drawable, *surface.m_editor_font, line,
             layout.terminal_content_bounds.x + padding_x, center_y, surface.m_text.primary);
         center_y += line_height;
     }
+    // Vertical scrollbar.
     if (lines.size() > visible_rows)
     {
         const float track_top = layout.terminal_content_bounds.y + content_top_padding - surface.m_dpi_scale;
@@ -294,10 +408,15 @@ void TerminalPanel::render(
         const float thumb_height = std::max(
             track_height * static_cast<float>(visible_rows) / static_cast<float>(lines.size()),
             18.0F * surface.m_dpi_scale);
-        const std::size_t maximum_start = lines.size() - visible_rows;
-        const float progress = maximum_start == 0
+        const float progress = maximum_offset == 0
             ? 0.0F
-            : static_cast<float>(start) / static_cast<float>(maximum_start);
+            : static_cast<float>(maximum_offset - offset) / static_cast<float>(maximum_offset);
+        surface.fill_rectangle(drawable,
+            UI::Rect{layout.terminal_content_bounds.right() - 4.0F * surface.m_dpi_scale,
+                track_top,
+                2.0F * surface.m_dpi_scale,
+                track_height},
+            surface.m_pixels.tab_background);
         surface.fill_rectangle(drawable,
             UI::Rect{layout.terminal_content_bounds.right() - 4.0F * surface.m_dpi_scale,
                 track_top +
@@ -306,16 +425,48 @@ void TerminalPanel::render(
                 std::min(thumb_height, track_height)},
             surface.m_pixels.text_muted);
     }
-    if (is_focused() && offset == 0 && !lines.empty())
+
+    // Horizontal scrollbar.
+    if (max_line_length > visible_columns)
     {
-        const std::string& last = lines.back();
-        const std::string cursor_text = last.substr(0, std::min(last.size(), visible_columns));
-        const int cursor_x = round_to_int(layout.terminal_content_bounds.x + padding_x) +
-            surface.m_editor_font->getTextWidth(cursor_text);
-        const int cursor_y = round_to_int(first_center_y +
-            static_cast<float>(displayed_rows - 1) * line_height - line_height * 0.5F);
+        const float track_left = layout.terminal_content_bounds.x + padding_x;
+        const float track_right = layout.terminal_content_bounds.right() - 14.0F * surface.m_dpi_scale;
+        const float track_width = std::max(track_right - track_left, 1.0F);
+        const float thumb_width = std::max(
+            track_width * static_cast<float>(visible_columns) / static_cast<float>(max_line_length),
+            18.0F * surface.m_dpi_scale);
+        const std::size_t max_h_offset = max_line_length - visible_columns;
+        const float h_progress = max_h_offset == 0
+            ? 0.0F
+            : static_cast<float>(m_horizontal_scroll_offset) / static_cast<float>(max_h_offset);
         surface.fill_rectangle(drawable,
-            UI::Rect{static_cast<float>(cursor_x), static_cast<float>(cursor_y),
+            UI::Rect{track_left,
+                layout.terminal_content_bounds.bottom() - 4.0F * surface.m_dpi_scale,
+                track_width,
+                2.0F * surface.m_dpi_scale},
+            surface.m_pixels.tab_background);
+        surface.fill_rectangle(drawable,
+            UI::Rect{track_left + h_progress * std::max(track_width - thumb_width, 0.0F),
+                layout.terminal_content_bounds.bottom() - 4.0F * surface.m_dpi_scale,
+                std::min(thumb_width, track_width),
+                2.0F * surface.m_dpi_scale},
+            surface.m_pixels.text_muted);
+    }
+    // Blinking cursor.
+    if (is_focused() && offset == 0 && !lines.empty() && m_cursor_blink.is_visible())
+    {
+        const std::size_t h_offset = m_horizontal_scroll_offset;
+        const std::string& last = lines.back();
+        const std::size_t len = last.size();
+        const std::string cursor_text = len > h_offset
+            ? last.substr(h_offset, std::min(visible_columns, len - h_offset))
+            : "";
+        const int cursor_x = round_to_int(layout.terminal_content_bounds.x + padding_x) +
+            surface.m_editor_font->getTextWidth(cursor_text) + round_to_int(6.0F * surface.m_dpi_scale);
+        const float cursor_y = first_center_y + static_cast<float>(displayed_rows - 1) * line_height -
+            line_height * 0.5F;
+        surface.fill_rectangle(drawable,
+            UI::Rect{static_cast<float>(cursor_x), cursor_y,
                 std::max(surface.m_dpi_scale, 1.0F), line_height - 2.0F * surface.m_dpi_scale},
             surface.m_pixels.text_primary);
     }
@@ -342,8 +493,7 @@ UI::Rect TerminalPanel::add_button_bounds(
 {
     const float scale = layout.dpi_scale;
     const float start_x = layout.terminal_header_bounds.x + 72.0F * scale;
-    const float available_width = std::max(
-        layout.terminal_header_bounds.right() - start_x - 56.0F * scale, 0.0F);
+    const float available_width = std::max(layout.terminal_header_bounds.right() - start_x - 56.0F * scale, 0.0F);
     const float tab_width = std::min(
         112.0F * scale,
         available_width / static_cast<float>(std::max<std::size_t>(m_model.get_sessions().size(), 1)));

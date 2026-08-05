@@ -12,6 +12,7 @@ struct StudioActions
 {
     std::function<void()> request_close;
     std::function<void()> show_about;
+    std::function<bool()> request_open_project;
 };
 
 class StudioViewModel

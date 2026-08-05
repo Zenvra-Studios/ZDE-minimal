@@ -179,16 +179,12 @@ void TerminalPanelModel::remove_session(std::size_t index) noexcept
     }
 }
 
-bool TerminalPanelModel::scroll(std::ptrdiff_t line_delta) noexcept
+bool TerminalPanelModel::scroll(std::ptrdiff_t line_delta, std::size_t maximum_offset) noexcept
 {
-    const TerminalSession* session = get_active_session();
-    if (session == nullptr || line_delta == 0)
+    if (get_active_session() == nullptr || line_delta == 0)
     {
         return false;
     }
-    const std::size_t maximum_offset = session->get_lines().empty()
-        ? 0
-        : session->get_lines().size() - 1;
     const std::size_t previous = m_scroll_offset;
     if (line_delta < 0)
     {

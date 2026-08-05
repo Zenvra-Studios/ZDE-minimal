@@ -36,9 +36,12 @@ public:
     [[nodiscard]] bool activate(SidebarIcon icon) noexcept;
     [[nodiscard]] bool refresh();
     [[nodiscard]] ActivityPanelAction activate_project_row(std::size_t visible_row);
+    [[nodiscard]] ActivityPanelAction activate_project_item(std::size_t item_index);
     [[nodiscard]] bool scroll(std::ptrdiff_t line_delta, std::size_t viewport_rows) noexcept;
+    void set_scroll_offset(std::size_t offset) noexcept;
 
     [[nodiscard]] bool is_visible() const noexcept;
+    void set_visible(bool visible) noexcept;
     [[nodiscard]] bool is_active(SidebarIcon icon) const noexcept;
     [[nodiscard]] SidebarIcon get_active_icon() const noexcept;
     [[nodiscard]] std::string_view get_title() const noexcept;
