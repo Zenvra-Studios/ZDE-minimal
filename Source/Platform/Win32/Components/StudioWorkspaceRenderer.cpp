@@ -131,8 +131,11 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi)
     m_editor_font->setLigaturesEnabled(true);
     m_minimap_font = std::make_unique<AntialiasedFont>(
         editor_font_name, std::max(round_to_int(3.0F * m_dpi_scale), 3));
+    m_large_font = std::make_unique<AntialiasedFont>(
+        ui_font_name, std::max(round_to_int(24.0F * m_dpi_scale), 18), FW_BOLD);
     if (!m_ui_font->isValid() || !m_small_font->isValid() ||
-        !m_editor_font->isValid() || !m_minimap_font->isValid())
+        !m_editor_font->isValid() || !m_minimap_font->isValid() ||
+        !m_large_font->isValid())
     {
         shutdown();
         return false;

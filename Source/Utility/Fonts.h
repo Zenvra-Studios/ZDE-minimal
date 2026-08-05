@@ -23,9 +23,10 @@ public:
    * @param font_name Font name string (e.g., "Segoe UI", "Arial").
    * @param font_size Font size in logical units.
    */
-  AntialiasedFont(const std::string &font_name, int font_size = 16) {
+  AntialiasedFont(const std::string &font_name, int font_size = 16,
+                  int font_weight = FW_NORMAL) {
     // CLEARTYPE_QUALITY ensures sub-pixel anti-aliasing on Windows
-    m_font = CreateFontA(-font_size, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    m_font = CreateFontA(-font_size, 0, 0, 0, font_weight, FALSE, FALSE, FALSE,
                          DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                          CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                          DEFAULT_PITCH | FF_SWISS, font_name.c_str());
