@@ -239,26 +239,35 @@ std::optional<TextFileSnapshot> EditorFileSystem::read_text_file(
     return snapshot;
 }
 
-std::vector<std::string> EditorFileSystem::build_breadcrumbs(
+std::vector<BreadcrumbItem> EditorFileSystem::build_breadcrumbs(
     const std::filesystem::path& absolute_path,
     const std::filesystem::path& project_root)
 {
-    std::vector<std::string> breadcrumbs;
+    std::vector<BreadcrumbItem> breadcrumbs;
     if (!project_root.filename().empty())
     {
-        breadcrumbs.push_back(project_root.filename().string());
+        breadcrumbs.push_back({project_root.filename().string(), BreadcrumbIconKind::Folder});
     }
     std::error_code error;
     const std::filesystem::path relative_path = std::filesystem::relative(
         absolute_path, project_root, error);
     const std::filesystem::path& display_path = error ? absolute_path : relative_path;
+    std::vector<std::string> parts;
     for (const std::filesystem::path& part : display_path)
     {
         const std::string value = part.string();
         if (!value.empty() && value != ".")
         {
-            breadcrumbs.push_back(value);
+            parts.push_back(value);
         }
+    }
+    for (std::size_t index = 0; index < parts.size(); ++index)
+    {
+        const bool is_last = index + 1 == parts.size();
+        breadcrumbs.push_back({
+            parts[index],
+            is_last ? BreadcrumbIconKind::File : BreadcrumbIconKind::Folder,
+        });
     }
     return breadcrumbs;
 }

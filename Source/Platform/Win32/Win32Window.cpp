@@ -12,6 +12,7 @@
 #include <uxtheme.h>
 #include <vssym32.h>
 #include <windowsx.h>
+#pragma comment(lib, "Msimg32.lib")
 
 #include <algorithm>
 #include <array>
@@ -19,6 +20,7 @@
 #include <filesystem>
 #include <iostream>
 #include <utility>
+#include <vector>
 
 namespace Zenvra::Platform::Win32 {
 
@@ -55,18 +57,79 @@ void fill_rounded_rectangle(HDC device_context, const UI::Rect &rectangle,
   if (rectangle.is_empty()) {
     return;
   }
+  
+  int w = round_to_int(rectangle.width);
+  int h = round_to_int(rectangle.height);
+  if (w <= 0 || h <= 0) return;
 
-  RECT native_rectangle = to_native_rect(rectangle);
-  HBRUSH brush = CreateSolidBrush(to_color_ref(color));
-  HGDIOBJ previous_brush = SelectObject(device_context, brush);
-  HGDIOBJ previous_pen = SelectObject(device_context, GetStockObject(NULL_PEN));
-  const int diameter = std::max(radius * 2, 2);
-  RoundRect(device_context, native_rectangle.left, native_rectangle.top,
-            native_rectangle.right, native_rectangle.bottom, diameter,
-            diameter);
-  SelectObject(device_context, previous_pen);
-  SelectObject(device_context, previous_brush);
-  DeleteObject(brush);
+  float r = std::min({static_cast<float>(radius), rectangle.width * 0.5f, rectangle.height * 0.5f});
+  if (r <= 0.0f) {
+    RECT native_rectangle = to_native_rect(rectangle);
+    HBRUSH brush = CreateSolidBrush(to_color_ref(color));
+    FillRect(device_context, &native_rectangle, brush);
+    DeleteObject(brush);
+    return;
+  }
+
+  std::vector<uint32_t> pixels(w * h, 0);
+  const uint32_t col_r = color.red;
+  const uint32_t col_g = color.green;
+  const uint32_t col_b = color.blue;
+
+  for (int y = 0; y < h; ++y) {
+    for (int x = 0; x < w; ++x) {
+      float cx = static_cast<float>(x) + 0.5f;
+      float cy = static_cast<float>(y) + 0.5f;
+
+      float dx = std::max({r - cx, 0.0f, cx - (w - r)});
+      float dy = std::max({r - cy, 0.0f, cy - (h - r)});
+      float dist = std::sqrt(dx * dx + dy * dy);
+
+      float d = dist - r;
+      float alpha_f = 0.5f - d;
+      
+      if (alpha_f > 1.0f) alpha_f = 1.0f;
+      if (alpha_f < 0.0f) alpha_f = 0.0f;
+
+      if (alpha_f > 0.0f) {
+        uint32_t a = static_cast<uint32_t>(alpha_f * 255.0f);
+        uint32_t pr = (col_r * a) / 255;
+        uint32_t pg = (col_g * a) / 255;
+        uint32_t pb = (col_b * a) / 255;
+        pixels[(h - 1 - y) * w + x] = (a << 24) | (pr << 16) | (pg << 8) | pb; 
+      }
+    }
+  }
+
+  BITMAPINFO bmi{};
+  bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  bmi.bmiHeader.biWidth = w;
+  bmi.bmiHeader.biHeight = h;
+  bmi.bmiHeader.biPlanes = 1;
+  bmi.bmiHeader.biBitCount = 32;
+  bmi.bmiHeader.biCompression = BI_RGB;
+
+  HDC memDC = CreateCompatibleDC(device_context);
+  void* bits = nullptr;
+  HBITMAP hBmp = CreateDIBSection(device_context, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+  if (hBmp) {
+    memcpy(bits, pixels.data(), w * h * sizeof(uint32_t));
+    HGDIOBJ oldBmp = SelectObject(memDC, hBmp);
+
+    BLENDFUNCTION bf{};
+    bf.BlendOp = AC_SRC_OVER;
+    bf.BlendFlags = 0;
+    bf.SourceConstantAlpha = 255;
+    bf.AlphaFormat = AC_SRC_ALPHA;
+
+    AlphaBlend(device_context, 
+               round_to_int(rectangle.x), round_to_int(rectangle.y), w, h, 
+               memDC, 0, 0, w, h, bf);
+
+    SelectObject(memDC, oldBmp);
+    DeleteObject(hBmp);
+  }
+  DeleteDC(memDC);
 }
 
 void draw_centered_text(HDC device_context, const wchar_t *text, RECT rectangle,
@@ -1046,7 +1109,13 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
               m_chrome_layout.titlebar_bounds.bottom()) ||
           m_workspace_renderer.is_editor_interactive_point(
               static_cast<float>(cursor_position.x),
-              static_cast<float>(cursor_position.y));
+              static_cast<float>(cursor_position.y)) ||
+          m_workspace_renderer.is_terminal_interactive_point(
+              static_cast<float>(cursor_position.x),
+              static_cast<float>(cursor_position.y),
+              client_bounds.right - client_bounds.left,
+              client_bounds.bottom - client_bounds.top,
+              m_chrome_layout.titlebar_bounds.bottom());
       if (interactive) {
         SetCursor(LoadCursorW(nullptr, IDC_HAND));
         return TRUE;

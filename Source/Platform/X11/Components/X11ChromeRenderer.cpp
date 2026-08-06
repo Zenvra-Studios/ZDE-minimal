@@ -3,6 +3,10 @@
 #include "Utility/Fonts.h"
 #include "Utility/X11Rounded.h"
 
+#include <X11/keysym.h>
+#include <X11/Xutil.h>
+#include <X11/extensions/shape.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -20,6 +24,45 @@ std::string to_xft_color(const UI::Theme::Color &color) {
                 static_cast<unsigned int>(color.green),
                 static_cast<unsigned int>(color.blue));
   return value;
+}
+
+unsigned long interpolate_x11_pixel(unsigned long bg, unsigned long fg, float t) {
+    const float r1 = static_cast<float>((bg >> 16) & 0xFF);
+    const float g1 = static_cast<float>((bg >> 8) & 0xFF);
+    const float b1 = static_cast<float>(bg & 0xFF);
+    const float r2 = static_cast<float>((fg >> 16) & 0xFF);
+    const float g2 = static_cast<float>((fg >> 8) & 0xFF);
+    const float b2 = static_cast<float>(fg & 0xFF);
+    const unsigned int r = static_cast<unsigned int>(r1 + (r2 - r1) * t);
+    const unsigned int g = static_cast<unsigned int>(g1 + (g2 - g1) * t);
+    const unsigned int b = static_cast<unsigned int>(b1 + (b2 - b1) * t);
+    return (r << 16) | (g << 8) | b;
+}
+
+std::string interpolate_hex_color(const std::string& bg, const std::string& fg, float t) {
+    auto parse_hex = [](const std::string& hex) -> unsigned int {
+        unsigned int val = 0;
+        if (hex.length() >= 7 && hex[0] == '#') {
+            unsigned int r = 0, g = 0, b = 0;
+            std::sscanf(hex.c_str(), "#%02x%02x%02x", &r, &g, &b);
+            val = (r << 16) | (g << 8) | b;
+        }
+        return val;
+    };
+    unsigned int c1 = parse_hex(bg);
+    unsigned int c2 = parse_hex(fg);
+    const float r1 = static_cast<float>((c1 >> 16) & 0xFF);
+    const float g1 = static_cast<float>((c1 >> 8) & 0xFF);
+    const float b1 = static_cast<float>(c1 & 0xFF);
+    const float r2 = static_cast<float>((c2 >> 16) & 0xFF);
+    const float g2 = static_cast<float>((c2 >> 8) & 0xFF);
+    const float b2 = static_cast<float>(c2 & 0xFF);
+    const unsigned int r = static_cast<unsigned int>(r1 + (r2 - r1) * t);
+    const unsigned int g = static_cast<unsigned int>(g1 + (g2 - g1) * t);
+    const unsigned int b = static_cast<unsigned int>(b1 + (b2 - b1) * t);
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "#%02x%02x%02x", r, g, b);
+    return std::string(buf);
 }
 
 } // namespace
@@ -57,6 +100,25 @@ bool X11ChromeRenderer::initialize(Display *display, int screen,
     return false;
   }
 
+  XVisualInfo vinfo;
+  if (XMatchVisualInfo(m_display, m_screen, 32, TrueColor, &vinfo)) {
+    m_popup_depth = 32;
+    m_popup_visual = vinfo.visual;
+    m_popup_colormap = XCreateColormap(m_display, RootWindow(m_display, m_screen), m_popup_visual, AllocNone);
+    
+    // Create a 1x1 32-bit pixmap just to create the GC
+    Pixmap temp_pm = XCreatePixmap(m_display, RootWindow(m_display, m_screen), 1, 1, 32);
+    m_popup_graphics_context = XCreateGC(m_display, temp_pm, 0, nullptr);
+    XFreePixmap(m_display, temp_pm);
+
+    m_popup_font = std::make_unique<AntialiasedFont>(m_display, m_screen, font_pattern, m_popup_visual, m_popup_colormap);
+  } else {
+    m_popup_depth = CopyFromParent;
+    m_popup_visual = CopyFromParent;
+    m_popup_colormap = 0;
+    m_popup_graphics_context = nullptr;
+  }
+
   m_colors.window_background = allocate_color(theme.window_background);
   m_titlebar_background_color = theme.titlebar_background;
   m_hover_color = theme.hover;
@@ -73,6 +135,8 @@ bool X11ChromeRenderer::initialize(Display *display, int screen,
   m_colors.close_hover = allocate_color(theme.close_hover);
   m_colors.popup_background = allocate_color(theme.panel_background);
   m_colors.popup_border = allocate_color(theme.titlebar_border);
+  m_theme_popup_background = theme.panel_background;
+  m_theme_popup_border = theme.titlebar_border;
   m_text_colors.primary = to_xft_color(theme.text_primary);
   m_text_colors.secondary = to_xft_color(theme.text_secondary);
   m_text_colors.white = "#ffffff";
@@ -84,15 +148,25 @@ bool X11ChromeRenderer::initialize(Display *display, int screen,
 }
 
 void X11ChromeRenderer::shutdown() {
+  close_popup();
   m_workspace_renderer.shutdown();
   // AntialiasedFont releases Xft resources through this display, so it must
   // be destroyed before the renderer forgets the connection.
   m_font.reset();
+  m_popup_font.reset();
   if (m_display != nullptr && m_graphics_context != nullptr) {
     XFreeGC(m_display, m_graphics_context);
   }
+  if (m_display != nullptr && m_popup_graphics_context != nullptr) {
+    XFreeGC(m_display, m_popup_graphics_context);
+  }
+  if (m_display != nullptr && m_popup_colormap != 0) {
+    XFreeColormap(m_display, m_popup_colormap);
+  }
 
   m_graphics_context = nullptr;
+  m_popup_graphics_context = nullptr;
+  m_popup_colormap = 0;
   m_display = nullptr;
 }
 
@@ -148,12 +222,13 @@ bool X11ChromeRenderer::handle_workspace_pointer_release() noexcept {
   return m_workspace_renderer.handle_pointer_release();
 }
 
-bool X11ChromeRenderer::handle_workspace_scroll(std::ptrdiff_t line_delta,
-                                                int client_width,
-                                                int client_height,
-                                                float content_top) noexcept {
-  return m_workspace_renderer.handle_scroll(line_delta, client_width,
-                                            client_height, content_top);
+bool X11ChromeRenderer::handle_workspace_scroll(
+    float point_x, float point_y, std::string &command_out,
+    std::ptrdiff_t line_delta, bool horizontal, int client_width,
+    int client_height, float content_top) noexcept {
+  return m_workspace_renderer.handle_scroll(
+      point_x, point_y, command_out, line_delta, horizontal, client_width,
+      client_height, content_top);
 }
 
 bool X11ChromeRenderer::handle_editor_input(
@@ -215,6 +290,13 @@ bool X11ChromeRenderer::is_activity_bar_point(
       point_x, point_y, client_width, client_height, content_top);
 }
 
+bool X11ChromeRenderer::is_tab_bar_area_point(
+    float point_x, float point_y, int client_width, int client_height,
+    float content_top) const noexcept {
+  return m_workspace_renderer.is_tab_bar_area_point(
+      point_x, point_y, client_width, client_height, content_top);
+}
+
 bool X11ChromeRenderer::is_tab_bar_point(float point_x, float point_y,
                                          int client_width, int client_height,
                                          float content_top) const noexcept {
@@ -273,6 +355,29 @@ bool X11ChromeRenderer::is_terminal_resize_handle_point(
 
 bool X11ChromeRenderer::is_terminal_resizing() const noexcept {
   return m_workspace_renderer.is_terminal_resizing();
+}
+
+bool X11ChromeRenderer::is_editor_interactive_point(
+    float point_x, float point_y) const noexcept {
+  return m_workspace_renderer.is_editor_interactive_point(point_x, point_y);
+}
+
+bool X11ChromeRenderer::is_terminal_interactive_point(
+    float point_x, float point_y, int client_width, int client_height,
+    float content_top) const noexcept {
+  return m_workspace_renderer.is_terminal_interactive_point(
+      point_x, point_y, client_width, client_height, content_top);
+}
+
+bool X11ChromeRenderer::is_sidebar_resize_handle_point(
+    float point_x, float point_y, int client_width, int client_height,
+    float content_top) const noexcept {
+  return m_workspace_renderer.is_sidebar_resize_handle_point(
+      point_x, point_y, client_width, client_height, content_top);
+}
+
+bool X11ChromeRenderer::is_sidebar_resizing() const noexcept {
+  return m_workspace_renderer.is_sidebar_resizing();
 }
 
 bool X11ChromeRenderer::is_empty_state_button_hovered() const noexcept {
@@ -577,6 +682,65 @@ void X11ChromeRenderer::render(
   XFlush(m_display);
 }
 
+
+
+
+
+unsigned long
+X11ChromeRenderer::allocate_color(const UI::Theme::Color &color) const {
+  XColor x_color{};
+  x_color.red = static_cast<unsigned short>(color.red * 257U);
+  x_color.green = static_cast<unsigned short>(color.green * 257U);
+  x_color.blue = static_cast<unsigned short>(color.blue * 257U);
+  x_color.flags = DoRed | DoGreen | DoBlue;
+  const Colormap colormap = DefaultColormap(m_display, m_screen);
+  if (XAllocColor(m_display, colormap, &x_color) == 0) {
+    return BlackPixel(m_display, m_screen);
+  }
+  return x_color.pixel;
+}
+
+OverflowMenuGeometry X11ChromeRenderer::calculate_overflow_menu_geometry(
+    const UI::Chrome::WindowChromeLayoutResult &chrome_layout) const noexcept {
+  OverflowMenuGeometry geometry;
+  geometry.first_menu_index = chrome_layout.first_overflow_menu_index;
+  const std::span<const UI::Components::Menu> menus =
+      UI::Components::get_window_menus();
+  if (!chrome_layout.has_overflow_menu() ||
+      geometry.first_menu_index >= menus.size()) {
+    return geometry;
+  }
+
+  const float scale = chrome_layout.dpi_scale;
+  const float row_height = 28.0F * scale;
+  float popup_width = 168.0F * scale;
+  for (std::size_t menu_index = geometry.first_menu_index;
+       menu_index < menus.size(); ++menu_index) {
+    const UI::Components::Menu &menu = menus[menu_index];
+    popup_width =
+        std::max(popup_width, static_cast<float>(menu.label.size()) * 7.0F *
+                                      scale +
+                                  34.0F * scale);
+  }
+  geometry.item_count = std::min(
+      menus.size() - geometry.first_menu_index, geometry.item_bounds.size());
+  geometry.bounds = {
+      chrome_layout.overflow_menu_bounds.x,
+      chrome_layout.titlebar_bounds.bottom(),
+      popup_width,
+      row_height * static_cast<float>(geometry.item_count),
+  };
+  for (std::size_t index = 0; index < geometry.item_count; ++index) {
+    geometry.item_bounds[index] = {
+        geometry.bounds.x,
+        geometry.bounds.y + row_height * static_cast<float>(index),
+        geometry.bounds.width,
+        row_height,
+    };
+  }
+  return geometry;
+}
+
 PopupMenuGeometry X11ChromeRenderer::calculate_popup_geometry(
     const UI::Chrome::WindowChromeLayoutResult &chrome_layout,
     std::size_t menu_index, bool opened_from_overflow) const noexcept {
@@ -600,7 +764,6 @@ PopupMenuGeometry X11ChromeRenderer::calculate_popup_geometry(
       menu_index < UI::Chrome::window_menu_count) {
     anchor_bounds = &chrome_layout.overflow_menu_bounds;
   }
-  // Overlay toolbar menus: resolve anchor from button bounds
   if (anchor_bounds == nullptr) {
     static constexpr std::size_t compiler_menu_index = 10;
     static constexpr std::size_t platform_menu_index = 11;
@@ -662,63 +825,6 @@ PopupMenuGeometry X11ChromeRenderer::calculate_popup_geometry(
   }
   geometry.bounds.height = current_y - geometry.bounds.y;
   return geometry;
-}
-
-OverflowMenuGeometry X11ChromeRenderer::calculate_overflow_menu_geometry(
-    const UI::Chrome::WindowChromeLayoutResult &chrome_layout) const noexcept {
-  OverflowMenuGeometry geometry;
-  if (!chrome_layout.has_overflow_menu()) {
-    return geometry;
-  }
-
-  const std::span<const UI::Components::Menu> menus =
-      UI::Components::get_window_menus();
-  geometry.first_menu_index = chrome_layout.first_overflow_menu_index;
-  if (geometry.first_menu_index >= menus.size()) {
-    return geometry;
-  }
-  geometry.item_count = std::min(menus.size() - geometry.first_menu_index,
-                                 geometry.item_bounds.size());
-  const float row_height = 28.0F * m_dpi_scale;
-  float popup_width = 160.0F * m_dpi_scale;
-  for (std::size_t menu_index = geometry.first_menu_index;
-       menu_index < menus.size(); ++menu_index) {
-    popup_width = std::max(popup_width,
-                           static_cast<float>(menus[menu_index].label.size()) *
-                                   7.0F * m_dpi_scale +
-                               32.0F * m_dpi_scale);
-  }
-
-  geometry.bounds = {
-      chrome_layout.overflow_menu_bounds.x,
-      chrome_layout.titlebar_bounds.bottom(),
-      popup_width,
-      row_height * static_cast<float>(geometry.item_count),
-  };
-  for (std::size_t item_index = 0; item_index < geometry.item_count;
-       ++item_index) {
-    geometry.item_bounds[item_index] = {
-        geometry.bounds.x,
-        geometry.bounds.y + row_height * static_cast<float>(item_index),
-        geometry.bounds.width,
-        row_height,
-    };
-  }
-  return geometry;
-}
-
-unsigned long
-X11ChromeRenderer::allocate_color(const UI::Theme::Color &color) const {
-  XColor x_color{};
-  x_color.red = static_cast<unsigned short>(color.red * 257U);
-  x_color.green = static_cast<unsigned short>(color.green * 257U);
-  x_color.blue = static_cast<unsigned short>(color.blue * 257U);
-  x_color.flags = DoRed | DoGreen | DoBlue;
-  const Colormap colormap = DefaultColormap(m_display, m_screen);
-  if (XAllocColor(m_display, colormap, &x_color) == 0) {
-    return BlackPixel(m_display, m_screen);
-  }
-  return x_color.pixel;
 }
 
 void X11ChromeRenderer::fill_rectangle(Drawable drawable,
@@ -860,12 +966,16 @@ void X11ChromeRenderer::draw_window_control(
                      JoinMiter);
 }
 
+
+
+
+
 void X11ChromeRenderer::draw_popup_menu(
     Drawable drawable,
     const UI::Chrome::WindowChromeLayoutResult &chrome_layout,
     const ChromeInteractionState &interaction_state,
     const CommandStateQueryCallback &command_state_query_callback) const {
-  if (!interaction_state.open_menu_index) {
+  if (!interaction_state.open_menu_index || is_popup_open()) {
     return;
   }
 
@@ -956,7 +1066,7 @@ void X11ChromeRenderer::draw_overflow_menu(
     Drawable drawable,
     const UI::Chrome::WindowChromeLayoutResult &chrome_layout,
     const ChromeInteractionState &interaction_state) const {
-  if (!interaction_state.overflow_menu_open) {
+  if (!interaction_state.overflow_menu_open || is_popup_open()) {
     return;
   }
 
@@ -1007,6 +1117,382 @@ void X11ChromeRenderer::draw_overflow_menu(
         is_hovered ? UI::Theme::StudioTheme::zenvra_dark().accent
                    : UI::Theme::StudioTheme::zenvra_dark().panel_background);
   }
+}
+
+bool X11ChromeRenderer::open_popup(
+    Window parent_window, const UI::Rect &anchor_bounds,
+    std::span<const PopupMenuItem> items, bool select_first_item,
+    bool side_popup) {
+  close_popup();
+  if (m_display == nullptr || parent_window == 0 || items.empty()) {
+    return false;
+  }
+
+  m_popup.items.assign(items.begin(), items.end());
+
+  const float row_height = 28.0F * m_dpi_scale;
+  const float separator_height = 9.0F * m_dpi_scale;
+  const float horizontal_padding = 6.0F * m_dpi_scale;
+  int widest = 0;
+  float content_height = 0.0F;
+  for (const PopupMenuItem &item : m_popup.items) {
+    if (item.separator) {
+      content_height += separator_height;
+      continue;
+    }
+    const int text_width =
+        m_font != nullptr
+            ? m_font->getTextWidth(item.text)
+            : static_cast<int>(item.text.size()) * 8;
+    widest = std::max(widest, text_width);
+    content_height += row_height;
+  }
+
+  m_popup.width = std::clamp(widest + round_to_int(48.0F * m_dpi_scale),
+                             round_to_int(220.0F * m_dpi_scale),
+                             round_to_int(380.0F * m_dpi_scale));
+  m_popup.height = round_to_int(content_height + 2.0F * horizontal_padding);
+
+  Window child = 0;
+  int target_x = side_popup ? round_to_int(anchor_bounds.right() + 2.0F * m_dpi_scale) : round_to_int(anchor_bounds.x);
+  const int target_y = side_popup ? round_to_int(anchor_bounds.y) : round_to_int(anchor_bounds.y + anchor_bounds.height);
+  
+  if (!side_popup) {
+    Window root_ret;
+    int x_ret, y_ret;
+    unsigned int parent_width, parent_height, border_width, depth;
+    if (XGetGeometry(m_display, parent_window, &root_ret, &x_ret, &y_ret, &parent_width, &parent_height, &border_width, &depth)) {
+      if (target_x + m_popup.width > static_cast<int>(parent_width)) {
+        target_x = round_to_int(anchor_bounds.right()) - m_popup.width;
+      }
+    }
+  }
+
+  if (!XTranslateCoordinates(m_display, parent_window,
+                             RootWindow(m_display, m_screen),
+                             target_x,
+                             target_y,
+                             &m_popup.x, &m_popup.y, &child)) {
+    return false;
+  }
+
+  const int screen_width = DisplayWidth(m_display, m_screen);
+  const int screen_height = DisplayHeight(m_display, m_screen);
+  if (!side_popup && m_popup.y + m_popup.height > screen_height) {
+    const int anchor_top_root_y =
+        m_popup.y - round_to_int(anchor_bounds.height);
+    if (anchor_top_root_y >= m_popup.height && anchor_top_root_y >= 0) {
+      m_popup.y = anchor_top_root_y - m_popup.height;
+    }
+  }
+  m_popup.x =
+      std::clamp(m_popup.x, 0, std::max(screen_width - m_popup.width, 0));
+  m_popup.y =
+      std::clamp(m_popup.y, 0, std::max(screen_height - m_popup.height, 0));
+
+  XSetWindowAttributes attributes{};
+  attributes.override_redirect = True;
+  attributes.background_pixel = 0; // Transparent
+  attributes.save_under = True;
+  attributes.event_mask =
+      ExposureMask | ButtonPressMask | ButtonReleaseMask | PointerMotionMask |
+      LeaveWindowMask | FocusChangeMask;
+
+  unsigned long value_mask = CWOverrideRedirect | CWBackPixel | CWSaveUnder | CWEventMask;
+  if (m_popup_colormap != 0) {
+    attributes.colormap = m_popup_colormap;
+    attributes.border_pixel = 0;
+    value_mask |= CWColormap | CWBorderPixel;
+  }
+
+  m_popup.window = XCreateWindow(
+      m_display, RootWindow(m_display, m_screen), m_popup.x, m_popup.y,
+      static_cast<unsigned int>(m_popup.width),
+      static_cast<unsigned int>(m_popup.height), 0, m_popup_depth,
+      InputOutput, m_popup_visual,
+      value_mask,
+      &attributes);
+  if (m_popup.window == 0) {
+    close_popup();
+    return false;
+  }
+
+  XMapRaised(m_display, m_popup.window);
+  m_popup.open = true;
+  m_popup.hovered = select_first_item ? 0 : -1;
+  paint_popup();
+  XFlush(m_display);
+  return true;
+}
+
+void X11ChromeRenderer::close_popup() noexcept {
+  destroy_popup_window();
+  m_popup = PopupWindowState{};
+}
+
+bool X11ChromeRenderer::is_popup_open() const noexcept { return m_popup.open; }
+
+Window X11ChromeRenderer::popup_window() const noexcept {
+  return m_popup.window;
+}
+
+void X11ChromeRenderer::destroy_popup_window() noexcept {
+  if (m_display != nullptr && m_popup.window != 0) {
+    XDestroyWindow(m_display, m_popup.window);
+    XFlush(m_display);
+  }
+}
+
+int X11ChromeRenderer::popup_item_index_at(int local_x, int local_y) const
+    noexcept {
+  if (local_x < 0 || local_x >= m_popup.width || local_y < 0 ||
+      local_y >= m_popup.height) {
+    return -1;
+  }
+  const float row_height = 28.0F * m_dpi_scale;
+  const float separator_height = 9.0F * m_dpi_scale;
+  const float horizontal_padding = 6.0F * m_dpi_scale;
+  float current_y = horizontal_padding;
+  for (std::size_t index = 0; index < m_popup.items.size(); ++index) {
+    const float height =
+        m_popup.items[index].separator ? separator_height : row_height;
+    if (static_cast<float>(local_y) >= current_y &&
+        static_cast<float>(local_y) < current_y + height) {
+      return static_cast<int>(index);
+    }
+    current_y += height;
+  }
+  return -1;
+}
+
+void X11ChromeRenderer::paint_popup() {
+  if (!m_popup.open || m_popup.window == 0 || m_display == nullptr) {
+    return;
+  }
+
+  const int radius = std::max(round_to_int(7.0F * m_dpi_scale), 5);
+  Pixmap buffer = XCreatePixmap(
+      m_display, m_popup.window, static_cast<unsigned int>(m_popup.width),
+      static_cast<unsigned int>(m_popup.height), m_popup_depth);
+  if (buffer == 0) {
+    return;
+  }
+
+  GC gc = m_popup_graphics_context ? m_popup_graphics_context : m_graphics_context;
+
+  // Clear background to transparent
+  XSetForeground(m_display, gc, 0);
+  XFillRectangle(m_display, buffer, gc, 0, 0, m_popup.width, m_popup.height);
+
+  // Pack ARGB manually if using 32-bit depth
+  unsigned long bg_color = m_colors.popup_background;
+  unsigned long border_color = m_colors.popup_border;
+  if (m_popup_depth == 32) {
+    bg_color = (255UL << 24) | (bg_color & 0xFFFFFF);
+    border_color = (255UL << 24) | (border_color & 0xFFFFFF);
+  }
+                              
+  // Draw rounded background and border
+  XSetForeground(m_display, gc, bg_color);
+  Utility::X11Rounded::X11Rounded::fillRoundedRect(m_display, buffer, gc, 0, 0, m_popup.width, m_popup.height, radius);
+  XSetForeground(m_display, gc, border_color);
+  Utility::X11Rounded::X11Rounded::drawRoundedRect(m_display, buffer, gc, 0, 0, m_popup.width, m_popup.height, radius);
+
+  const float row_height = 28.0F * m_dpi_scale;
+  const float separator_height = 9.0F * m_dpi_scale;
+  const float horizontal_padding = 6.0F * m_dpi_scale;
+  float current_y = horizontal_padding;
+  for (std::size_t index = 0; index < m_popup.items.size(); ++index) {
+    const PopupMenuItem &item = m_popup.items[index];
+    const float height = item.separator ? separator_height : row_height;
+    const UI::Rect item_bounds{0.0F, current_y,
+                               static_cast<float>(m_popup.width), height};
+    if (item.separator) {
+      unsigned long sep_color = m_colors.popup_border;
+      if (m_popup_depth == 32) {
+        sep_color = (255UL << 24) | (sep_color & 0xFFFFFF);
+      }
+      XSetForeground(m_display, gc, sep_color);
+      Utility::X11Rounded::X11Rounded::fillRoundedRect(
+          m_display, buffer, gc,
+          round_to_int(8.0F * m_dpi_scale),
+          round_to_int(current_y + separator_height * 0.5F),
+          round_to_int(static_cast<float>(m_popup.width) - 16.0F * m_dpi_scale),
+          round_to_int(1.0F), 0);
+      current_y += separator_height;
+      continue;
+    }
+
+    const bool is_hovered =
+        static_cast<int>(index) == m_popup.hovered && item.enabled;
+    if (is_hovered) {
+      UI::Rect hover_bounds = item_bounds;
+      hover_bounds.x += 4.0F * m_dpi_scale;
+      hover_bounds.width -= 8.0F * m_dpi_scale;
+      hover_bounds.y += 2.0F * m_dpi_scale;
+      hover_bounds.height -= 4.0F * m_dpi_scale;
+      
+      unsigned long hover_bg = m_colors.accent;
+      if (m_popup_depth == 32) {
+        hover_bg = (255UL << 24) | (hover_bg & 0xFFFFFF);
+      }
+      XSetForeground(m_display, gc, hover_bg);
+      Utility::X11Rounded::X11Rounded::fillRoundedRect(m_display, buffer, gc,
+                                                       round_to_int(hover_bounds.x),
+                                                       round_to_int(hover_bounds.y),
+                                                       round_to_int(hover_bounds.width),
+                                                       round_to_int(hover_bounds.height),
+                                                       std::max(round_to_int(4.0F * m_dpi_scale), 3));
+    }
+
+    std::string text_color = m_text_colors.secondary;
+    if (item.enabled) {
+      text_color = is_hovered ? m_text_colors.white : m_text_colors.primary;
+    }
+    AntialiasedFont* font = m_popup_font ? m_popup_font.get() : m_font.get();
+    if (font) {
+      font->drawString(buffer, text_color,
+                       round_to_int(item_bounds.x + 26.0F * m_dpi_scale),
+                       round_to_int(item_bounds.y + item_bounds.height * 0.5F + font->getAscent() * 0.5F - 2.0F * m_dpi_scale),
+                       item.text);
+    }
+
+    if (item.checked) {
+      unsigned long check_color = is_hovered ? WhitePixel(m_display, m_screen) : m_colors.text_primary;
+      if (m_popup_depth == 32) {
+         check_color = (255UL << 24) | (check_color & 0xFFFFFF);
+      }
+      XSetForeground(m_display, gc, check_color);
+      const int check_x = round_to_int(item_bounds.x + 11.0F * m_dpi_scale);
+      const int check_y = round_to_int(item_bounds.y + item_bounds.height * 0.5F);
+      XDrawLine(m_display, buffer, gc, check_x, check_y,
+                check_x + 3, check_y + 3);
+      XDrawLine(m_display, buffer, gc, check_x + 3, check_y + 3,
+                check_x + 8, check_y - 3);
+    }
+    current_y += row_height;
+  }
+
+  XCopyArea(m_display, buffer, m_popup.window, gc, 0, 0,
+            static_cast<unsigned int>(m_popup.width),
+            static_cast<unsigned int>(m_popup.height), 0, 0);
+  XFreePixmap(m_display, buffer);
+  XFlush(m_display);
+}
+
+std::optional<std::string> X11ChromeRenderer::take_popup_command() noexcept {
+  if (m_popup.selected_command.empty()) {
+    return std::nullopt;
+  }
+  std::string command = std::move(m_popup.selected_command);
+  m_popup.selected_command.clear();
+  return command;
+}
+
+void X11ChromeRenderer::select_popup_item(int index) {
+  if (index < 0 || index >= static_cast<int>(m_popup.items.size()) ||
+      m_popup.items[index].separator || !m_popup.items[index].enabled) {
+    return;
+  }
+  std::string command = m_popup.items[index].command_id;
+  close_popup();
+  m_popup.selected_command = std::move(command);
+}
+
+void X11ChromeRenderer::move_popup_selection(int direction) {
+  if (static_cast<int>(m_popup.items.size()) == 0 || direction == 0) {
+    return;
+  }
+  const int item_count = static_cast<int>(m_popup.items.size());
+  int candidate = m_popup.hovered;
+  for (int attempt = 0; attempt < item_count; ++attempt) {
+    candidate += direction > 0 ? 1 : -1;
+    if (candidate < 0) {
+      candidate = item_count - 1;
+    } else if (candidate >= item_count) {
+      candidate = 0;
+    }
+    if (!m_popup.items[candidate].separator &&
+        m_popup.items[candidate].enabled) {
+      m_popup.hovered = candidate;
+      paint_popup();
+      return;
+    }
+  }
+  m_popup.hovered = -1;
+  paint_popup();
+}
+
+void X11ChromeRenderer::activate_popup_selection() {
+  select_popup_item(m_popup.hovered);
+}
+
+bool X11ChromeRenderer::handle_popup_event(const XEvent &event) {
+  if (!m_popup.open || m_popup.window == 0) {
+    return false;
+  }
+  if (event.xany.window != m_popup.window && event.type != FocusOut) {
+    return false;
+  }
+
+  switch (event.type) {
+    case Expose:
+      if (event.xexpose.count == 0) {
+        paint_popup();
+      }
+      break;
+
+    case MotionNotify: {
+      const int item_index =
+          popup_item_index_at(event.xmotion.x_root - m_popup.x,
+                              event.xmotion.y_root - m_popup.y);
+      if (item_index >= 0 &&
+          (m_popup.items[item_index].separator ||
+           !m_popup.items[item_index].enabled)) {
+        break;
+      }
+      if (item_index != m_popup.hovered) {
+        m_popup.hovered = item_index;
+        paint_popup();
+      }
+      break;
+    }
+
+    case ButtonPress:
+      if (event.xbutton.button == Button1) {
+        m_popup.pressed = true;
+      }
+      break;
+
+    case ButtonRelease:
+      if (event.xbutton.button == Button1) {
+        m_popup.pressed = false;
+        const int item =
+            popup_item_index_at(event.xbutton.x_root - m_popup.x,
+                                event.xbutton.y_root - m_popup.y);
+        if (item >= 0) {
+          select_popup_item(item);
+        } else {
+          close_popup();
+        }
+      }
+      break;
+
+    case LeaveNotify:
+      if (m_popup.pressed) {
+        m_popup.pressed = false;
+        close_popup();
+      }
+      break;
+
+    case FocusOut:
+      close_popup();
+      break;
+
+    default:
+      break;
+  }
+  return true;
 }
 
 } // namespace Zenvra::Platform::X11::Components

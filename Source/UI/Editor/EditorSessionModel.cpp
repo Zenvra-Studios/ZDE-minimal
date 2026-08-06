@@ -57,7 +57,7 @@ bool EditorSessionModel::create_buffer()
     EditorSessionDocument item;
     item.path = name;
     item.temporary = true;
-    item.text.replace_contents({std::string{}}, name, {name}, "LF");
+    item.text.replace_contents({std::string{}}, name, {{name, BreadcrumbIconKind::File}}, "LF");
     m_documents.push_back(std::move(item));
     m_active_index = m_documents.size() - 1;
     return true;

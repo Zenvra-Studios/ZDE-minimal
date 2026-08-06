@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <string_view>
+#include <unordered_map>
 
 namespace Zenvra::Platform::Win32::Components
 {
@@ -42,6 +43,7 @@ public:
     [[nodiscard]] bool handle_control(char letter);
     [[nodiscard]] bool handle_scroll(const Event::ScrollEvent& event) noexcept;
     [[nodiscard]] bool poll();
+    [[nodiscard]] bool tick_animations() noexcept;
     void shutdown() noexcept;
 
     [[nodiscard]] bool is_visible() const noexcept;
@@ -56,6 +58,11 @@ public:
         float point_x,
         float point_y) const noexcept;
     [[nodiscard]] bool is_resize_handle_point(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) const noexcept;
+
+    [[nodiscard]] bool is_interactive_point(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y) const noexcept;
@@ -86,6 +93,8 @@ private:
     bool m_dragging_horizontal_scrollbar = false;
     float m_drag_start_x = 0.0F;
     std::size_t m_drag_start_offset = 0;
+    mutable std::unordered_map<std::size_t, float> m_tab_animated_x;
+    mutable std::unordered_map<std::size_t, float> m_tab_target_x;
 };
 
 } // namespace Zenvra::Platform::Win32::Components

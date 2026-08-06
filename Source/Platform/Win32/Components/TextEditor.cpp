@@ -305,6 +305,30 @@ bool TextEditor::handle_pointer_press(
 {
     if (layout.tab_bar_bounds.contains(point_x, point_y))
     {
+        if (m_max_tab_scroll > 0.0f)
+        {
+            const float track_width = layout.tab_bar_bounds.width;
+            const float thumb_width = std::max(
+                20.0F * layout.dpi_scale,
+                track_width * (track_width / (track_width + m_max_tab_scroll)));
+            const float thumb_x =
+                layout.tab_bar_bounds.x +
+                (m_tab_scroll_offset / m_max_tab_scroll) * (track_width - thumb_width);
+            const UI::Rect thumb_bounds{
+                thumb_x, layout.tab_bar_bounds.bottom() - 3.0F * layout.dpi_scale,
+                thumb_width, 3.0F * layout.dpi_scale};
+            const UI::Rect hit_bounds{
+                thumb_bounds.x, thumb_bounds.y - 2.0F * layout.dpi_scale,
+                thumb_bounds.width, thumb_bounds.height + 2.0F * layout.dpi_scale};
+            if (hit_bounds.contains(point_x, point_y))
+            {
+                m_dragging_tab_scrollbar = true;
+                m_tab_scroll_drag_start_x = point_x;
+                m_tab_scroll_drag_initial_offset = m_tab_scroll_offset;
+                return true;
+            }
+        }
+
         float tab_x = layout.tab_bar_bounds.x - m_tab_scroll_offset;
         const float right_limit = layout.tab_bar_bounds.right();
         const std::span<const UI::Editor::EditorSessionDocument> documents =
@@ -531,13 +555,38 @@ bool TextEditor::handle_pointer_move(
             break;
         }
     }
+    bool hovered_tab_scrollbar = false;
+    if (m_max_tab_scroll > 0.0f)
+    {
+        const float track_width = layout.tab_bar_bounds.width;
+        const float thumb_width = std::max(
+            20.0F * layout.dpi_scale,
+            track_width * (track_width / (track_width + m_max_tab_scroll)));
+        const float thumb_x =
+            layout.tab_bar_bounds.x +
+            (m_tab_scroll_offset / m_max_tab_scroll) * (track_width - thumb_width);
+        const UI::Rect thumb_bounds{
+            thumb_x, layout.tab_bar_bounds.bottom() - 3.0F * layout.dpi_scale,
+            thumb_width, 3.0F * layout.dpi_scale};
+        const UI::Rect hit_bounds{
+            thumb_bounds.x, thumb_bounds.y - 2.0F * layout.dpi_scale,
+            thumb_bounds.width, thumb_bounds.height + 2.0F * layout.dpi_scale};
+        hovered_tab_scrollbar = hit_bounds.contains(point_x, point_y);
+    }
+    bool changed = false;
+    if (hovered_tab_scrollbar != m_hovered_tab_scrollbar)
+    {
+        m_hovered_tab_scrollbar = hovered_tab_scrollbar;
+        changed = true;
+    }
+
     if (hovered_tab != m_hovered_tab_index || hovered_close != m_hovered_tab_close_index)
     {
         m_hovered_tab_index = hovered_tab;
         m_hovered_tab_close_index = hovered_close;
-        return true;
+        changed = true;
     }
-    return scrollbar_changed;
+    return scrollbar_changed || changed;
 }
 
 bool TextEditor::handle_pointer_drag(
@@ -547,6 +596,24 @@ bool TextEditor::handle_pointer_drag(
     float point_x,
     float point_y)
 {
+    if (m_dragging_tab_scrollbar)
+    {
+        const float track_width = layout.tab_bar_bounds.width;
+        const float thumb_width = std::max(
+            20.0F * layout.dpi_scale,
+            track_width * (track_width / (track_width + m_max_tab_scroll)));
+        const float track_space = track_width - thumb_width;
+        
+        if (track_space > 0.0f)
+        {
+            const float delta_x = point_x - m_tab_scroll_drag_start_x;
+            const float scroll_delta = (delta_x / track_space) * m_max_tab_scroll;
+            m_tab_scroll_offset = m_tab_scroll_drag_initial_offset + scroll_delta;
+            m_tab_scroll_offset = std::clamp(m_tab_scroll_offset, 0.0f, m_max_tab_scroll);
+        }
+        return true;
+    }
+
     if (m_tab_drag_drop.is_dragging())
     {
         const bool changed = m_tab_drag_drop.drag(point_x);
@@ -618,6 +685,12 @@ bool TextEditor::handle_pointer_drag(
 
 bool TextEditor::handle_pointer_release() noexcept
 {
+    if (m_dragging_tab_scrollbar)
+    {
+        m_dragging_tab_scrollbar = false;
+        return true;
+    }
+
     if (m_tab_drag_drop.is_dragging())
     {
         m_tab_drag_drop.end_drag();
@@ -1023,7 +1096,8 @@ void TextEditor::draw_tab_strip(
         const float thumb_width = std::max(20.0F * surface.m_dpi_scale, track_width * (track_width / (track_width + m_max_tab_scroll)));
         const float thumb_x = layout.tab_bar_bounds.x + (m_tab_scroll_offset / m_max_tab_scroll) * (track_width - thumb_width);
         const UI::Rect thumb_bounds { thumb_x, layout.tab_bar_bounds.bottom() - 3.0F * surface.m_dpi_scale, thumb_width, 3.0F * surface.m_dpi_scale };
-        surface.fill_rectangle(device_context, thumb_bounds, surface.m_palette.accent);
+        const UI::Theme::Color thumb_color = m_hovered_tab_scrollbar ? surface.m_palette.accent : surface.m_palette.text_muted;
+        surface.fill_rectangle(device_context, thumb_bounds, thumb_color);
     }
 }
 
@@ -1151,8 +1225,9 @@ void TextEditor::draw_document(
         // but for now we just handle vertical.
         m_reveal_caret_pending = false;
     }
+    const std::size_t first_visual_row = m_scrollbar.get_first_visible_line();
     const std::size_t first_line = visual_row_to_physical_line(
-        m_folding, m_scrollbar.get_first_visible_line(), total_lines);
+        m_folding, first_visual_row, total_lines);
     const std::size_t render_count = visible_count;
     const bool syntax_highlighting =
         UI::Editor::supports_editor_syntax_highlighting(document->get_file_name());
@@ -1185,7 +1260,7 @@ void TextEditor::draw_document(
     {
         const float space_width = static_cast<float>(
             surface.get_text_width(device_context, *surface.m_editor_font, " "));
-        const std::size_t first_visual_row = m_scrollbar.get_first_visible_line();
+        // first_visual_row is already declared in the outer scope.
         const std::size_t last_line_in_view =
             visual_row_to_physical_line(m_folding, first_visual_row + render_count, total_lines);
         const auto guide_ranges =
@@ -1249,7 +1324,7 @@ void TextEditor::draw_document(
         const float center_y = first_center_y + static_cast<float>(row_pass1) * line_height;
         ++row_pass1;
         const bool active_line = line_index == document->get_caret_line();
-        if (active_line)
+        if (active_line && !document->has_selection())
         {
             surface.fill_rectangle(
                 device_context,
@@ -1404,7 +1479,8 @@ void TextEditor::draw_document(
             
             selection_targets.push_back(UI::Rect{
                 selection_x,
-                static_cast<float>(line_index) * line_height,
+                static_cast<float>(physical_line_to_visual_row(
+                    m_folding, line_index, total_lines)) * line_height,
                 selection_width,
                 line_height
             });
@@ -1421,23 +1497,26 @@ void TextEditor::draw_document(
     
     if (m_selection_animation.has_rects())
     {
-        const float radius = 3.0F * surface.m_dpi_scale;
-        
         for (const UI::Rect& anim_rect : m_selection_animation.get_animated_rects())
         {
             if (anim_rect.width <= 0.0F) continue;
             
-            const float screen_y = layout.editor_bounds.y + anim_rect.y - static_cast<float>(first_line) * line_height;
+            const float screen_y = layout.editor_bounds.y + anim_rect.y - static_cast<float>(first_visual_row) * line_height;
             const float screen_x = code_x + anim_rect.x;
             
             if (screen_y + anim_rect.height >= layout.editor_bounds.y &&
                 screen_y <= layout.editor_bounds.bottom())
             {
-                surface.fill_rounded_rectangle(
+                const int snap_y = round_to_int(screen_y);
+                const int snap_bottom = round_to_int(screen_y + anim_rect.height);
+                const int snap_x = round_to_int(screen_x);
+                const int snap_right = round_to_int(screen_x + anim_rect.width);
+                
+                surface.fill_rectangle(
                     device_context,
-                    UI::Rect{screen_x, screen_y, anim_rect.width, anim_rect.height},
-                    surface.m_palette.selection_background,
-                    radius
+                    UI::Rect{static_cast<float>(snap_x), static_cast<float>(snap_y), 
+                             static_cast<float>(snap_right - snap_x), static_cast<float>(snap_bottom - snap_y)},
+                    surface.m_palette.selection_background
                 );
             }
         }

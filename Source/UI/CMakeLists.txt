@@ -8,6 +8,7 @@ add_library(ZDEUI STATIC
     Editor/ActivityPanelModel.cpp
     Editor/BraceAnimationModel.cpp
     Editor/CaretBlinkModel.cpp
+    Editor/CppSymbolLexer.cpp
     Editor/EditorController.cpp
     Editor/EditorDropModel.cpp
     Editor/EditorFileCrud.cpp

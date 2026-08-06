@@ -37,7 +37,7 @@ bool TerminalPanelModel::create_session(const std::filesystem::path& working_dir
     const std::string shell_name = session->get_shell_path().stem().string();
     m_sessions.push_back(TerminalSessionEntry{
         .identifier = identifier,
-        .title = shell_name + " " + std::to_string(identifier),
+        .title = shell_name,
         .session = std::move(session),
     });
     m_active_index = m_sessions.size() - 1;

@@ -19,7 +19,7 @@ public:
         const StudioWorkspaceRenderer& surface,
         HDC device_context,
         const UI::Editor::StudioEditorLayoutResult& layout,
-        std::span<const std::string> breadcrumbs,
+        std::span<const UI::Editor::BreadcrumbItem> breadcrumbs,
         const UI::Editor::FooterEditorStatus& status) const;
 };
 

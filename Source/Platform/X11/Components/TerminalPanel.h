@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <string_view>
+#include <unordered_map>
 
 namespace Zenvra::Platform::X11::Components
 {
@@ -57,6 +58,11 @@ public:
         float point_x,
         float point_y) const noexcept;
 
+    [[nodiscard]] bool is_interactive_point(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) const noexcept;
+
     void render(
         const StudioWorkspaceRenderer& surface,
         Drawable drawable,
@@ -80,6 +86,8 @@ private:
     Time m_last_resize_click_time = 0;
     float m_last_resize_click_x = 0.0F;
     float m_last_resize_click_y = 0.0F;
+    mutable std::unordered_map<std::size_t, float> m_tab_animated_x;
+    mutable std::unordered_map<std::size_t, float> m_tab_target_x;
 };
 
 } // namespace Zenvra::Platform::X11::Components

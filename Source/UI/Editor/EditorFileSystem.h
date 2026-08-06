@@ -1,5 +1,7 @@
 #pragma once
 
+#include "UI/Editor/StudioEditorModel.h"
+
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -13,7 +15,7 @@ struct TextFileSnapshot
     std::filesystem::path absolute_path;
     std::filesystem::path project_root;
     std::vector<std::string> lines;
-    std::vector<std::string> breadcrumbs;
+    std::vector<BreadcrumbItem> breadcrumbs;
     std::string line_ending = "LF";
     bool read_only = false;
     bool binary_preview = false;
@@ -29,7 +31,7 @@ public:
         const std::filesystem::path& requested_path);
 
 private:
-    [[nodiscard]] static std::vector<std::string> build_breadcrumbs(
+    [[nodiscard]] static std::vector<BreadcrumbItem> build_breadcrumbs(
         const std::filesystem::path& absolute_path,
         const std::filesystem::path& project_root);
 };

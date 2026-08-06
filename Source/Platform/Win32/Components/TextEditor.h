@@ -130,6 +130,10 @@ private:
     std::optional<std::size_t> m_hovered_tab_index;
     std::optional<std::size_t> m_hovered_tab_close_index;
     mutable std::optional<std::size_t> m_hovered_fold_line;
+    bool m_hovered_tab_scrollbar = false;
+    bool m_dragging_tab_scrollbar = false;
+    float m_tab_scroll_drag_start_x = 0.0F;
+    float m_tab_scroll_drag_initial_offset = 0.0F;
     float m_tab_scroll_offset = 0.0F;
     mutable float m_max_tab_scroll = 0.0F;
     float m_text_scroll_offset = 0.0F;

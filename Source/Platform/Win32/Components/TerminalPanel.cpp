@@ -156,6 +156,29 @@ bool TerminalPanel::poll()
     }
     return changed;
 }
+bool TerminalPanel::tick_animations() noexcept
+{
+    bool needs_redraw = m_model.is_focused() && m_caret_blink.tick();
+    bool animating = false;
+    for (auto& [id, animated_x] : m_tab_animated_x)
+    {
+        if (m_tab_target_x.contains(id))
+        {
+            const float target_x = m_tab_target_x[id];
+            if (std::abs(animated_x - target_x) > 0.5f)
+            {
+                animated_x += (target_x - animated_x) * 0.3f;
+                animating = true;
+            }
+            else
+            {
+                animated_x = target_x;
+            }
+        }
+    }
+    return needs_redraw || animating;
+}
+
 void TerminalPanel::shutdown() noexcept
 {
     m_model.shutdown();
@@ -190,6 +213,31 @@ bool TerminalPanel::is_resize_handle_point(
     return is_visible() && resize_handle_bounds(layout).contains(point_x, point_y);
 }
 
+bool TerminalPanel::is_interactive_point(
+    const UI::Editor::StudioEditorLayoutResult& layout,
+    float point_x,
+    float point_y) const noexcept
+{
+    if (!is_visible())
+    {
+        return false;
+    }
+    const std::span<const Terminal::TerminalSessionEntry> sessions = m_model.get_sessions();
+    for (std::size_t index = 0; index < sessions.size(); ++index)
+    {
+        if (session_tab_bounds(layout, index).contains(point_x, point_y))
+        {
+            return true;
+        }
+    }
+    if (add_button_bounds(layout).contains(point_x, point_y) ||
+        close_button_bounds(layout).contains(point_x, point_y))
+    {
+        return true;
+    }
+    return false;
+}
+
 void TerminalPanel::render(
     const StudioWorkspaceRenderer& surface,
     HDC device_context,
@@ -201,6 +249,10 @@ void TerminalPanel::render(
     }
     surface.fill_rectangle(device_context, layout.terminal_panel_bounds, surface.m_palette.editor_background);
     surface.fill_rectangle(device_context, layout.terminal_header_bounds, surface.m_palette.tab_background);
+    surface.draw_line(device_context,
+        round_to_int(layout.terminal_header_bounds.x), round_to_int(layout.terminal_header_bounds.bottom()) - 1,
+        round_to_int(layout.terminal_header_bounds.right()), round_to_int(layout.terminal_header_bounds.bottom()) - 1,
+        surface.m_palette.border);
     const UI::Theme::Color splitter_color =
         (m_resize_model.is_hovered() || m_resize_model.is_resizing())
         ? surface.m_palette.accent
@@ -231,14 +283,28 @@ void TerminalPanel::render(
     const std::optional<std::size_t> active_index = m_model.get_active_index();
     for (std::size_t index = 0; index < sessions.size(); ++index)
     {
-        const UI::Rect tab = session_tab_bounds(layout, index);
-        const bool active = active_index && *active_index == index;
-        if (active)
+        UI::Rect tab = session_tab_bounds(layout, index);
+        const std::size_t id = sessions[index].identifier;
+        m_tab_target_x[id] = tab.x;
+        if (!m_tab_animated_x.contains(id))
         {
-            surface.fill_rectangle(device_context, tab, surface.m_palette.tab_active_background);
-            surface.fill_rectangle(device_context,
-                UI::Rect{tab.x, tab.bottom() - surface.m_dpi_scale, tab.width, surface.m_dpi_scale},
-                surface.m_palette.accent);
+            m_tab_animated_x[id] = tab.x;
+        }
+        tab.x = m_tab_animated_x[id];
+
+        const bool active = active_index && *active_index == index;
+        surface.fill_rectangle(device_context, tab, active ? surface.m_palette.tab_active_background : surface.m_palette.tab_background);
+        const UI::Theme::Color& tab_edge_color = surface.m_palette.border;
+        const int tab_left = round_to_int(tab.x);
+        const int tab_right = round_to_int(tab.right()) - 1;
+        const int tab_top = round_to_int(tab.y);
+        const int tab_bottom = round_to_int(tab.bottom()) - 1;
+        surface.draw_line(device_context, tab_left, tab_top, tab_right, tab_top, tab_edge_color);
+        surface.draw_line(device_context, tab_left, tab_top, tab_left, tab_bottom, tab_edge_color);
+        surface.draw_line(device_context, tab_right, tab_top, tab_right, tab_bottom, tab_edge_color);
+        if (!active)
+        {
+            surface.draw_line(device_context, tab_left, tab_bottom, tab_right, tab_bottom, tab_edge_color);
         }
         surface.draw_svg_icon(
             device_context,

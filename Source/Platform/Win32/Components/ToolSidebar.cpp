@@ -242,6 +242,13 @@ void ToolSidebar::render(
       surface.draw_line(device_context, round_to_int(panel.right() - scale),
                         round_to_int(panel.y), round_to_int(panel.right() - scale),
                         round_to_int(panel.bottom()), surface.m_palette.accent);
+      surface.fill_rectangle(device_context,
+          UI::Rect{
+              panel.right() - scale - scale,
+              panel.y,
+              std::max(2.0F * scale, 2.0F),
+              panel.height},
+          surface.m_palette.accent);
     }
     return;
   }
@@ -255,6 +262,15 @@ void ToolSidebar::render(
   surface.draw_line(device_context, round_to_int(panel.right() - scale),
                     round_to_int(panel.y), round_to_int(panel.right() - scale),
                     round_to_int(panel.bottom()), border_color);
+  if (m_resize_hovered || m_resizing) {
+    surface.fill_rectangle(device_context,
+        UI::Rect{
+            panel.right() - scale - scale,
+            panel.y,
+            std::max(2.0F * scale, 2.0F),
+            panel.height},
+        surface.m_palette.accent);
+  }
   surface.draw_text(device_context, *surface.m_ui_font, m_model.get_title(),
                     panel.x + 14.0F * scale,
                     panel.y + header_height * 0.5F * scale,
@@ -382,10 +398,13 @@ void ToolSidebar::render(
       }
       const int folder_x = round_to_int(indent_x + 19.0F * scale);
       if (folder_x + 16.0F * scale < panel.right()) {
+        const int folder_size = item.expanded 
+                                    ? std::max(round_to_int(12.0F * scale), 10)
+                                    : std::max(round_to_int(16.0F * scale), 13);
         surface.draw_svg_icon(device_context,
                               item.expanded ? "folder-open.svg" : "folder.svg",
                               folder_x, arrow_y,
-                              std::max(round_to_int(16.0F * scale), 13),
+                              folder_size,
                               surface.m_palette.text_muted, row_background);
       }
     } else {

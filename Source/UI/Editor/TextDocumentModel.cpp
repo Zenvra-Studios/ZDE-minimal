@@ -1,5 +1,6 @@
 #include "UI/Editor/TextDocumentModel.h"
 
+#include "UI/Editor/CppSymbolLexer.h"
 #include "Language/LanguageConfiguration.h"
 #include <algorithm>
 #include <filesystem>
@@ -86,7 +87,7 @@ TextDocumentModel::TextDocumentModel()
 void TextDocumentModel::replace_contents(
     std::vector<std::string> lines,
     std::string file_name,
-    std::vector<std::string> breadcrumbs,
+    std::vector<BreadcrumbItem> breadcrumbs,
     std::string line_ending,
     bool read_only)
 {
@@ -108,7 +109,7 @@ void TextDocumentModel::replace_contents(
 
 void TextDocumentModel::update_file_identity(
     std::string file_name,
-    std::vector<std::string> breadcrumbs,
+    std::vector<BreadcrumbItem> breadcrumbs,
     std::string line_ending)
 {
     m_file_name = std::move(file_name);
@@ -141,9 +142,30 @@ std::string_view TextDocumentModel::get_file_name() const noexcept
     return m_file_name;
 }
 
-std::span<const std::string> TextDocumentModel::get_breadcrumbs() const noexcept
+std::span<const BreadcrumbItem> TextDocumentModel::get_breadcrumbs() const noexcept
 {
     return m_breadcrumbs;
+}
+
+std::vector<BreadcrumbItem> TextDocumentModel::get_full_breadcrumbs() const
+{
+    std::vector<BreadcrumbItem> result = m_breadcrumbs;
+
+    // Determine if this is a C++ file by checking the file extension.
+    const std::filesystem::path file_path{m_file_name};
+    const std::string ext = file_path.extension().string();
+    const bool is_cpp = ext == ".cpp" || ext == ".cxx" || ext == ".cc" ||
+        ext == ".h" || ext == ".hpp" || ext == ".hxx" || ext == ".hh" ||
+        ext == ".c" || ext == ".inl";
+
+    if (is_cpp && !m_lines.empty())
+    {
+        std::vector<BreadcrumbItem> symbol_scopes =
+            CppSymbolLexer::resolve_scopes(m_lines, m_caret_line);
+        result.insert(result.end(), symbol_scopes.begin(), symbol_scopes.end());
+    }
+
+    return result;
 }
 
 FooterEditorStatus TextDocumentModel::get_status() const noexcept

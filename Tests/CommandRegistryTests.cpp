@@ -392,7 +392,7 @@ void test_studio_editor_layout_and_tokenization()
         "the minimap viewport indicator must track the editor scroll position");
 
     TextDocumentModel document;
-    document.replace_contents({"alpha", "beta"}, "sample.cpp", {"ZDE", "sample.cpp"}, "LF");
+    document.replace_contents({"alpha", "beta"}, "sample.cpp", {{"ZDE", BreadcrumbIconKind::Folder}, {"sample.cpp", BreadcrumbIconKind::File}}, "LF");
     expect(document.set_caret(0, 5), "the caret must move to a requested text position");
     expect(document.insert_text("\nvalue"), "the text model must insert multi-line input");
     expect(document.get_line_count() == 3, "new-line input must split the text buffer");
@@ -409,7 +409,7 @@ void test_studio_editor_layout_and_tokenization()
     if (snapshot)
     {
         expect(!snapshot->lines.empty(), "the filesystem loader must split source text into lines");
-        expect(snapshot->breadcrumbs.back() == "X11Window.cpp",
+        expect(snapshot->breadcrumbs.back().text == "X11Window.cpp",
             "the footer breadcrumb must end at the active file");
     }
 }
@@ -762,7 +762,7 @@ void test_editor_selection_and_file_crud()
 
     TextDocumentModel selection_document;
     selection_document.replace_contents(
-        {"alpha", "beta"}, "selection.txt", {"ZDE", "selection.txt"}, "LF");
+        {"alpha", "beta"}, "selection.txt", {{"ZDE", BreadcrumbIconKind::Folder}, {"selection.txt", BreadcrumbIconKind::File}}, "LF");
     static_cast<void>(selection_document.set_caret(0, 1));
     expect(selection_document.set_caret(1, 2, true),
         "dragging the caret must extend the selection");
@@ -838,7 +838,7 @@ void test_editor_selection_and_file_crud()
     read_only_document.replace_contents(
         {"00000000  5A 44 45 00"},
         "payload.bin",
-        {"payload.bin"},
+        {{"payload.bin", BreadcrumbIconKind::File}},
         "LF",
         true);
     expect(read_only_document.is_read_only() && !read_only_document.insert_text("unsafe"),

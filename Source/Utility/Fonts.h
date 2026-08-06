@@ -214,15 +214,31 @@ public:
       : m_display(display), m_font(nullptr) {
     m_visual = DefaultVisual(display, screen_num);
     m_colormap = DefaultColormap(display, screen_num);
+    init(screen_num, font_name);
+  }
 
+  /**
+   * @brief Constructor with custom visual and colormap (e.g. for 32-bit ARGB windows).
+   */
+  AntialiasedFont(Display *display, int screen_num,
+                  const std::string &font_name,
+                  Visual* visual, Colormap colormap)
+      : m_display(display), m_visual(visual), m_colormap(colormap), m_font(nullptr) {
+    init(screen_num, font_name);
+  }
+
+private:
+  void init(int screen_num, const std::string &font_name) {
     /* Open the vector font using Fontconfig pattern matching */
-    m_font = XftFontOpenName(display, screen_num, font_name.c_str());
+    m_font = XftFontOpenName(m_display, screen_num, font_name.c_str());
     if (!m_font) {
       std::cerr << "Warning: Could not open font '" << font_name
                 << "', falling back to 'sans-10'" << std::endl;
-      m_font = XftFontOpenName(display, screen_num, "sans-10");
+      m_font = XftFontOpenName(m_display, screen_num, "sans-10");
     }
   }
+
+public:
 
   /**
    * @brief Destructor. Closes Xft fonts and frees cached XftColors.
@@ -252,13 +268,16 @@ public:
    * @param text String content to draw.
    */
   void drawString(Drawable drawable, const std::string &color_name, int x,
-                  int y, const std::string &text) {
+                  int y, const std::string &text, const XRectangle *clip = nullptr) {
     XftColor *color = getColor(color_name);
     if (!color || !m_font)
       return;
 
     XftDraw *draw = XftDrawCreate(m_display, drawable, m_visual, m_colormap);
     if (draw) {
+      if (clip) {
+        XftDrawSetClipRectangles(draw, 0, 0, clip, 1);
+      }
       XftDrawStringUtf8(draw, color, m_font, x, y,
                         (const FcChar8 *)text.c_str(), text.length());
       XftDrawDestroy(draw);

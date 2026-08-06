@@ -62,7 +62,11 @@ public:
         float content_top);
     [[nodiscard]] bool handle_pointer_release() noexcept;
     [[nodiscard]] bool handle_scroll(
+        float point_x,
+        float point_y,
+        std::string& command_out,
         std::ptrdiff_t line_delta,
+        bool horizontal,
         int client_width,
         int client_height,
         float content_top) noexcept;
@@ -91,6 +95,12 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_tab_bar_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_tab_bar_area_point(
         float point_x,
         float point_y,
         int client_width,
@@ -139,6 +149,22 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_terminal_resizing() const noexcept;
+    [[nodiscard]] bool is_editor_interactive_point(
+        float point_x,
+        float point_y) const noexcept;
+    [[nodiscard]] bool is_terminal_interactive_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_sidebar_resize_handle_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_sidebar_resizing() const noexcept;
     [[nodiscard]] bool is_empty_state_button_hovered() const noexcept;
     [[nodiscard]] bool tick_animations() noexcept;
     void shutdown();
@@ -149,6 +175,7 @@ private:
     friend class ActivitySidebar;
     friend class EditorMinimap;
     friend class EditorScrollbar;
+    friend class ExplorerHeader;
     friend class FooterToolbar;
     friend class TerminalPanel;
     friend class TextEditor;
@@ -205,7 +232,10 @@ private:
         std::string_view text,
         float point_x,
         float center_y,
-        const std::string& color) const;
+        const std::string& color,
+        const UI::Rect* clip_rect = nullptr) const;
+    void push_clip(const UI::Rect& rect) const;
+    void pop_clip() const;
     void draw_svg_icon(
         Drawable drawable,
         const std::string& asset_path,

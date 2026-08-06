@@ -143,6 +143,12 @@ public:
     [[nodiscard]] bool is_editor_interactive_point(
         float point_x,
         float point_y) const noexcept;
+    [[nodiscard]] bool is_terminal_interactive_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
     [[nodiscard]] bool is_fold_margin_point(
         float point_x,
         float point_y,

@@ -109,7 +109,7 @@ private:
     void update_manual_move_resize(const XMotionEvent& event);
     void end_manual_move_resize(Time event_time);
     void send_maximized_state(long operation);
-    void open_menu(std::size_t menu_index, bool select_first_item);
+    void open_menu(std::size_t menu_index, bool select_first_item, const UI::Rect* anchor_override = nullptr);
     void move_popup_selection(int direction);
     void execute_popup_selection();
 

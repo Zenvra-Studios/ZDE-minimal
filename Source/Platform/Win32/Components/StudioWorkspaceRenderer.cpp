@@ -11,6 +11,9 @@
 #include <cstdio>
 #include <iterator>
 #include <string>
+#include <vector>
+
+#pragma comment(lib, "Msimg32.lib")
 
 namespace Zenvra::Platform::Win32::Components
 {
@@ -560,7 +563,7 @@ bool StudioWorkspaceRenderer::is_terminal_point(
         m_terminal_panel.is_maximized(),
         m_tool_sidebar.is_visible(),
         m_tool_sidebar.get_width());
-    return m_terminal_panel.contains(layout, point_x, point_y);
+    return m_terminal_panel.is_visible() && layout.terminal_content_bounds.contains(point_x, point_y);
 }
 
 bool StudioWorkspaceRenderer::is_tool_sidebar_point(
@@ -581,6 +584,26 @@ bool StudioWorkspaceRenderer::is_tool_sidebar_point(
         m_tool_sidebar.is_visible(),
         m_tool_sidebar.get_width());
     return m_tool_sidebar.contains(layout, point_x, point_y);
+}
+
+bool StudioWorkspaceRenderer::is_terminal_interactive_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
+        static_cast<float>(client_width),
+        static_cast<float>(client_height),
+        content_top,
+        m_dpi_scale,
+        m_terminal_panel.is_visible(),
+        m_terminal_panel.get_height(),
+        m_terminal_panel.is_maximized(),
+        m_tool_sidebar.is_visible(),
+        m_tool_sidebar.get_width());
+    return m_terminal_panel.is_interactive_point(layout, point_x, point_y);
 }
 
 bool StudioWorkspaceRenderer::is_terminal_resize_handle_point(
@@ -637,7 +660,8 @@ bool StudioWorkspaceRenderer::tick_animations() noexcept
 {
     const bool caret_changed = m_text_editor.tick_animations();
     const bool terminal_changed = m_terminal_panel.poll();
-    return caret_changed || terminal_changed;
+    const bool terminal_anim_changed = m_terminal_panel.tick_animations();
+    return caret_changed || terminal_changed || terminal_anim_changed;
 }
 
 void StudioWorkspaceRenderer::shutdown()
@@ -688,11 +712,13 @@ void StudioWorkspaceRenderer::render(
     m_activity_sidebar.render(*this, device_context, layout);
     if (const UI::Editor::TextDocumentModel* document = m_text_editor.get_document())
     {
+        const std::vector<UI::Editor::BreadcrumbItem> full_breadcrumbs =
+            document->get_full_breadcrumbs();
         m_footer_toolbar.render(
             *this,
             device_context,
             layout,
-            document->get_breadcrumbs(),
+            full_breadcrumbs,
             document->get_status());
     }
 }
@@ -722,21 +748,86 @@ void StudioWorkspaceRenderer::fill_rounded_rectangle(
     {
         return;
     }
-    const RECT bounds = to_native_rect(rectangle);
-    const int corner = std::max(round_to_int(radius), 1);
-    HBRUSH brush = CreateSolidBrush(to_color_ref(color));
-    HPEN null_pen = CreatePen(PS_NULL, 0, 0);
-    HGDIOBJ previous_brush = SelectObject(device_context, brush);
-    HGDIOBJ previous_pen = SelectObject(device_context, null_pen);
-    // +1 on right/bottom because GDI RoundRect excludes the bottom-right edge
-    RoundRect(device_context,
-        bounds.left, bounds.top,
-        bounds.right + 1, bounds.bottom + 1,
-        corner * 2, corner * 2);
-    SelectObject(device_context, previous_pen);
-    SelectObject(device_context, previous_brush);
-    DeleteObject(null_pen);
-    DeleteObject(brush);
+    int w = round_to_int(rectangle.width);
+    int h = round_to_int(rectangle.height);
+    if (w <= 0 || h <= 0)
+    {
+        return;
+    }
+
+    float r = std::min({radius, rectangle.width * 0.5f, rectangle.height * 0.5f});
+    if (r <= 0.0f)
+    {
+        RECT bounds = to_native_rect(rectangle);
+        HBRUSH brush = CreateSolidBrush(to_color_ref(color));
+        FillRect(device_context, &bounds, brush);
+        DeleteObject(brush);
+        return;
+    }
+
+    std::vector<uint32_t> pixels(w * h, 0);
+    const uint32_t col_r = color.red;
+    const uint32_t col_g = color.green;
+    const uint32_t col_b = color.blue;
+
+    for (int y = 0; y < h; ++y)
+    {
+        for (int x = 0; x < w; ++x)
+        {
+            float cx = static_cast<float>(x) + 0.5f;
+            float cy = static_cast<float>(y) + 0.5f;
+
+            float dx = std::max({r - cx, 0.0f, cx - (w - r)});
+            float dy = std::max({r - cy, 0.0f, cy - (h - r)});
+            float dist = std::sqrt(dx * dx + dy * dy);
+
+            float d = dist - r;
+            float alpha_f = 0.5f - d;
+
+            if (alpha_f > 1.0f) alpha_f = 1.0f;
+            if (alpha_f < 0.0f) alpha_f = 0.0f;
+
+            if (alpha_f > 0.0f)
+            {
+                uint32_t a = static_cast<uint32_t>(alpha_f * 255.0f);
+                uint32_t pr = (col_r * a) / 255;
+                uint32_t pg = (col_g * a) / 255;
+                uint32_t pb = (col_b * a) / 255;
+                pixels[(h - 1 - y) * w + x] = (a << 24) | (pr << 16) | (pg << 8) | pb;
+            }
+        }
+    }
+
+    BITMAPINFO bmi{};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = w;
+    bmi.bmiHeader.biHeight = h;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    HDC memDC = CreateCompatibleDC(device_context);
+    void* bits = nullptr;
+    HBITMAP hBmp = CreateDIBSection(device_context, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (hBmp)
+    {
+        memcpy(bits, pixels.data(), w * h * sizeof(uint32_t));
+        HGDIOBJ oldBmp = SelectObject(memDC, hBmp);
+
+        BLENDFUNCTION bf{};
+        bf.BlendOp = AC_SRC_OVER;
+        bf.BlendFlags = 0;
+        bf.SourceConstantAlpha = 255;
+        bf.AlphaFormat = AC_SRC_ALPHA;
+
+        AlphaBlend(device_context,
+                   round_to_int(rectangle.x), round_to_int(rectangle.y), w, h,
+                   memDC, 0, 0, w, h, bf);
+
+        SelectObject(memDC, oldBmp);
+        DeleteObject(hBmp);
+    }
+    DeleteDC(memDC);
 }
 
 void StudioWorkspaceRenderer::draw_rectangle(

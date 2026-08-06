@@ -7,10 +7,27 @@
 #include <cstddef>
 #include <span>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace Zenvra::UI::Editor
 {
+
+enum class BreadcrumbIconKind
+{
+    Folder,
+    File,
+    Namespace,
+    Class,
+    Struct,
+    Function,
+};
+
+struct BreadcrumbItem
+{
+    std::string text;
+    BreadcrumbIconKind icon = BreadcrumbIconKind::File;
+};
 
 inline constexpr std::size_t maximum_editor_tokens = 128;
 
@@ -123,7 +140,7 @@ struct StudioEditorMetrics final
     static constexpr float sidebar_item_height = 36.0F;
     static constexpr float sidebar_item_spacing = 40.0F;
     static constexpr float sidebar_top_offset = 21.0F;
-    static constexpr float sidebar_bottom_offset = 13.0F;
+    static constexpr float sidebar_bottom_offset = 21.0F;
     static constexpr float sidebar_icon_size = 18.0F;
     static constexpr float editor_tab_action_width = 30.0F;
     static constexpr float editor_tab_minimum_width = 112.0F;

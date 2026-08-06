@@ -48,12 +48,12 @@ public:
     void replace_contents(
         std::vector<std::string> lines,
         std::string file_name,
-        std::vector<std::string> breadcrumbs,
+        std::vector<BreadcrumbItem> breadcrumbs,
         std::string line_ending,
         bool read_only = false);
     void update_file_identity(
         std::string file_name,
-        std::vector<std::string> breadcrumbs,
+        std::vector<BreadcrumbItem> breadcrumbs,
         std::string line_ending);
 
     [[nodiscard]] std::size_t get_line_count() const noexcept;
@@ -61,7 +61,8 @@ public:
     [[nodiscard]] std::size_t get_caret_line() const noexcept;
     [[nodiscard]] std::size_t get_caret_column() const noexcept;
     [[nodiscard]] std::string_view get_file_name() const noexcept;
-    [[nodiscard]] std::span<const std::string> get_breadcrumbs() const noexcept;
+    [[nodiscard]] std::span<const BreadcrumbItem> get_breadcrumbs() const noexcept;
+    [[nodiscard]] std::vector<BreadcrumbItem> get_full_breadcrumbs() const;
     [[nodiscard]] FooterEditorStatus get_status() const noexcept;
     [[nodiscard]] bool is_dirty() const noexcept;
     [[nodiscard]] bool is_read_only() const noexcept;
@@ -93,7 +94,7 @@ private:
     void begin_or_clear_selection(bool extend_selection, TextPosition previous_caret) noexcept;
 
     std::vector<std::string> m_lines;
-    std::vector<std::string> m_breadcrumbs;
+    std::vector<BreadcrumbItem> m_breadcrumbs;
     std::string m_file_name;
     std::string m_line_ending = "LF";
     std::size_t m_caret_line = 0;

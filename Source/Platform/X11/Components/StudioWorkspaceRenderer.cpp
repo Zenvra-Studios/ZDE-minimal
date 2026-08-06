@@ -313,6 +313,10 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(
         m_terminal_panel.is_maximized(),
         m_tool_sidebar.is_visible(),
         m_tool_sidebar.get_width());
+    if (m_tool_sidebar.is_resizing())
+    {
+        return m_tool_sidebar.handle_pointer_drag(layout, point_x);
+    }
     if (m_terminal_panel.is_resizing())
     {
         return m_terminal_panel.handle_pointer_drag(layout, point_y);
@@ -323,12 +327,17 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(
 bool StudioWorkspaceRenderer::handle_pointer_release() noexcept
 {
     const bool terminal_changed = m_terminal_panel.handle_pointer_release();
+    const bool sidebar_changed = m_tool_sidebar.handle_pointer_release();
     const bool editor_changed = m_text_editor.handle_pointer_release();
-    return terminal_changed || editor_changed;
+    return terminal_changed || sidebar_changed || editor_changed;
 }
 
 bool StudioWorkspaceRenderer::handle_scroll(
+    float point_x,
+    float point_y,
+    std::string& command_out,
     std::ptrdiff_t line_delta,
+    bool horizontal,
     int client_width,
     int client_height,
     float content_top) noexcept
@@ -343,7 +352,8 @@ bool StudioWorkspaceRenderer::handle_scroll(
         m_terminal_panel.is_maximized(),
         m_tool_sidebar.is_visible(),
         m_tool_sidebar.get_width());
-    return m_text_editor.handle_scroll(*this, layout, line_delta);
+    return m_text_editor.handle_scroll(*this, layout, point_x, point_y,
+                                       command_out, line_delta, horizontal);
 }
 
 bool StudioWorkspaceRenderer::handle_editor_input(
@@ -465,6 +475,26 @@ bool StudioWorkspaceRenderer::is_tab_bar_point(
     return m_text_editor.is_tab_interactive_point(*this, layout, point_x, point_y);
 }
 
+bool StudioWorkspaceRenderer::is_tab_bar_area_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
+        static_cast<float>(client_width),
+        static_cast<float>(client_height),
+        content_top,
+        m_dpi_scale,
+        m_terminal_panel.is_visible(),
+        m_terminal_panel.get_height(),
+        m_terminal_panel.is_maximized(),
+        m_tool_sidebar.is_visible(),
+        m_tool_sidebar.get_width());
+    return layout.tab_bar_bounds.contains(point_x, point_y);
+}
+
 bool StudioWorkspaceRenderer::is_editor_point(
     float point_x,
     float point_y,
@@ -565,7 +595,7 @@ bool StudioWorkspaceRenderer::is_terminal_point(
         m_terminal_panel.is_maximized(),
         m_tool_sidebar.is_visible(),
         m_tool_sidebar.get_width());
-    return m_terminal_panel.contains(layout, point_x, point_y);
+    return m_terminal_panel.is_visible() && layout.terminal_content_bounds.contains(point_x, point_y);
 }
 
 bool StudioWorkspaceRenderer::is_tool_sidebar_point(
@@ -611,6 +641,58 @@ bool StudioWorkspaceRenderer::is_terminal_resize_handle_point(
 bool StudioWorkspaceRenderer::is_terminal_resizing() const noexcept
 {
     return m_terminal_panel.is_resizing();
+}
+
+bool StudioWorkspaceRenderer::is_editor_interactive_point(
+    float point_x,
+    float point_y) const noexcept
+{
+    return m_text_editor.is_empty_state_interactive_point(point_x, point_y);
+}
+
+bool StudioWorkspaceRenderer::is_terminal_interactive_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
+        static_cast<float>(client_width),
+        static_cast<float>(client_height),
+        content_top,
+        m_dpi_scale,
+        m_terminal_panel.is_visible(),
+        m_terminal_panel.get_height(),
+        m_terminal_panel.is_maximized(),
+        m_tool_sidebar.is_visible(),
+        m_tool_sidebar.get_width());
+    return m_terminal_panel.is_interactive_point(layout, point_x, point_y);
+}
+
+bool StudioWorkspaceRenderer::is_sidebar_resize_handle_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
+        static_cast<float>(client_width),
+        static_cast<float>(client_height),
+        content_top,
+        m_dpi_scale,
+        m_terminal_panel.is_visible(),
+        m_terminal_panel.get_height(),
+        m_terminal_panel.is_maximized(),
+        m_tool_sidebar.is_visible(),
+        m_tool_sidebar.get_width());
+    return m_tool_sidebar.is_resize_handle_point(layout, point_x, point_y);
+}
+
+bool StudioWorkspaceRenderer::is_sidebar_resizing() const noexcept
+{
+    return m_tool_sidebar.is_resizing();
 }
 
 bool StudioWorkspaceRenderer::is_empty_state_button_hovered() const noexcept
@@ -688,11 +770,13 @@ void StudioWorkspaceRenderer::render(
     m_activity_sidebar.render(*this, drawable, layout);
     if (const UI::Editor::TextDocumentModel* document = m_text_editor.get_document())
     {
+        const std::vector<UI::Editor::BreadcrumbItem> full_breadcrumbs =
+            document->get_full_breadcrumbs();
         m_footer_toolbar.render(
             *this,
             drawable,
             layout,
-            document->get_breadcrumbs(),
+            full_breadcrumbs,
             document->get_status());
     }
 }
@@ -714,6 +798,21 @@ unsigned long StudioWorkspaceRenderer::allocate_color(const UI::Theme::Color& co
         return BlackPixel(m_display, m_screen);
     }
     return x_color.pixel;
+}
+
+void StudioWorkspaceRenderer::push_clip(const UI::Rect& rect) const
+{
+    XRectangle xrect;
+    xrect.x = static_cast<short>(round_to_int(rect.x));
+    xrect.y = static_cast<short>(round_to_int(rect.y));
+    xrect.width = static_cast<unsigned short>(std::max(round_to_int(rect.width), 0));
+    xrect.height = static_cast<unsigned short>(std::max(round_to_int(rect.height), 0));
+    XSetClipRectangles(m_display, m_graphics_context, 0, 0, &xrect, 1, Unsorted);
+}
+
+void StudioWorkspaceRenderer::pop_clip() const
+{
+    XSetClipMask(m_display, m_graphics_context, None);
 }
 
 void StudioWorkspaceRenderer::fill_rectangle(
@@ -788,7 +887,8 @@ void StudioWorkspaceRenderer::draw_text(
     std::string_view text,
     float point_x,
     float center_y,
-    const std::string& color) const
+    const std::string& color,
+    const UI::Rect* clip_rect) const
 {
     if (text.empty())
     {
@@ -797,7 +897,17 @@ void StudioWorkspaceRenderer::draw_text(
     const int baseline = round_to_int(
         center_y - static_cast<float>(font.getAscent() + font.getDescent()) * 0.5F +
         static_cast<float>(font.getAscent()));
-    font.drawString(drawable, color, round_to_int(point_x), baseline, std::string{text});
+    
+    if (clip_rect) {
+        XRectangle x_clip;
+        x_clip.x = static_cast<short>(clip_rect->x);
+        x_clip.y = static_cast<short>(clip_rect->y);
+        x_clip.width = static_cast<unsigned short>(std::max(0.0f, clip_rect->width));
+        x_clip.height = static_cast<unsigned short>(std::max(0.0f, clip_rect->height));
+        font.drawString(drawable, color, round_to_int(point_x), baseline, std::string{text}, &x_clip);
+    } else {
+        font.drawString(drawable, color, round_to_int(point_x), baseline, std::string{text});
+    }
 }
 
 void StudioWorkspaceRenderer::draw_svg_icon(

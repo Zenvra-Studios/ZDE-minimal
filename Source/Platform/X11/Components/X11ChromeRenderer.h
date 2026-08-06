@@ -16,6 +16,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 class AntialiasedFont;
 
@@ -29,6 +30,15 @@ struct PopupMenuGeometry
     UI::Rect bounds;
     std::array<UI::Rect, max_popup_menu_items> item_bounds{};
     std::size_t item_count = 0;
+};
+
+struct PopupMenuItem
+{
+    std::string text;
+    std::string command_id;
+    bool separator = false;
+    bool enabled = true;
+    bool checked = false;
 };
 
 struct OverflowMenuGeometry
@@ -61,6 +71,7 @@ struct ChromeInteractionState
     bool gear_button_hovered = false;
     bool maximized = false;
     bool focused = false;
+    // float menu_animation_progress = 0.0f; // [MENU ANIMATION - TEMPORARILY DISABLED]
 };
 
 class X11ChromeRenderer
@@ -109,7 +120,11 @@ public:
         float content_top);
     [[nodiscard]] bool handle_workspace_pointer_release() noexcept;
     [[nodiscard]] bool handle_workspace_scroll(
+        float point_x,
+        float point_y,
+        std::string& command_out,
         std::ptrdiff_t line_delta,
+        bool horizontal,
         int client_width,
         int client_height,
         float content_top) noexcept;
@@ -138,6 +153,12 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_tab_bar_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_tab_bar_area_point(
         float point_x,
         float point_y,
         int client_width,
@@ -186,6 +207,22 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_terminal_resizing() const noexcept;
+    [[nodiscard]] bool is_editor_interactive_point(
+        float point_x,
+        float point_y) const noexcept;
+    [[nodiscard]] bool is_terminal_interactive_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_sidebar_resize_handle_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_sidebar_resizing() const noexcept;
     [[nodiscard]] bool is_empty_state_button_hovered() const noexcept;
     [[nodiscard]] bool tick_animations() noexcept;
 
@@ -197,12 +234,26 @@ public:
         const ChromeInteractionState& interaction_state,
         const CommandStateQueryCallback& command_state_query_callback) const;
 
+    [[nodiscard]] OverflowMenuGeometry calculate_overflow_menu_geometry(
+        const UI::Chrome::WindowChromeLayoutResult& chrome_layout) const noexcept;
     [[nodiscard]] PopupMenuGeometry calculate_popup_geometry(
         const UI::Chrome::WindowChromeLayoutResult& chrome_layout,
         std::size_t menu_index,
         bool opened_from_overflow = false) const noexcept;
-    [[nodiscard]] OverflowMenuGeometry calculate_overflow_menu_geometry(
-        const UI::Chrome::WindowChromeLayoutResult& chrome_layout) const noexcept;
+
+    [[nodiscard]] bool open_popup(
+        Window parent_window,
+        const UI::Rect& anchor_bounds,
+        std::span<const PopupMenuItem> items,
+        bool select_first_item = false,
+        bool side_popup = false);
+    void close_popup() noexcept;
+    [[nodiscard]] bool is_popup_open() const noexcept;
+    [[nodiscard]] Window popup_window() const noexcept;
+    [[nodiscard]] bool handle_popup_event(const XEvent& event);
+    [[nodiscard]] std::optional<std::string> take_popup_command() noexcept;
+    void move_popup_selection(int direction);
+    void activate_popup_selection();
 
 private:
     struct ThemePixels
@@ -257,17 +308,43 @@ private:
         Drawable drawable,
         const UI::Chrome::WindowChromeLayoutResult& chrome_layout,
         const ChromeInteractionState& interaction_state) const;
+    void paint_popup();
+    void destroy_popup_window() noexcept;
+    void select_popup_item(int index);
+    [[nodiscard]] int popup_item_index_at(int local_x, int local_y) const noexcept;
 
     Display* m_display = nullptr;
     int m_screen = 0;
     float m_dpi_scale = 1.0F;
     GC m_graphics_context = nullptr;
+    Visual* m_popup_visual = nullptr;
+    Colormap m_popup_colormap = 0;
+    int m_popup_depth = 0;
+    GC m_popup_graphics_context = nullptr;
     std::unique_ptr<AntialiasedFont> m_font;
+    std::unique_ptr<AntialiasedFont> m_popup_font;
     ThemePixels m_colors;
     ThemeTextColors m_text_colors;
     UI::Theme::Color m_titlebar_background_color{};
     UI::Theme::Color m_hover_color{};
+    UI::Theme::Color m_theme_popup_background{};
+    UI::Theme::Color m_theme_popup_border{};
     StudioWorkspaceRenderer m_workspace_renderer;
+
+    struct PopupWindowState
+    {
+        Window window = 0;
+        std::vector<PopupMenuItem> items;
+        int x = 0;
+        int y = 0;
+        int width = 0;
+        int height = 0;
+        int hovered = -1;
+        bool open = false;
+        bool pressed = false;
+        std::string selected_command;
+    };
+    PopupWindowState m_popup;
 };
 
 } // namespace Zenvra::Platform::X11::Components

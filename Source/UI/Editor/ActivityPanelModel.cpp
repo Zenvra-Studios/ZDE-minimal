@@ -120,6 +120,12 @@ bool ActivityPanelModel::refresh()
     return true;
 }
 
+void ActivityPanelModel::collapse_all() noexcept
+{
+    m_expanded_paths.clear();
+    rebuild_tree();
+}
+
 ActivityPanelAction ActivityPanelModel::activate_project_row(std::size_t visible_row)
 {
     if (!m_visible || m_active_icon != SidebarIcon::Project)

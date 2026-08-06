@@ -41,6 +41,8 @@ public:
     void set_scroll_offset(std::size_t offset) noexcept;
 
     [[nodiscard]] bool is_visible() const noexcept;
+    void collapse_all() noexcept;
+
     void set_visible(bool visible) noexcept;
     [[nodiscard]] bool is_active(SidebarIcon icon) const noexcept;
     [[nodiscard]] SidebarIcon get_active_icon() const noexcept;

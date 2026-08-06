@@ -58,7 +58,11 @@ public:
     [[nodiscard]] bool handle_scroll(
         const StudioWorkspaceRenderer& surface,
         const UI::Editor::StudioEditorLayoutResult& layout,
-        std::ptrdiff_t line_delta) noexcept;
+        float point_x,
+        float point_y,
+        std::string& command_out,
+        std::ptrdiff_t line_delta,
+        bool horizontal) noexcept;
     [[nodiscard]] bool handle_input(
         UI::Editor::EditorInputCommand command,
         bool extend_selection);
@@ -68,6 +72,9 @@ public:
         std::string_view command_id) const noexcept;
     [[nodiscard]] bool handle_text_input(std::string_view utf8_text);
     [[nodiscard]] bool is_focused() const noexcept;
+    [[nodiscard]] bool is_empty_state_interactive_point(
+        float point_x,
+        float point_y) const noexcept;
     [[nodiscard]] bool is_scrollbar_point(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
@@ -117,6 +124,10 @@ private:
     mutable std::unordered_map<const UI::Editor::TextDocumentModel*, float> m_tab_animated_x;
     mutable std::unordered_map<const UI::Editor::TextDocumentModel*, float> m_tab_target_x;
     float m_drag_initial_tab_x = 0.0F;
+    mutable float m_tab_scroll_offset = 0.0F;
+    mutable float m_max_tab_scroll = 0.0F;
+    mutable float m_text_scroll_offset = 0.0F;
+    mutable float m_max_text_scroll = 0.0F;
     UI::Editor::CaretBlinkModel m_caret_blink;
     mutable bool m_reveal_caret_pending = true;
     bool m_focused = false;
@@ -127,6 +138,7 @@ private:
     std::optional<std::size_t> m_hovered_tab_index;
     std::optional<std::size_t> m_hovered_tab_close_index;
     mutable std::optional<std::size_t> m_hovered_fold_line;
+    bool m_hovered_tab_scrollbar = false;
     mutable UI::Editor::SelectionAnimationModel m_selection_animation;
     mutable UI::Editor::BraceAnimationModel m_brace_animation;
     mutable UI::Components::Button m_empty_state_open_btn;

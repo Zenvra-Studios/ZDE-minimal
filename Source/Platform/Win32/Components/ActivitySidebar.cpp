@@ -57,7 +57,6 @@ void ActivitySidebar::render(
             ++bottom_index;
         }
 
-
         const bool active = item.icon == UI::Editor::SidebarIcon::Terminal
             ? surface.m_terminal_panel.is_visible()
             : surface.m_tool_sidebar.is_active(item.icon);
