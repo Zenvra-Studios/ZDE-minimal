@@ -1,7 +1,7 @@
 #include "resource.h"
 #include <windows.h>
 
-IDI_APP_ICON ICON "../../../../Assets/icons/zenvra_logo256x256.ico"
+IDI_APP_ICON ICON "../../../../Assets/icons/zenvra_logo512x512.ico"
 
 IDR_MAINMENU MENU
 BEGIN

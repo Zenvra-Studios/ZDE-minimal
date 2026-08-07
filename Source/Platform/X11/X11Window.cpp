@@ -6,7 +6,7 @@
 #include "Platform/PlatformDialogs.h"
 #include "Platform/X11/Runtime/X11Context.h"
 #include "UI/Components/MenuModel.h"
-#include "Utility/IcoDecoder.h"
+#include "Utility/stb_image.h"
 
 #include <X11/Xatom.h>
 #include <X11/Xresource.h>
@@ -477,9 +477,12 @@ void X11Window::apply_window_icon() const {
   std::vector<unsigned long> icon_data;
 
   // Use the compiled-in bundled logo asset
-  std::optional<Utility::DecodedImage> decoded = Utility::decode_ico_memory(Assets_icons_zenvra_logo_build_ico, Assets_icons_zenvra_logo_build_ico_len);
+  int width = 0;
+  int height = 0;
+  int channels = 0;
+  unsigned char* data = stbi_load_from_memory(Assets_icons_zenvra_logo_png, Assets_icons_zenvra_logo_png_len, &width, &height, &channels, 4);
 
-  if (decoded.has_value() && !decoded->pixels.empty()) {
+  if (data) {
     std::size_t icon_data_size = 0;
     for (const int icon_size : icon_sizes) {
       icon_data_size += 2U + static_cast<std::size_t>(icon_size * icon_size);
@@ -488,8 +491,7 @@ void X11Window::apply_window_icon() const {
 
     for (const int icon_size : icon_sizes) {
       const std::vector<unsigned char> resampled = downsample_rgba(
-          decoded->pixels.data(), decoded->width, decoded->height, icon_size,
-          icon_size);
+          data, width, height, icon_size, icon_size);
       icon_data.push_back(static_cast<unsigned long>(icon_size));
       icon_data.push_back(static_cast<unsigned long>(icon_size));
       for (std::size_t pixel = 0;
@@ -505,6 +507,7 @@ void X11Window::apply_window_icon() const {
             static_cast<unsigned long>(blue));
       }
     }
+    stbi_image_free(data);
   } else {
     const unsigned long background_color = to_argb(m_theme.accent);
     const unsigned long glyph_color = 0xFFFFFFFFUL;

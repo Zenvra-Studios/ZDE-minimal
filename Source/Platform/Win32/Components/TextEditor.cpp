@@ -1512,11 +1512,12 @@ void TextEditor::draw_document(
                 const int snap_x = round_to_int(screen_x);
                 const int snap_right = round_to_int(screen_x + anim_rect.width);
                 
-                surface.fill_rectangle(
+                surface.fill_rounded_rectangle(
                     device_context,
                     UI::Rect{static_cast<float>(snap_x), static_cast<float>(snap_y), 
                              static_cast<float>(snap_right - snap_x), static_cast<float>(snap_bottom - snap_y)},
-                    surface.m_palette.selection_background
+                    surface.m_palette.selection_background,
+                    4.0F * surface.m_dpi_scale
                 );
             }
         }

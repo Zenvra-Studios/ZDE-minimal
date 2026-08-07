@@ -1,12 +1,13 @@
 #include "Platform/Win32/Win32Window.h"
-#include "Config/resource.h"
-#include "Platform/Win32/Event/ScrollEvent.h"
 #include "Commands/CommandIds.h"
+#include "Config/resource.h"
 #include "Platform/PlatformDialogs.h"
 #include "Platform/Win32/Components/FileDropTarget.h"
+#include "Platform/Win32/Event/ScrollEvent.h"
 #include "UI/Components/MenuModel.h"
 #include "Utility/MathUtil.h"
 #include "Utility/TextEncoding.h"
+
 
 #include <dwmapi.h>
 #include <uxtheme.h>
@@ -57,12 +58,14 @@ void fill_rounded_rectangle(HDC device_context, const UI::Rect &rectangle,
   if (rectangle.is_empty()) {
     return;
   }
-  
+
   int w = round_to_int(rectangle.width);
   int h = round_to_int(rectangle.height);
-  if (w <= 0 || h <= 0) return;
+  if (w <= 0 || h <= 0)
+    return;
 
-  float r = std::min({static_cast<float>(radius), rectangle.width * 0.5f, rectangle.height * 0.5f});
+  float r = std::min({static_cast<float>(radius), rectangle.width * 0.5f,
+                      rectangle.height * 0.5f});
   if (r <= 0.0f) {
     RECT native_rectangle = to_native_rect(rectangle);
     HBRUSH brush = CreateSolidBrush(to_color_ref(color));
@@ -87,16 +90,18 @@ void fill_rounded_rectangle(HDC device_context, const UI::Rect &rectangle,
 
       float d = dist - r;
       float alpha_f = 0.5f - d;
-      
-      if (alpha_f > 1.0f) alpha_f = 1.0f;
-      if (alpha_f < 0.0f) alpha_f = 0.0f;
+
+      if (alpha_f > 1.0f)
+        alpha_f = 1.0f;
+      if (alpha_f < 0.0f)
+        alpha_f = 0.0f;
 
       if (alpha_f > 0.0f) {
         uint32_t a = static_cast<uint32_t>(alpha_f * 255.0f);
         uint32_t pr = (col_r * a) / 255;
         uint32_t pg = (col_g * a) / 255;
         uint32_t pb = (col_b * a) / 255;
-        pixels[(h - 1 - y) * w + x] = (a << 24) | (pr << 16) | (pg << 8) | pb; 
+        pixels[(h - 1 - y) * w + x] = (a << 24) | (pr << 16) | (pg << 8) | pb;
       }
     }
   }
@@ -110,8 +115,9 @@ void fill_rounded_rectangle(HDC device_context, const UI::Rect &rectangle,
   bmi.bmiHeader.biCompression = BI_RGB;
 
   HDC memDC = CreateCompatibleDC(device_context);
-  void* bits = nullptr;
-  HBITMAP hBmp = CreateDIBSection(device_context, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+  void *bits = nullptr;
+  HBITMAP hBmp =
+      CreateDIBSection(device_context, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
   if (hBmp) {
     memcpy(bits, pixels.data(), w * h * sizeof(uint32_t));
     HGDIOBJ oldBmp = SelectObject(memDC, hBmp);
@@ -122,9 +128,8 @@ void fill_rounded_rectangle(HDC device_context, const UI::Rect &rectangle,
     bf.SourceConstantAlpha = 255;
     bf.AlphaFormat = AC_SRC_ALPHA;
 
-    AlphaBlend(device_context, 
-               round_to_int(rectangle.x), round_to_int(rectangle.y), w, h, 
-               memDC, 0, 0, w, h, bf);
+    AlphaBlend(device_context, round_to_int(rectangle.x),
+               round_to_int(rectangle.y), w, h, memDC, 0, 0, w, h, bf);
 
     SelectObject(memDC, oldBmp);
     DeleteObject(hBmp);
@@ -965,8 +970,7 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
                                client_bounds.right - client_bounds.left,
                                client_bounds.bottom - client_bounds.top,
                                m_chrome_layout.titlebar_bounds.bottom(),
-                               (w_param & MK_SHIFT) != 0,
-                               command_out);
+                               (w_param & MK_SHIFT) != 0, command_out);
       if (device_context != nullptr) {
         ReleaseDC(window_handle, device_context);
       }

@@ -361,10 +361,17 @@ void TerminalPanel::render(
     surface.draw_line(drawable, round_to_int(add.x + 7.0F * surface.m_dpi_scale), round_to_int(add.y + add.height * 0.5F),
         round_to_int(add.right() - 7.0F * surface.m_dpi_scale), round_to_int(add.y + add.height * 0.5F), surface.m_pixels.text_muted);
     const UI::Rect close = close_button_bounds(layout);
-    surface.draw_line(drawable, round_to_int(close.x + 8.0F * surface.m_dpi_scale), round_to_int(close.y + 8.0F * surface.m_dpi_scale),
-        round_to_int(close.right() - 8.0F * surface.m_dpi_scale), round_to_int(close.bottom() - 8.0F * surface.m_dpi_scale), surface.m_pixels.text_muted);
-    surface.draw_line(drawable, round_to_int(close.right() - 8.0F * surface.m_dpi_scale), round_to_int(close.y + 8.0F * surface.m_dpi_scale),
-        round_to_int(close.x + 8.0F * surface.m_dpi_scale), round_to_int(close.bottom() - 8.0F * surface.m_dpi_scale), surface.m_pixels.text_muted);
+    if (close.width > 0.0F)
+    {
+        surface.draw_svg_icon(
+            drawable,
+            "close-minimal.svg",
+            round_to_int(close.x + close.width * 0.5F),
+            round_to_int(close.y + close.height * 0.5F),
+            std::max(round_to_int(11.0F * surface.m_dpi_scale), 9),
+            surface.m_palette.text_muted,
+            surface.m_palette.tab_active_background);
+    }
 
     const Terminal::TerminalSession* session = m_model.get_active_session();
     if (session == nullptr || surface.m_editor_font == nullptr)
@@ -377,7 +384,7 @@ void TerminalPanel::render(
         const std::string shell_label = "Local  " + session->get_shell_path().string();
         const int label_width = surface.m_small_font->getTextWidth(shell_label);
         surface.draw_text(drawable, *surface.m_small_font, shell_label,
-            close.x - 12.0F * surface.m_dpi_scale - static_cast<float>(label_width),
+            layout.terminal_header_bounds.right() - 16.0F * surface.m_dpi_scale - static_cast<float>(label_width),
             layout.terminal_header_bounds.y + layout.terminal_header_bounds.height * 0.5F,
             session->is_running() ? surface.m_text.success : surface.m_text.muted);
     }
@@ -562,8 +569,29 @@ UI::Rect TerminalPanel::add_button_bounds(
 UI::Rect TerminalPanel::close_button_bounds(
     const UI::Editor::StudioEditorLayoutResult& layout) const noexcept
 {
-    const float width = 28.0F * layout.dpi_scale;
-    return UI::Rect{layout.terminal_header_bounds.right() - width,
+    const std::optional<std::size_t> active_index = m_model.get_active_index();
+    if (!active_index)
+    {
+        return UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
+    }
+    const std::span<const Terminal::TerminalSessionEntry> sessions = m_model.get_sessions();
+    if (*active_index >= sessions.size())
+    {
+        return UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
+    }
+    const std::size_t id = sessions[*active_index].identifier;
+    float tab_x = 0.0F;
+    if (auto it = m_tab_animated_x.find(id); it != m_tab_animated_x.end())
+    {
+        tab_x = it->second;
+    }
+    else
+    {
+        tab_x = session_tab_bounds(layout, *active_index).x;
+    }
+    const float tab_width = session_tab_bounds(layout, *active_index).width;
+    const float width = 24.0F * layout.dpi_scale;
+    return UI::Rect{tab_x + tab_width - width,
         layout.terminal_header_bounds.y, width, layout.terminal_header_bounds.height};
 }
 
