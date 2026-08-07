@@ -1066,12 +1066,11 @@ void X11ChromeRenderer::draw_overflow_menu(
     Drawable drawable,
     const UI::Chrome::WindowChromeLayoutResult &chrome_layout,
     const ChromeInteractionState &interaction_state) const {
-  if (!interaction_state.overflow_menu_open || is_popup_open()) {
+  if (!interaction_state.overflow_menu_open) {
     return;
   }
 
-  const OverflowMenuGeometry geometry =
-      calculate_overflow_menu_geometry(chrome_layout);
+  const OverflowMenuGeometry geometry = calculate_overflow_menu_geometry(chrome_layout);
   if (geometry.bounds.is_empty()) {
     return;
   }

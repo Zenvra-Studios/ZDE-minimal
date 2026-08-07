@@ -1,3 +1,8 @@
+/**
+ * 
+ * 
+ */
+ 
 #pragma once
 
 #include <X11/Xlib.h>
@@ -7,6 +12,10 @@
 namespace Zenvra::Platform::X11::Runtime
 {
 
+/**
+ * 
+ * 
+ */
 class X11Context
 {
 public:

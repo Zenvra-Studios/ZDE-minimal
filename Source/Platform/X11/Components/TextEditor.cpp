@@ -16,8 +16,16 @@ namespace Zenvra::Platform::X11::Components {
 
 namespace {
 
+/**
+ *
+ *
+ */
 int round_to_int(float value) { return static_cast<int>(std::lround(value)); }
 
+/**
+ *
+ *
+ */
 bool is_utf8_continuation(char character) {
   return (static_cast<unsigned char>(character) & 0xC0U) == 0x80U;
 }
@@ -414,7 +422,6 @@ bool TextEditor::handle_pointer_press(
       m_folding.toggle_fold(line_index);
       m_scrollbar.synchronize(count_visible_lines(m_folding, total_lines),
                               visible_count);
-      m_reveal_caret_pending = true;
       return true;
     }
   }
@@ -604,6 +611,10 @@ bool TextEditor::handle_pointer_release() noexcept {
   return minimap_was_dragging || scrollbar_was_dragging || was_selecting;
 }
 
+/**
+ *
+ *
+ */
 bool TextEditor::handle_scroll(
     const StudioWorkspaceRenderer &surface,
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
@@ -616,7 +627,7 @@ bool TextEditor::handle_scroll(
         std::clamp(m_tab_scroll_offset, 0.0F, m_max_tab_scroll);
     return true;
   }
-  
+
   if (horizontal && line_delta != 0) {
     const float speed = 20.0F;
     if (layout.editor_bounds.contains(point_x, point_y)) {
@@ -961,9 +972,9 @@ void TextEditor::draw_tab_strip(
     const UI::Rect thumb_bounds{
         thumb_x, layout.tab_bar_bounds.bottom() - 3.0F * surface.m_dpi_scale,
         thumb_width, 3.0F * surface.m_dpi_scale};
-    const unsigned long thumb_color = m_hovered_tab_scrollbar 
-                                      ? surface.m_pixels.text_primary 
-                                      : surface.m_pixels.text_muted;
+    const unsigned long thumb_color = m_hovered_tab_scrollbar
+                                          ? surface.m_pixels.text_primary
+                                          : surface.m_pixels.text_muted;
     surface.fill_rectangle(drawable, thumb_bounds, thumb_color);
   }
 }
@@ -1220,9 +1231,11 @@ void TextEditor::draw_document(
   // Collect selection target rects (relative to code_x) and feed the animation
   // model.
 
-  const float hscroll_height = (m_max_text_scroll > 0.0F) ? 14.0F * surface.m_dpi_scale : 0.0F;
+  const float hscroll_height =
+      (m_max_text_scroll > 0.0F) ? 14.0F * surface.m_dpi_scale : 0.0F;
   UI::Rect text_clip_rect = layout.editor_bounds;
-  text_clip_rect.height = std::max(0.0F, text_clip_rect.height - hscroll_height);
+  text_clip_rect.height =
+      std::max(0.0F, text_clip_rect.height - hscroll_height);
 
   std::vector<UI::Rect> selection_targets;
   if (document->has_selection()) {
@@ -1233,6 +1246,9 @@ void TextEditor::draw_document(
 
     for (std::size_t line_index = start_line; line_index <= end_line;
          ++line_index) {
+      if (m_folding.is_line_hidden(line_index)) {
+        continue;
+      }
       const std::string_view line = document->get_line(line_index);
       const std::size_t selection_start =
           line_index == selection.start.line ? selection.start.column : 0;
@@ -1301,12 +1317,12 @@ void TextEditor::draw_document(
         const int snap_x = round_to_int(screen_x);
         const int snap_right = round_to_int(screen_x + sel_w);
 
-        surface.fill_rectangle(
+        surface.fill_rounded_rectangle(
             drawable,
             UI::Rect{static_cast<float>(snap_x), static_cast<float>(snap_y),
                      static_cast<float>(snap_right - snap_x),
                      static_cast<float>(snap_bottom - snap_y)},
-            surface.m_pixels.selection_background);
+            surface.m_pixels.selection_background, 4.0F * surface.m_dpi_scale);
       }
     }
     XSetClipMask(surface.m_display, surface.m_graphics_context, None);
