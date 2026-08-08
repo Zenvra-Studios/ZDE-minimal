@@ -1,6 +1,7 @@
 #include "UI/Chrome/WindowChromeLayout.h"
 
 #include <algorithm>
+#include <string_view>
 
 namespace Zenvra::UI::Chrome {
 

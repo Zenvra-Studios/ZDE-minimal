@@ -2,6 +2,7 @@
 
 #include "Commands/CommandIds.h"
 
+#include <iostream>
 #include <string>
 #include <utility>
 
@@ -24,8 +25,10 @@ Commands::Command create_unavailable_command(
         .description = std::move(description),
         .category = std::move(category),
         .shortcut_binding = shortcut,
-        .execute = {},
-        .is_enabled = [] { return false; },
+        .execute = [id = std::string(command_id)] {
+            std::clog << "[ZDE] " << id << " requested (not yet implemented)\n";
+        },
+        .is_enabled = [] { return true; },
         .is_checked = {},
     };
 }
@@ -123,18 +126,126 @@ bool StudioViewModel::register_future_commands()
         "Create a new document.",
         "File",
         Shortcut{KeyCode::N, true, false, false}));
+
+    add_command(Commands::Command{
+        .id = std::string(Commands::CommandIds::window_new),
+        .name = "New Window",
+        .description = "Open a new ZDE window.",
+        .category = "File",
+        .shortcut_binding = Shortcut{KeyCode::N, true, true, false},
+        .execute = [this] {
+            if (m_actions.request_new_window) {
+                m_actions.request_new_window();
+            }
+        },
+        .is_enabled = [this] { return static_cast<bool>(m_actions.request_new_window); },
+        .is_checked = {},
+    });
+
     add_command(create_unavailable_command(
         Commands::CommandIds::file_open,
         "Open File",
         "Open a document from disk.",
         "File",
         Shortcut{KeyCode::O, true, false, false}));
+
+    add_command(Commands::Command{
+        .id = std::string(Commands::CommandIds::folder_open),
+        .name = "Open Folder",
+        .description = "Open a folder in the explorer.",
+        .category = "File",
+        .shortcut_binding = {},
+        .execute = [this] {
+            if (m_actions.request_open_folder) {
+                m_actions.request_open_folder();
+            }
+        },
+        .is_enabled = [this] { return static_cast<bool>(m_actions.request_open_folder); },
+        .is_checked = {},
+    });
+
+    add_command(Commands::Command{
+        .id = std::string(Commands::CommandIds::file_open_recent),
+        .name = "Open Recent",
+        .description = "Open a recently opened file.",
+        .category = "File",
+        .shortcut_binding = {},
+        .execute = [this] {
+            if (m_actions.request_open_recent) {
+                m_actions.request_open_recent();
+            }
+        },
+        .is_enabled = [this] { return static_cast<bool>(m_actions.request_open_recent); },
+        .is_checked = {},
+    });
+
+    add_command(Commands::Command{
+        .id = std::string(Commands::CommandIds::file_open_remote),
+        .name = "Open Remote",
+        .description = "Connect to a remote development environment.",
+        .category = "File",
+        .shortcut_binding = {},
+        .execute = [this] {
+            if (m_actions.request_open_remote) {
+                m_actions.request_open_remote();
+            }
+        },
+        .is_enabled = [this] { return static_cast<bool>(m_actions.request_open_remote); },
+        .is_checked = {},
+    });
+
+    add_command(Commands::Command{
+        .id = std::string(Commands::CommandIds::project_add_folder),
+        .name = "Add Folder to Project",
+        .description = "Add an additional folder to the workspace.",
+        .category = "Project",
+        .shortcut_binding = {},
+        .execute = [this] {
+            if (m_actions.request_add_folder_to_project) {
+                m_actions.request_add_folder_to_project();
+            }
+        },
+        .is_enabled = [this] { return static_cast<bool>(m_actions.request_add_folder_to_project); },
+        .is_checked = {},
+    });
+
     add_command(create_unavailable_command(
         Commands::CommandIds::file_save,
         "Save File",
         "Save the active document.",
         "File",
         Shortcut{KeyCode::S, true, false, false}));
+
+    add_command(Commands::Command{
+        .id = std::string(Commands::CommandIds::file_save_as),
+        .name = "Save As",
+        .description = "Save the active document to a new location.",
+        .category = "File",
+        .shortcut_binding = Shortcut{KeyCode::S, true, true, false},
+        .execute = [this] {
+            if (m_actions.request_save_as) {
+                m_actions.request_save_as();
+            }
+        },
+        .is_enabled = [this] { return static_cast<bool>(m_actions.request_save_as); },
+        .is_checked = {},
+    });
+
+    add_command(Commands::Command{
+        .id = std::string(Commands::CommandIds::file_save_all),
+        .name = "Save All",
+        .description = "Save all open documents.",
+        .category = "File",
+        .shortcut_binding = {},
+        .execute = [this] {
+            if (m_actions.request_save_all) {
+                m_actions.request_save_all();
+            }
+        },
+        .is_enabled = [this] { return static_cast<bool>(m_actions.request_save_all); },
+        .is_checked = {},
+    });
+
     add_command(create_unavailable_command(
         Commands::CommandIds::file_close,
         "Close File",
@@ -147,6 +258,22 @@ bool StudioViewModel::register_future_commands()
         "Delete the active document from disk.",
         "File",
         Shortcut{KeyCode::Delete, true, true, false}));
+
+    add_command(Commands::Command{
+        .id = std::string(Commands::CommandIds::window_close),
+        .name = "Close Window",
+        .description = "Close the current window.",
+        .category = "File",
+        .shortcut_binding = Shortcut{KeyCode::W, true, true, false},
+        .execute = [this] {
+            if (m_actions.request_close_window) {
+                m_actions.request_close_window();
+            }
+        },
+        .is_enabled = [this] { return static_cast<bool>(m_actions.request_close_window); },
+        .is_checked = {},
+    });
+
     add_command(create_unavailable_command(
         Commands::CommandIds::edit_undo,
         "Undo",

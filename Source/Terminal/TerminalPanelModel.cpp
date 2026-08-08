@@ -1,3 +1,8 @@
+/**
+ * 
+ * 
+ */
+
 #include "Terminal/TerminalPanelModel.h"
 
 #include <algorithm>
@@ -6,6 +11,10 @@
 namespace Zenvra::Terminal
 {
 
+/**
+ * 
+ * 
+ */
 bool TerminalPanelModel::toggle(const std::filesystem::path& working_directory)
 {
     m_visible = !m_visible;
@@ -22,6 +31,10 @@ bool TerminalPanelModel::toggle(const std::filesystem::path& working_directory)
     return true;
 }
 
+/**
+ * 
+ * 
+ */
 bool TerminalPanelModel::create_session(const std::filesystem::path& working_directory)
 {
     if (m_sessions.size() >= maximum_sessions)
@@ -47,6 +60,10 @@ bool TerminalPanelModel::create_session(const std::filesystem::path& working_dir
     return true;
 }
 
+/**
+ * 
+ * 
+ */
 bool TerminalPanelModel::close_active_session()
 {
     if (!m_active_index || *m_active_index >= m_sessions.size())
@@ -57,6 +74,10 @@ bool TerminalPanelModel::close_active_session()
     return true;
 }
 
+/**
+ * 
+ * 
+ */
 bool TerminalPanelModel::activate_session(std::size_t index) noexcept
 {
     if (index >= m_sessions.size())
@@ -71,6 +92,10 @@ bool TerminalPanelModel::activate_session(std::size_t index) noexcept
     return changed;
 }
 
+/**
+ * 
+ * 
+ */
 void TerminalPanelModel::shutdown() noexcept
 {
     for (TerminalSessionEntry& entry : m_sessions)
@@ -84,6 +109,10 @@ void TerminalPanelModel::shutdown() noexcept
     m_scroll_offset = 0;
 }
 
+/**
+ * 
+ * 
+ */
 bool TerminalPanelModel::send_text(std::string_view text)
 {
     TerminalSession* session = get_active_session();
@@ -95,6 +124,10 @@ bool TerminalPanelModel::send_text(std::string_view text)
     return session->write_input(text);
 }
 
+/**
+ * 
+ * 
+ */
 bool TerminalPanelModel::send_key(TerminalInputKey key)
 {
     switch (key)
@@ -114,6 +147,10 @@ bool TerminalPanelModel::send_key(TerminalInputKey key)
     return false;
 }
 
+/**
+ * 
+ * 
+ */
 bool TerminalPanelModel::send_control(char letter)
 {
     const unsigned char normalized = static_cast<unsigned char>(
@@ -126,6 +163,10 @@ bool TerminalPanelModel::send_control(char letter)
     return send_text(std::string_view{&control, 1});
 }
 
+/**
+ * 
+ * 
+ */
 bool TerminalPanelModel::poll()
 {
     bool changed = false;
@@ -145,6 +186,10 @@ bool TerminalPanelModel::poll()
     return changed;
 }
 
+/**
+ * 
+ * 
+ */
 void TerminalPanelModel::remove_session(std::size_t index) noexcept
 {
     if (index >= m_sessions.size())
@@ -179,6 +224,10 @@ void TerminalPanelModel::remove_session(std::size_t index) noexcept
     }
 }
 
+/**
+ * 
+ * 
+ */
 bool TerminalPanelModel::scroll(std::ptrdiff_t line_delta, std::size_t maximum_offset) noexcept
 {
     if (get_active_session() == nullptr || line_delta == 0)
@@ -208,15 +257,37 @@ void TerminalPanelModel::resize(std::size_t columns, std::size_t rows) noexcept
     }
 }
 
-bool TerminalPanelModel::is_visible() const noexcept { return m_visible; }
-bool TerminalPanelModel::is_focused() const noexcept { return m_visible && m_focused; }
+/**
+ * 
+ * 
+ */
+bool TerminalPanelModel::is_visible() const noexcept 
+{ 
+    return m_visible; 
+}
+
+/**
+ * 
+ * 
+ */
+bool TerminalPanelModel::is_focused() const noexcept 
+{ 
+    return m_visible && m_focused; 
+}
 
 void TerminalPanelModel::set_focused(bool focused) noexcept
 {
     m_focused = m_visible && focused;
 }
 
-std::size_t TerminalPanelModel::get_scroll_offset() const noexcept { return m_scroll_offset; }
+/**
+ * 
+ * 
+ */
+std::size_t TerminalPanelModel::get_scroll_offset() const noexcept 
+{ 
+    return m_scroll_offset; 
+}
 
 std::optional<std::size_t> TerminalPanelModel::get_active_index() const noexcept
 {

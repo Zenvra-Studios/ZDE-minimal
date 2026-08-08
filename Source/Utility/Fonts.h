@@ -9,7 +9,7 @@
 #if defined(_WIN32) || defined(_WIN64)
 
 #include <windows.h>
-#include <Usp10.h> // Uniscribe for ligatures
+#include <usp10.h> // Uniscribe for ligatures
 
 /**
  * @class AntialiasedFont

@@ -13,13 +13,23 @@ namespace
 constexpr WindowMenuItem separator{{}, {}, true};
 
 constexpr std::array file_items{
-    WindowMenuItem{"New File", Commands::CommandIds::file_new},
-    WindowMenuItem{"Open File...", Commands::CommandIds::file_open},
-    WindowMenuItem{"Save File", Commands::CommandIds::file_save},
-    WindowMenuItem{"Close File", Commands::CommandIds::file_close},
-    WindowMenuItem{"Delete File", Commands::CommandIds::file_delete},
+    WindowMenuItem{"New", Commands::CommandIds::file_new},
+    WindowMenuItem{"New Window", Commands::CommandIds::window_new},
     separator,
-    WindowMenuItem{"Exit", Commands::CommandIds::file_exit},
+    WindowMenuItem{"Open File...", Commands::CommandIds::file_open},
+    WindowMenuItem{"Open Folder...", Commands::CommandIds::folder_open},
+    WindowMenuItem{"Open Recent...", Commands::CommandIds::file_open_recent},
+    WindowMenuItem{"Open Remote...", Commands::CommandIds::file_open_remote},
+    separator,
+    WindowMenuItem{"Add Folder to Project...", Commands::CommandIds::project_add_folder},
+    separator,
+    WindowMenuItem{"Save", Commands::CommandIds::file_save},
+    WindowMenuItem{"Save As...", Commands::CommandIds::file_save_as},
+    WindowMenuItem{"Save All", Commands::CommandIds::file_save_all},
+    separator,
+    WindowMenuItem{"Close Editor", Commands::CommandIds::file_close},
+    WindowMenuItem{"Close Project", Commands::CommandIds::project_close},
+    WindowMenuItem{"Close Window", Commands::CommandIds::window_close},
 };
 
 constexpr std::array edit_items{

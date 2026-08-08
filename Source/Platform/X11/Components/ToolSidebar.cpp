@@ -392,7 +392,7 @@ void ToolSidebar::render(
     unsigned long open_bg =
         open_state.pressed ? surface.m_pixels.accent : surface.m_pixels.accent;
     surface.fill_rounded_rectangle(
-        drawable, m_empty_state_open_btn.get_bounds(), open_bg, 4.0F * scale);
+        drawable, m_empty_state_open_btn.get_bounds(), open_bg, 4.0F * scale, surface.m_pixels.sidebar_background);
 
     int text_w = surface.m_small_font->getTextWidth("Open Folder");
     surface.draw_text(drawable, *surface.m_small_font, "Open Folder",
@@ -413,7 +413,7 @@ void ToolSidebar::render(
     unsigned long clone_bg =
         clone_state.pressed ? surface.m_pixels.accent : surface.m_pixels.accent;
     surface.fill_rounded_rectangle(
-        drawable, m_empty_state_clone_btn.get_bounds(), clone_bg, 4.0F * scale);
+        drawable, m_empty_state_clone_btn.get_bounds(), clone_bg, 4.0F * scale, surface.m_pixels.sidebar_background);
 
     int clone_text_w = surface.m_small_font->getTextWidth("Clone Repository");
     surface.draw_text(drawable, *surface.m_small_font, "Clone Repository",

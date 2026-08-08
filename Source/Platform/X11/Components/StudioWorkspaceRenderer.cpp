@@ -835,22 +835,44 @@ void StudioWorkspaceRenderer::fill_rounded_rectangle(
     Drawable drawable,
     const UI::Rect& rectangle,
     unsigned long color,
-    float radius) const
+    float radius,
+    std::optional<unsigned long> bg_color) const
 {
     if (rectangle.is_empty())
     {
         return;
     }
-    XSetForeground(m_display, m_graphics_context, color);
-    Utility::X11Rounded::X11Rounded::fillRoundedRect(
-        m_display,
-        drawable,
-        m_graphics_context,
-        round_to_int(rectangle.x),
-        round_to_int(rectangle.y),
-        std::max(round_to_int(rectangle.width), 0),
-        std::max(round_to_int(rectangle.height), 0),
-        std::max(round_to_int(radius), 0));
+    
+    if (bg_color.has_value()) {
+        unsigned long actual_bg = bg_color.value();
+        unsigned long opaque_color = (255UL << 24) | (color & 0xFFFFFF);
+        unsigned long opaque_bg = (255UL << 24) | (actual_bg & 0xFFFFFF);
+        
+        Utility::X11Rounded::X11Rounded::fillRoundedRectAA(
+            m_display,
+            drawable,
+            m_graphics_context,
+            round_to_int(rectangle.x),
+            round_to_int(rectangle.y),
+            std::max(round_to_int(rectangle.width), 0),
+            std::max(round_to_int(rectangle.height), 0),
+            round_to_int(radius),
+            opaque_color,
+            opaque_bg,
+            true
+        );
+    } else {
+        XSetForeground(m_display, m_graphics_context, color);
+        Utility::X11Rounded::X11Rounded::fillRoundedRect(
+            m_display,
+            drawable,
+            m_graphics_context,
+            round_to_int(rectangle.x),
+            round_to_int(rectangle.y),
+            std::max(round_to_int(rectangle.width), 0),
+            std::max(round_to_int(rectangle.height), 0),
+            round_to_int(radius));
+    }
 }
 
 void StudioWorkspaceRenderer::draw_rectangle(

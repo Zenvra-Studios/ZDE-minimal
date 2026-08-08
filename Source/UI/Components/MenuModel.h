@@ -11,6 +11,7 @@ struct MenuItem
     std::string_view label;
     std::string_view command_id;
     bool separator = false;
+    std::string_view shortcut = {};
 };
 
 struct Menu

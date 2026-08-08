@@ -1036,7 +1036,7 @@ void TextEditor::draw_document(
                                                    : surface.m_pixels.accent);
 
       surface.fill_rounded_rectangle(
-          drawable, m_empty_state_open_btn.get_bounds(), open_bg, 4.0F * dpi);
+          drawable, m_empty_state_open_btn.get_bounds(), open_bg, 4.0F * dpi, surface.m_pixels.editor_background);
 
       const float icon_size = 16.0F * dpi;
       const float open_text_w =
@@ -1082,7 +1082,7 @@ void TextEditor::draw_document(
                                      : surface.m_palette.editor_background);
       const unsigned long clone_bg = surface.allocate_color(clone_icon_bg);
       surface.fill_rounded_rectangle(
-          drawable, m_empty_state_clone_btn.get_bounds(), clone_bg, 4.0F * dpi);
+          drawable, m_empty_state_clone_btn.get_bounds(), clone_bg, 4.0F * dpi, surface.m_pixels.editor_background);
 
       const float clone_text_w = static_cast<float>(
           surface.m_ui_font->getTextWidth("Clone Repository"));
@@ -1322,7 +1322,7 @@ void TextEditor::draw_document(
             UI::Rect{static_cast<float>(snap_x), static_cast<float>(snap_y),
                      static_cast<float>(snap_right - snap_x),
                      static_cast<float>(snap_bottom - snap_y)},
-            surface.m_pixels.selection_background, 4.0F * surface.m_dpi_scale);
+            surface.m_pixels.selection_background, 4.0F * surface.m_dpi_scale, surface.m_pixels.editor_background);
       }
     }
     XSetClipMask(surface.m_display, surface.m_graphics_context, None);

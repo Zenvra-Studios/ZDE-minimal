@@ -39,6 +39,7 @@ struct PopupMenuItem
     bool separator = false;
     bool enabled = true;
     bool checked = false;
+    std::string shortcut;
 };
 
 struct OverflowMenuGeometry
@@ -133,8 +134,7 @@ public:
         bool extend_selection);
     [[nodiscard]] bool handle_editor_action(UI::Editor::EditorAction action);
     [[nodiscard]] std::optional<bool> handle_editor_command(std::string_view command_id);
-    [[nodiscard]] std::optional<bool> is_editor_command_enabled(
-        std::string_view command_id) const noexcept;
+    [[nodiscard]] std::optional<bool> is_editor_command_enabled(std::string_view command_id) const noexcept;
     [[nodiscard]] bool handle_text_input(std::string_view utf8_text);
     [[nodiscard]] bool handle_terminal_key(Terminal::TerminalInputKey key);
     [[nodiscard]] bool handle_terminal_control(char letter);
@@ -281,7 +281,7 @@ private:
     };
 
     [[nodiscard]] unsigned long allocate_color(const UI::Theme::Color& color) const;
-    void fill_rectangle(Drawable drawable, const UI::Rect& rectangle, unsigned long color, int radius = 0) const;
+    void fill_rectangle(Drawable drawable, const UI::Rect& rectangle, unsigned long color, int radius = 0, std::optional<unsigned long> bg_color = std::nullopt) const;
     void draw_rectangle(Drawable drawable, const UI::Rect& rectangle, unsigned long color, int radius = 0) const;
     void draw_centered_text(
         Drawable drawable,

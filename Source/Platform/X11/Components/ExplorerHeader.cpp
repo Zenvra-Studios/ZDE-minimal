@@ -75,7 +75,7 @@ void ExplorerHeader::render(
                 24.0F * scale,
                 24.0F * scale
             };
-            surface.fill_rounded_rectangle(drawable, hover_bg, surface.m_pixels.editor_background, 4.0F * scale);
+            surface.fill_rounded_rectangle(drawable, hover_bg, surface.m_pixels.editor_background, 4.0F * scale, surface.m_pixels.sidebar_background);
         }
         
         surface.draw_svg_icon(drawable, path, round_to_int(center_x), header_center_y, icon_size, color, surface.m_palette.sidebar_background);

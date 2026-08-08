@@ -13,6 +13,14 @@ struct StudioActions
     std::function<void()> request_close;
     std::function<void()> show_about;
     std::function<bool()> request_open_project;
+    std::function<void()> request_new_window;
+    std::function<void()> request_open_folder;
+    std::function<void()> request_open_recent;
+    std::function<void()> request_open_remote;
+    std::function<void()> request_add_folder_to_project;
+    std::function<void()> request_save_as;
+    std::function<void()> request_save_all;
+    std::function<void()> request_close_window;
 };
 
 class StudioViewModel

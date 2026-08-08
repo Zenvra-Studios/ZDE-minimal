@@ -11,13 +11,23 @@ namespace
 constexpr MenuItem separator{{}, {}, true};
 
 constexpr std::array file_items{
-    MenuItem{"New File", Commands::CommandIds::file_new},
-    MenuItem{"Open File...", Commands::CommandIds::file_open},
-    MenuItem{"Save File", Commands::CommandIds::file_save},
-    MenuItem{"Close File", Commands::CommandIds::file_close},
-    MenuItem{"Delete File", Commands::CommandIds::file_delete},
+    MenuItem{"New", Commands::CommandIds::file_new, false, "New"},
+    MenuItem{"New Window", Commands::CommandIds::window_new, false, "Ctrl-Shift-N"},
     separator,
-    MenuItem{"Exit", Commands::CommandIds::file_exit},
+    MenuItem{"Open File...", Commands::CommandIds::file_open, false, "Ctrl-O"},
+    MenuItem{"Open Folder...", Commands::CommandIds::folder_open, false, "Ctrl-K Ctrl-O"},
+    MenuItem{"Open Recent...", Commands::CommandIds::file_open_recent, false, "Ctrl-R"},
+    MenuItem{"Open Remote...", Commands::CommandIds::file_open_remote, false, "Ctrl-Alt-Shift-O"},
+    separator,
+    MenuItem{"Add Folder to Project...", Commands::CommandIds::project_add_folder, false, ""},
+    separator,
+    MenuItem{"Save", Commands::CommandIds::file_save, false, "Ctrl-S"},
+    MenuItem{"Save As...", Commands::CommandIds::file_save_as, false, "Ctrl-Shift-S"},
+    MenuItem{"Save All", Commands::CommandIds::file_save_all, false, "Ctrl-Alt-S"},
+    separator,
+    MenuItem{"Close Editor", Commands::CommandIds::file_close, false, ""},
+    MenuItem{"Close Project", Commands::CommandIds::project_close, false, ""},
+    MenuItem{"Close Window", Commands::CommandIds::window_close, false, "Ctrl-Shift-W"},
 };
 
 constexpr std::array edit_items{
@@ -26,18 +36,61 @@ constexpr std::array edit_items{
     separator,
     MenuItem{"Cut", Commands::CommandIds::edit_cut},
     MenuItem{"Copy", Commands::CommandIds::edit_copy},
+    MenuItem{"Copy and Trim", Commands::CommandIds::edit_copy_trim},
     MenuItem{"Paste", Commands::CommandIds::edit_paste},
+    separator,
+    MenuItem{"Find", Commands::CommandIds::edit_find},
+    MenuItem{"Find in Project", Commands::CommandIds::edit_find_in_project, false, "Ctrl-Shift-F"},
+    separator,
+    MenuItem{"Toggle Line Comment", Commands::CommandIds::edit_toggle_comment},
 };
 
 constexpr std::array selection_items{
-    MenuItem{"Select All", Commands::CommandIds::selection_select_all},
+    MenuItem{"Select All", Commands::CommandIds::selection_select_all, false, "Ctrl-A"},
+    MenuItem{"Expand Selection", Commands::CommandIds::selection_expand, false, "Shift-Alt-RightArrow"},
+    MenuItem{"Shrink Selection", Commands::CommandIds::selection_shrink, false, "Shift-Alt-LeftArrow"},
+    separator,
+    MenuItem{"Copy Line Up", Commands::CommandIds::selection_copy_line_up, false, "Ctrl-Shift-Alt-UpArrow"},
+    MenuItem{"Copy Line Down", Commands::CommandIds::selection_copy_line_down, false, "Ctrl-Shift-Alt-DownArrow"},
+    MenuItem{"Move Line Up", Commands::CommandIds::selection_move_line_up, false, "Alt-UpArrow"},
+    MenuItem{"Move Line Down", Commands::CommandIds::selection_move_line_down, false, "Alt-DownArrow"},
+    MenuItem{"Duplicate Selection", Commands::CommandIds::selection_duplicate},
+    separator,
+    MenuItem{"Add Cursor Above", Commands::CommandIds::selection_add_cursor_above, false, "Shift-Alt-UpArrow"},
+    MenuItem{"Add Cursor Below", Commands::CommandIds::selection_add_cursor_below, false, "Shift-Alt-DownArrow"},
+    MenuItem{"Add Cursors to Line Ends", Commands::CommandIds::selection_add_cursors_to_line_ends, false, "Shift-Alt-I"},
+    MenuItem{"Add Next Occurrence", Commands::CommandIds::selection_add_next_occurrence, false, "Ctrl-D"},
+    MenuItem{"Add Previous Occurrence", Commands::CommandIds::selection_add_previous_occurrence},
+    MenuItem{"Select All Occurrences", Commands::CommandIds::selection_select_all_occurrences},
+    separator,
+    MenuItem{"Switch to Ctrl+Click for Multi-Cursor", Commands::CommandIds::selection_switch_multi_cursor_modifier},
+    MenuItem{"Column Selection Mode", Commands::CommandIds::selection_column_selection_mode},
 };
 
 constexpr std::array view_items{
-    MenuItem{"Explorer", Commands::CommandIds::view_explorer},
-    MenuItem{"Search", Commands::CommandIds::view_search},
-    MenuItem{"Output", Commands::CommandIds::view_output},
-    MenuItem{"Problems", Commands::CommandIds::view_problems},
+    MenuItem{"Zoom In", Commands::CommandIds::view_zoom_in, false, "Ctrl-+"},
+    MenuItem{"Zoom Out", Commands::CommandIds::view_zoom_out, false, "Ctrl--"},
+    MenuItem{"Reset Zoom", Commands::CommandIds::view_reset_zoom, false, "Ctrl-0"},
+    MenuItem{"Reset All Zoom", Commands::CommandIds::view_reset_all_zoom},
+    separator,
+    MenuItem{"Toggle Left Dock", Commands::CommandIds::view_toggle_left_dock, false, "Ctrl-B"},
+    MenuItem{"Toggle Right Dock", Commands::CommandIds::view_toggle_right_dock, false, "Ctrl-Alt-B"},
+    MenuItem{"Toggle Bottom Dock", Commands::CommandIds::view_toggle_bottom_dock, false, "Ctrl-J"},
+    MenuItem{"Toggle All Docks", Commands::CommandIds::view_toggle_all_docks, false, "Ctrl-Alt-Y"},
+    MenuItem{"Split Up", Commands::CommandIds::view_split_up, false, "Ctrl-K Up"},
+    MenuItem{"Split Down", Commands::CommandIds::view_split_down, false, "Ctrl-K Down"},
+    MenuItem{"Split Left", Commands::CommandIds::view_split_left, false, "Ctrl-K Left"},
+    MenuItem{"Split Right", Commands::CommandIds::view_split_right, false, "Ctrl-K Right"},
+    separator,
+    MenuItem{"Project Panel", Commands::CommandIds::view_project_panel, false, "Ctrl-Shift-E"},
+    MenuItem{"Outline Panel", Commands::CommandIds::view_outline_panel, false, "Ctrl-Shift-B"},
+    MenuItem{"Collab Panel", Commands::CommandIds::view_collab_panel, false, "Ctrl-Shift-C"},
+    MenuItem{"Terminal Panel", Commands::CommandIds::view_terminal_panel, false, "Ctrl-`"},
+    MenuItem{"Debugger Panel", Commands::CommandIds::view_debugger_panel, false, "Ctrl-Shift-D"},
+    MenuItem{"Agent Panel", Commands::CommandIds::view_agent_panel, false, "Ctrl-?"},
+    MenuItem{"Git Panel", Commands::CommandIds::view_git_panel, false, "Ctrl-Shift-G"},
+    separator,
+    MenuItem{"Diagnostics", Commands::CommandIds::view_diagnostics, false, "Ctrl-Shift-M"},
 };
 
 constexpr std::array navigate_items{
@@ -63,7 +116,21 @@ constexpr std::array window_items{
 };
 
 constexpr std::array help_items{
-    MenuItem{"About ZDE", Commands::CommandIds::help_about},
+    MenuItem{"Welcome", Commands::CommandIds::help_welcome},
+    MenuItem{"Show All Commands", Commands::CommandIds::help_show_all_commands, false, "Ctrl-Shift-P"},
+    MenuItem{"Editor Playground", Commands::CommandIds::help_editor_playground},
+    MenuItem{"Open Walkthrough...", Commands::CommandIds::help_open_walkthrough},
+    MenuItem{"Provide Feedback", Commands::CommandIds::help_provide_feedback},
+    MenuItem{"Download Diagnostics", Commands::CommandIds::help_download_diagnostics},
+    separator,
+    MenuItem{"View License", Commands::CommandIds::help_view_license},
+    separator,
+    MenuItem{"Toggle Developer Tools", Commands::CommandIds::help_toggle_developer_tools},
+    MenuItem{"Open Process Explorer", Commands::CommandIds::help_open_process_explorer},
+    separator,
+    MenuItem{"Check for Updates...", Commands::CommandIds::help_check_for_updates},
+    separator,
+    MenuItem{"About", Commands::CommandIds::help_about},
 };
 
 constexpr std::array compiler_items{

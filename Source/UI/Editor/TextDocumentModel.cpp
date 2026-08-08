@@ -687,7 +687,8 @@ void TextDocumentModel::insert_new_line()
     if (first_non_ws != std::string::npos)
     {
         std::string trimmed_prev = previous_line_content.substr(first_non_ws);
-        if (trimmed_prev.ends_with("/**") || trimmed_prev == "/**")
+        if (trimmed_prev.ends_with("/**") || trimmed_prev == "/**" ||
+            trimmed_prev.ends_with("/***") || trimmed_prev == "/***")
         {
             is_block_comment_start = true;
         }
@@ -706,7 +707,7 @@ void TextDocumentModel::insert_new_line()
     if (is_block_comment_start)
     {
         m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 1), auto_indent + " * ");
-        if (remainder.empty() || remainder == "*/" || remainder == "**/")
+        if (remainder.empty() || remainder == "*/" || remainder == "**/" || remainder == "***/")
         {
             if (remainder.empty())
             {
@@ -714,6 +715,14 @@ void TextDocumentModel::insert_new_line()
             }
             else
             {
+                if (remainder == "*/")
+                {
+                    remainder = "**/";
+                }
+                else if (remainder == "**/")
+                {
+                    remainder = "***/";
+                }
                 m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 2), auto_indent + " " + remainder);
             }
         }

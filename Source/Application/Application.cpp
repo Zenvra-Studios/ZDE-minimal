@@ -80,6 +80,28 @@ bool Application::initialize()
         .request_close = [this] { request_close(); },
         .show_about = [this] { show_about(); },
         .request_open_project = [this] { return m_window->open_project_folder(); },
+        .request_new_window = [] {
+            std::clog << "[ZDE] New Window requested (not yet implemented)\n";
+        },
+        .request_open_folder = [this] {
+            m_window->open_project_folder();
+        },
+        .request_open_recent = [] {
+            std::clog << "[ZDE] Open Recent requested (not yet implemented)\n";
+        },
+        .request_open_remote = [] {
+            std::clog << "[ZDE] Open Remote requested (not yet implemented)\n";
+        },
+        .request_add_folder_to_project = [] {
+            std::clog << "[ZDE] Add Folder to Project requested (not yet implemented)\n";
+        },
+        .request_save_as = [] {
+            std::clog << "[ZDE] Save As requested (not yet implemented)\n";
+        },
+        .request_save_all = [] {
+            std::clog << "[ZDE] Save All requested (not yet implemented)\n";
+        },
+        .request_close_window = [this] { request_close(); },
     });
 
     if (!m_studio_view_model->initialize())

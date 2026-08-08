@@ -6,7 +6,7 @@
 #include "Platform/PlatformDialogs.h"
 #include "Platform/X11/Runtime/X11Context.h"
 #include "UI/Components/MenuModel.h"
-#include "Utility/stb_image.h"
+#include "Utility/IcoDecoder.h"
 
 #include <X11/Xatom.h>
 #include <X11/Xresource.h>
@@ -89,11 +89,17 @@ std::vector<unsigned char> downsample_rgba(const unsigned char *source,
   return result;
 }
 
+struct EventTarget {
+  Window main_window;
+  Window popup_window;
+};
+
 Bool event_matches_window(Display *display, XEvent *event,
                           XPointer target_data) {
   static_cast<void>(display);
-  const auto *target_window = reinterpret_cast<const Window *>(target_data);
-  return event->type == MappingNotify || event->xany.window == *target_window
+  const auto *target = reinterpret_cast<const EventTarget *>(target_data);
+  return event->type == MappingNotify || event->xany.window == target->main_window ||
+         (target->popup_window != 0 && event->xany.window == target->popup_window)
              ? True
              : False;
 }
@@ -212,10 +218,16 @@ void X11Window::poll_events() {
     return;
   }
 
+  EventTarget target{m_window_handle, m_chrome_renderer.popup_window()};
+
   XEvent event{};
   while (XCheckIfEvent(m_display, &event, event_matches_window,
-                       reinterpret_cast<XPointer>(&m_window_handle)) != 0) {
-    handle_event(event);
+                       reinterpret_cast<XPointer>(&target)) != 0) {
+    if (target.popup_window != 0 && event.xany.window == target.popup_window && event.type != MappingNotify) {
+      m_chrome_renderer.handle_popup_event(event);
+    } else {
+      handle_event(event);
+    }
   }
   if (m_custom_chrome_enabled && m_chrome_renderer.tick_animations()) {
     render();
@@ -477,12 +489,9 @@ void X11Window::apply_window_icon() const {
   std::vector<unsigned long> icon_data;
 
   // Use the compiled-in bundled logo asset
-  int width = 0;
-  int height = 0;
-  int channels = 0;
-  unsigned char* data = stbi_load_from_memory(Assets_icons_zenvra_logo_png, Assets_icons_zenvra_logo_png_len, &width, &height, &channels, 4);
+  std::optional<Utility::DecodedImage> decoded = Utility::decode_ico_memory(Assets_icons_zenvra_logo_build_ico, Assets_icons_zenvra_logo_build_ico_len);
 
-  if (data) {
+  if (decoded.has_value() && !decoded->pixels.empty()) {
     std::size_t icon_data_size = 0;
     for (const int icon_size : icon_sizes) {
       icon_data_size += 2U + static_cast<std::size_t>(icon_size * icon_size);
@@ -491,7 +500,8 @@ void X11Window::apply_window_icon() const {
 
     for (const int icon_size : icon_sizes) {
       const std::vector<unsigned char> resampled = downsample_rgba(
-          data, width, height, icon_size, icon_size);
+          decoded->pixels.data(), decoded->width, decoded->height, icon_size,
+          icon_size);
       icon_data.push_back(static_cast<unsigned long>(icon_size));
       icon_data.push_back(static_cast<unsigned long>(icon_size));
       for (std::size_t pixel = 0;
@@ -507,7 +517,6 @@ void X11Window::apply_window_icon() const {
             static_cast<unsigned long>(blue));
       }
     }
-    stbi_image_free(data);
   } else {
     const unsigned long background_color = to_argb(m_theme.accent);
     const unsigned long glyph_color = 0xFFFFFFFFUL;
@@ -859,10 +868,18 @@ void X11Window::handle_motion(const XMotionEvent &event) {
       binary_button_hovered != m_interaction_state.binary_button_hovered ||
       build_button_hovered != m_interaction_state.build_button_hovered ||
       gear_button_hovered != m_interaction_state.gear_button_hovered;
-  changed = m_chrome_renderer.handle_workspace_pointer_move(
-                static_cast<float>(event.x), static_cast<float>(event.y),
-                m_client_width, m_client_height,
-                m_chrome_layout.titlebar_bounds.bottom()) || changed;
+  bool workspace_changed = false;
+  if (m_interaction_state.open_menu_index.has_value() || m_interaction_state.overflow_menu_open || m_menu_pointer_tracking) {
+      workspace_changed = m_chrome_renderer.handle_workspace_pointer_move(
+                  -10000.0F, -10000.0F, m_client_width, m_client_height,
+                  m_chrome_layout.titlebar_bounds.bottom());
+  } else {
+      workspace_changed = m_chrome_renderer.handle_workspace_pointer_move(
+                  static_cast<float>(event.x), static_cast<float>(event.y),
+                  m_client_width, m_client_height,
+                  m_chrome_layout.titlebar_bounds.bottom());
+  }
+  changed = workspace_changed || changed;
   m_interaction_state.hovered_control = hovered_control;
   m_interaction_state.hovered_menu_index = hovered_menu;
   m_interaction_state.hovered_popup_item_index = hovered_popup_item;
@@ -966,7 +983,7 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
     }
     return;
   }
-  if (event.button != Button1) {
+  if (event.button != Button1 && event.button != Button2) {
     return;
   }
 
@@ -1121,6 +1138,7 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
     m_interaction_state.overflow_menu_open = false;
     m_interaction_state.hovered_overflow_menu_index.reset();
     render();
+    return;
   } else if (m_interaction_state.overflow_menu_open) {
     const std::optional<std::size_t> overflow_menu_index =
         get_overflow_popup_menu_index(event.x, event.y);
@@ -1135,6 +1153,7 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
     m_interaction_state.overflow_menu_open = false;
     m_interaction_state.hovered_overflow_menu_index.reset();
     render();
+    return;
   }
 
   const UI::Chrome::WindowControl control = m_chrome_layout.get_window_control(
@@ -1876,6 +1895,7 @@ void X11Window::open_menu(std::size_t menu_index, bool select_first_item, const 
     popup_item.text = std::string(item.label);
     popup_item.separator = item.separator;
     popup_item.command_id = std::string(item.command_id);
+    popup_item.shortcut = std::string(item.shortcut);
     if (!item.command_id.empty()) {
       const auto state = (!m_command_state_query_callback ||
                           m_command_state_query_callback(item.command_id).enabled);
@@ -2127,6 +2147,16 @@ std::optional<std::size_t> X11Window::get_popup_item_index(int point_x,
       }
     }
   }
+  
+  // Debug log every 30th motion event if we have a menu open
+  static int debug_counter = 0;
+  if (++debug_counter % 30 == 0) {
+    std::clog << "[DBG] get_popup_item_index miss! pos=(" << point_x << "," << point_y << ") "
+              << "geom_bounds=(" << geometry.bounds.x << "," << geometry.bounds.y 
+              << " " << geometry.bounds.width << "x" << geometry.bounds.height << ") "
+              << "items=" << geometry.item_count << "\n";
+  }
+
   return std::nullopt;
 }
 

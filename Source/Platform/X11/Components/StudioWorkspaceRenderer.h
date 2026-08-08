@@ -223,7 +223,8 @@ private:
         Drawable drawable,
         const UI::Rect& rectangle,
         unsigned long color,
-        float radius) const;
+        float radius,
+        std::optional<unsigned long> bg_color = std::nullopt) const;
     void draw_rectangle(Drawable drawable, const UI::Rect& rectangle, unsigned long color) const;
     void draw_line(Drawable drawable, int from_x, int from_y, int to_x, int to_y, unsigned long color) const;
     void draw_text(
