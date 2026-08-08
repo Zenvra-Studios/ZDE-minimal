@@ -733,9 +733,9 @@ void StudioWorkspaceRenderer::fill_rectangle(
         return;
     }
     RECT native_rectangle = to_native_rect(rectangle);
-    HBRUSH brush = CreateSolidBrush(to_color_ref(color));
-    FillRect(device_context, &native_rectangle, brush);
-    DeleteObject(brush);
+    SetDCBrushColor(device_context, to_color_ref(color));
+    FillRect(device_context, &native_rectangle,
+             static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
 }
 
 void StudioWorkspaceRenderer::fill_rounded_rectangle(
@@ -759,43 +759,10 @@ void StudioWorkspaceRenderer::fill_rounded_rectangle(
     if (r <= 0.0f)
     {
         RECT bounds = to_native_rect(rectangle);
-        HBRUSH brush = CreateSolidBrush(to_color_ref(color));
-        FillRect(device_context, &bounds, brush);
-        DeleteObject(brush);
+        SetDCBrushColor(device_context, to_color_ref(color));
+        FillRect(device_context, &bounds,
+                 static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
         return;
-    }
-
-    std::vector<uint32_t> pixels(w * h, 0);
-    const uint32_t col_r = color.red;
-    const uint32_t col_g = color.green;
-    const uint32_t col_b = color.blue;
-
-    for (int y = 0; y < h; ++y)
-    {
-        for (int x = 0; x < w; ++x)
-        {
-            float cx = static_cast<float>(x) + 0.5f;
-            float cy = static_cast<float>(y) + 0.5f;
-
-            float dx = std::max({r - cx, 0.0f, cx - (w - r)});
-            float dy = std::max({r - cy, 0.0f, cy - (h - r)});
-            float dist = std::sqrt(dx * dx + dy * dy);
-
-            float d = dist - r;
-            float alpha_f = 0.5f - d;
-
-            if (alpha_f > 1.0f) alpha_f = 1.0f;
-            if (alpha_f < 0.0f) alpha_f = 0.0f;
-
-            if (alpha_f > 0.0f)
-            {
-                uint32_t a = static_cast<uint32_t>(alpha_f * 255.0f);
-                uint32_t pr = (col_r * a) / 255;
-                uint32_t pg = (col_g * a) / 255;
-                uint32_t pb = (col_b * a) / 255;
-                pixels[(h - 1 - y) * w + x] = (a << 24) | (pr << 16) | (pg << 8) | pb;
-            }
-        }
     }
 
     BITMAPINFO bmi{};
@@ -811,7 +778,56 @@ void StudioWorkspaceRenderer::fill_rounded_rectangle(
     HBITMAP hBmp = CreateDIBSection(device_context, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
     if (hBmp)
     {
-        memcpy(bits, pixels.data(), w * h * sizeof(uint32_t));
+        auto* pixels = static_cast<uint32_t*>(bits);
+        const uint32_t col_r = color.red;
+        const uint32_t col_g = color.green;
+        const uint32_t col_b = color.blue;
+        const int ri = static_cast<int>(r);
+        const float w_minus_r = static_cast<float>(w) - r;
+        const float h_minus_r = static_cast<float>(h) - r;
+
+        std::memset(pixels, 0, static_cast<size_t>(w) * h * sizeof(uint32_t));
+        const uint32_t opaque_pixel =
+            (255u << 24) | (col_r << 16) | (col_g << 8) | col_b;
+
+        for (int y = 0; y < h; ++y)
+        {
+            const float cy = static_cast<float>(y) + 0.5f;
+            const bool in_corner_row = (y < ri) || (y >= h - ri);
+            uint32_t* row = &pixels[(h - 1 - y) * w];
+
+            if (!in_corner_row)
+            {
+                std::fill(row, row + w, opaque_pixel);
+                continue;
+            }
+
+            const float dy = std::max({r - cy, 0.0f, cy - h_minus_r});
+            for (int x = 0; x < w; ++x)
+            {
+                const float cx = static_cast<float>(x) + 0.5f;
+                const bool in_corner_col = (x < ri) || (x >= w - ri);
+                if (!in_corner_col)
+                {
+                    row[x] = opaque_pixel;
+                    continue;
+                }
+
+                const float dx = std::max({r - cx, 0.0f, cx - w_minus_r});
+                const float dist = std::sqrt(dx * dx + dy * dy);
+                float alpha_f = std::clamp(0.5f - (dist - r), 0.0f, 1.0f);
+
+                if (alpha_f > 0.0f)
+                {
+                    uint32_t a = static_cast<uint32_t>(alpha_f * 255.0f);
+                    uint32_t pr = (col_r * a) / 255;
+                    uint32_t pg = (col_g * a) / 255;
+                    uint32_t pb = (col_b * a) / 255;
+                    row[x] = (a << 24) | (pr << 16) | (pg << 8) | pb;
+                }
+            }
+        }
+
         HGDIOBJ oldBmp = SelectObject(memDC, hBmp);
 
         BLENDFUNCTION bf{};

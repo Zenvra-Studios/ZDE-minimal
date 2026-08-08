@@ -8,7 +8,6 @@
 #include "Utility/MathUtil.h"
 #include "Utility/TextEncoding.h"
 
-
 #include <dwmapi.h>
 #include <uxtheme.h>
 #include <vssym32.h>
@@ -48,9 +47,9 @@ RECT to_native_rect(const UI::Rect &rectangle) {
 void fill_rectangle(HDC device_context, const UI::Rect &rectangle,
                     const UI::Theme::Color &color) {
   RECT native_rectangle = to_native_rect(rectangle);
-  HBRUSH brush = CreateSolidBrush(to_color_ref(color));
-  FillRect(device_context, &native_rectangle, brush);
-  DeleteObject(brush);
+  SetDCBrushColor(device_context, to_color_ref(color));
+  FillRect(device_context, &native_rectangle,
+           static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
 }
 
 void fill_rounded_rectangle(HDC device_context, const UI::Rect &rectangle,
@@ -68,42 +67,10 @@ void fill_rounded_rectangle(HDC device_context, const UI::Rect &rectangle,
                       rectangle.height * 0.5f});
   if (r <= 0.0f) {
     RECT native_rectangle = to_native_rect(rectangle);
-    HBRUSH brush = CreateSolidBrush(to_color_ref(color));
-    FillRect(device_context, &native_rectangle, brush);
-    DeleteObject(brush);
+    SetDCBrushColor(device_context, to_color_ref(color));
+    FillRect(device_context, &native_rectangle,
+             static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
     return;
-  }
-
-  std::vector<uint32_t> pixels(w * h, 0);
-  const uint32_t col_r = color.red;
-  const uint32_t col_g = color.green;
-  const uint32_t col_b = color.blue;
-
-  for (int y = 0; y < h; ++y) {
-    for (int x = 0; x < w; ++x) {
-      float cx = static_cast<float>(x) + 0.5f;
-      float cy = static_cast<float>(y) + 0.5f;
-
-      float dx = std::max({r - cx, 0.0f, cx - (w - r)});
-      float dy = std::max({r - cy, 0.0f, cy - (h - r)});
-      float dist = std::sqrt(dx * dx + dy * dy);
-
-      float d = dist - r;
-      float alpha_f = 0.5f - d;
-
-      if (alpha_f > 1.0f)
-        alpha_f = 1.0f;
-      if (alpha_f < 0.0f)
-        alpha_f = 0.0f;
-
-      if (alpha_f > 0.0f) {
-        uint32_t a = static_cast<uint32_t>(alpha_f * 255.0f);
-        uint32_t pr = (col_r * a) / 255;
-        uint32_t pg = (col_g * a) / 255;
-        uint32_t pb = (col_b * a) / 255;
-        pixels[(h - 1 - y) * w + x] = (a << 24) | (pr << 16) | (pg << 8) | pb;
-      }
-    }
   }
 
   BITMAPINFO bmi{};
@@ -119,7 +86,54 @@ void fill_rounded_rectangle(HDC device_context, const UI::Rect &rectangle,
   HBITMAP hBmp =
       CreateDIBSection(device_context, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
   if (hBmp) {
-    memcpy(bits, pixels.data(), w * h * sizeof(uint32_t));
+    auto *pixels = static_cast<uint32_t *>(bits);
+    const uint32_t col_r = color.red;
+    const uint32_t col_g = color.green;
+    const uint32_t col_b = color.blue;
+    const int ri = static_cast<int>(r);
+    const float w_minus_r = static_cast<float>(w) - r;
+    const float h_minus_r = static_cast<float>(h) - r;
+
+    // Fill fully opaque interior rows first (memset is very fast)
+    std::memset(pixels, 0, static_cast<size_t>(w) * h * sizeof(uint32_t));
+    const uint32_t opaque_pixel =
+        (255u << 24) | (col_r << 16) | (col_g << 8) | col_b;
+
+    // Only compute alpha for corner rows; interior rows are fully opaque
+    for (int y = 0; y < h; ++y) {
+      const float cy = static_cast<float>(y) + 0.5f;
+      const bool in_corner_row = (y < ri) || (y >= h - ri);
+      uint32_t *row = &pixels[(h - 1 - y) * w];
+
+      if (!in_corner_row) {
+        // Fully opaque row — fill all pixels
+        std::fill(row, row + w, opaque_pixel);
+        continue;
+      }
+
+      const float dy = std::max({r - cy, 0.0f, cy - h_minus_r});
+      for (int x = 0; x < w; ++x) {
+        const float cx = static_cast<float>(x) + 0.5f;
+        const bool in_corner_col = (x < ri) || (x >= w - ri);
+        if (!in_corner_col) {
+          row[x] = opaque_pixel;
+          continue;
+        }
+
+        const float dx = std::max({r - cx, 0.0f, cx - w_minus_r});
+        const float dist = std::sqrt(dx * dx + dy * dy);
+        float alpha_f = std::clamp(0.5f - (dist - r), 0.0f, 1.0f);
+
+        if (alpha_f > 0.0f) {
+          uint32_t a = static_cast<uint32_t>(alpha_f * 255.0f);
+          uint32_t pr = (col_r * a) / 255;
+          uint32_t pg = (col_g * a) / 255;
+          uint32_t pb = (col_b * a) / 255;
+          row[x] = (a << 24) | (pr << 16) | (pg << 8) | pb;
+        }
+      }
+    }
+
     HGDIOBJ oldBmp = SelectObject(memDC, hBmp);
 
     BLENDFUNCTION bf{};
@@ -136,6 +150,7 @@ void fill_rounded_rectangle(HDC device_context, const UI::Rect &rectangle,
   }
   DeleteDC(memDC);
 }
+
 
 void draw_centered_text(HDC device_context, const wchar_t *text, RECT rectangle,
                         const UI::Theme::Color &color) {
@@ -597,7 +612,14 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           ReleaseDC(window_handle, device_context);
         }
         if (changed) {
-          InvalidateRect(window_handle, nullptr, FALSE);
+          // Only invalidate the workspace content area (below the titlebar),
+          // not the entire window. This avoids re-rendering the chrome/toolbar
+          // during mouse-drag selection, which is the primary source of lag.
+          const int content_top =
+              round_to_int(m_chrome_layout.titlebar_bounds.bottom());
+          RECT content_rect{client_bounds.left, content_top,
+                            client_bounds.right, client_bounds.bottom};
+          InvalidateRect(window_handle, &content_rect, FALSE);
         }
         return 0;
       }
@@ -760,20 +782,29 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       if (over_tool_sidebar && scroll_event.delta_y != 0 &&
           m_workspace_renderer.handle_tool_sidebar_scroll(
               scroll_event.delta_y, client_width, client_height, content_top)) {
-        InvalidateRect(window_handle, nullptr, FALSE);
+        const int ct = round_to_int(content_top);
+        RECT content_rect{client_bounds.left, ct, client_bounds.right,
+                          client_bounds.bottom};
+        InvalidateRect(window_handle, &content_rect, FALSE);
         return 0;
       }
       if (over_terminal &&
           (scroll_event.delta_x != 0 || scroll_event.delta_y != 0) &&
           m_workspace_renderer.handle_terminal_scroll(scroll_event)) {
-        InvalidateRect(window_handle, nullptr, FALSE);
+        const int ct = round_to_int(content_top);
+        RECT content_rect{client_bounds.left, ct, client_bounds.right,
+                          client_bounds.bottom};
+        InvalidateRect(window_handle, &content_rect, FALSE);
         return 0;
       }
       if ((over_editor || over_tab_bar) &&
           (scroll_event.delta_x != 0 || scroll_event.delta_y != 0) &&
           m_workspace_renderer.handle_scroll(scroll_event, client_width,
                                              client_height, content_top)) {
-        InvalidateRect(window_handle, nullptr, FALSE);
+        const int ct = round_to_int(content_top);
+        RECT content_rect{client_bounds.left, ct, client_bounds.right,
+                          client_bounds.bottom};
+        InvalidateRect(window_handle, &content_rect, FALSE);
       }
       return 0;
     }
@@ -811,13 +842,19 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
 
       if (over_terminal && scroll_event.delta_x != 0 &&
           m_workspace_renderer.handle_terminal_scroll(scroll_event)) {
-        InvalidateRect(window_handle, nullptr, FALSE);
+        const int ct = round_to_int(content_top);
+        RECT content_rect{client_bounds.left, ct, client_bounds.right,
+                          client_bounds.bottom};
+        InvalidateRect(window_handle, &content_rect, FALSE);
         return 0;
       }
       if ((over_editor || over_tab_bar) && scroll_event.delta_x != 0 &&
           m_workspace_renderer.handle_scroll(scroll_event, client_width,
                                              client_height, content_top)) {
-        InvalidateRect(window_handle, nullptr, FALSE);
+        const int ct = round_to_int(content_top);
+        RECT content_rect{client_bounds.left, ct, client_bounds.right,
+                          client_bounds.bottom};
+        InvalidateRect(window_handle, &content_rect, FALSE);
         return 0;
       }
       return 0;
@@ -1183,7 +1220,9 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           scroll_event.delta_y = -3;
 
         if (m_workspace_renderer.handle_terminal_scroll(scroll_event)) {
-          InvalidateRect(window_handle, nullptr, FALSE);
+          const int ct = round_to_int(m_chrome_layout.titlebar_bounds.bottom());
+          RECT cr{0, ct, 32767, 32767};
+          InvalidateRect(window_handle, &cr, FALSE);
         }
         return 0;
       }
@@ -1219,7 +1258,9 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       }
       if (terminal_key) {
         if (m_workspace_renderer.handle_terminal_key(*terminal_key)) {
-          InvalidateRect(window_handle, nullptr, FALSE);
+          const int ct = round_to_int(m_chrome_layout.titlebar_bounds.bottom());
+          RECT cr{0, ct, 32767, 32767};
+          InvalidateRect(window_handle, &cr, FALSE);
         }
         return 0;
       }
@@ -1262,7 +1303,9 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       }
       if (action) {
         if (m_workspace_renderer.handle_editor_action(*action)) {
-          InvalidateRect(window_handle, nullptr, FALSE);
+          const int ct = round_to_int(m_chrome_layout.titlebar_bounds.bottom());
+          RECT cr{0, ct, 32767, 32767};
+          InvalidateRect(window_handle, &cr, FALSE);
         }
         return 0;
       }
@@ -1296,7 +1339,9 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       if (editor_command) {
         if (m_workspace_renderer.handle_editor_input(*editor_command,
                                                      shift_pressed)) {
-          InvalidateRect(window_handle, nullptr, FALSE);
+          const int ct = round_to_int(m_chrome_layout.titlebar_bounds.bottom());
+          RECT cr{0, ct, 32767, 32767};
+          InvalidateRect(window_handle, &cr, FALSE);
         }
         return 0;
       }
@@ -1340,7 +1385,9 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
                   m_workspace_renderer.handle_text_input(*utf8);
       }
       if (changed) {
-        InvalidateRect(window_handle, nullptr, FALSE);
+        const int ct = round_to_int(m_chrome_layout.titlebar_bounds.bottom());
+        RECT cr{0, ct, 32767, 32767};
+        InvalidateRect(window_handle, &cr, FALSE);
       }
       return 0;
     }
@@ -1377,7 +1424,9 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
                   m_workspace_renderer.handle_text_input(*utf8);
       }
       if (changed) {
-        InvalidateRect(window_handle, nullptr, FALSE);
+        const int ct = round_to_int(m_chrome_layout.titlebar_bounds.bottom());
+        RECT cr{0, ct, 32767, 32767};
+        InvalidateRect(window_handle, &cr, FALSE);
       }
       return 0;
     }
@@ -1573,6 +1622,13 @@ void Win32Window::paint_custom_chrome() {
   HBITMAP buffer_bitmap =
       CreateCompatibleBitmap(window_context, client_width, client_height);
   HGDIOBJ previous_bitmap = SelectObject(buffer_context, buffer_bitmap);
+
+  // Clip drawing to only the dirty region reported by BeginPaint.
+  // GDI will discard any draw calls that fall outside this rectangle,
+  // dramatically reducing CPU work during mouse-drag selection updates.
+  const RECT &dirty = paint_data.rcPaint;
+  IntersectClipRect(buffer_context, dirty.left, dirty.top, dirty.right,
+                    dirty.bottom);
 
   fill_rectangle(buffer_context,
                  UI::Rect{0.0F, 0.0F, static_cast<float>(client_width),
@@ -1840,8 +1896,13 @@ void Win32Window::paint_custom_chrome() {
 
   SelectObject(buffer_context, previous_font);
 
-  BitBlt(window_context, 0, 0, client_width, client_height, buffer_context, 0,
-         0, SRCCOPY);
+  // Only blit the dirty region to the screen, not the full window.
+  const int blit_x = dirty.left;
+  const int blit_y = dirty.top;
+  const int blit_w = dirty.right - dirty.left;
+  const int blit_h = dirty.bottom - dirty.top;
+  BitBlt(window_context, blit_x, blit_y, blit_w, blit_h, buffer_context,
+         blit_x, blit_y, SRCCOPY);
   SelectObject(buffer_context, previous_bitmap);
   DeleteObject(buffer_bitmap);
   DeleteDC(buffer_context);
