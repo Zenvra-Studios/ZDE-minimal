@@ -1,0 +1,40 @@
+{
+    "application": {
+        "name": "ZDE",
+        "version": "0.1.0",
+        "architecture": "x64"
+    },
+    "runtime": {
+        "executable": "ZDE.exe"
+    },
+    "dependencies": [
+        {
+            "file": "ZDEApplication.dll",
+            "required": true
+        },
+        {
+            "file": "ZDECommands.dll",
+            "required": true
+        },
+        {
+            "file": "ZDEPlatform.dll",
+            "required": true
+        },
+        {
+            "file": "ZDEPlatformWin32.dll",
+            "required": true
+        },
+        {
+            "file": "ZDETerminal.dll",
+            "required": true
+        },
+        {
+            "file": "ZDEUI.dll",
+            "required": true
+        },
+        {
+            "file": "ZDEUtility.dll",
+            "required": true
+        }
+    ]
+}

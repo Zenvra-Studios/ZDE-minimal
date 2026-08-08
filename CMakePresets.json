@@ -96,6 +96,22 @@
       }
     },
     {
+      "name": "windows-x64-clang-ninja-release",
+      "displayName": "Windows Release (clang-cl + Ninja)",
+      "description": "Single-config Release build with clang-cl for clangd compile_commands.json on Windows.",
+      "inherits": "base-ninja",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl"
+      }
+    },
+    {
       "name": "linux-debug",
       "displayName": "Linux Debug (Ninja)",
       "inherits": "base-ninja",
@@ -204,6 +220,11 @@
       "name": "windows-x64-clang-ninja-debug",
       "displayName": "Build Windows Debug (clang-cl + Ninja)",
       "configurePreset": "windows-x64-clang-ninja-debug"
+    },
+    {
+      "name": "windows-x64-clang-ninja-release",
+      "displayName": "Build Windows Release (clang-cl + Ninja)",
+      "configurePreset": "windows-x64-clang-ninja-release"
     },
     {
       "name": "linux-debug",

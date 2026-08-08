@@ -1,4 +1,4 @@
-add_library(ZDEApplication STATIC
+add_library(ZDEApplication
     Application.cpp
     ViewModels/StudioViewModel.cpp
 )

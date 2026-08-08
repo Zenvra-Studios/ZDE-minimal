@@ -1,8 +1,20 @@
 #include "Application/Application.h"
+#include "Bootstrapper/NativeUI.h"
 
 #include <algorithm>
 #include <string_view>
 #include <utility>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+
+static std::string ReadFile(const std::string& filepath) {
+    std::ifstream file(filepath);
+    if (!file.is_open()) return "";
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
 
 static bool has_argument(int argument_count, char** argument_values, std::string_view expected_argument)
 {
@@ -14,6 +26,55 @@ static bool has_argument(int argument_count, char** argument_values, std::string
 
 int main(int argument_count, char** argument_values)
 {
+    bool simulate_missing_dep = false;
+    std::string missing_dep_target = "";
+
+    for (int i = 1; i < argument_count; ++i) {
+        if (std::string(argument_values[i]) == "--simulate-missing-dependency" && i + 1 < argument_count) {
+            simulate_missing_dep = true;
+            missing_dep_target = argument_values[++i];
+        }
+    }
+
+    if (simulate_missing_dep) {
+        ShowNativeErrorDialog("ZDE Startup Error", "Required runtime component is missing:\n\n" + missing_dep_target + "\n\nThe installation may be incomplete or corrupted.");
+        return 1;
+    }
+
+    // Locate installation directory
+    std::filesystem::path exe_path = std::filesystem::path(argument_values[0]).parent_path();
+    std::filesystem::path manifest_path = exe_path / "manifest" / "runtime.json";
+
+    std::string manifest_content = ReadFile(manifest_path.string());
+    if (manifest_content.empty()) {
+        ShowNativeErrorDialog("ZDE Startup Error", "Failed to read runtime manifest at:\n" + manifest_path.string());
+        return 1;
+    }
+
+    RuntimeManifest manifest = ParseManifest(manifest_content);
+    
+    // In merged mode, we assume dependencies are in the same dir
+    std::filesystem::path runtime_dir = exe_path; 
+    
+    if (has_argument(argument_count, argument_values, "--diagnose")) {
+        PrintDiagnostic("ZDE Runtime Diagnostics");
+        PrintDiagnostic("────────────────────────────");
+        PrintDiagnostic("Exe Path:      " + exe_path.string());
+        PrintDiagnostic("Dependencies:");
+        for (const auto& dep : manifest.dependencies) {
+            std::filesystem::path dep_path = runtime_dir / dep.file;
+            bool exists = std::filesystem::exists(dep_path);
+            PrintDiagnostic("  " + dep.file + (exists ? " [OK]" : " [MISSING]"));
+        }
+        return 0;
+    }
+
+    ValidationResult val_result = ValidateDependencies(runtime_dir.string(), manifest.dependencies);
+    if (!val_result.success) {
+        ShowNativeErrorDialog("ZDE Startup Error", "Required runtime component is missing:\n\n" + val_result.missing_file + "\n\n" + val_result.error_message);
+        return 1;
+    }
+
     Zenvra::Application::ApplicationSpecification specification;
 
     const bool safe_ui = has_argument(argument_count, argument_values, "--safe-ui");

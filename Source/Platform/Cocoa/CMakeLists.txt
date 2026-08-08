@@ -2,7 +2,7 @@ if(NOT APPLE)
     return()
 endif()
 
-add_library(ZDEPlatformCocoa STATIC
+add_library(ZDEPlatformCocoa
     CocoaWindow.mm
     Runtime/CocoaContext.mm
 )

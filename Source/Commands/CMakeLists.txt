@@ -1,4 +1,4 @@
-add_library(ZDECommands STATIC
+add_library(ZDECommands
     CommandRegistry.cpp
 )
 add_library(Zenvra::Commands ALIAS ZDECommands)

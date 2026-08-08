@@ -8,7 +8,7 @@ if(NOT TARGET X11::Xft)
     message(FATAL_ERROR "The X11 backend requires Xft development files (libxft-dev).")
 endif()
 
-add_library(ZDEPlatformX11 STATIC
+add_library(ZDEPlatformX11
     X11Window.cpp
     Components/ActivitySidebar.cpp
     Components/EditorMinimap.cpp

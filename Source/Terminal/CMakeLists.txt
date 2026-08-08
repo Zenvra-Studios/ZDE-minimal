@@ -1,4 +1,4 @@
-add_library(ZDETerminal STATIC
+add_library(ZDETerminal
     TerminalPanelModel.cpp
     TerminalResizeModel.cpp
     TerminalSession.cpp

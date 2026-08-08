@@ -1,4 +1,4 @@
-add_library(ZDEUI STATIC
+add_library(ZDEUI
     Chrome/WindowChromeLayout.cpp
     Chrome/WindowMenuModel.cpp
     Components/EditorFolding.cpp

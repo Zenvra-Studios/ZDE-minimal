@@ -2,7 +2,7 @@ if(NOT WIN32)
     return()
 endif()
 
-add_library(ZDEPlatformWin32 STATIC
+add_library(ZDEPlatformWin32
     Win32Window.cpp
     Components/ActivitySidebar.cpp
     Components/EditorMinimap.cpp

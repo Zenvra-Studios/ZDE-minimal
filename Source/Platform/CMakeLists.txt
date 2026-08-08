@@ -6,7 +6,7 @@ elseif(UNIX)
     add_subdirectory(X11)
 endif()
 
-add_library(ZDEPlatform STATIC
+add_library(ZDEPlatform
     PlatformWindowFactory.cpp
 )
 add_library(Zenvra::Platform ALIAS ZDEPlatform)
