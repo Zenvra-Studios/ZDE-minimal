@@ -11,6 +11,7 @@ CPMAddPackage(
 )
 
 # lunasvg - SVG rendering library
+set(PLUTOVG_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LUNASVG_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 CPMAddPackage(
     NAME lunasvg
