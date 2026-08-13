@@ -1,6 +1,15 @@
 #import <Cocoa/Cocoa.h>
 #include "CocoaContext.h"
+#include "CocoaMenuBridge.h"
 #include <iostream>
+@interface ZenvraAppDelegate : NSObject <NSApplicationDelegate>
+@end
+
+@implementation ZenvraAppDelegate
+- (void)applicationDidFinishLaunching:(NSNotification *)notification {
+    [NSApp activateIgnoringOtherApps:YES];
+}
+@end
 
 namespace Zenvra {
 namespace Platform {
@@ -9,24 +18,17 @@ namespace Runtime {
 
 bool CocoaContext::initialize()
 {
-    // Initialize the shared NSApplication instance
+    // Initialize NSApplication
     [NSApplication sharedApplication];
+    
+    static ZenvraAppDelegate* appDelegate = [[ZenvraAppDelegate alloc] init];
+    [NSApp setDelegate:appDelegate];
     
     // Set the app to be a regular app (shows up in Dock and has a Menu Bar)
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
     
-    // Create a basic default menu so the app has a name in the menu bar and a Quit option
-    id menubar = [[NSMenu alloc] new];
-    id app_menu_item = [[NSMenuItem alloc] new];
-    [menubar addItem:app_menu_item];
-    [NSApp setMainMenu:menubar];
-    
-    id app_menu = [[NSMenu alloc] new];
-    id app_name = [[NSProcessInfo processInfo] processName];
-    id quit_title = [@"Quit " stringByAppendingString:app_name];
-    id quit_menu_item = [[NSMenuItem alloc] initWithTitle:quit_title action:@selector(terminate:) keyEquivalent:@"q"];
-    [app_menu addItem:quit_menu_item];
-    [app_menu_item setSubmenu:app_menu];
+    // The menu bar will be constructed by CocoaMenuBridge
+    CocoaMenuBridge::build_native_menu_bar();
 
     // Finish launching setup
     [NSApp finishLaunching];
