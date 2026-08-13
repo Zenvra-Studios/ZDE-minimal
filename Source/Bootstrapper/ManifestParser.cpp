@@ -1,6 +1,14 @@
 #include "NativeUI.h"
 #include <string_view>
 
+#if defined(_WIN32)
+    static constexpr const char* kPlatformKey = "windows";
+#elif defined(__APPLE__)
+    static constexpr const char* kPlatformKey = "macos";
+#else
+    static constexpr const char* kPlatformKey = "linux";
+#endif
+
 static std::string ExtractStringField(std::string_view json, std::string_view key) {
     std::string search_key = "\"" + std::string(key) + "\":";
     size_t pos = json.find(search_key);
@@ -27,7 +35,18 @@ RuntimeManifest ParseManifest(const std::string& json_content) {
     manifest.application_name = ExtractStringField(json_content, "name");
     manifest.version = ExtractStringField(json_content, "version");
     manifest.architecture = ExtractStringField(json_content, "architecture");
-    manifest.executable = ExtractStringField(json_content, "executable");
+
+    // Executable is resolved per-platform inside the "runtime" object.
+    size_t runtime_pos = json_content.find("\"runtime\"");
+    if (runtime_pos != std::string_view::npos) {
+        size_t deps_pos = json_content.find("\"dependencies\"", runtime_pos);
+        size_t scope_end = (deps_pos != std::string_view::npos) ? deps_pos : json_content.length();
+        std::string_view runtime_str(json_content.data() + runtime_pos, scope_end - runtime_pos);
+        manifest.executable = ExtractStringField(runtime_str, kPlatformKey);
+    }
+    if (manifest.executable.empty()) {
+        manifest.executable = ExtractStringField(json_content, "executable");
+    }
 
     // Crude extraction of dependencies array
     size_t deps_start = json_content.find("\"dependencies\"");
@@ -48,7 +67,10 @@ RuntimeManifest ParseManifest(const std::string& json_content) {
                 std::string_view obj_str = deps_str.substr(obj_start, obj_end - obj_start);
                 
                 Dependency dep;
-                dep.file = ExtractStringField(std::string(obj_str), "file");
+                dep.file = ExtractStringField(std::string(obj_str), kPlatformKey);
+                if (dep.file.empty()) {
+                    dep.file = ExtractStringField(std::string(obj_str), "file");
+                }
                 
                 size_t req_pos = obj_str.find("\"required\":");
                 if (req_pos != std::string_view::npos) {

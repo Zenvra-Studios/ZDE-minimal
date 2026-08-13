@@ -5,35 +5,53 @@
         "architecture": "x64"
     },
     "runtime": {
-        "executable": "ZDE.exe"
+        "executable": {
+            "windows": "ZDE.exe",
+            "linux": "ZDE",
+            "macos": "ZDE"
+        }
     },
     "dependencies": [
         {
-            "file": "ZDEApplication.dll",
+            "windows": "ZDEApplication.dll",
+            "linux": "libZDEApplication.so",
+            "macos": "libZDEApplication.dylib",
             "required": true
         },
         {
-            "file": "ZDECommands.dll",
+            "windows": "ZDECommands.dll",
+            "linux": "libZDECommands.so",
+            "macos": "libZDECommands.dylib",
             "required": true
         },
         {
-            "file": "ZDEPlatform.dll",
+            "windows": "ZDEPlatform.dll",
+            "linux": "libZDEPlatform.so",
+            "macos": "libZDEPlatform.dylib",
             "required": true
         },
         {
-            "file": "ZDEPlatformWin32.dll",
+            "windows": "ZDEPlatformWin32.dll",
+            "linux": "libZDEPlatformX11.so",
+            "macos": "libZDEPlatformCocoa.dylib",
             "required": true
         },
         {
-            "file": "ZDETerminal.dll",
+            "windows": "ZDETerminal.dll",
+            "linux": "libZDETerminal.so",
+            "macos": "libZDETerminal.dylib",
             "required": true
         },
         {
-            "file": "ZDEUI.dll",
+            "windows": "ZDEUI.dll",
+            "linux": "libZDEUI.so",
+            "macos": "libZDEUI.dylib",
             "required": true
         },
         {
-            "file": "ZDEUtility.dll",
+            "windows": "ZDEUtility.dll",
+            "linux": "libZDEUtility.so",
+            "macos": "libZDEUtility.dylib",
             "required": true
         }
     ]
