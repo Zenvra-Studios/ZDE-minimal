@@ -18,6 +18,7 @@ elseif(APPLE)
         Cocoa/ValidatorCocoa.mm
         Cocoa/CocoaUI.mm
     )
+    target_link_libraries(BootstrapperLib PRIVATE "-framework Cocoa")
 else()
     target_sources(BootstrapperLib PRIVATE
         X11/ProcessLauncherX11.cpp

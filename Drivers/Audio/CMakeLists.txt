@@ -1,6 +1,10 @@
 # CMakeLists.txt for Audio module.
+# Only implementation files may enter the static library. The directory is
+# currently header-only, so the target is skipped until real sources exist.
+# (Building a library from a lone header makes `ar` fail with
+# "no archive members specified".)
 
-file(GLOB_RECURSE Audio_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
+file(GLOB_RECURSE Audio_SOURCES CONFIGURE_DEPENDS "*.c" "*.cpp" "*.cc" "*.mm")
 
 if(Audio_SOURCES)
     add_library(Audio STATIC ${Audio_SOURCES})
