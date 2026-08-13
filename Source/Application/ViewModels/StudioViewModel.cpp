@@ -309,6 +309,21 @@ bool StudioViewModel::register_future_commands()
         "Select all text in the active document.",
         "Selection",
         Shortcut{KeyCode::A, true, false, false}));
+    add_command(Commands::Command{
+        .id = std::string(Commands::CommandIds::view_terminal_panel),
+        .name = "Terminal Panel",
+        .description = "Show or hide the integrated terminal.",
+        .category = "View",
+        .shortcut_binding = {},
+        .execute = [this] {
+            if (m_actions.request_toggle_terminal) {
+                m_actions.request_toggle_terminal();
+            }
+        },
+        .is_enabled = [this] { return static_cast<bool>(m_actions.request_toggle_terminal); },
+        .is_checked = {},
+    });
+
     add_command(create_unavailable_command(
         Commands::CommandIds::view_explorer,
         "Show Explorer",

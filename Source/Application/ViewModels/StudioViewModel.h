@@ -21,6 +21,7 @@ struct StudioActions
     std::function<void()> request_save_as;
     std::function<void()> request_save_all;
     std::function<void()> request_close_window;
+    std::function<void()> request_toggle_terminal;
 };
 
 class StudioViewModel

@@ -124,14 +124,34 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(
     WindowChromeLayoutOptions options) const noexcept {
   const float safe_scale = std::max(dpi_scale, 0.5F);
   const WindowChromeMetrics metrics;
-  const float titlebar_height = metrics.titlebar_height * safe_scale;
+  const float titlebar_height = options.show_titlebar
+      ? ((options.titlebar_height > 0.0F
+               ? options.titlebar_height
+               : (options.chrome_style == ChromeStyle::NativeMacOS
+                      ? 28.0F
+                      : metrics.titlebar_height)) *
+          safe_scale)
+      : 0.0F;
   const float control_width = metrics.window_control_width * safe_scale;
 
   WindowChromeLayoutResult result;
   result.dpi_scale = safe_scale;
+  result.show_toolbar_chevrons = options.show_toolbar_chevrons;
+  result.show_menu_labels = options.show_menu_labels;
   result.titlebar_bounds = {0.0F, 0.0F, std::max(client_width, 0.0F),
                             titlebar_height};
-  result.logo_bounds = {0.0F, 0.0F, metrics.logo_width * safe_scale,
+
+  if (options.chrome_style == ChromeStyle::NativeMacOS) {
+    const float buffer_width = 300.0F * safe_scale;
+    result.file_buffer_bounds = {
+        std::max(0.0F, (client_width - buffer_width) * 0.5F),
+        0.0F,
+        std::min(client_width, buffer_width),
+        titlebar_height};
+    return result;
+  }
+
+  result.logo_bounds = {options.left_padding, 0.0F, metrics.logo_width * safe_scale,
                         titlebar_height};
 
   const float controls_start =
@@ -148,73 +168,96 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(
                            control_width, titlebar_height};
   }
 
-  // Keep all top-level labels in the custom overlay. The titlebar remains a
-  // compact hamburger anchor, leaving the full central span available for
-  // editor tabs without any menu text underneath them.
-  const float hamburger_width =
-      std::min(metrics.overflow_menu_width * safe_scale,
-               std::max(controls_start - result.logo_bounds.right(), 0.0F));
-  if (hamburger_width > 0.0F) {
-    result.first_overflow_menu_index = 0;
-    result.overflow_menu_bounds = {
-        result.logo_bounds.right(),
-        0.0F,
-        hamburger_width,
-        titlebar_height,
-    };
-  }
-
   const float button_width = 36.0F * safe_scale;
-  float current_right = controls_start;
-  // Right-to-left: ellipsis | gear | debug | run | build | mode | binary |
-  // compiler
-  if (current_right - button_width >=
-      result.logo_bounds.right() + hamburger_width) {
-    current_right -= button_width;
-    result.ellipsis_bounds = {current_right, 0.0F, button_width,
-                              titlebar_height};
-  }
-  if (current_right - button_width >=
-      result.logo_bounds.right() + hamburger_width) {
-    current_right -= button_width;
-    result.gear_bounds = {current_right, 0.0F, button_width, titlebar_height};
-  }
-  if (current_right - button_width >=
-      result.logo_bounds.right() + hamburger_width) {
-    current_right -= button_width;
-    result.debug_bounds = {current_right, 0.0F, button_width, titlebar_height};
-  }
-  if (current_right - button_width >=
-      result.logo_bounds.right() + hamburger_width) {
-    current_right -= button_width;
-    result.run_bounds = {current_right, 0.0F, button_width, titlebar_height};
-  }
-  if (current_right - button_width >=
-      result.logo_bounds.right() + hamburger_width) {
-    current_right -= button_width;
-    result.build_bounds = {current_right, 0.0F, button_width, titlebar_height};
-  }
-
   const float binary_width = 120.0F * safe_scale;
   const float platform_width = 72.0F * safe_scale;
   const float compiler_width = 80.0F * safe_scale;
+  const float toolbar_gap = 8.0F * safe_scale;
 
-  if (current_right - binary_width >=
-      result.logo_bounds.right() + hamburger_width) {
-    current_right -= binary_width;
-    result.binary_bounds = {current_right, 0.0F, binary_width, titlebar_height};
+  // The right-side toolbar (ellipsis | gear | debug | run | build | binary |
+  // platform | compiler) has a fixed width. Reserve it up front so the menus
+  // never extend underneath it and the elements never collide.
+  const float right_toolbar_width =
+      5.0F * button_width + binary_width + platform_width + compiler_width +
+      7.0F * toolbar_gap;
+  const float menu_limit = options.force_all_menus
+      ? controls_start
+      : controls_start - right_toolbar_width - toolbar_gap;
+
+  // Layout Menus
+  float current_x = result.logo_bounds.right();
+  for (std::size_t i = 0; i < window_menu_count; ++i) {
+      if (menu_labels[i].empty()) break;
+
+      if (!options.show_menu_labels) {
+          // macOS: the native menu bar owns the menus; nothing is drawn here.
+          result.visible_menu_count = 0;
+          break;
+      }
+      // Approximate width: ~8 pixels per character + padding
+      float text_width = static_cast<float>(menu_labels[i].length()) * 8.0F * safe_scale;
+      float menu_width = text_width + metrics.menu_item_padding * 2.0F * safe_scale;
+
+      if (options.force_all_menus) {
+          // Every menu stays inline; the toolbar gives up space instead of
+          // pushing menus into a hamburger button.
+          result.menu_regions[i] = {i, {current_x, 0.0F, menu_width, titlebar_height}};
+          current_x += menu_width;
+          result.visible_menu_count++;
+          continue;
+      }
+      
+      if (current_x + menu_width > menu_limit) {
+          result.first_overflow_menu_index = i;
+          break;
+      }
+      
+      result.menu_regions[i] = {i, {current_x, 0.0F, menu_width, titlebar_height}};
+      current_x += menu_width;
+      result.visible_menu_count++;
   }
-  if (current_right - platform_width >=
-      result.logo_bounds.right() + hamburger_width) {
-    current_right -= platform_width;
-    result.platform_bounds = {current_right, 0.0F, platform_width,
-                              titlebar_height};
+
+  const float hamburger_width = options.show_menu_labels && !options.force_all_menus && result.visible_menu_count < window_menu_count ? metrics.overflow_menu_width * safe_scale : 0.0F;
+  if (hamburger_width > 0.0F && current_x + hamburger_width <= menu_limit) {
+    result.overflow_menu_bounds = {current_x, 0.0F, hamburger_width, titlebar_height};
   }
-  if (current_right - compiler_width >=
-      result.logo_bounds.right() + hamburger_width) {
-    current_right -= compiler_width;
-    result.compiler_bounds = {current_right, 0.0F, compiler_width,
-                              titlebar_height};
+
+  const float left_edge = result.has_overflow_menu() ? result.overflow_menu_bounds.right() : current_x;
+
+  // Right-to-left toolbar placement with a gap between every element.
+  float current_right = controls_start;
+  auto place_right = [&](float width, UI::Rect& target) -> bool {
+    const float candidate_right = current_right - toolbar_gap;
+    const float candidate_x = candidate_right - width;
+    if (candidate_x < left_edge) {
+      return false;
+    }
+    target = {candidate_x, 0.0F, width, titlebar_height};
+    current_right = candidate_x;
+    return true;
+  };
+
+  place_right(button_width, result.ellipsis_bounds);
+  place_right(button_width, result.gear_bounds);
+  place_right(button_width, result.debug_bounds);
+  place_right(button_width, result.run_bounds);
+  place_right(button_width, result.build_bounds);
+  place_right(binary_width, result.binary_bounds);
+  place_right(platform_width, result.platform_bounds);
+  place_right(compiler_width, result.compiler_bounds);
+  
+  if (current_right > left_edge) {
+      float available_space = current_right - left_edge;
+      float center_x = client_width * 0.5F;
+      float cc_width = metrics.command_center_width * safe_scale;
+      
+      if (available_space > cc_width && center_x - cc_width * 0.5F > left_edge && center_x + cc_width * 0.5F < current_right) {
+          result.command_center_bounds = {center_x - cc_width * 0.5F, 0.0F, cc_width, titlebar_height};
+          // File buffer takes remaining space
+          result.file_buffer_bounds = {left_edge, 0.0F, result.command_center_bounds.x - left_edge, titlebar_height};
+      } else {
+          result.file_buffer_bounds = {left_edge, 0.0F, available_space, titlebar_height};
+      }
   }
 
   return result;

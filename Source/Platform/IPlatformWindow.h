@@ -66,6 +66,9 @@ public:
     /// Returns true when the dialog was shown (regardless of the user's
     /// choice); returns false when the platform cannot show a folder dialog.
     [[nodiscard]] virtual bool open_project_folder() { return false; }
+
+    /// Toggles the integrated terminal panel visibility.
+    virtual void toggle_terminal() {}
 };
 
 } // namespace Zenvra::Platform

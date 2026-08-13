@@ -102,6 +102,7 @@ bool Application::initialize()
             std::clog << "[ZDE] Save All requested (not yet implemented)\n";
         },
         .request_close_window = [this] { request_close(); },
+        .request_toggle_terminal = [this] { m_window->toggle_terminal(); },
     });
 
     if (!m_studio_view_model->initialize())

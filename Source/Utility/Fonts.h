@@ -337,4 +337,199 @@ private:
 
 #endif /* defined(_WIN32) || defined(__unix__) */
 
+#if defined(__APPLE__)
+
+#include <CoreText/CoreText.h>
+#include <CoreGraphics/CoreGraphics.h>
+
+/**
+ * @class AntialiasedFont
+ * @brief Helper class for high-quality anti-aliased font rendering on macOS
+ * using CoreText / CoreGraphics.
+ *
+ * Provides the same API surface as the Win32 (GDI) and X11 (Xft) versions so
+ * that platform-specific Components can call drawString / getTextWidth /
+ * getAscent / getDescent / getHeight uniformly.
+ */
+class AntialiasedFont {
+public:
+  /**
+   * @brief Constructor. Opens a font by family name and pixel size.
+   * @param font_family  Font family name (e.g. "Menlo", "Hack", "SF Pro").
+   * @param pixel_size   Desired pixel size.
+   * @param bold         Use bold weight.
+   */
+  AntialiasedFont(const std::string &font_family, float pixel_size,
+                  bool bold = false) {
+    CFStringRef family_ref =
+        CFStringCreateWithCString(nullptr, font_family.c_str(),
+                                  kCFStringEncodingUTF8);
+    if (!family_ref) {
+      return;
+    }
+
+    CTFontSymbolicTraits traits = bold ? kCTFontBoldTrait : 0;
+    m_font = CTFontCreateWithName(family_ref, static_cast<CGFloat>(pixel_size),
+                                  nullptr);
+    CFRelease(family_ref);
+    if (!m_font) {
+      // Fallback to system font if specified family is not found
+      m_font = CTFontCreateUIFontForLanguage(kCTFontUIFontSystem, static_cast<CGFloat>(pixel_size), nullptr);
+      if (!m_font) {
+          m_font = CTFontCreateWithName(CFSTR("Helvetica"), static_cast<CGFloat>(pixel_size), nullptr);
+      }
+      if (!m_font) {
+          return;
+      }
+    }
+
+    if (bold) {
+      CTFontRef bold_font =
+          CTFontCreateCopyWithSymbolicTraits(m_font, 0.0, nullptr, traits,
+                                            traits);
+      if (bold_font) {
+        CFRelease(m_font);
+        m_font = bold_font;
+      }
+    }
+
+    m_ascent = static_cast<int>(std::ceil(CTFontGetAscent(m_font)));
+    m_descent = static_cast<int>(std::ceil(CTFontGetDescent(m_font)));
+  }
+
+  ~AntialiasedFont() {
+    if (m_font) {
+      CFRelease(m_font);
+    }
+  }
+
+  AntialiasedFont(const AntialiasedFont &) = delete;
+  AntialiasedFont &operator=(const AntialiasedFont &) = delete;
+
+  bool isValid() const noexcept { return m_font != nullptr; }
+
+  void setLigaturesEnabled(bool enabled) { m_ligaturesEnabled = enabled; }
+  bool isLigaturesEnabled() const { return m_ligaturesEnabled; }
+
+  /* Font metrics --------------------------------------------------------- */
+
+  int getAscent() const { return m_ascent; }
+  int getDescent() const { return m_descent; }
+  int getHeight() const { return m_ascent + m_descent; }
+
+  /**
+   * @brief Calculate the exact pixel width of a UTF-8 text string.
+   */
+  int getTextWidth(const std::string &text) const {
+    if (!m_font || text.empty()) {
+      return 0;
+    }
+    CFStringRef str = CFStringCreateWithCString(nullptr, text.c_str(),
+                                                kCFStringEncodingUTF8);
+    if (!str) {
+      return 0;
+    }
+    CFRange range = CFRangeMake(0, CFStringGetLength(str));
+    CFMutableDictionaryRef attrs = CFDictionaryCreateMutable(
+        nullptr, 1, &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(attrs, kCTFontAttributeName, m_font);
+    CFAttributedStringRef attr_str =
+        CFAttributedStringCreate(nullptr, str, attrs);
+    CTLineRef line = CTLineCreateWithAttributedString(attr_str);
+    double width = CTLineGetTypographicBounds(line, nullptr, nullptr, nullptr);
+    CFRelease(line);
+    CFRelease(attr_str);
+    CFRelease(attrs);
+    CFRelease(str);
+    return static_cast<int>(std::ceil(width));
+  }
+
+  /**
+   * @brief Draw a UTF-8 string into a CGContext.
+   * @param context   The CoreGraphics context to draw into.
+   * @param color_hex Color as hex string (e.g. "#3b82f6") or named color.
+   * @param x         X coordinate (baseline origin).
+   * @param y         Y coordinate (baseline origin, flipped for CG).
+   * @param text      UTF-8 text to draw.
+   * @param clip      Optional clip rect (in CG coordinates, already flipped).
+   */
+  void drawString(CGContextRef context, const std::string &color_hex, int x,
+                  int y, const std::string &text,
+                  const CGRect *clip = nullptr) {
+    if (!m_font || !context || text.empty()) {
+      return;
+    }
+
+    CGFloat r = 1.0, g = 1.0, b = 1.0, a = 1.0;
+    parseHexColor(color_hex, r, g, b, a);
+
+    CGColorRef cg_color = CGColorCreateSRGB(r, g, b, a);
+
+    CFStringRef str = CFStringCreateWithCString(nullptr, text.c_str(),
+                                                kCFStringEncodingUTF8);
+    if (!str) {
+      CGColorRelease(cg_color);
+      return;
+    }
+
+    CFMutableDictionaryRef attrs = CFDictionaryCreateMutable(
+        nullptr, 2, &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks);
+    CFDictionarySetValue(attrs, kCTFontAttributeName, m_font);
+    CFDictionarySetValue(attrs, kCTForegroundColorAttributeName, cg_color);
+
+    CFAttributedStringRef attr_str =
+        CFAttributedStringCreate(nullptr, str, attrs);
+    CTLineRef line = CTLineCreateWithAttributedString(attr_str);
+
+    CGContextSaveGState(context);
+    if (clip) {
+      CGContextClipToRect(context, *clip);
+    }
+    
+    // In a flipped NSView, CoreText draws upside down unless we flip the text matrix.
+    CGContextSetTextMatrix(context, CGAffineTransformMakeScale(1.0, -1.0));
+    
+    CGContextSetTextPosition(context, static_cast<CGFloat>(x),
+                             static_cast<CGFloat>(y));
+    CTLineDraw(line, context);
+    CGContextRestoreGState(context);
+
+    CFRelease(line);
+    CFRelease(attr_str);
+    CFRelease(attrs);
+    CFRelease(str);
+    CGColorRelease(cg_color);
+  }
+
+  CTFontRef getCTFont() const { return m_font; }
+
+private:
+  static void parseHexColor(const std::string &hex, CGFloat &r, CGFloat &g,
+                            CGFloat &b, CGFloat &a) {
+    a = 1.0;
+    if (hex.size() >= 7 && hex[0] == '#') {
+      unsigned int rv = 0, gv = 0, bv = 0;
+      std::sscanf(hex.c_str(), "#%02x%02x%02x", &rv, &gv, &bv);
+      r = static_cast<CGFloat>(rv) / 255.0;
+      g = static_cast<CGFloat>(gv) / 255.0;
+      b = static_cast<CGFloat>(bv) / 255.0;
+    } else if (hex == "white") {
+      r = g = b = 1.0;
+    } else if (hex == "black") {
+      r = g = b = 0.0;
+    } else {
+      r = g = b = 1.0;
+    }
+  }
+
+  CTFontRef m_font = nullptr;
+  int m_ascent = 0;
+  int m_descent = 0;
+  bool m_ligaturesEnabled = false;
+};
+
+#endif /* defined(__APPLE__) */
+
 #endif /* FONTS_H */

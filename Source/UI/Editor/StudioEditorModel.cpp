@@ -183,11 +183,16 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
                                                0.0F, maximum_sidebar_width)
                                   : 0.0F;
 
+  // The tab strip fills the titlebar edge-to-edge. If there is no custom chrome
+  // (safe_top == 0), we allocate a dedicated tab bar at the top of the content.
+  const float effective_tab_height = (safe_top > 0.0F) ? safe_top : (StudioEditorMetrics::tab_height * safe_scale);
+  const float root_y = (safe_top > 0.0F) ? safe_top : effective_tab_height;
+
   const UI::Rect root_bounds{
       0.0F,
-      safe_top,
+      root_y,
       safe_width,
-      std::max(safe_height - safe_top, 0.0F),
+      std::max(safe_height - root_y, 0.0F),
   };
   const std::array root_items{
       Utility::FlexItem::flexible(),
@@ -209,19 +214,14 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
   const UI::Rect sidebar_bounds = content.items[1];
   const UI::Rect editor_workspace_bounds = content.items[2];
 
-  // The tab strip fills the titlebar edge-to-edge. This keeps the Ghostty-
-  // style separators flush with the chrome instead of leaving top/bottom
-  // margins around the buffer labels.
   const float integrated_tab_y = 0.0F;
-  const float integrated_tab_height = safe_top;
-  // Keep it directly beside the logo/hamburger even while the Explorer
-  // sidebar is open below it.
-  const float integrated_tab_x = std::min(
-      StudioEditorMetrics::titlebar_navigation_width * safe_scale, safe_width);
-  const float integrated_tab_right = std::max(
-      safe_width -
-          StudioEditorMetrics::titlebar_window_controls_width * safe_scale,
-      integrated_tab_x);
+  const float integrated_tab_height = effective_tab_height;
+  
+  const float nav_width = (safe_top > 0.0F) ? StudioEditorMetrics::titlebar_navigation_width * safe_scale : 0.0F;
+  const float ctrl_width = (safe_top > 0.0F) ? StudioEditorMetrics::titlebar_window_controls_width * safe_scale : 0.0F;
+  
+  const float integrated_tab_x = std::min(nav_width, safe_width);
+  const float integrated_tab_right = std::max(safe_width - ctrl_width, integrated_tab_x);
   const UI::Rect tab_bounds{
       integrated_tab_x,
       integrated_tab_y,

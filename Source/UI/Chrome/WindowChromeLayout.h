@@ -39,9 +39,22 @@ struct MenuRegion
     Rect bounds;
 };
 
+enum class ChromeStyle
+{
+    FullCustom,
+    NativeMacOS
+};
+
 struct WindowChromeLayoutOptions
 {
     bool show_window_controls = true;
+    bool show_titlebar = true;
+    bool force_all_menus = false; // Keep every menu inline; never show the hamburger
+    bool show_menu_labels = true; // Draw top-level menu labels (false on macOS: native menu bar)
+    bool show_toolbar_chevrons = true; // Draw the down chevron on toolbar combos (false on macOS)
+    ChromeStyle chrome_style = ChromeStyle::FullCustom;
+    float left_padding = 0.0F;
+    float titlebar_height = 0.0F; // 0 = platform default
 };
 
 struct WindowChromeLayoutResult
@@ -49,6 +62,7 @@ struct WindowChromeLayoutResult
     Rect titlebar_bounds;
     Rect logo_bounds;
     Rect command_center_bounds;
+    Rect file_buffer_bounds; // For NativeMacOS
     Rect overflow_menu_bounds;
     Rect minimize_bounds;
     Rect maximize_bounds;
@@ -66,6 +80,8 @@ struct WindowChromeLayoutResult
     std::size_t visible_menu_count = 0;
     std::size_t first_overflow_menu_index = window_menu_count;
     float dpi_scale = 1.0F;
+    bool show_toolbar_chevrons = true;
+    bool show_menu_labels = true;
 
     [[nodiscard]] bool has_overflow_menu() const noexcept;
     [[nodiscard]] bool is_overflow_menu(float point_x, float point_y) const noexcept;
