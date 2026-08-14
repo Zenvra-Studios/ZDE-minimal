@@ -28,6 +28,10 @@ ExplorerHeader::ActionIcon ExplorerHeader::get_icon_at_point(
     float current_x = panel.right() - right_margin * scale;
     const float hit_radius = 10.0F * scale;
     
+    // More (ellipsis)
+    if (std::abs(point_x - current_x) <= hit_radius) return ActionIcon::More;
+    current_x -= icon_spacing * scale;
+
     // Collapse All
     if (std::abs(point_x - current_x) <= hit_radius) return ActionIcon::CollapseAll;
     current_x -= icon_spacing * scale;
@@ -87,6 +91,9 @@ void ExplorerHeader::render(
     };
 
     float current_x = panel.right() - right_margin * scale;
+    draw_icon(ActionIcon::More, "Assets/icons/ellipsis.svg", current_x);
+    current_x -= icon_spacing * scale;
+
     draw_icon(ActionIcon::CollapseAll, "Assets/icons/collapse-all.svg", current_x);
     current_x -= icon_spacing * scale;
     

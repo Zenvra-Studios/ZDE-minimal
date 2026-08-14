@@ -363,7 +363,7 @@ void ToolSidebar::render(
         const float y = content_top + static_cast<float>(i) * row_height * scale;
         const UI::Rect row_bounds{
             layout.tool_sidebar_bounds.x, y,
-            layout.tool_sidebar_bounds.width, row_height * scale
+            std::max(layout.tool_sidebar_bounds.width - 1.0F, 0.0F), row_height * scale
         };
 
         // Background to overlay standard items
@@ -403,9 +403,9 @@ void ToolSidebar::render(
             surface.draw_line(
                 context,
                 round_to_int(row_bounds.x),
-                round_to_int(row_bounds.bottom()),
-                round_to_int(row_bounds.right()),
-                round_to_int(row_bounds.bottom()),
+                round_to_int(row_bounds.bottom()) - 1,
+                round_to_int(layout.tool_sidebar_bounds.right() - 1.0F),
+                round_to_int(row_bounds.bottom()) - 1,
                 surface.m_colors.border);
         }
     }

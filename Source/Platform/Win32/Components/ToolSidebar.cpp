@@ -74,17 +74,11 @@ bool ToolSidebar::handle_pointer_press(
       scrollbar_bounds(layout).contains(point_x, point_y)) {
     return true;
   }
-  const float scale = layout.dpi_scale;
-  const UI::Rect refresh_bounds{
-      layout.tool_sidebar_bounds.right() - 34.0F * scale,
-      layout.tool_sidebar_bounds.y,
-      34.0F * scale,
-      header_height * scale,
-  };
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project &&
-      refresh_bounds.contains(point_x, point_y)) {
-    return m_model.refresh();
+      m_explorer_header.handle_pointer_press(layout, point_x, point_y, m_model, file_to_open)) {
+    return true;
   }
+  const float scale = layout.dpi_scale;
   const float tree_top = layout.tool_sidebar_bounds.y + header_height * scale;
   const auto sticky = get_sticky_items();
   const float sticky_height = static_cast<float>(sticky.size()) * row_height * scale;
@@ -143,12 +137,17 @@ bool ToolSidebar::handle_pointer_move(
     }
     
     bool next_resize_hovered = is_resize_handle_point(layout, point_x, point_y);
+    bool header_changed = false;
+    if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
+        header_changed = m_explorer_header.handle_pointer_move(layout, point_x, point_y);
+    }
 
     const bool changed = next_row != m_hovered_row ||
                          next_sticky_hover != m_hovered_sticky_index ||
                          next_icon != m_hovered_icon ||
                          next_scrollbar != m_hovered_scrollbar ||
-                         next_resize_hovered != m_resize_hovered;
+                         next_resize_hovered != m_resize_hovered ||
+                         header_changed;
     m_hovered_row = next_row;
     m_hovered_sticky_index = next_sticky_hover;
     m_hovered_icon = next_icon;
@@ -256,38 +255,27 @@ void ToolSidebar::render(
   surface.fill_rectangle(device_context, panel,
                          surface.m_palette.sidebar_background);
   
-  const UI::Theme::Color border_color = (m_resize_hovered || m_resizing) 
-                                        ? surface.m_palette.accent 
-                                        : surface.m_palette.border;
-  surface.draw_line(device_context, round_to_int(panel.right() - scale),
-                    round_to_int(panel.y), round_to_int(panel.right() - scale),
-                    round_to_int(panel.bottom()), border_color);
-  if (m_resize_hovered || m_resizing) {
-    surface.fill_rectangle(device_context,
-        UI::Rect{
-            panel.right() - scale - scale,
-            panel.y,
-            std::max(2.0F * scale, 2.0F),
-            panel.height},
-        surface.m_palette.accent);
-  }
-  surface.draw_text(device_context, *surface.m_ui_font, m_model.get_title(),
-                    panel.x + 14.0F * scale,
-                    panel.y + header_height * 0.5F * scale,
-                    surface.m_palette.text_primary);
+  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
+    m_explorer_header.render(surface, device_context, layout, std::string{m_model.get_title()});
+  } else {
+    surface.draw_text(device_context, *surface.m_ui_font, m_model.get_title(),
+                      panel.x + 14.0F * scale,
+                      panel.y + header_height * 0.5F * scale,
+                      surface.m_palette.text_primary);
 
-  const int more_center_x = round_to_int(panel.right() - 17.0F * scale);
-  const int header_center_y =
-      round_to_int(panel.y + header_height * 0.5F * scale);
-  surface.draw_svg_icon(
-      device_context, "ellipsis.svg", more_center_x, header_center_y,
-      std::max(round_to_int(15.0F * scale), 11), surface.m_palette.text_muted,
-      surface.m_palette.sidebar_background);
-  surface.draw_line(device_context, round_to_int(panel.x),
-                    round_to_int(panel.y + header_height * scale),
-                    round_to_int(panel.right()),
-                    round_to_int(panel.y + header_height * scale),
-                    surface.m_palette.border);
+    const int more_center_x = round_to_int(panel.right() - 17.0F * scale);
+    const int header_center_y =
+        round_to_int(panel.y + header_height * 0.5F * scale);
+    surface.draw_svg_icon(
+        device_context, "ellipsis.svg", more_center_x, header_center_y,
+        std::max(round_to_int(15.0F * scale), 11), surface.m_palette.text_muted,
+        surface.m_palette.sidebar_background);
+    surface.draw_line(device_context, round_to_int(panel.x),
+                      round_to_int(panel.y + header_height * scale),
+                      round_to_int(panel.right()),
+                      round_to_int(panel.y + header_height * scale),
+                      surface.m_palette.border);
+  }
 
   if (m_model.get_active_icon() != UI::Editor::SidebarIcon::Project) {
     const float content_y = panel.y + (header_height + 22.0F) * scale;
@@ -440,7 +428,7 @@ void ToolSidebar::render(
       const UI::Rect row_bounds{
           panel.x,
           tree_top + static_cast<float>(i) * row_height * scale,
-          panel.width,
+          std::max(panel.width - 1.0F, 0.0F),
           row_height * scale,
       };
 
@@ -479,9 +467,9 @@ void ToolSidebar::render(
           surface.draw_line(
               device_context,
               round_to_int(row_bounds.x),
-              round_to_int(row_bounds.bottom()),
-              round_to_int(row_bounds.right()),
-              round_to_int(row_bounds.bottom()),
+              round_to_int(row_bounds.bottom()) - 1,
+              round_to_int(panel.right() - 1.0F),
+              round_to_int(row_bounds.bottom()) - 1,
               surface.m_palette.border);
       }
   }
@@ -507,6 +495,23 @@ void ToolSidebar::render(
     surface.fill_rectangle(device_context, thumb,
                            m_hovered_scrollbar ? surface.m_palette.accent
                                                : surface.m_palette.text_muted);
+  }
+
+  // Draw right vertical border on top with correct z-index
+  const UI::Theme::Color border_color = (m_resize_hovered || m_resizing)
+                                        ? surface.m_palette.accent
+                                        : surface.m_palette.border;
+  surface.draw_line(device_context, round_to_int(panel.right() - 1.0F),
+                    round_to_int(panel.y), round_to_int(panel.right() - 1.0F),
+                    round_to_int(panel.bottom()), border_color);
+  if (m_resize_hovered || m_resizing) {
+    surface.fill_rectangle(device_context,
+        UI::Rect{
+            panel.right() - std::max(2.0F * scale, 2.0F),
+            panel.y,
+            std::max(2.0F * scale, 2.0F),
+            panel.height},
+        surface.m_palette.accent);
   }
 }
 

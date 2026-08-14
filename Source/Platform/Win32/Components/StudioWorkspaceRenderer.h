@@ -197,6 +197,7 @@ private:
     friend class ActivitySidebar;
     friend class EditorMinimap;
     friend class EditorScrollbar;
+    friend class ExplorerHeader;
     friend class FooterToolbar;
     friend class TerminalPanel;
     friend class TextEditor;

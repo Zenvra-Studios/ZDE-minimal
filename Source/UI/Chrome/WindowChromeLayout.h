@@ -52,6 +52,7 @@ struct WindowChromeLayoutOptions
     bool force_all_menus = false; // Keep every menu inline; never show the hamburger
     bool show_menu_labels = true; // Draw top-level menu labels (false on macOS: native menu bar)
     bool show_toolbar_chevrons = true; // Draw the down chevron on toolbar combos (false on macOS)
+    bool hamburger_only = false; // Put ALL menus behind a single hamburger button (no inline labels)
     ChromeStyle chrome_style = ChromeStyle::FullCustom;
     float left_padding = 0.0F;
     float titlebar_height = 0.0F; // 0 = platform default

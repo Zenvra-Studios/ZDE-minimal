@@ -651,9 +651,14 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           m_chrome_layout.is_build_button(point_x, point_y);
       const bool gear_button_hovered =
           m_chrome_layout.is_gear_button(point_x, point_y);
+      const bool menu_open = m_menu_overlay_open ||
+                             m_open_menu_index.has_value() ||
+                             m_menu_pointer_tracking;
+      const float ws_point_x = menu_open ? -10000.0F : point_x;
+      const float ws_point_y = menu_open ? -10000.0F : point_y;
       const bool terminal_hover_changed =
           m_workspace_renderer.handle_pointer_move(
-              point_x, point_y, client_bounds.right - client_bounds.left,
+              ws_point_x, ws_point_y, client_bounds.right - client_bounds.left,
               client_bounds.bottom - client_bounds.top,
               m_chrome_layout.titlebar_bounds.bottom());
       std::optional<std::size_t> combined_menu_index = visible_menu_index;
@@ -697,12 +702,6 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         m_menu_overlay_open = true;
         m_hovered_popup_item_index.reset();
         menu_state_changed = true;
-      } else if (m_menu_overlay_open && !popup_item_index && !root_menu_index) {
-        if (m_open_menu_index || m_hovered_menu_index) {
-          m_open_menu_index.reset();
-          m_hovered_menu_index.reset();
-          menu_state_changed = true;
-        }
       }
 
       if (menu_index != m_hovered_menu_index ||
@@ -801,10 +800,14 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           (scroll_event.delta_x != 0 || scroll_event.delta_y != 0) &&
           m_workspace_renderer.handle_scroll(scroll_event, client_width,
                                              client_height, content_top)) {
-        const int ct = round_to_int(content_top);
-        RECT content_rect{client_bounds.left, ct, client_bounds.right,
-                          client_bounds.bottom};
-        InvalidateRect(window_handle, &content_rect, FALSE);
+        if (over_tab_bar) {
+          InvalidateRect(window_handle, nullptr, FALSE);
+        } else {
+          const int ct = round_to_int(content_top);
+          RECT content_rect{client_bounds.left, ct, client_bounds.right,
+                            client_bounds.bottom};
+          InvalidateRect(window_handle, &content_rect, FALSE);
+        }
       }
       return 0;
     }
@@ -851,10 +854,14 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       if ((over_editor || over_tab_bar) && scroll_event.delta_x != 0 &&
           m_workspace_renderer.handle_scroll(scroll_event, client_width,
                                              client_height, content_top)) {
-        const int ct = round_to_int(content_top);
-        RECT content_rect{client_bounds.left, ct, client_bounds.right,
-                          client_bounds.bottom};
-        InvalidateRect(window_handle, &content_rect, FALSE);
+        if (over_tab_bar) {
+          InvalidateRect(window_handle, nullptr, FALSE);
+        } else {
+          const int ct = round_to_int(content_top);
+          RECT content_rect{client_bounds.left, ct, client_bounds.right,
+                            client_bounds.bottom};
+          InvalidateRect(window_handle, &content_rect, FALSE);
+        }
         return 0;
       }
       return 0;
@@ -1107,6 +1114,30 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       ScreenToClient(window_handle, &cursor_position);
       RECT client_bounds{};
       GetClientRect(window_handle, &client_bounds);
+      const float cur_x = static_cast<float>(cursor_position.x);
+      const float cur_y = static_cast<float>(cursor_position.y);
+
+      if (m_menu_overlay_open || m_open_menu_index) {
+        bool over_menu = false;
+        if (m_menu_overlay_open) {
+          const MenuOverlayGeometry root_geom = calculate_menu_overlay_geometry();
+          if (root_geom.bounds.contains(cur_x, cur_y)) {
+            over_menu = true;
+          }
+        }
+        if (!over_menu && m_open_menu_index) {
+          const PopupMenuGeometry popup_geom =
+              calculate_popup_menu_geometry(*m_open_menu_index);
+          if (popup_geom.bounds.contains(cur_x, cur_y)) {
+            over_menu = true;
+          }
+        }
+        if (over_menu) {
+          SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+          return TRUE;
+        }
+      }
+
       const bool interactive =
           m_chrome_layout
               .get_menu_index(static_cast<float>(cursor_position.x),
@@ -1682,8 +1713,18 @@ void Win32Window::paint_custom_chrome() {
       logo_size,
       logo_size,
   };
+  // Try the large class icon first (set by RegisterClassExW), then the small
+  // icon, then load directly from the resource. This avoids the common case
+  // where GCLP_HICONSM is nullptr and the logo falls back to the "Z" glyph.
   HICON app_icon =
-      reinterpret_cast<HICON>(GetClassLongPtrW(m_window_handle, GCLP_HICONSM));
+      reinterpret_cast<HICON>(GetClassLongPtrW(m_window_handle, GCLP_HICON));
+  if (app_icon == nullptr) {
+    app_icon = reinterpret_cast<HICON>(
+        GetClassLongPtrW(m_window_handle, GCLP_HICONSM));
+  }
+  if (app_icon == nullptr) {
+    app_icon = LoadIconW(m_instance_handle, MAKEINTRESOURCEW(IDI_APP_ICON));
+  }
   if (app_icon != nullptr) {
     DrawIconEx(buffer_context, static_cast<int>(logo_mark.x),
                static_cast<int>(logo_mark.y), app_icon,
@@ -1696,8 +1737,21 @@ void Win32Window::paint_custom_chrome() {
     draw_centered_text(buffer_context, L"Z", logo_text_bounds,
                        UI::Theme::Color{255, 255, 255, 255});
   }
+
+
   m_workspace_renderer.render(buffer_context, client_width, client_height,
                               m_chrome_layout.titlebar_bounds.bottom());
+
+  // Draw titlebar bottom separator border across full width with proper z-index above content
+  const int titlebar_bottom_y =
+      round_to_int(m_chrome_layout.titlebar_bounds.bottom()) - 1;
+  HPEN titlebar_border_pen =
+      CreatePen(PS_SOLID, 1, to_color_ref(m_theme.titlebar_border));
+  HGDIOBJ prev_border_pen = SelectObject(buffer_context, titlebar_border_pen);
+  MoveToEx(buffer_context, 0, titlebar_bottom_y, nullptr);
+  LineTo(buffer_context, client_width, titlebar_bottom_y);
+  SelectObject(buffer_context, prev_border_pen);
+  DeleteObject(titlebar_border_pen);
 
   const int minimize_state =
       caption_button_state(UI::Chrome::WindowControl::Minimize,
@@ -1820,8 +1874,7 @@ void Win32Window::paint_custom_chrome() {
     RECT text_rect = {
         static_cast<LONG>(m_chrome_layout.compiler_bounds.x + 12.0F * scale),
         static_cast<LONG>(m_chrome_layout.compiler_bounds.y),
-        static_cast<LONG>(m_chrome_layout.compiler_bounds.right() -
-                          16.0F * scale),
+        static_cast<LONG>(m_chrome_layout.compiler_bounds.right() - 16.0F * scale),
         static_cast<LONG>(m_chrome_layout.compiler_bounds.bottom())};
     draw_centered_text(buffer_context, L"Debug", text_rect,
                        m_theme.text_primary);
@@ -1916,9 +1969,12 @@ void Win32Window::refresh_chrome_layout() {
 
   RECT client_bounds{};
   GetClientRect(m_window_handle, &client_bounds);
+  UI::Chrome::WindowChromeLayoutOptions options;
+  options.hamburger_only = true; // All menus behind the hamburger popup
   m_chrome_layout = m_chrome_layout_engine.calculate(
       static_cast<float>(client_bounds.right - client_bounds.left),
-      static_cast<float>(m_dpi) / 96.0F);
+      static_cast<float>(m_dpi) / 96.0F,
+      options);
 }
 
 void Win32Window::refresh_ui_font() {

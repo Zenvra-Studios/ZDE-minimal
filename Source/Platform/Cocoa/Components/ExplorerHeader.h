@@ -39,7 +39,8 @@ private:
         NewFile,
         NewFolder,
         Refresh,
-        CollapseAll
+        CollapseAll,
+        More
     };
     
     ActionIcon get_icon_at_point(

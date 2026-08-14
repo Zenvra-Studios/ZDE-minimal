@@ -329,8 +329,7 @@ bool TextEditor::handle_pointer_press(
     const std::size_t visible_count = static_cast<std::size_t>(std::max(
         static_cast<int>(layout.editor_bounds.height / line_height), 1));
     const std::size_t total_lines = document->get_line_count();
-    m_scrollbar.synchronize(count_visible_lines(m_folding, total_lines),
-                            visible_count);
+    m_scrollbar.synchronize(count_visible_lines(m_folding, total_lines), visible_count);
     const std::optional<std::size_t> target = m_minimap.handle_pointer_press(
         layout, point_x, point_y, count_visible_lines(m_folding, total_lines),
         visible_count, m_scrollbar.get_first_visible_line());
@@ -621,7 +620,7 @@ bool TextEditor::handle_scroll(
     float point_y, std::string &command_out, std::ptrdiff_t line_delta,
     bool horizontal) noexcept {
   if (line_delta != 0 && layout.tab_bar_bounds.contains(point_x, point_y)) {
-    const float speed = 20.0F;
+    const float speed = 32.0F * layout.dpi_scale;
     m_tab_scroll_offset += static_cast<float>(line_delta) * speed;
     m_tab_scroll_offset =
         std::clamp(m_tab_scroll_offset, 0.0F, m_max_tab_scroll);
@@ -629,13 +628,21 @@ bool TextEditor::handle_scroll(
   }
 
   if (horizontal && line_delta != 0) {
-    const float speed = 20.0F;
+    const float speed = 32.0F * layout.dpi_scale;
     if (layout.editor_bounds.contains(point_x, point_y)) {
       m_text_scroll_offset += static_cast<float>(line_delta) * speed;
       m_text_scroll_offset =
           std::clamp(m_text_scroll_offset, 0.0F, m_max_text_scroll);
       return true;
     }
+    return false;
+  }
+
+  if (!layout.editor_bounds.contains(point_x, point_y) &&
+      !layout.gutter_bounds.contains(point_x, point_y) &&
+      !layout.minimap_bounds.contains(point_x, point_y) &&
+      !layout.scrollbar_bounds.contains(point_x, point_y) &&
+      !m_scrollbar.is_point(layout, point_x, point_y)) {
     return false;
   }
 
@@ -841,18 +848,11 @@ void TextEditor::draw_tab_strip(
     }
     UI::Rect bounds{tab_x, layout.tab_bar_bounds.y, width,
                     layout.tab_bar_bounds.height};
-    m_tab_target_x[&document] = tab_x;
 
     if (m_tab_drag_drop.is_dragging() &&
         m_tab_drag_drop.get_dragged_index() == index) {
       bounds.x = m_drag_initial_tab_x + m_tab_drag_drop.get_drag_offset();
-    } else {
-      if (!m_tab_animated_x.contains(&document)) {
-        m_tab_animated_x[&document] = tab_x;
-      }
-      bounds.x = m_tab_animated_x[&document];
     }
-    const std::size_t tab_index = m_tab_count;
     if (m_tab_count < max_visible_tabs) {
       m_tab_bounds[m_tab_count] = bounds;
       ++m_tab_count;

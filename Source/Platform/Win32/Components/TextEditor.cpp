@@ -616,7 +616,7 @@ bool TextEditor::handle_pointer_drag(
 
     if (m_tab_drag_drop.is_dragging())
     {
-        const bool changed = m_tab_drag_drop.drag(point_x);
+        static_cast<void>(m_tab_drag_drop.drag(point_x));
         float tab_x = layout.tab_bar_bounds.x;
         const std::span<const UI::Editor::EditorSessionDocument> documents =
             m_controller.get_documents();
@@ -634,7 +634,8 @@ bool TextEditor::handle_pointer_drag(
             {
                 if (m_tab_drag_drop.get_dragged_index() != index)
                 {
-                    m_controller.reorder_file(m_tab_drag_drop.get_dragged_index(), index);
+                    static_cast<void>(
+                        m_controller.reorder_file(m_tab_drag_drop.get_dragged_index(), index));
                     m_tab_drag_drop.update_dragged_index(index);
                 }
                 break;
@@ -715,36 +716,57 @@ bool TextEditor::handle_scroll(
     const UI::Editor::StudioEditorLayoutResult& layout,
     const Event::ScrollEvent& event) noexcept
 {
-    if (event.delta_x != 0)
+    const float speed = 32.0f * layout.dpi_scale;
+
+    // Tab bar scroll isolation: horizontal or vertical mouse wheel over tabs scrolls tab bar only
+    if (layout.tab_bar_bounds.contains(event.point_x, event.point_y))
     {
-        float speed = 20.0f; // px per delta
-        if (layout.tab_bar_bounds.contains(event.point_x, event.point_y))
+        const float delta = event.delta_x != 0 ? static_cast<float>(event.delta_x)
+                                               : static_cast<float>(event.delta_y);
+        if (delta != 0.0f)
         {
-            m_tab_scroll_offset += static_cast<float>(event.delta_x) * speed;
+            m_tab_scroll_offset += delta * speed;
             if (m_tab_scroll_offset < 0.0f) m_tab_scroll_offset = 0.0f;
             if (m_tab_scroll_offset > m_max_tab_scroll) m_tab_scroll_offset = m_max_tab_scroll;
             return true;
         }
-        else if (layout.editor_bounds.contains(event.point_x, event.point_y))
+        return false;
+    }
+
+    // Horizontal scroll in editor area
+    if (event.delta_x != 0)
+    {
+        if (layout.editor_bounds.contains(event.point_x, event.point_y))
         {
             m_text_scroll_offset += static_cast<float>(event.delta_x) * speed;
             if (m_text_scroll_offset < 0.0f) m_text_scroll_offset = 0.0f;
             if (m_text_scroll_offset > m_max_text_scroll) m_text_scroll_offset = m_max_text_scroll;
             return true;
         }
+        return false;
     }
 
     if (event.delta_y == 0) return false;
 
-    if (const UI::Editor::TextDocumentModel* document = m_controller.get_active_document())
+    // Vertical scroll in editor area only
+    if (layout.editor_bounds.contains(event.point_x, event.point_y) ||
+        layout.gutter_bounds.contains(event.point_x, event.point_y) ||
+        layout.minimap_bounds.contains(event.point_x, event.point_y) ||
+        layout.scrollbar_bounds.contains(event.point_x, event.point_y) ||
+        m_scrollbar.is_point(layout, event.point_x, event.point_y))
     {
-        const float line_height = 20.0F * surface.m_dpi_scale;
-        const std::size_t visible_count = static_cast<std::size_t>(std::max(
-            static_cast<int>(layout.editor_bounds.height / line_height), 1));
-        m_scrollbar.synchronize(document->get_line_count(), visible_count);
+        if (const UI::Editor::TextDocumentModel* document = m_controller.get_active_document())
+        {
+            const float line_height = 20.0F * surface.m_dpi_scale;
+            const std::size_t visible_count = static_cast<std::size_t>(std::max(
+                static_cast<int>(layout.editor_bounds.height / line_height), 1));
+            m_scrollbar.synchronize(document->get_line_count(), visible_count);
+        }
+        m_reveal_caret_pending = false;
+        return m_scrollbar.scroll_lines(event.delta_y);
     }
-    m_reveal_caret_pending = false;
-    return m_scrollbar.scroll_lines(event.delta_y);
+
+    return false;
 }
 
 bool TextEditor::handle_input(
@@ -948,7 +970,6 @@ void TextEditor::draw_tab_strip(
     for (std::size_t index = 0; index < documents.size(); ++index)
     {
         const UI::Editor::TextDocumentModel& document = documents[index].text;
-        const bool active = active_index && *active_index == index;
         const float width = UI::Editor::calculate_editor_tab_width(
             static_cast<float>(surface.get_text_width(
                 device_context, *surface.m_ui_font, document.get_file_name())),
@@ -958,21 +979,10 @@ void TextEditor::draw_tab_strip(
             break;
         }
         UI::Rect bounds{tab_x, layout.tab_bar_bounds.y, width, layout.tab_bar_bounds.height};
-        m_tab_target_x[&document] = tab_x;
-        
         if (m_tab_drag_drop.is_dragging() && m_tab_drag_drop.get_dragged_index() == index)
         {
             bounds.x = m_drag_initial_tab_x + m_tab_drag_drop.get_drag_offset();
         }
-        else
-        {
-            if (!m_tab_animated_x.contains(&document))
-            {
-                m_tab_animated_x[&document] = tab_x;
-            }
-            bounds.x = m_tab_animated_x[&document];
-        }
-        const std::size_t tab_index = m_tab_count;
         if (m_tab_count < max_visible_tabs)
         {
             m_tab_bounds[m_tab_count] = bounds;

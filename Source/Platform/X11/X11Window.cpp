@@ -956,6 +956,8 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
         point_x, point_y, m_client_width, m_client_height, content_top);
     const bool over_tool_sidebar = m_chrome_renderer.is_tool_sidebar_point(
         point_x, point_y, m_client_width, m_client_height, content_top);
+    const bool over_tab_bar = m_chrome_renderer.is_tab_bar_point(
+        point_x, point_y, m_client_width, m_client_height, content_top);
 
     bool horizontal = (event.state & ShiftMask) != 0 || event.button == 6 || event.button == 7;
     int delta = (event.button == Button4 || event.button == 6) ? -3 : 3;
@@ -973,9 +975,10 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
       return;
     }
     std::string command_out;
-    if (over_editor && m_chrome_renderer.handle_workspace_scroll(
-                           point_x, point_y, command_out, delta, horizontal, m_client_width,
-                           m_client_height, content_top)) {
+    if ((over_editor || over_tab_bar) &&
+        m_chrome_renderer.handle_workspace_scroll(
+            point_x, point_y, command_out, delta, horizontal, m_client_width,
+            m_client_height, content_top)) {
       render();
       if (!command_out.empty() && m_command_invoked_callback) {
         m_command_invoked_callback(command_out);

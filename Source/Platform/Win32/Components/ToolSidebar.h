@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Platform/Win32/Components/ExplorerHeader.h"
 #include "UI/Editor/ActivityPanelModel.h"
 #include "UI/Editor/StudioEditorModel.h"
 
@@ -72,6 +73,7 @@ private:
     [[nodiscard]] std::vector<std::size_t> get_sticky_items() const;
 
     UI::Editor::ActivityPanelModel m_model;
+    ExplorerHeader m_explorer_header;
     std::optional<std::size_t> m_hovered_row;
     std::optional<std::size_t> m_hovered_sticky_index;
     std::optional<UI::Editor::SidebarIcon> m_hovered_icon;

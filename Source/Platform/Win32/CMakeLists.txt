@@ -7,6 +7,7 @@ add_library(ZDEPlatformWin32
     Components/ActivitySidebar.cpp
     Components/EditorMinimap.cpp
     Components/EditorScrollbar.cpp
+    Components/ExplorerHeader.cpp
     Components/FileDropTarget.cpp
     Components/FooterToolbar.cpp
     Components/Menubar.cpp

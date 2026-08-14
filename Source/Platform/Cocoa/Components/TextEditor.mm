@@ -474,17 +474,43 @@ bool TextEditor::handle_pointer_release() noexcept
 }
 
 bool TextEditor::handle_scroll(
-    const StudioWorkspaceRenderer&,
+    const StudioWorkspaceRenderer& surface,
     const UI::Editor::StudioEditorLayoutResult& layout,
     float px, float py, std::string& cmd_out,
     std::ptrdiff_t delta, bool horiz) noexcept
 {
     (void)cmd_out;
-    if (horiz) return false;
+    if (layout.tab_bar_bounds.contains(px, py))
+    {
+        const float speed = 32.0f * layout.dpi_scale;
+        m_tab_scroll_offset += static_cast<float>(delta) * speed;
+        m_tab_scroll_offset = std::clamp(m_tab_scroll_offset, 0.0f, m_max_tab_scroll);
+        return true;
+    }
+    if (horiz)
+    {
+        if (layout.editor_bounds.contains(px, py))
+        {
+            const float speed = 32.0f * layout.dpi_scale;
+            m_text_scroll_offset += static_cast<float>(delta) * speed;
+            m_text_scroll_offset = std::clamp(m_text_scroll_offset, 0.0f, m_max_text_scroll);
+            return true;
+        }
+        return false;
+    }
     if (m_scrollbar.is_point(layout, px, py) ||
         layout.editor_bounds.contains(px, py) ||
-        layout.gutter_bounds.contains(px, py))
+        layout.gutter_bounds.contains(px, py) ||
+        m_minimap.is_point(layout, px, py))
     {
+        if (const UI::Editor::TextDocumentModel* document = m_controller.get_active_document())
+        {
+            const float line_height = 20.0F * surface.m_dpi_scale;
+            const std::size_t visible_count = static_cast<std::size_t>(std::max(
+                static_cast<int>(layout.editor_bounds.height / line_height), 1));
+            m_scrollbar.synchronize(document->get_line_count(), visible_count);
+        }
+        m_reveal_caret_pending = false;
         return m_scrollbar.scroll_lines(delta);
     }
     return false;
@@ -620,15 +646,9 @@ void TextEditor::draw_tab_strip(
             break;
         }
         UI::Rect bounds{tab_x, layout.tab_bar_bounds.y, width, layout.tab_bar_bounds.height};
-        m_tab_target_x[&document] = tab_x;
 
         if (m_tab_drag_drop.is_dragging() && m_tab_drag_drop.get_dragged_index() == index) {
             bounds.x = m_drag_initial_tab_x + m_tab_drag_drop.get_drag_offset();
-        } else {
-            if (!m_tab_animated_x.contains(&document)) {
-                m_tab_animated_x[&document] = tab_x;
-            }
-            bounds.x = m_tab_animated_x[&document];
         }
         if (m_tab_count < max_visible_tabs) {
             m_tab_bounds[m_tab_count] = bounds;

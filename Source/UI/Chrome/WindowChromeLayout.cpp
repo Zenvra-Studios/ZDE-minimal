@@ -186,38 +186,51 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(
 
   // Layout Menus
   float current_x = result.logo_bounds.right();
-  for (std::size_t i = 0; i < window_menu_count; ++i) {
-      if (menu_labels[i].empty()) break;
 
-      if (!options.show_menu_labels) {
-          // macOS: the native menu bar owns the menus; nothing is drawn here.
-          result.visible_menu_count = 0;
-          break;
-      }
-      // Approximate width: ~8 pixels per character + padding
-      float text_width = static_cast<float>(menu_labels[i].length()) * 8.0F * safe_scale;
-      float menu_width = text_width + metrics.menu_item_padding * 2.0F * safe_scale;
+  if (options.hamburger_only) {
+      // All menus go behind the hamburger button; no inline labels.
+      result.visible_menu_count = 0;
+      result.first_overflow_menu_index = 0;
+      result.show_menu_labels = false;
+  } else {
+      for (std::size_t i = 0; i < window_menu_count; ++i) {
+          if (menu_labels[i].empty()) break;
 
-      if (options.force_all_menus) {
-          // Every menu stays inline; the toolbar gives up space instead of
-          // pushing menus into a hamburger button.
+          if (!options.show_menu_labels) {
+              // macOS: the native menu bar owns the menus; nothing is drawn here.
+              result.visible_menu_count = 0;
+              break;
+          }
+          // Approximate width: ~8 pixels per character + padding
+          float text_width = static_cast<float>(menu_labels[i].length()) * 8.0F * safe_scale;
+          float menu_width = text_width + metrics.menu_item_padding * 2.0F * safe_scale;
+
+          if (options.force_all_menus) {
+              // Every menu stays inline; the toolbar gives up space instead of
+              // pushing menus into a hamburger button.
+              result.menu_regions[i] = {i, {current_x, 0.0F, menu_width, titlebar_height}};
+              current_x += menu_width;
+              result.visible_menu_count++;
+              continue;
+          }
+          
+          if (current_x + menu_width > menu_limit) {
+              result.first_overflow_menu_index = i;
+              break;
+          }
+          
           result.menu_regions[i] = {i, {current_x, 0.0F, menu_width, titlebar_height}};
           current_x += menu_width;
           result.visible_menu_count++;
-          continue;
       }
-      
-      if (current_x + menu_width > menu_limit) {
-          result.first_overflow_menu_index = i;
-          break;
-      }
-      
-      result.menu_regions[i] = {i, {current_x, 0.0F, menu_width, titlebar_height}};
-      current_x += menu_width;
-      result.visible_menu_count++;
   }
 
-  const float hamburger_width = options.show_menu_labels && !options.force_all_menus && result.visible_menu_count < window_menu_count ? metrics.overflow_menu_width * safe_scale : 0.0F;
+  const float hamburger_width =
+      options.hamburger_only ||
+      (options.show_menu_labels && !options.force_all_menus &&
+       result.visible_menu_count < window_menu_count)
+          ? metrics.overflow_menu_width * safe_scale
+          : 0.0F;
   if (hamburger_width > 0.0F && current_x + hamburger_width <= menu_limit) {
     result.overflow_menu_bounds = {current_x, 0.0F, hamburger_width, titlebar_height};
   }

@@ -672,6 +672,13 @@ void X11ChromeRenderer::render(
   m_workspace_renderer.render(back_buffer, client_width, client_height,
                               chrome_layout.titlebar_bounds.bottom());
 
+  // Draw titlebar bottom separator border across full width with proper z-index above content
+  const int titlebar_bottom_y =
+      round_to_int(chrome_layout.titlebar_bounds.bottom()) - 1;
+  XSetForeground(m_display, m_graphics_context, m_colors.titlebar_border);
+  XDrawLine(m_display, back_buffer, m_graphics_context, 0, titlebar_bottom_y,
+            client_width, titlebar_bottom_y);
+
   draw_overflow_menu(back_buffer, chrome_layout, interaction_state);
   draw_popup_menu(back_buffer, chrome_layout, interaction_state,
                   command_state_query_callback);
