@@ -153,6 +153,7 @@ private:
     Cursor m_pointer_cursor = None;
     Cursor m_text_cursor = None;
     Cursor m_split_resize_cursor = None;
+    Cursor m_horizontal_split_resize_cursor = None;
     Cursor m_active_cursor = None;
     std::array<Cursor, 9> m_move_resize_cursors{};
     TitlebarHitTestCallback m_titlebar_hit_test_callback;

@@ -48,15 +48,16 @@ void ShaderSandboxPanel::set_visible(bool visible) noexcept {
 bool ShaderSandboxPanel::is_resize_handle_point(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) const noexcept {
-  if (!m_visible || layout.shader_splitter_bounds.is_empty()) {
+  if (!m_visible || layout.shader_panel_bounds.is_empty()) {
     return false;
   }
-  // Expand hit target slightly for easier grab
-  const UI::Rect hit_bounds{layout.shader_splitter_bounds.x - 4.0F,
-                            layout.shader_splitter_bounds.y,
-                            layout.shader_splitter_bounds.width + 8.0F,
-                            layout.shader_splitter_bounds.height};
-  return hit_bounds.contains(point_x, point_y);
+  const float scale = layout.dpi_scale;
+  const float grab_margin = 6.0F * scale;
+  const float splitter_x = layout.shader_panel_bounds.x;
+  return point_x >= (splitter_x - grab_margin) &&
+         point_x <= (splitter_x + grab_margin) &&
+         point_y >= layout.shader_panel_bounds.y &&
+         point_y <= layout.shader_panel_bounds.bottom();
 }
 
 bool ShaderSandboxPanel::contains(
@@ -156,6 +157,16 @@ bool ShaderSandboxPanel::handle_pointer_move(
   const UI::Rect &header = layout.shader_panel_header_bounds;
   const UI::Rect &ctrl = layout.shader_panel_controls_bounds;
 
+  const bool prev_close = m_hover_close;
+  const bool prev_preset = m_hover_preset;
+  const bool prev_play = m_hover_play;
+  const bool prev_reset = m_hover_reset;
+  const bool prev_scale = m_hover_scale;
+  const bool prev_snapshot = m_hover_snapshot;
+  const bool prev_splitter = m_hover_splitter;
+
+  m_hover_splitter = is_resize_handle_point(layout, point_x, point_y);
+
   const UI::Rect close_btn{header.right() - 26.0F * scale,
                            header.y + (header.height - 20.0F * scale) * 0.5F,
                            20.0F * scale, 20.0F * scale};
@@ -189,7 +200,10 @@ bool ShaderSandboxPanel::handle_pointer_move(
     m_engine.set_mouse(vx, vy, true);
   }
 
-  return true;
+  return (prev_close != m_hover_close) || (prev_preset != m_hover_preset) ||
+         (prev_play != m_hover_play) || (prev_reset != m_hover_reset) ||
+         (prev_scale != m_hover_scale) || (prev_snapshot != m_hover_snapshot) ||
+         (prev_splitter != m_hover_splitter);
 }
 
 bool ShaderSandboxPanel::handle_pointer_drag(
@@ -268,12 +282,29 @@ void ShaderSandboxPanel::render(
   surface.fill_rectangle(drawable, layout.shader_panel_bounds,
                          surface.m_pixels.sidebar_background);
 
-  // Draw Splitter border on the left edge
-  surface.draw_line(drawable, round_to_int(layout.shader_panel_bounds.x),
+  // Draw Splitter border on the left edge with blue accent highlight when hovered or resizing
+  const bool show_accent = m_hover_splitter || m_is_resizing;
+  const unsigned long splitter_color = show_accent
+      ? surface.m_pixels.accent
+      : surface.m_pixels.border;
+
+  const float splitter_x = layout.shader_panel_bounds.x;
+  surface.draw_line(drawable,
+                    round_to_int(splitter_x),
                     round_to_int(layout.shader_panel_bounds.y),
-                    round_to_int(layout.shader_panel_bounds.x),
+                    round_to_int(splitter_x),
                     round_to_int(layout.shader_panel_bounds.bottom()),
-                    surface.m_pixels.border);
+                    splitter_color);
+
+  if (show_accent) {
+    surface.fill_rectangle(
+        drawable,
+        UI::Rect{splitter_x - surface.m_dpi_scale,
+                 layout.shader_panel_bounds.y,
+                 std::max(2.0F * surface.m_dpi_scale, 2.0F),
+                 layout.shader_panel_bounds.height},
+        surface.m_pixels.accent);
+  }
 
   render_header(surface, drawable, layout);
   render_viewport(surface, drawable, layout);

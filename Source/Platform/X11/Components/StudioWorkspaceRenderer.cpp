@@ -1,4 +1,5 @@
 #include "Platform/X11/Components/StudioWorkspaceRenderer.h"
+#include "Commands/CommandIds.h"
 #include "Utility/Antialiasing.h"
 #include "Utility/IcoDecoder.h"
 #include "Utility/stb_image.h"
@@ -409,12 +410,39 @@ bool StudioWorkspaceRenderer::handle_editor_action(UI::Editor::EditorAction acti
 std::optional<bool> StudioWorkspaceRenderer::handle_editor_command(
     std::string_view command_id)
 {
+    if (command_id == Commands::CommandIds::view_toggle_right_dock ||
+        command_id == "zde.view.shaderPanel")
+    {
+        const bool res = toggle_shader_panel();
+        if (m_shader_sandbox_panel.is_visible())
+        {
+            if (const UI::Editor::TextDocumentModel* doc = m_text_editor.get_document())
+            {
+                std::string full_text;
+                for (const auto& line : doc->get_lines())
+                {
+                    full_text += line;
+                    full_text += '\n';
+                }
+                if (!full_text.empty())
+                {
+                    m_shader_sandbox_panel.set_source_code(full_text);
+                }
+            }
+        }
+        return res;
+    }
     return m_text_editor.handle_command(command_id);
 }
 
 std::optional<bool> StudioWorkspaceRenderer::is_editor_command_enabled(
     std::string_view command_id) const noexcept
 {
+    if (command_id == Commands::CommandIds::view_toggle_right_dock ||
+        command_id == "zde.view.shaderPanel")
+    {
+        return true;
+    }
     return m_text_editor.is_command_enabled(command_id);
 }
 

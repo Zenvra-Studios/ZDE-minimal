@@ -104,6 +104,7 @@ private:
     bool m_hover_scale = false;
     bool m_hover_snapshot = false;
     bool m_hover_close = false;
+    bool m_hover_splitter = false;
     bool m_viewport_mouse_down = false;
 
     mutable XImage* m_cached_ximage = nullptr;

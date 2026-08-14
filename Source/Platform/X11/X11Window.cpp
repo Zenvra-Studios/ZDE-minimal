@@ -444,6 +444,7 @@ void X11Window::initialize_cursors() {
   m_pointer_cursor = XCreateFontCursor(m_display, XC_hand2);
   m_text_cursor = XCreateFontCursor(m_display, XC_xterm);
   m_split_resize_cursor = XCreateFontCursor(m_display, XC_sb_v_double_arrow);
+  m_horizontal_split_resize_cursor = XCreateFontCursor(m_display, XC_sb_h_double_arrow);
   m_move_resize_cursors[static_cast<std::size_t>(
       MoveResizeDirection::SizeTopLeft)] =
       XCreateFontCursor(m_display, XC_top_left_corner);
@@ -483,7 +484,9 @@ void X11Window::release_native_resources() {
     XUngrabPointer(m_display, CurrentTime);
     m_manual_move_resize_direction.reset();
   }
-  if (m_chrome_renderer.is_terminal_resizing()) {
+  if (m_chrome_renderer.is_terminal_resizing() ||
+      m_chrome_renderer.is_shader_panel_resizing() ||
+      m_chrome_renderer.is_sidebar_resizing()) {
     XUngrabPointer(m_display, CurrentTime);
     static_cast<void>(m_chrome_renderer.handle_workspace_pointer_release());
   }
@@ -510,6 +513,10 @@ void X11Window::release_native_resources() {
   if (m_split_resize_cursor != None) {
     XFreeCursor(m_display, m_split_resize_cursor);
     m_split_resize_cursor = None;
+  }
+  if (m_horizontal_split_resize_cursor != None) {
+    XFreeCursor(m_display, m_horizontal_split_resize_cursor);
+    m_horizontal_split_resize_cursor = None;
   }
   if (m_window_handle != 0) {
     XDestroyWindow(m_display, m_window_handle);
@@ -1270,6 +1277,11 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
       XGrabPointer(m_display, m_window_handle, False,
                    ButtonReleaseMask | PointerMotionMask, GrabModeAsync,
                    GrabModeAsync, None, m_split_resize_cursor, event.time);
+    } else if (m_chrome_renderer.is_shader_panel_resizing() ||
+               m_chrome_renderer.is_sidebar_resizing()) {
+      XGrabPointer(m_display, m_window_handle, False,
+                   ButtonReleaseMask | PointerMotionMask, GrabModeAsync,
+                   GrabModeAsync, None, m_horizontal_split_resize_cursor, event.time);
     }
     render();
     return;
@@ -1334,8 +1346,10 @@ void X11Window::handle_button_release(const XButtonEvent &event) {
   }
 
   const bool terminal_was_resizing = m_chrome_renderer.is_terminal_resizing();
+  const bool shader_was_resizing = m_chrome_renderer.is_shader_panel_resizing();
+  const bool sidebar_was_resizing = m_chrome_renderer.is_sidebar_resizing();
   if (m_chrome_renderer.handle_workspace_pointer_release()) {
-    if (terminal_was_resizing) {
+    if (terminal_was_resizing || shader_was_resizing || sidebar_was_resizing) {
       XUngrabPointer(m_display, event.time);
     }
     render();
@@ -1660,6 +1674,20 @@ void X11Window::handle_key_press(XKeyEvent &event) {
 
   if (!m_interaction_state.open_menu_index &&
       !m_interaction_state.overflow_menu_open &&
+      (event.state & ControlMask) != 0 &&
+      (event.state & Mod1Mask) != 0) {
+    switch (key_symbol) {
+    case XK_b:
+    case XK_B:
+      if (dispatch_shortcut_command(Commands::CommandIds::view_toggle_right_dock)) return;
+      break;
+    default:
+      break;
+    }
+  }
+
+  if (!m_interaction_state.open_menu_index &&
+      !m_interaction_state.overflow_menu_open &&
       m_chrome_renderer.is_editor_focused() &&
       (event.state & ControlMask) != 0) {
     std::optional<UI::Editor::EditorAction> action;
@@ -1917,6 +1945,15 @@ void X11Window::update_cursor(int point_x, int point_y) {
                  m_client_width, m_client_height,
                  m_chrome_layout.titlebar_bounds.bottom())) {
     desired_cursor = m_split_resize_cursor;
+  } else if (m_chrome_renderer.is_sidebar_resize_handle_point(
+                 static_cast<float>(point_x), static_cast<float>(point_y),
+                 m_client_width, m_client_height,
+                 m_chrome_layout.titlebar_bounds.bottom()) ||
+             m_chrome_renderer.is_shader_splitter_point(
+                 static_cast<float>(point_x), static_cast<float>(point_y),
+                 m_client_width, m_client_height,
+                 m_chrome_layout.titlebar_bounds.bottom())) {
+    desired_cursor = m_horizontal_split_resize_cursor;
   } else if (m_chrome_renderer.is_editor_point(
                  static_cast<float>(point_x), static_cast<float>(point_y),
                  m_client_width, m_client_height,
