@@ -5,6 +5,8 @@ add_library(ZDEUI
     Components/MenuModel.cpp
     Components/Button.cpp
     Components/Input.cpp
+    Components/Modal.cpp
+    Components/AboutModal.cpp
     Editor/ActivityPanelModel.cpp
     Editor/BraceAnimationModel.cpp
     Editor/CaretBlinkModel.cpp
@@ -23,6 +25,9 @@ add_library(ZDEUI
 )
 add_library(Zenvra::UI ALIAS ZDEUI)
 
-target_include_directories(ZDEUI PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/..")
-target_link_libraries(ZDEUI PUBLIC Zenvra::Core PRIVATE Zenvra::Commands)
+target_include_directories(ZDEUI PUBLIC 
+    "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    "${PROJECT_SOURCE_DIR}"
+)
+target_link_libraries(ZDEUI PUBLIC Zenvra::Core Zenvra::Graphics PRIVATE Zenvra::Commands)
 zde_enable_warnings(ZDEUI)

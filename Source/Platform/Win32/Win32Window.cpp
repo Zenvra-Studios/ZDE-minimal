@@ -5,6 +5,7 @@
 #include "Platform/Win32/Components/FileDropTarget.h"
 #include "Platform/Win32/Event/ScrollEvent.h"
 #include "UI/Components/MenuModel.h"
+#include "Utility/Antialiasing.h"
 #include "Utility/MathUtil.h"
 #include "Utility/TextEncoding.h"
 
@@ -154,6 +155,7 @@ void fill_rounded_rectangle(HDC device_context, const UI::Rect &rectangle,
 
 void draw_centered_text(HDC device_context, const wchar_t *text, RECT rectangle,
                         const UI::Theme::Color &color) {
+  SetBkMode(device_context, TRANSPARENT);
   SetTextColor(device_context, to_color_ref(color));
   DrawTextW(device_context, text, -1, &rectangle,
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX |
@@ -277,7 +279,7 @@ bool Win32Window::initialize() {
   window_class.hIcon =
       LoadIconW(m_instance_handle, MAKEINTRESOURCEW(IDI_APP_ICON));
   window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-  window_class.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+  window_class.hbrBackground = nullptr;
   window_class.lpszClassName = window_class_name;
   window_class.hIconSm =
       LoadIconW(m_instance_handle, MAKEINTRESOURCEW(IDI_APP_ICON));
@@ -301,6 +303,15 @@ bool Win32Window::initialize() {
   DwmSetWindowAttribute(m_window_handle, dwm_immersive_dark_mode_attribute,
                         &dark_mode_enabled, sizeof(dark_mode_enabled));
 
+  // Strictly enforce 100% sharp rectangular lancip corners (no rounded clipping)
+  constexpr DWORD dwm_window_corner_preference_attribute = 33; // DWMWA_WINDOW_CORNER_PREFERENCE
+  const DWORD corner_preference = 1;                           // DWMWCP_DONOTROUND (forces sharp 90-degree rectangle)
+  DwmSetWindowAttribute(m_window_handle, dwm_window_corner_preference_attribute,
+                        &corner_preference, sizeof(corner_preference));
+
+  const MARGINS frame_margins{0, 0, 0, 0};
+  DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
+
   if (!m_menubar.load(m_instance_handle) ||
       !m_menubar.attach(m_window_handle)) {
     std::clog << "Warning: the window menu resource could not be loaded.\n";
@@ -318,6 +329,7 @@ bool Win32Window::initialize() {
       SetTimer(m_window_handle, editor_caret_timer_id, 100, nullptr));
   refresh_chrome_layout();
   set_custom_chrome_enabled(m_specification.custom_chrome_enabled);
+  enforce_sharp_corners();
   return true;
 }
 
@@ -326,7 +338,12 @@ void Win32Window::show() {
     return;
   }
 
+  enforce_sharp_corners();
   ShowWindow(m_window_handle, SW_SHOWDEFAULT);
+  enforce_sharp_corners();
+
+  refresh_chrome_layout();
+  InvalidateRect(m_window_handle, nullptr, TRUE);
   UpdateWindow(m_window_handle);
 }
 
@@ -341,8 +358,9 @@ void Win32Window::poll_events() {
     TranslateMessage(&message);
     DispatchMessageW(&message);
   }
-  if (m_workspace_renderer.tick_animations()) {
+  if (!is_minimized() && m_workspace_renderer.tick_animations()) {
     InvalidateRect(m_window_handle, nullptr, FALSE);
+    UpdateWindow(m_window_handle);
   }
 }
 
@@ -350,9 +368,18 @@ bool Win32Window::should_close() const { return m_should_close; }
 
 void Win32Window::minimize() { ShowWindow(m_window_handle, SW_MINIMIZE); }
 
-void Win32Window::maximize() { ShowWindow(m_window_handle, SW_MAXIMIZE); }
+void Win32Window::maximize() {
+  ShowWindow(m_window_handle, SW_MAXIMIZE);
+  enforce_sharp_corners();
+}
 
-void Win32Window::restore() { ShowWindow(m_window_handle, SW_RESTORE); }
+void Win32Window::restore() {
+  ShowWindow(m_window_handle, SW_RESTORE);
+  enforce_sharp_corners();
+  refresh_chrome_layout();
+  InvalidateRect(m_window_handle, nullptr, TRUE);
+  UpdateWindow(m_window_handle);
+}
 
 void Win32Window::request_close() {
   if (m_window_handle != nullptr) {
@@ -388,14 +415,20 @@ void Win32Window::set_custom_chrome_enabled(bool enabled) {
 
   if (m_custom_chrome_enabled) {
     static_cast<void>(m_menubar.detach());
+    const MARGINS frame_margins{0, 0, 0, 0};
+    DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
+    enforce_sharp_corners();
   } else {
     close_menu_overlay();
     static_cast<void>(m_menubar.attach(m_window_handle));
+    const MARGINS frame_margins{0, 0, 0, 0};
+    DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
   }
 
   SetWindowPos(m_window_handle, nullptr, 0, 0, 0, 0,
                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
                    SWP_FRAMECHANGED);
+  enforce_sharp_corners();
   refresh_chrome_layout();
   InvalidateRect(m_window_handle, nullptr, FALSE);
 }
@@ -503,8 +536,8 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
   }
 
   case WM_NCCALCSIZE:
-    if (m_custom_chrome_enabled && w_param != FALSE) {
-      if (is_maximized()) {
+    if (m_custom_chrome_enabled) {
+      if (w_param != FALSE && is_maximized()) {
         auto *parameters = reinterpret_cast<NCCALCSIZE_PARAMS *>(l_param);
         MONITORINFO monitor_info{};
         monitor_info.cbSize = sizeof(monitor_info);
@@ -595,6 +628,19 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     return 0;
 
   case WM_MOUSEMOVE:
+    if (m_custom_chrome_enabled && m_about_modal.is_visible()) {
+      const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
+      const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
+      RECT client_bounds{};
+      GetClientRect(window_handle, &client_bounds);
+      const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(client_bounds.right - client_bounds.left),
+                              static_cast<float>(client_bounds.bottom - client_bounds.top)};
+      const auto layout = m_about_modal.calculate_layout(viewport, static_cast<float>(m_dpi) / 96.0F);
+      if (m_about_modal.handle_pointer_move(point_x, point_y, layout)) {
+        InvalidateRect(window_handle, nullptr, FALSE);
+      }
+      return 0;
+    }
     if (m_custom_chrome_enabled) {
       const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
       const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
@@ -612,14 +658,7 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           ReleaseDC(window_handle, device_context);
         }
         if (changed) {
-          // Only invalidate the workspace content area (below the titlebar),
-          // not the entire window. This avoids re-rendering the chrome/toolbar
-          // during mouse-drag selection, which is the primary source of lag.
-          const int content_top =
-              round_to_int(m_chrome_layout.titlebar_bounds.bottom());
-          RECT content_rect{client_bounds.left, content_top,
-                            client_bounds.right, client_bounds.bottom};
-          InvalidateRect(window_handle, &content_rect, FALSE);
+          InvalidateRect(window_handle, nullptr, FALSE);
         }
         return 0;
       }
@@ -892,6 +931,18 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     return 0;
 
   case WM_LBUTTONDOWN:
+    if (m_custom_chrome_enabled && m_about_modal.is_visible()) {
+      const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
+      const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
+      RECT client_bounds{};
+      GetClientRect(window_handle, &client_bounds);
+      const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(client_bounds.right - client_bounds.left),
+                              static_cast<float>(client_bounds.bottom - client_bounds.top)};
+      const auto layout = m_about_modal.calculate_layout(viewport, static_cast<float>(m_dpi) / 96.0F);
+      static_cast<void>(m_about_modal.handle_pointer_press(point_x, point_y, layout));
+      InvalidateRect(window_handle, nullptr, FALSE);
+      return 0;
+    }
     if (m_custom_chrome_enabled) {
       const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
       const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
@@ -1006,6 +1057,10 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           point_x, point_y, client_bounds.right - client_bounds.left,
           client_bounds.bottom - client_bounds.top,
           m_chrome_layout.titlebar_bounds.bottom());
+      const bool tab_bar_point = m_workspace_renderer.is_tab_bar_point(
+          point_x, point_y, client_bounds.right - client_bounds.left,
+          client_bounds.bottom - client_bounds.top,
+          m_chrome_layout.titlebar_bounds.bottom());
       HDC device_context = GetDC(window_handle);
       std::string command_out;
       const bool handled = device_context != nullptr &&
@@ -1021,10 +1076,10 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       if (handled) {
         if (!command_out.empty()) {
           if (command_out == "zde.project.open") {
-            open_project_folder();
+            static_cast<void>(open_project_folder());
           }
         }
-        if (editor_point || scrollbar_point || minimap_point ||
+        if (editor_point || scrollbar_point || minimap_point || tab_bar_point ||
             m_workspace_renderer.is_terminal_resizing() ||
             m_workspace_renderer.is_sidebar_resizing()) {
           m_workspace_pointer_captured = true;
@@ -1059,6 +1114,20 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     break;
 
   case WM_LBUTTONUP:
+    if (m_custom_chrome_enabled && m_about_modal.is_visible()) {
+      const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
+      const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
+      RECT client_bounds{};
+      GetClientRect(window_handle, &client_bounds);
+      const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(client_bounds.right - client_bounds.left),
+                              static_cast<float>(client_bounds.bottom - client_bounds.top)};
+      const auto layout = m_about_modal.calculate_layout(viewport, static_cast<float>(m_dpi) / 96.0F);
+      static_cast<void>(m_about_modal.handle_pointer_release(point_x, point_y, layout, [this](const std::string& text) {
+        copy_to_clipboard(text);
+      }));
+      InvalidateRect(window_handle, nullptr, FALSE);
+      return 0;
+    }
     if (m_custom_chrome_enabled && m_workspace_pointer_captured) {
       m_workspace_pointer_captured = false;
       static_cast<void>(m_workspace_renderer.handle_pointer_release());
@@ -1116,6 +1185,21 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       GetClientRect(window_handle, &client_bounds);
       const float cur_x = static_cast<float>(cursor_position.x);
       const float cur_y = static_cast<float>(cursor_position.y);
+
+      if (m_about_modal.is_visible()) {
+        const float scale = static_cast<float>(m_dpi) / 96.0F;
+        const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(client_bounds.right - client_bounds.left),
+                                static_cast<float>(client_bounds.bottom - client_bounds.top)};
+        const auto layout = m_about_modal.calculate_layout(viewport, scale);
+        if (layout.is_copy_button(cur_x, cur_y) ||
+            layout.is_ok_button(cur_x, cur_y) ||
+            layout.is_close_button(cur_x, cur_y)) {
+          SetCursor(LoadCursorW(nullptr, IDC_HAND));
+          return TRUE;
+        }
+        SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+        return TRUE;
+      }
 
       if (m_menu_overlay_open || m_open_menu_index) {
         bool over_menu = false;
@@ -1229,6 +1313,19 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     break;
 
   case WM_KEYDOWN:
+    if (m_custom_chrome_enabled && m_about_modal.is_visible()) {
+      if (w_param == VK_ESCAPE) {
+        static_cast<void>(m_about_modal.handle_escape());
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
+      if (w_param == VK_RETURN) {
+        static_cast<void>(m_about_modal.handle_enter());
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
+      return 0;
+    }
     if (m_custom_chrome_enabled && (m_menu_overlay_open || m_open_menu_index) &&
         w_param == VK_ESCAPE) {
       close_menu_overlay();
@@ -1297,8 +1394,41 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       }
     }
     if (m_custom_chrome_enabled && m_workspace_renderer.is_editor_focused()) {
+      const bool alt_pressed = (GetKeyState(VK_MENU) & 0x8000) != 0;
       const bool control_pressed = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
       const bool shift_pressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+
+      if (w_param == VK_ESCAPE) {
+        if (m_workspace_renderer.handle_editor_input(UI::Editor::EditorInputCommand::Escape, false)) {
+          const int ct = round_to_int(m_chrome_layout.titlebar_bounds.bottom());
+          RECT cr{0, ct, 32767, 32767};
+          InvalidateRect(window_handle, &cr, FALSE);
+          return 0;
+        }
+      }
+
+      if ((control_pressed && shift_pressed && (w_param == VK_UP || w_param == VK_DOWN)) ||
+          (control_pressed && alt_pressed && (w_param == VK_UP || w_param == VK_DOWN))) {
+        const auto cmd = (w_param == VK_UP) ? UI::Editor::EditorInputCommand::AddCursorAbove
+                                             : UI::Editor::EditorInputCommand::AddCursorBelow;
+        if (m_workspace_renderer.handle_editor_input(cmd, false)) {
+          const int ct = round_to_int(m_chrome_layout.titlebar_bounds.bottom());
+          RECT cr{0, ct, 32767, 32767};
+          InvalidateRect(window_handle, &cr, FALSE);
+        }
+        return 0;
+      }
+
+      if (alt_pressed && !control_pressed && (w_param == VK_UP || w_param == VK_DOWN)) {
+        const auto cmd = (w_param == VK_UP) ? UI::Editor::EditorInputCommand::MoveLineUp
+                                             : UI::Editor::EditorInputCommand::MoveLineDown;
+        if (m_workspace_renderer.handle_editor_input(cmd, false)) {
+          const int ct = round_to_int(m_chrome_layout.titlebar_bounds.bottom());
+          RECT cr{0, ct, 32767, 32767};
+          InvalidateRect(window_handle, &cr, FALSE);
+        }
+        return 0;
+      }
       std::optional<UI::Editor::EditorAction> action;
       if (control_pressed && shift_pressed && w_param == VK_DELETE) {
         action = UI::Editor::EditorAction::RemoveDocument;
@@ -1376,6 +1506,31 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         }
         return 0;
       }
+    }
+    break;
+
+  case WM_SYSKEYDOWN:
+    if (m_custom_chrome_enabled && m_workspace_renderer.is_editor_focused()) {
+      const bool control_pressed = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+      if (w_param == VK_UP || w_param == VK_DOWN) {
+        const auto cmd = control_pressed
+            ? ((w_param == VK_UP) ? UI::Editor::EditorInputCommand::AddCursorAbove
+                                  : UI::Editor::EditorInputCommand::AddCursorBelow)
+            : ((w_param == VK_UP) ? UI::Editor::EditorInputCommand::MoveLineUp
+                                  : UI::Editor::EditorInputCommand::MoveLineDown);
+        if (m_workspace_renderer.handle_editor_input(cmd, false)) {
+          const int ct = round_to_int(m_chrome_layout.titlebar_bounds.bottom());
+          RECT cr{0, ct, 32767, 32767};
+          InvalidateRect(window_handle, &cr, FALSE);
+        }
+        return 0;
+      }
+    }
+    break;
+
+  case WM_SYSKEYUP:
+    if (w_param == VK_UP || w_param == VK_DOWN) {
+      return 0;
     }
     break;
 
@@ -1499,10 +1654,77 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     return 0;
   }
 
-  case WM_SIZE:
-    refresh_chrome_layout();
+  case WM_ENTERSIZEMOVE:
+    break;
+
+  case WM_EXITSIZEMOVE:
+    if (m_custom_chrome_enabled) {
+      refresh_chrome_layout();
+      InvalidateRect(window_handle, nullptr, TRUE);
+      UpdateWindow(window_handle);
+    }
+    break;
+
+  case WM_SIZING:
+    if (m_custom_chrome_enabled) {
+      refresh_chrome_layout();
+      InvalidateRect(window_handle, nullptr, FALSE);
+    }
+    break;
+
+  case WM_SYNCPAINT:
     if (m_custom_chrome_enabled) {
       InvalidateRect(window_handle, nullptr, FALSE);
+      return 0;
+    }
+    break;
+
+  case WM_NCPAINT:
+    if (m_custom_chrome_enabled) {
+      return 0;
+    }
+    break;
+
+  case WM_SHOWWINDOW:
+    if (w_param != FALSE) {
+      refresh_chrome_layout();
+      if (m_custom_chrome_enabled) {
+        InvalidateRect(window_handle, nullptr, TRUE);
+      }
+    }
+    break;
+
+  case WM_ACTIVATE:
+    if (LOWORD(w_param) != WA_INACTIVE) {
+      refresh_chrome_layout();
+      if (m_custom_chrome_enabled) {
+        InvalidateRect(window_handle, nullptr, FALSE);
+      }
+    }
+    break;
+
+  case WM_WINDOWPOSCHANGED: {
+    const auto *window_pos = reinterpret_cast<const WINDOWPOS *>(l_param);
+    if ((window_pos->flags & SWP_NOSIZE) == 0 ||
+        (window_pos->flags & SWP_SHOWWINDOW) != 0) {
+      if (!is_minimized()) {
+        enforce_sharp_corners();
+        refresh_chrome_layout();
+        if (m_custom_chrome_enabled) {
+          InvalidateRect(window_handle, nullptr, FALSE);
+        }
+      }
+    }
+    break;
+  }
+
+  case WM_SIZE:
+    if (w_param != SIZE_MINIMIZED) {
+      enforce_sharp_corners();
+      refresh_chrome_layout();
+      if (m_custom_chrome_enabled) {
+        InvalidateRect(window_handle, nullptr, FALSE);
+      }
     }
     return 0;
 
@@ -1525,6 +1747,12 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       return TRUE;
     }
     break;
+
+  case WM_DWMCOMPOSITIONCHANGED:
+  case WM_SETTINGCHANGE: {
+    enforce_sharp_corners();
+    break;
+  }
 
   case WM_CLOSE:
     DestroyWindow(window_handle);
@@ -1636,9 +1864,37 @@ LRESULT Win32Window::hit_test_resize_border(POINT client_position) const {
   return HTNOWHERE;
 }
 
+void Win32Window::enforce_sharp_corners() {
+  if (m_window_handle == nullptr) {
+    return;
+  }
+
+  // 1. Strictly enforce DWM no-rounding preference (DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_DONOTROUND = 1)
+  constexpr DWORD dwm_window_corner_preference_attribute = 33;
+  const DWORD corner_preference = 1;
+  DwmSetWindowAttribute(m_window_handle, dwm_window_corner_preference_attribute,
+                        &corner_preference, sizeof(corner_preference));
+
+  // 2. Physical window region enforcement (forces 100% sharp 90-degree rectangular corners on all Windows versions)
+  RECT window_bounds{};
+  if (GetWindowRect(m_window_handle, &window_bounds) != FALSE) {
+    const int width = window_bounds.right - window_bounds.left;
+    const int height = window_bounds.bottom - window_bounds.top;
+    if (width > 0 && height > 0) {
+      HRGN rectangular_region = CreateRectRgn(0, 0, width, height);
+      SetWindowRgn(m_window_handle, rectangular_region, TRUE);
+    }
+  }
+}
+
 void Win32Window::paint_custom_chrome() {
   PAINTSTRUCT paint_data{};
   HDC window_context = BeginPaint(m_window_handle, &paint_data);
+
+  if (is_minimized()) {
+    EndPaint(m_window_handle, &paint_data);
+    return;
+  }
 
   RECT client_bounds{};
   GetClientRect(m_window_handle, &client_bounds);
@@ -1653,13 +1909,6 @@ void Win32Window::paint_custom_chrome() {
   HBITMAP buffer_bitmap =
       CreateCompatibleBitmap(window_context, client_width, client_height);
   HGDIOBJ previous_bitmap = SelectObject(buffer_context, buffer_bitmap);
-
-  // Clip drawing to only the dirty region reported by BeginPaint.
-  // GDI will discard any draw calls that fall outside this rectangle,
-  // dramatically reducing CPU work during mouse-drag selection updates.
-  const RECT &dirty = paint_data.rcPaint;
-  IntersectClipRect(buffer_context, dirty.left, dirty.top, dirty.right,
-                    dirty.bottom);
 
   fill_rectangle(buffer_context,
                  UI::Rect{0.0F, 0.0F, static_cast<float>(client_width),
@@ -1739,6 +1988,7 @@ void Win32Window::paint_custom_chrome() {
   }
 
 
+  static_cast<void>(m_workspace_renderer.tick_animations());
   m_workspace_renderer.render(buffer_context, client_width, client_height,
                               m_chrome_layout.titlebar_bounds.bottom());
 
@@ -1945,17 +2195,25 @@ void Win32Window::paint_custom_chrome() {
         m_binary_button_hovered ? m_theme.hover : m_theme.titlebar_background);
   }
 
+  if (!is_maximized()) {
+    HPEN window_border_pen =
+        CreatePen(PS_SOLID, 1, to_color_ref(m_theme.titlebar_border));
+    HGDIOBJ prev_w_pen = SelectObject(buffer_context, window_border_pen);
+    HGDIOBJ prev_w_brush =
+        SelectObject(buffer_context, GetStockObject(NULL_BRUSH));
+    Rectangle(buffer_context, 0, 0, client_width, client_height);
+    SelectObject(buffer_context, prev_w_brush);
+    SelectObject(buffer_context, prev_w_pen);
+    DeleteObject(window_border_pen);
+  }
+
   draw_menu_overlay(buffer_context);
+  draw_about_modal(buffer_context, client_width, client_height);
 
   SelectObject(buffer_context, previous_font);
 
-  // Only blit the dirty region to the screen, not the full window.
-  const int blit_x = dirty.left;
-  const int blit_y = dirty.top;
-  const int blit_w = dirty.right - dirty.left;
-  const int blit_h = dirty.bottom - dirty.top;
-  BitBlt(window_context, blit_x, blit_y, blit_w, blit_h, buffer_context,
-         blit_x, blit_y, SRCCOPY);
+  BitBlt(window_context, 0, 0, client_width, client_height, buffer_context,
+         0, 0, SRCCOPY);
   SelectObject(buffer_context, previous_bitmap);
   DeleteObject(buffer_bitmap);
   DeleteDC(buffer_context);
@@ -2041,6 +2299,10 @@ void Win32Window::execute_menu_item(std::size_t menu_index,
   const std::string_view command_id =
       menus[menu_index].items[item_index].command_id;
   close_menu_overlay();
+  if (command_id == Commands::CommandIds::help_about) {
+    show_about_dialog();
+    return;
+  }
   if (!command_id.empty()) {
     const std::optional<bool> editor_result =
         m_workspace_renderer.handle_editor_command(command_id);
@@ -2106,14 +2368,22 @@ Win32Window::PopupMenuGeometry Win32Window::calculate_popup_menu_geometry(
   const UI::Components::Menu &menu = menus[menu_index];
   const float row_height = 28.0F * m_chrome_layout.dpi_scale;
   const float separator_height = 9.0F * m_chrome_layout.dpi_scale;
-  float popup_width = 220.0F * m_chrome_layout.dpi_scale;
+  float popup_width = 240.0F * m_chrome_layout.dpi_scale;
   for (const UI::Components::MenuItem &item : menu.items) {
-    popup_width =
-        std::max(popup_width, static_cast<float>(item.label.size()) * 7.0F *
-                                      m_chrome_layout.dpi_scale +
-                                  48.0F * m_chrome_layout.dpi_scale);
+    if (item.separator) {
+      continue;
+    }
+    float item_width = static_cast<float>(item.label.size()) * 7.5F *
+                           m_chrome_layout.dpi_scale +
+                       48.0F * m_chrome_layout.dpi_scale;
+    if (!item.shortcut.empty()) {
+      item_width += static_cast<float>(item.shortcut.size()) * 7.5F *
+                        m_chrome_layout.dpi_scale +
+                    36.0F * m_chrome_layout.dpi_scale;
+    }
+    popup_width = std::max(popup_width, item_width);
   }
-  popup_width = std::min(popup_width, 380.0F * m_chrome_layout.dpi_scale);
+  popup_width = std::min(popup_width, 480.0F * m_chrome_layout.dpi_scale);
 
   if (m_menu_overlay_open) {
     const MenuOverlayGeometry root_geometry = calculate_menu_overlay_geometry();
@@ -2335,6 +2605,9 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
 
     RECT text_bounds = to_native_rect(item_bounds);
     text_bounds.left += round_to_int(26.0F * scale);
+    if (!item.shortcut.empty()) {
+      text_bounds.right -= round_to_int(static_cast<float>(item.shortcut.size()) * 7.5F * scale + 28.0F * scale);
+    }
     SetTextColor(device_context,
                  to_color_ref(!enabled  ? m_theme.text_secondary
                               : hovered ? UI::Theme::Color{255, 255, 255, 255}
@@ -2342,7 +2615,303 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
     DrawTextW(
         device_context, utf8_to_wide(item.label).c_str(), -1, &text_bounds,
         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+
+    if (!item.shortcut.empty()) {
+      RECT shortcut_bounds = to_native_rect(item_bounds);
+      shortcut_bounds.right -= round_to_int(16.0F * scale);
+      SetTextColor(
+          device_context,
+          to_color_ref(!enabled  ? m_theme.text_secondary
+                       : hovered ? UI::Theme::Color{255, 255, 255, 220}
+                                 : m_theme.text_secondary));
+      DrawTextW(device_context, utf8_to_wide(item.shortcut).c_str(), -1,
+                &shortcut_bounds,
+                DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    }
+
+    if (m_command_state_query_callback && !item.command_id.empty()) {
+      const auto state = m_command_state_query_callback(item.command_id);
+      if (state.checked) {
+        HPEN check_pen = CreatePen(
+            PS_SOLID, 2,
+            to_color_ref(hovered ? UI::Theme::Color{255, 255, 255, 255}
+                                 : m_theme.text_primary));
+        HGDIOBJ prev_pen = SelectObject(device_context, check_pen);
+        const int check_x = round_to_int(item_bounds.x + 10.0F * scale);
+        const int check_y =
+            round_to_int(item_bounds.y + item_bounds.height * 0.5F);
+        MoveToEx(device_context, check_x, check_y, nullptr);
+        LineTo(device_context, check_x + 3, check_y + 3);
+        LineTo(device_context, check_x + 8, check_y - 3);
+        SelectObject(device_context, prev_pen);
+        DeleteObject(check_pen);
+      }
+    }
   }
+}
+
+void Win32Window::show_about_dialog() {
+  close_menu_overlay();
+  m_about_modal.open();
+  if (m_window_handle) {
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+  }
+}
+
+bool Win32Window::is_modal_active() const {
+  return m_about_modal.is_visible();
+}
+
+void Win32Window::copy_to_clipboard(const std::string& text) {
+  if (OpenClipboard(m_window_handle)) {
+    EmptyClipboard();
+    std::wstring wide = utf8_to_wide(text);
+    const std::size_t bytes = (wide.length() + 1) * sizeof(wchar_t);
+    HGLOBAL hGlob = GlobalAlloc(GMEM_MOVEABLE, bytes);
+    if (hGlob) {
+      void* ptr = GlobalLock(hGlob);
+      if (ptr) {
+        memcpy(ptr, wide.c_str(), bytes);
+        GlobalUnlock(hGlob);
+        SetClipboardData(CF_UNICODETEXT, hGlob);
+      }
+    }
+    CloseClipboard();
+  }
+}
+
+void apply_backdrop_blur(HDC device_context, int width, int height, float scale) {
+  if (width <= 0 || height <= 0 || device_context == nullptr) return;
+
+  const int down_w = std::max(width / 2, 1);
+  const int down_h = std::max(height / 2, 1);
+
+  BITMAPINFO bmi{};
+  bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  bmi.bmiHeader.biWidth = down_w;
+  bmi.bmiHeader.biHeight = -down_h; // top-down
+  bmi.bmiHeader.biPlanes = 1;
+  bmi.bmiHeader.biBitCount = 32;
+  bmi.bmiHeader.biCompression = BI_RGB;
+
+  HDC memDC = CreateCompatibleDC(device_context);
+  void* bits = nullptr;
+  HBITMAP hBmp = CreateDIBSection(device_context, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+  if (!hBmp || !bits) {
+    if (memDC) DeleteDC(memDC);
+    return;
+  }
+
+  HGDIOBJ oldBmp = SelectObject(memDC, hBmp);
+
+  SetStretchBltMode(memDC, HALFTONE);
+  StretchBlt(memDC, 0, 0, down_w, down_h, device_context, 0, 0, width, height, SRCCOPY);
+
+  auto* pixels = static_cast<uint32_t*>(bits);
+  const int total_pixels = down_w * down_h;
+
+  const int radius = std::max(static_cast<int>(8.0f * scale), 4);
+  std::vector<uint32_t> temp(total_pixels);
+
+  // Horizontal blur pass
+  for (int y = 0; y < down_h; ++y) {
+    const int row_offset = y * down_w;
+    for (int x = 0; x < down_w; ++x) {
+      int r = 0, g = 0, b = 0, count = 0;
+      const int start_x = std::max(0, x - radius);
+      const int end_x = std::min(down_w - 1, x + radius);
+      for (int kx = start_x; kx <= end_x; ++kx) {
+        uint32_t px = pixels[row_offset + kx];
+        r += (px >> 16) & 0xFF;
+        g += (px >> 8) & 0xFF;
+        b += px & 0xFF;
+        ++count;
+      }
+      temp[row_offset + x] = ((r / count) << 16) | ((g / count) << 8) | (b / count);
+    }
+  }
+
+  // Vertical blur pass + saturation + acrylic dark tint + grain (matching Drivers/Graphics/shaders/BackdropBlur.h)
+  const float tint_r = 16.0f, tint_g = 18.0f, tint_b = 22.0f;
+  const float tint_a = 0.72f;
+  const float saturation = 1.25f;
+
+  for (int x = 0; x < down_w; ++x) {
+    for (int y = 0; y < down_h; ++y) {
+      int r = 0, g = 0, b = 0, count = 0;
+      const int start_y = std::max(0, y - radius);
+      const int end_y = std::min(down_h - 1, y + radius);
+      for (int ky = start_y; ky <= end_y; ++ky) {
+        uint32_t px = temp[ky * down_w + x];
+        r += (px >> 16) & 0xFF;
+        g += (px >> 8) & 0xFF;
+        b += px & 0xFF;
+        ++count;
+      }
+      float br = static_cast<float>(r / count);
+      float bg = static_cast<float>(g / count);
+      float bb = static_cast<float>(b / count);
+
+      float lum = br * 0.2126f + bg * 0.7152f + bb * 0.0722f;
+      float sr = lum + (br - lum) * saturation;
+      float sg = lum + (bg - lum) * saturation;
+      float sb = lum + (bb - lum) * saturation;
+
+      float mr = sr * (1.0f - tint_a) + tint_r * tint_a;
+      float mg = sg * (1.0f - tint_a) + tint_g * tint_a;
+      float mb = sb * (1.0f - tint_a) + tint_b * tint_a;
+
+      float noise = std::fmod(52.9829189f * std::fmod(static_cast<float>(x) * 0.06711056f + static_cast<float>(y) * 0.00583715f, 1.0f), 1.0f) - 0.5f;
+      float grain = noise * 6.0f;
+
+      uint32_t fr = static_cast<uint32_t>(std::clamp(mr + grain, 0.0f, 255.0f));
+      uint32_t fg = static_cast<uint32_t>(std::clamp(mg + grain, 0.0f, 255.0f));
+      uint32_t fb = static_cast<uint32_t>(std::clamp(mb + grain, 0.0f, 255.0f));
+
+      pixels[y * down_w + x] = (fr << 16) | (fg << 8) | fb;
+    }
+  }
+
+  SetStretchBltMode(device_context, HALFTONE);
+  StretchBlt(device_context, 0, 0, width, height, memDC, 0, 0, down_w, down_h, SRCCOPY);
+
+  SelectObject(memDC, oldBmp);
+  DeleteObject(hBmp);
+  DeleteDC(memDC);
+}
+
+void Win32Window::draw_about_modal(HDC device_context, int client_width, int client_height) {
+  if (!m_about_modal.is_visible()) {
+    return;
+  }
+
+  const float scale = static_cast<float>(m_dpi) / 96.0F;
+  const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(client_width), static_cast<float>(client_height)};
+  const auto layout = m_about_modal.calculate_layout(viewport, scale);
+
+  // 1. Draw blurred acrylic backdrop overlay matching BackdropBlur.h shader
+  apply_backdrop_blur(device_context, client_width, client_height, scale);
+
+  // 2. Dialog Container (VS Code style clean dark card)
+  const UI::Theme::Color dialog_bg{30, 30, 34, 255};
+  const UI::Theme::Color border_col{60, 64, 75, 255};
+
+  fill_rounded_rectangle(device_context, layout.base_layout.dialog_bounds, dialog_bg, static_cast<int>(6.0F * scale));
+
+  // Border outline
+  {
+    HPEN border_pen = CreatePen(PS_SOLID, 1, to_color_ref(border_col));
+    HGDIOBJ old_pen = SelectObject(device_context, border_pen);
+    HGDIOBJ old_brush = SelectObject(device_context, GetStockObject(NULL_BRUSH));
+    RoundRect(device_context,
+              round_to_int(layout.base_layout.dialog_bounds.x),
+              round_to_int(layout.base_layout.dialog_bounds.y),
+              round_to_int(layout.base_layout.dialog_bounds.right()),
+              round_to_int(layout.base_layout.dialog_bounds.bottom()),
+              static_cast<int>(12.0F * scale), static_cast<int>(12.0F * scale));
+    SelectObject(device_context, old_brush);
+    SelectObject(device_context, old_pen);
+    DeleteObject(border_pen);
+  }
+
+  // 3. Draw Header Icon from Assets/icons/zenvra_logo.png
+  const int logo_center_x = round_to_int(layout.logo_bounds.x + layout.logo_bounds.width * 0.5F);
+  const int logo_center_y = round_to_int(layout.logo_bounds.y + layout.logo_bounds.height * 0.5F);
+  const int logo_size = round_to_int(layout.logo_bounds.width);
+
+  m_workspace_renderer.draw_png_icon(
+      device_context, "zenvra_logo.png",
+      logo_center_x, logo_center_y, logo_size, dialog_bg);
+
+  // 4. Header Text (Title + Subtitle in clean neutral white and grey)
+  HFONT title_font = Utility::AntialiasedText::create_cleartype_font(
+      L"Segoe UI", round_to_int(15.0F * scale), FW_SEMIBOLD);
+  HGDIOBJ prev_font = SelectObject(device_context, title_font);
+
+  RECT head_r = to_native_rect(layout.headline_bounds);
+  Utility::AntialiasedText::draw_text(
+      device_context, L"Zenvra Development Studio", head_r, RGB(242, 244, 248));
+
+  HFONT sub_font = Utility::AntialiasedText::create_cleartype_font(
+      L"Segoe UI", round_to_int(11.0F * scale), FW_NORMAL);
+  SelectObject(device_context, sub_font);
+
+  RECT edition_r = to_native_rect(layout.edition_bounds);
+  Utility::AntialiasedText::draw_text(
+      device_context, L"Community & Pro Edition v0.1.0 (Windows - 64Bit)", edition_r, RGB(145, 150, 162));
+
+  // 5. Subtle Separator Line
+  const int sep_y = round_to_int(layout.base_layout.dialog_bounds.y + 74.0F * scale);
+  const int sep_x1 = round_to_int(layout.base_layout.dialog_bounds.x + 24.0F * scale);
+  const int sep_x2 = round_to_int(layout.base_layout.dialog_bounds.right() - 24.0F * scale);
+  HPEN sep_pen = CreatePen(PS_SOLID, 1, RGB(48, 52, 60));
+  HGDIOBJ old_sep = SelectObject(device_context, sep_pen);
+  MoveToEx(device_context, sep_x1, sep_y, nullptr);
+  LineTo(device_context, sep_x2, sep_y);
+  SelectObject(device_context, old_sep);
+  DeleteObject(sep_pen);
+
+  // 6. Specs Table rows (Key-Value)
+  HFONT spec_font = Utility::AntialiasedText::create_cleartype_font(
+      L"JetBrainsMonoNL Nerd Font", round_to_int(11.0F * scale), FW_NORMAL);
+  if (spec_font == nullptr) {
+    spec_font = Utility::AntialiasedText::create_cleartype_font(
+        L"Hack", round_to_int(11.0F * scale), FW_NORMAL);
+  }
+  if (spec_font == nullptr) {
+    spec_font = Utility::AntialiasedText::create_cleartype_font(
+        L"Segoe UI", round_to_int(11.0F * scale), FW_NORMAL);
+  }
+  SelectObject(device_context, spec_font);
+
+  const auto& specs = m_about_modal.get_specs();
+  const int key_col_width = round_to_int(125.0F * scale);
+  for (std::size_t i = 0; i < specs.size() && i < layout.spec_row_bounds.size(); ++i) {
+    RECT row_r = to_native_rect(layout.spec_row_bounds[i]);
+    RECT key_r = row_r;
+    key_r.right = key_r.left + key_col_width;
+    RECT val_r = row_r;
+    val_r.left = key_r.right + round_to_int(10.0F * scale);
+
+    std::wstring wide_key = utf8_to_wide(specs[i].key + ":");
+    std::wstring wide_val = utf8_to_wide(specs[i].value);
+
+    // Key in muted neutral grey
+    Utility::AntialiasedText::draw_text(
+        device_context, wide_key, key_r, RGB(138, 144, 155));
+
+    // Value in clean readable light grey/white
+    Utility::AntialiasedText::draw_text(
+        device_context, wide_val, val_r, RGB(220, 224, 232), DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+  }
+
+  DeleteObject(spec_font);
+  DeleteObject(sub_font);
+  DeleteObject(title_font);
+
+  // 7. Action Buttons: "Copy" and "OK"
+  // "Copy" button (secondary neutral button)
+  const bool copy_h = m_about_modal.is_copy_hovered();
+  const UI::Theme::Color copy_bg = copy_h ? UI::Theme::Color{58, 62, 72, 255} : UI::Theme::Color{44, 48, 56, 255};
+  fill_rounded_rectangle(device_context, layout.copy_button_bounds, copy_bg, static_cast<int>(4.0F * scale));
+  RECT copy_r = to_native_rect(layout.copy_button_bounds);
+  draw_centered_text(device_context, L"Copy", copy_r, UI::Theme::Color{215, 220, 228, 255});
+
+  // "OK" button (primary VS Code accent button #0E639C)
+  const bool ok_h = m_about_modal.is_ok_hovered();
+  const UI::Theme::Color ok_bg = ok_h ? UI::Theme::Color{17, 119, 187, 255} : UI::Theme::Color{14, 99, 156, 255};
+  fill_rounded_rectangle(device_context, layout.ok_button_bounds, ok_bg, static_cast<int>(4.0F * scale));
+  RECT ok_r = to_native_rect(layout.ok_button_bounds);
+  draw_centered_text(device_context, L"OK", ok_r, UI::Theme::Color{255, 255, 255, 255});
+
+  // Top-right Close Button '✕'
+  if (m_about_modal.is_close_hovered()) {
+    fill_rounded_rectangle(device_context, layout.close_button_bounds, m_theme.close_hover, static_cast<int>(4.0F * scale));
+  }
+  RECT close_r = to_native_rect(layout.close_button_bounds);
+  draw_centered_text(device_context, L"\u2715", close_r, UI::Theme::Color{175, 180, 190, 255});
+
+  SelectObject(device_context, prev_font);
 }
 
 void Win32Window::update_hovered_control(UI::Chrome::WindowControl control) {

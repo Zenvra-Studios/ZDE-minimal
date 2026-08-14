@@ -22,6 +22,10 @@ enum class EditorAction
     Cut,
     Paste,
     ToggleComment,
+    MoveLineUp,
+    MoveLineDown,
+    AddCursorAbove,
+    AddCursorBelow,
 };
 
 struct EditorSessionDocument

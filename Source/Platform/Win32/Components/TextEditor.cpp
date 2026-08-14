@@ -617,7 +617,7 @@ bool TextEditor::handle_pointer_drag(
     if (m_tab_drag_drop.is_dragging())
     {
         static_cast<void>(m_tab_drag_drop.drag(point_x));
-        float tab_x = layout.tab_bar_bounds.x;
+        float tab_x = layout.tab_bar_bounds.x - m_tab_scroll_offset;
         const std::span<const UI::Editor::EditorSessionDocument> documents =
             m_controller.get_documents();
         for (std::size_t index = 0; index < documents.size(); ++index)
@@ -1223,8 +1223,14 @@ void TextEditor::draw_document(
         static_cast<int>(layout.editor_bounds.height / line_height), 1));
     const std::size_t total_lines = document->get_line_count();
 
+    const std::size_t tab_size = document->get_status().indent_width > 0
+        ? document->get_status().indent_width
+        : 4;
+
     // Rebuild folding model from the current document lines.
-    m_folding.rebuild(std::vector<std::string>(document->get_lines().begin(), document->get_lines().end()));
+    m_folding.rebuild(
+        std::vector<std::string>(document->get_lines().begin(), document->get_lines().end()),
+        tab_size);
 
     m_scrollbar.synchronize(count_visible_lines(m_folding, total_lines), visible_count);
     if (m_reveal_caret_pending)
@@ -1266,59 +1272,52 @@ void TextEditor::draw_document(
         round_to_int(layout.gutter_bounds.bottom()),
         surface.m_palette.border);
 
-    // --- Indent guide rendering ---
+    // --- Indent guide rendering (VS Code style) ---
     {
         const float space_width = static_cast<float>(
             surface.get_text_width(device_context, *surface.m_editor_font, " "));
-        // first_visual_row is already declared in the outer scope.
-        const std::size_t last_line_in_view =
-            visual_row_to_physical_line(m_folding, first_visual_row + render_count, total_lines);
-        const auto guide_ranges =
-            m_folding.get_indent_guide_ranges(first_line, last_line_in_view);
-        const UI::Components::FoldRange* active_range =
-            m_folding.get_active_indent_range(document->get_caret_line());
+        const UI::Components::ActiveIndentScope active_scope =
+            m_folding.get_active_indent_scope(document->get_caret_line(), tab_size);
 
-        for (const UI::Components::FoldRange* range : guide_ranges) {
-            const float guide_x =
-                code_x + static_cast<float>(range->indent_level) * space_width;
+        std::size_t row_guide = 0;
+        for (std::size_t line_index = first_line; row_guide < render_count && line_index < total_lines; ++line_index)
+        {
+            if (m_folding.is_line_hidden(line_index))
+            {
+                continue;
+            }
+            const float center_y = first_center_y + static_cast<float>(row_guide) * line_height;
+            ++row_guide;
 
-            if (guide_x < layout.editor_bounds.x ||
-                guide_x > layout.editor_bounds.right()) {
+            const std::size_t line_indent = m_folding.get_effective_indent(line_index);
+            if (line_indent < tab_size)
+            {
                 continue;
             }
 
-            const std::ptrdiff_t start_vis_row = static_cast<std::ptrdiff_t>(
-                physical_line_to_visual_row(m_folding, range->start_line + 1, total_lines));
-            const std::ptrdiff_t end_vis_row = static_cast<std::ptrdiff_t>(
-                physical_line_to_visual_row(m_folding, range->end_line, total_lines));
-            const std::ptrdiff_t first_vis_row = static_cast<std::ptrdiff_t>(first_visual_row);
+            const float y_top = center_y - line_height * 0.5F;
+            const float y_bottom = center_y + line_height * 0.5F;
 
-            const float y_top_raw =
-                layout.editor_bounds.y +
-                static_cast<float>(start_vis_row - first_vis_row) * line_height;
-            const float y_bottom_raw =
-                layout.editor_bounds.y +
-                static_cast<float>(end_vis_row - first_vis_row + 1) * line_height;
+            for (std::size_t col = tab_size; col <= line_indent; col += tab_size)
+            {
+                const float guide_x = code_x + static_cast<float>(col) * space_width;
+                if (guide_x < layout.editor_bounds.x || guide_x > layout.editor_bounds.right())
+                {
+                    continue;
+                }
 
-            const float y_top =
-                std::max(y_top_raw, layout.editor_bounds.y);
-            const float y_bottom =
-                std::min(y_bottom_raw, layout.editor_bounds.bottom());
-            if (y_top >= y_bottom) {
-                continue;
+                const bool is_active = active_scope.valid &&
+                    col == active_scope.column &&
+                    line_index >= active_scope.start_line &&
+                    line_index <= active_scope.end_line;
+
+                surface.draw_line(
+                    device_context,
+                    round_to_int(guide_x), round_to_int(y_top),
+                    round_to_int(guide_x), round_to_int(y_bottom),
+                    is_active ? surface.m_palette.indent_guide_active
+                              : surface.m_palette.indent_guide);
             }
-
-            const bool is_active =
-                active_range != nullptr &&
-                range->start_line == active_range->start_line &&
-                range->end_line == active_range->end_line;
-
-            surface.draw_line(
-                device_context,
-                round_to_int(guide_x), round_to_int(y_top),
-                round_to_int(guide_x), round_to_int(y_bottom),
-                is_active ? surface.m_palette.indent_guide_active
-                          : surface.m_palette.indent_guide);
         }
     }
 
@@ -1463,40 +1462,43 @@ void TextEditor::draw_document(
         static_cast<int>(layout.editor_bounds.bottom() - hscroll_height));
 
     std::vector<UI::Rect> selection_targets;
-    if (document->has_selection())
+    for (const auto& cursor : document->get_all_cursors())
     {
-        const UI::Editor::TextSelection selection = document->get_selection();
-        const std::size_t start_line = selection.start.line;
-        const std::size_t end_line = std::min(selection.end.line, start_line + 1000);
-        
-        for (std::size_t line_index = start_line; line_index <= end_line; ++line_index)
+        if (cursor.has_selection())
         {
-            const std::string_view line = document->get_line(line_index);
-            const std::size_t selection_start = line_index == selection.start.line ? selection.start.column : 0;
-            const std::size_t selection_end = line_index == selection.end.line ? selection.end.column : line.size();
+            const UI::Editor::TextSelection selection = cursor.get_selection();
+            const std::size_t start_line = selection.start.line;
+            const std::size_t end_line = std::min(selection.end.line, start_line + 1000);
             
-            const float selection_x = static_cast<float>(surface.get_text_width(
-                device_context, *surface.m_editor_font,
-                line.substr(0, selection_start)));
-            float selection_width = static_cast<float>(surface.get_text_width(
-                device_context, *surface.m_editor_font,
-                line.substr(selection_start, selection_end - selection_start)));
-                
-            if (line_index < selection.end.line)
+            for (std::size_t line_index = start_line; line_index <= end_line; ++line_index)
             {
-                selection_width += 6.0F * surface.m_dpi_scale;
+                const std::string_view line = document->get_line(line_index);
+                const std::size_t selection_start = line_index == selection.start.line ? selection.start.column : 0;
+                const std::size_t selection_end = line_index == selection.end.line ? selection.end.column : line.size();
+                
+                const float selection_x = static_cast<float>(surface.get_text_width(
+                    device_context, *surface.m_editor_font,
+                    line.substr(0, selection_start)));
+                float selection_width = static_cast<float>(surface.get_text_width(
+                    device_context, *surface.m_editor_font,
+                    line.substr(selection_start, selection_end - selection_start)));
+                    
+                if (line_index < selection.end.line)
+                {
+                    selection_width += 6.0F * surface.m_dpi_scale;
+                }
+                
+                selection_targets.push_back(UI::Rect{
+                    selection_x,
+                    static_cast<float>(physical_line_to_visual_row(
+                        m_folding, line_index, total_lines)) * line_height,
+                    selection_width,
+                    line_height
+                });
             }
-            
-            selection_targets.push_back(UI::Rect{
-                selection_x,
-                static_cast<float>(physical_line_to_visual_row(
-                    m_folding, line_index, total_lines)) * line_height,
-                selection_width,
-                line_height
-            });
         }
     }
-    else
+    if (selection_targets.empty())
     {
         m_selection_animation.clear();
     }
@@ -1657,19 +1659,25 @@ void TextEditor::draw_document(
                 center_y,
                 surface.m_palette.text_primary);
         }
-        if (active_line && m_focused && m_caret_blink.is_visible())
+        if (m_focused && m_caret_blink.is_visible())
         {
-            const std::string_view prefix = line.substr(0, document->get_caret_column());
-            const int caret_x = round_to_int(
-                code_x + static_cast<float>(surface.get_text_width(
-                    device_context, *surface.m_editor_font, prefix)));
-            surface.draw_line(
-                device_context,
-                caret_x,
-                round_to_int(center_y - 8.0F * surface.m_dpi_scale),
-                caret_x,
-                round_to_int(center_y + 8.0F * surface.m_dpi_scale),
-                surface.m_palette.text_primary);
+            for (const auto& cur : document->get_all_cursors())
+            {
+                if (cur.line == line_index)
+                {
+                    const std::string_view prefix = line.substr(0, std::min(cur.column, line.size()));
+                    const int caret_x = round_to_int(
+                        code_x + static_cast<float>(surface.get_text_width(
+                            device_context, *surface.m_editor_font, prefix)));
+                    surface.draw_line(
+                        device_context,
+                        caret_x,
+                        round_to_int(center_y - 8.0F * surface.m_dpi_scale),
+                        caret_x,
+                        round_to_int(center_y + 8.0F * surface.m_dpi_scale),
+                        surface.m_palette.text_primary);
+                }
+            }
         }
     }
 

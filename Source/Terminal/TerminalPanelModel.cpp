@@ -313,4 +313,101 @@ const TerminalSession* TerminalPanelModel::get_active_session() const noexcept
         : nullptr;
 }
 
+void TerminalPanelModel::start_selection(std::size_t line, std::size_t column) noexcept
+{
+    m_selection.start = TerminalPosition{line, column};
+    m_selection.end = TerminalPosition{line, column};
+}
+
+void TerminalPanelModel::update_selection(std::size_t line, std::size_t column) noexcept
+{
+    m_selection.end = TerminalPosition{line, column};
+}
+
+void TerminalPanelModel::clear_selection() noexcept
+{
+    m_selection.start = TerminalPosition{0, 0};
+    m_selection.end = TerminalPosition{0, 0};
+}
+
+void TerminalPanelModel::select_word(std::size_t line, std::size_t column) noexcept
+{
+    const TerminalSession* session = get_active_session();
+    if (session == nullptr)
+    {
+        return;
+    }
+    const std::span<const std::string> lines = session->get_lines();
+    if (line >= lines.size())
+    {
+        return;
+    }
+    const std::string& text = lines[line];
+    if (text.empty())
+    {
+        return;
+    }
+    std::size_t col = std::min(column, text.size() - 1);
+    
+    auto is_word_char = [](char c) {
+        return std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_' || c == '-' || c == '.';
+    };
+
+    if (!is_word_char(text[col]))
+    {
+        m_selection.start = TerminalPosition{line, col};
+        m_selection.end = TerminalPosition{line, col + 1};
+        return;
+    }
+
+    std::size_t start_col = col;
+    while (start_col > 0 && is_word_char(text[start_col - 1]))
+    {
+        --start_col;
+    }
+    std::size_t end_col = col;
+    while (end_col < text.size() && is_word_char(text[end_col]))
+    {
+        ++end_col;
+    }
+    m_selection.start = TerminalPosition{line, start_col};
+    m_selection.end = TerminalPosition{line, end_col};
+}
+
+void TerminalPanelModel::select_line(std::size_t line) noexcept
+{
+    const TerminalSession* session = get_active_session();
+    if (session == nullptr)
+    {
+        return;
+    }
+    const std::span<const std::string> lines = session->get_lines();
+    if (line >= lines.size())
+    {
+        return;
+    }
+    m_selection.start = TerminalPosition{line, 0};
+    m_selection.end = TerminalPosition{line, lines[line].size()};
+}
+
+bool TerminalPanelModel::has_selection() const noexcept
+{
+    return !m_selection.is_empty();
+}
+
+const TerminalSelection& TerminalPanelModel::get_selection() const noexcept
+{
+    return m_selection;
+}
+
+std::string TerminalPanelModel::get_selected_text() const
+{
+    const TerminalSession* session = get_active_session();
+    if (session == nullptr || m_selection.is_empty())
+    {
+        return {};
+    }
+    return m_selection.extract_text(session->get_lines());
+}
+
 } // namespace Zenvra::Terminal

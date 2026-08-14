@@ -79,10 +79,9 @@ private:
     Terminal::TerminalResizeModel m_resize_model;
     mutable UI::Editor::CaretBlinkModel m_cursor_blink;
     std::filesystem::path m_working_directory;
-    bool m_force_horizontal_scroll_to_cursor = false;
     std::size_t m_last_total_rows = 0;
     std::size_t m_last_visible_rows = 0;
-    std::size_t m_horizontal_scroll_offset = 0;
+    bool m_selecting_text = false;
     Time m_last_resize_click_time = 0;
     float m_last_resize_click_x = 0.0F;
     float m_last_resize_click_y = 0.0F;

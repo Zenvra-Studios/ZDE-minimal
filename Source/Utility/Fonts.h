@@ -25,11 +25,20 @@ public:
    */
   AntialiasedFont(const std::string &font_name, int font_size = 16,
                   int font_weight = FW_NORMAL) {
-    // CLEARTYPE_QUALITY ensures sub-pixel anti-aliasing on Windows
+    // CLEARTYPE_NATURAL_QUALITY ensures highest sub-pixel anti-aliasing on Windows
+#ifndef CLEARTYPE_NATURAL_QUALITY
+#define CLEARTYPE_NATURAL_QUALITY 6
+#endif
     m_font = CreateFontA(-font_size, 0, 0, 0, font_weight, FALSE, FALSE, FALSE,
-                         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                         CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                         DEFAULT_PITCH | FF_SWISS, font_name.c_str());
+                         DEFAULT_CHARSET, OUT_TT_PRECIS,
+                         CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
+                         DEFAULT_PITCH | FF_DONTCARE, font_name.c_str());
+    if (!m_font) {
+      m_font = CreateFontA(-font_size, 0, 0, 0, font_weight, FALSE, FALSE, FALSE,
+                           DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                           CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                           DEFAULT_PITCH | FF_DONTCARE, font_name.c_str());
+    }
 
     if (!m_font) {
       std::cerr << "Warning: Could not open font '" << font_name << "'"

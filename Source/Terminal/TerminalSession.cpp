@@ -117,6 +117,38 @@ std::wstring windows_shell_arguments(const std::filesystem::path& shell_path)
     }
     return L" -NoLogo -NoProfile -NoExit -Command -";
 }
+
+#ifndef PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE
+#define PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE 0x00020016
+#endif
+
+using PFN_CreatePseudoConsole = HRESULT(WINAPI*)(COORD, HANDLE, HANDLE, DWORD, HPCON*);
+using PFN_ResizePseudoConsole = HRESULT(WINAPI*)(HPCON, COORD);
+using PFN_ClosePseudoConsole = VOID(WINAPI*)(HPCON);
+
+static PFN_CreatePseudoConsole s_fn_CreatePseudoConsole = nullptr;
+static PFN_ResizePseudoConsole s_fn_ResizePseudoConsole = nullptr;
+static PFN_ClosePseudoConsole s_fn_ClosePseudoConsole = nullptr;
+static bool s_conpty_initialized = false;
+
+static void load_conpty_api()
+{
+    if (s_conpty_initialized)
+    {
+        return;
+    }
+    s_conpty_initialized = true;
+    HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
+    if (kernel32 != nullptr)
+    {
+        s_fn_CreatePseudoConsole = reinterpret_cast<PFN_CreatePseudoConsole>(
+            GetProcAddress(kernel32, "CreatePseudoConsole"));
+        s_fn_ResizePseudoConsole = reinterpret_cast<PFN_ResizePseudoConsole>(
+            GetProcAddress(kernel32, "ResizePseudoConsole"));
+        s_fn_ClosePseudoConsole = reinterpret_cast<PFN_ClosePseudoConsole>(
+            GetProcAddress(kernel32, "ClosePseudoConsole"));
+    }
+}
 #endif
 
 } // namespace
@@ -127,6 +159,9 @@ struct TerminalSession::Implementation
     HANDLE process = nullptr;
     HANDLE input_write = nullptr;
     HANDLE output_read = nullptr;
+    HPCON pseudo_console = nullptr;
+    LPPROC_THREAD_ATTRIBUTE_LIST attribute_list = nullptr;
+    std::vector<BYTE> attribute_buffer;
 #else
     int master_fd = -1;
     pid_t process_id = -1;
@@ -205,9 +240,15 @@ bool TerminalSession::start(const std::filesystem::path& working_directory)
 {
     stop();
     m_lines.assign(1, std::string{});
+    m_cursor_line = 0;
     m_cursor_column = 0;
+    m_saved_cursor_line = 0;
+    m_saved_cursor_column = 0;
     m_input_start_column = 0;
     m_pending_input.clear();
+    m_command_history.clear();
+    m_history_index.reset();
+    m_saved_pending_input.clear();
     m_parser_state = ParserState::Text;
     m_control_sequence.clear();
     m_columns = 100;
@@ -220,13 +261,13 @@ bool TerminalSession::start(const std::filesystem::path& working_directory)
     }
 
 #if defined(_WIN32)
-    SECURITY_ATTRIBUTES security_attributes{};
-    security_attributes.nLength = sizeof(security_attributes);
-    security_attributes.bInheritHandle = TRUE;
+    load_conpty_api();
+
     HANDLE input_read = nullptr;
     HANDLE output_write = nullptr;
-    if (CreatePipe(&input_read, &m_implementation->input_write, &security_attributes, 0) == FALSE ||
-        CreatePipe(&m_implementation->output_read, &output_write, &security_attributes, 0) == FALSE)
+
+    if (CreatePipe(&input_read, &m_implementation->input_write, nullptr, 0) == FALSE ||
+        CreatePipe(&m_implementation->output_read, &output_write, nullptr, 0) == FALSE)
     {
         if (input_read != nullptr) CloseHandle(input_read);
         if (output_write != nullptr) CloseHandle(output_write);
@@ -234,39 +275,117 @@ bool TerminalSession::start(const std::filesystem::path& working_directory)
         append_status("[Unable to create terminal pipes]");
         return false;
     }
-    SetHandleInformation(m_implementation->input_write, HANDLE_FLAG_INHERIT, 0);
-    SetHandleInformation(m_implementation->output_read, HANDLE_FLAG_INHERIT, 0);
 
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-    startup.wShowWindow = SW_HIDE;
-    startup.hStdInput = input_read;
-    startup.hStdOutput = output_write;
-    startup.hStdError = output_write;
-    PROCESS_INFORMATION process_info{};
     std::wstring command = quote_windows_argument(m_shell_path.wstring()) +
         windows_shell_arguments(m_shell_path);
     const std::wstring directory = working_directory.empty()
         ? std::wstring{}
         : working_directory.wstring();
-    const BOOL created = CreateProcessW(
-        m_shell_path.c_str(), command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
-        nullptr, directory.empty() ? nullptr : directory.c_str(), &startup, &process_info);
-    CloseHandle(input_read);
-    CloseHandle(output_write);
-    if (created == FALSE)
+    const wchar_t* directory_pointer = directory.empty() ? nullptr : directory.c_str();
+
+    bool conpty_started = false;
+    if (s_fn_CreatePseudoConsole != nullptr && s_fn_ResizePseudoConsole != nullptr && s_fn_ClosePseudoConsole != nullptr)
     {
-        stop();
-        append_status("[Unable to start the local shell]");
-        return false;
+        COORD console_size{
+            static_cast<SHORT>(std::clamp<std::size_t>(m_columns, 1, 32767)),
+            static_cast<SHORT>(std::clamp<std::size_t>(m_rows, 1, 32767))
+        };
+        HPCON hPC = nullptr;
+        if (SUCCEEDED(s_fn_CreatePseudoConsole(console_size, input_read, output_write, 0, &hPC)))
+        {
+            m_implementation->pseudo_console = hPC;
+            CloseHandle(input_read);
+            input_read = nullptr;
+            CloseHandle(output_write);
+            output_write = nullptr;
+
+            SIZE_T attr_list_size = 0;
+            InitializeProcThreadAttributeList(nullptr, 1, 0, &attr_list_size);
+            if (attr_list_size > 0)
+            {
+                m_implementation->attribute_buffer.resize(attr_list_size);
+                m_implementation->attribute_list = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(
+                    m_implementation->attribute_buffer.data());
+                if (InitializeProcThreadAttributeList(m_implementation->attribute_list, 1, 0, &attr_list_size) != FALSE)
+                {
+                    if (UpdateProcThreadAttribute(
+                            m_implementation->attribute_list, 0,
+                            PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
+                            m_implementation->pseudo_console,
+                            sizeof(HPCON), nullptr, nullptr) != FALSE)
+                    {
+                        STARTUPINFOEXW startup_ex{};
+                        startup_ex.StartupInfo.cb = sizeof(STARTUPINFOEXW);
+                        startup_ex.lpAttributeList = m_implementation->attribute_list;
+
+                        PROCESS_INFORMATION process_info{};
+                        std::vector<wchar_t> mutable_command(command.begin(), command.end());
+                        mutable_command.push_back(L'\0');
+
+                        if (CreateProcessW(
+                                nullptr, mutable_command.data(), nullptr, nullptr, FALSE,
+                                EXTENDED_STARTUPINFO_PRESENT, nullptr,
+                                directory_pointer, &startup_ex.StartupInfo, &process_info) != FALSE)
+                        {
+                            CloseHandle(process_info.hThread);
+                            m_implementation->process = process_info.hProcess;
+                            conpty_started = true;
+                        }
+                    }
+                }
+            }
+        }
     }
-    CloseHandle(process_info.hThread);
-    m_implementation->process = process_info.hProcess;
+
+    if (!conpty_started)
+    {
+        if (input_read == nullptr || output_write == nullptr)
+        {
+            if (m_implementation->input_write != nullptr) { CloseHandle(m_implementation->input_write); m_implementation->input_write = nullptr; }
+            if (m_implementation->output_read != nullptr) { CloseHandle(m_implementation->output_read); m_implementation->output_read = nullptr; }
+            SECURITY_ATTRIBUTES security_attributes{};
+            security_attributes.nLength = sizeof(security_attributes);
+            security_attributes.bInheritHandle = TRUE;
+            CreatePipe(&input_read, &m_implementation->input_write, &security_attributes, 0);
+            CreatePipe(&m_implementation->output_read, &output_write, &security_attributes, 0);
+        }
+        SetHandleInformation(m_implementation->input_write, HANDLE_FLAG_INHERIT, 0);
+        SetHandleInformation(m_implementation->output_read, HANDLE_FLAG_INHERIT, 0);
+        SetHandleInformation(input_read, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+        SetHandleInformation(output_write, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+        startup.wShowWindow = SW_HIDE;
+        startup.hStdInput = input_read;
+        startup.hStdOutput = output_write;
+        startup.hStdError = output_write;
+
+        PROCESS_INFORMATION process_info{};
+        std::vector<wchar_t> mutable_command(command.begin(), command.end());
+        mutable_command.push_back(L'\0');
+
+        const BOOL created = CreateProcessW(
+            nullptr, mutable_command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
+            nullptr, directory_pointer, &startup, &process_info);
+
+        if (input_read != nullptr) CloseHandle(input_read);
+        if (output_write != nullptr) CloseHandle(output_write);
+
+        if (created == FALSE)
+        {
+            stop();
+            append_status("[Unable to start the local shell]");
+            return false;
+        }
+        CloseHandle(process_info.hThread);
+        m_implementation->process = process_info.hProcess;
+    }
 #else
     winsize terminal_size{};
-    terminal_size.ws_col = 100;
-    terminal_size.ws_row = 24;
+    terminal_size.ws_col = static_cast<unsigned short>(m_columns);
+    terminal_size.ws_row = static_cast<unsigned short>(m_rows);
     const pid_t process_id = ::forkpty(
         &m_implementation->master_fd, nullptr, nullptr, &terminal_size);
     if (process_id < 0)
@@ -307,6 +426,20 @@ void TerminalSession::stop() noexcept
         return;
     }
 #if defined(_WIN32)
+    if (m_implementation->pseudo_console != nullptr)
+    {
+        if (s_fn_ClosePseudoConsole != nullptr)
+        {
+            s_fn_ClosePseudoConsole(m_implementation->pseudo_console);
+        }
+        m_implementation->pseudo_console = nullptr;
+    }
+    if (m_implementation->attribute_list != nullptr)
+    {
+        DeleteProcThreadAttributeList(m_implementation->attribute_list);
+        m_implementation->attribute_list = nullptr;
+        m_implementation->attribute_buffer.clear();
+    }
     if (m_implementation->input_write != nullptr)
     {
         CloseHandle(m_implementation->input_write);
@@ -366,10 +499,33 @@ bool TerminalSession::write_input(std::string_view text)
     {
         return false;
     }
+
+#if defined(_WIN32)
+    if (m_implementation->pseudo_console != nullptr)
+    {
+        DWORD written = 0;
+        const bool succeeded = m_implementation->input_write != nullptr &&
+            WriteFile(m_implementation->input_write, text.data(),
+                static_cast<DWORD>(text.size()), &written, nullptr) != FALSE &&
+            written == text.size();
+        return succeeded;
+    }
+#endif
     const bool is_enter = text == "\r" || text == "\n";
     const bool is_backspace = text == "\x7F" || text == "\b";
     const bool printable = is_printable_input(text);
     const bool clear_requested = is_enter && is_clear_command(m_pending_input);
+
+#if defined(_WIN32)
+    if (text == "\x1B[A")
+    {
+        return navigate_history(true);
+    }
+    if (text == "\x1B[B")
+    {
+        return navigate_history(false);
+    }
+#endif
 
     const auto track_input = [this, text, is_enter, is_backspace, printable]() {
         if (printable)
@@ -448,6 +604,15 @@ bool TerminalSession::write_input(std::string_view text)
         {
             if (is_enter)
             {
+                if (!m_pending_input.empty())
+                {
+                    if (m_command_history.empty() || m_command_history.back() != m_pending_input)
+                    {
+                        m_command_history.push_back(m_pending_input);
+                    }
+                }
+                m_history_index.reset();
+                m_saved_pending_input.clear();
                 append_line();
                 track_input();
                 if (clear_requested)
@@ -624,7 +789,15 @@ void TerminalSession::resize(std::size_t columns, std::size_t rows) noexcept
         static_cast<void>(::ioctl(m_implementation->master_fd, TIOCSWINSZ, &size));
     }
 #else
-    if (m_implementation->process != nullptr)
+    if (m_implementation->pseudo_console != nullptr && s_fn_ResizePseudoConsole != nullptr)
+    {
+        COORD console_size{
+            static_cast<SHORT>(std::clamp<std::size_t>(columns, 1, 32767)),
+            static_cast<SHORT>(std::clamp<std::size_t>(rows, 1, 32767))
+        };
+        s_fn_ResizePseudoConsole(m_implementation->pseudo_console, console_size);
+    }
+    else if (m_implementation->process != nullptr)
     {
         const DWORD process_id = GetProcessId(m_implementation->process);
         if (process_id > 0)
@@ -660,6 +833,95 @@ void TerminalSession::resize(std::size_t columns, std::size_t rows) noexcept
 #endif
 }
 
+static std::vector<std::string> split_utf8_codepoints(std::string_view s)
+{
+    std::vector<std::string> cps;
+    for (std::size_t i = 0; i < s.size(); )
+    {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        std::size_t len = 1;
+        if ((c & 0x80) == 0) len = 1;
+        else if ((c & 0xE0) == 0xC0) len = 2;
+        else if ((c & 0xF0) == 0xE0) len = 3;
+        else if ((c & 0xF8) == 0xF0) len = 4;
+
+        len = std::min(len, s.size() - i);
+        cps.emplace_back(s.substr(i, len));
+        i += len;
+    }
+    return cps;
+}
+
+static void set_utf8_cell(std::string& line, std::size_t target_col, std::string_view utf8_char)
+{
+    std::size_t current_col = 0;
+    std::size_t byte_pos = 0;
+    std::size_t replace_byte_start = std::string::npos;
+    std::size_t replace_byte_len = 0;
+
+    while (byte_pos < line.size())
+    {
+        if (current_col == target_col)
+        {
+            replace_byte_start = byte_pos;
+            const unsigned char c = static_cast<unsigned char>(line[byte_pos]);
+            if ((c & 0x80) == 0) replace_byte_len = 1;
+            else if ((c & 0xE0) == 0xC0) replace_byte_len = 2;
+            else if ((c & 0xF0) == 0xE0) replace_byte_len = 3;
+            else if ((c & 0xF8) == 0xF0) replace_byte_len = 4;
+            else replace_byte_len = 1;
+            replace_byte_len = std::min(replace_byte_len, line.size() - byte_pos);
+            break;
+        }
+
+        const unsigned char c = static_cast<unsigned char>(line[byte_pos]);
+        std::size_t char_len = 1;
+        if ((c & 0x80) == 0) char_len = 1;
+        else if ((c & 0xE0) == 0xC0) char_len = 2;
+        else if ((c & 0xF0) == 0xE0) char_len = 3;
+        else if ((c & 0xF8) == 0xF0) char_len = 4;
+        char_len = std::min(char_len, line.size() - byte_pos);
+        byte_pos += char_len;
+        ++current_col;
+    }
+
+    if (replace_byte_start != std::string::npos)
+    {
+        line.replace(replace_byte_start, replace_byte_len, utf8_char);
+    }
+    else
+    {
+        if (target_col > current_col)
+        {
+            line.append(target_col - current_col, ' ');
+        }
+        line.append(utf8_char);
+    }
+}
+
+static void erase_utf8_from(std::string& line, std::size_t target_col)
+{
+    std::size_t current_col = 0;
+    std::size_t byte_pos = 0;
+    while (byte_pos < line.size())
+    {
+        if (current_col == target_col)
+        {
+            line.erase(byte_pos);
+            return;
+        }
+        const unsigned char c = static_cast<unsigned char>(line[byte_pos]);
+        std::size_t char_len = 1;
+        if ((c & 0x80) == 0) char_len = 1;
+        else if ((c & 0xE0) == 0xC0) char_len = 2;
+        else if ((c & 0xF0) == 0xE0) char_len = 3;
+        else if ((c & 0xF8) == 0xF0) char_len = 4;
+        char_len = std::min(char_len, line.size() - byte_pos);
+        byte_pos += char_len;
+        ++current_col;
+    }
+}
+
 bool TerminalSession::is_running() const noexcept { return m_running; }
 
 const std::filesystem::path& TerminalSession::get_shell_path() const noexcept { return m_shell_path; }
@@ -668,37 +930,143 @@ std::span<const std::string> TerminalSession::get_lines() const noexcept { retur
 
 void TerminalSession::consume_output(std::string_view output)
 {
-    for (const char character : output)
+    for (std::size_t i = 0; i < output.size(); ++i)
     {
+        const char character = output[i];
+
+        if (m_parser_state == ParserState::Text)
+        {
+            if (m_utf8_expected > 0)
+            {
+                if ((static_cast<unsigned char>(character) & 0xC0) == 0x80)
+                {
+                    m_utf8_sequence.push_back(character);
+                    --m_utf8_expected;
+                    if (m_utf8_expected == 0)
+                    {
+                        append_codepoint(m_utf8_sequence);
+                        m_utf8_sequence.clear();
+                    }
+                }
+                else
+                {
+                    m_utf8_sequence.clear();
+                    m_utf8_expected = 0;
+                }
+                continue;
+            }
+
+            if (static_cast<unsigned char>(character) >= 0x80U)
+            {
+                const unsigned char uc = static_cast<unsigned char>(character);
+                if ((uc & 0xE0) == 0xC0)
+                {
+                    m_utf8_sequence = character;
+                    m_utf8_expected = 1;
+                }
+                else if ((uc & 0xF0) == 0xE0)
+                {
+                    m_utf8_sequence = character;
+                    m_utf8_expected = 2;
+                }
+                else if ((uc & 0xF8) == 0xF0)
+                {
+                    m_utf8_sequence = character;
+                    m_utf8_expected = 3;
+                }
+                continue;
+            }
+        }
+
         switch (m_parser_state)
         {
         case ParserState::Text:
-            if (character == '\x1B') m_parser_state = ParserState::Escape;
-            else if (character == '\n') append_line();
-            else if (character == '\r') m_cursor_column = 0;
-            else if (character == '\b' && m_cursor_column > m_input_start_column)
+            if (character == '\x1B')
             {
-                --m_cursor_column;
+                m_utf8_sequence.clear();
+                m_utf8_expected = 0;
+                m_parser_state = ParserState::Escape;
+            }
+            else if (character == '\n')
+            {
+                if (m_in_alternate_screen)
+                {
+                    if (m_cursor_line + 1 < m_rows)
+                    {
+                        ++m_cursor_line;
+                        while (m_cursor_line >= m_lines.size())
+                        {
+                            m_lines.emplace_back();
+                        }
+                    }
+                }
+                else
+                {
+                    if (m_cursor_line + 1 < m_lines.size())
+                    {
+                        ++m_cursor_line;
+                    }
+                    else
+                    {
+                        m_lines.emplace_back();
+                        m_cursor_line = m_lines.size() - 1;
+                    }
+                    trim_scrollback();
+                }
+            }
+            else if (character == '\r')
+            {
+                m_cursor_column = 0;
+            }
+            else if (character == '\b')
+            {
+                if (m_cursor_column > 0)
+                {
+                    --m_cursor_column;
+                }
             }
             else if (character == '\t')
             {
                 const std::size_t count = 4 - (m_cursor_column % 4);
-                for (std::size_t index = 0; index < count; ++index) append_character(' ');
+                for (std::size_t index = 0; index < count; ++index)
+                {
+                    append_codepoint(" ");
+                }
             }
             else if (static_cast<unsigned char>(character) >= 0x20U && character != '\x7F')
             {
-                append_character(character);
+                append_codepoint(std::string_view(&character, 1));
             }
             break;
+
         case ParserState::Escape:
             if (character == '[')
             {
                 m_control_sequence.clear();
                 m_parser_state = ParserState::ControlSequence;
             }
-            else if (character == ']') m_parser_state = ParserState::OperatingSystemCommand;
-            else m_parser_state = ParserState::Text;
+            else if (character == ']')
+            {
+                m_parser_state = ParserState::OperatingSystemCommand;
+            }
+            else if (character == '7')
+            {
+                m_saved_cursor_line = m_cursor_line;
+                m_saved_cursor_column = m_cursor_column;
+                m_parser_state = ParserState::Text;
+            }
+            else if (character == '8')
+            {
+                m_cursor_line = std::min(m_saved_cursor_line, m_lines.empty() ? 0 : m_lines.size() - 1);
+                m_cursor_column = m_saved_cursor_column;
+                m_parser_state = ParserState::Text;
+            }
+            else
+            {
+                m_parser_state = ParserState::Text;
+            }
             break;
+
         case ParserState::ControlSequence:
             if (character >= '@' && character <= '~')
             {
@@ -710,10 +1078,18 @@ void TerminalSession::consume_output(std::string_view output)
                 m_control_sequence.push_back(character);
             }
             break;
+
         case ParserState::OperatingSystemCommand:
-            if (character == '\a') m_parser_state = ParserState::Text;
-            else if (character == '\x1B') m_parser_state = ParserState::OperatingSystemCommandEscape;
+            if (character == '\a')
+            {
+                m_parser_state = ParserState::Text;
+            }
+            else if (character == '\x1B')
+            {
+                m_parser_state = ParserState::OperatingSystemCommandEscape;
+            }
             break;
+
         case ParserState::OperatingSystemCommandEscape:
             m_parser_state = character == '\\'
                 ? ParserState::Text
@@ -726,146 +1102,410 @@ void TerminalSession::consume_output(std::string_view output)
 
 void TerminalSession::apply_control_sequence(char command)
 {
-    std::size_t amount = 1;
-    const std::size_t separator = m_control_sequence.find(';');
-    const std::string_view first_parameter = std::string_view{m_control_sequence}.substr(0, separator);
-    if (!first_parameter.empty() && first_parameter.front() != '?')
+    std::size_t param1 = 1;
+    std::size_t param2 = 1;
+    bool has_param1 = false;
+    bool has_param2 = false;
+
+    if (!m_control_sequence.empty() && m_control_sequence.front() != '?')
     {
-        std::size_t parsed = 0;
-        for (const char character : first_parameter)
+        const std::size_t sep = m_control_sequence.find(';');
+        const std::string_view p1 = std::string_view{m_control_sequence}.substr(0, sep);
+        if (!p1.empty())
         {
-            if (character < '0' || character > '9')
+            std::size_t v = 0;
+            bool valid = true;
+            for (const char c : p1)
             {
-                parsed = 0;
-                break;
+                if (c >= '0' && c <= '9')
+                {
+                    v = v * 10 + static_cast<std::size_t>(c - '0');
+                }
+                else
+                {
+                    valid = false;
+                    break;
+                }
             }
-            parsed = parsed * 10 + static_cast<std::size_t>(character - '0');
+            if (valid)
+            {
+                param1 = v;
+                has_param1 = true;
+            }
         }
-        if (parsed > 0)
+        if (sep != std::string_view::npos)
         {
-            amount = parsed;
+            const std::string_view p2 = std::string_view{m_control_sequence}.substr(sep + 1);
+            if (!p2.empty())
+            {
+                std::size_t v = 0;
+                bool valid = true;
+                for (const char c : p2)
+                {
+                    if (c >= '0' && c <= '9')
+                    {
+                        v = v * 10 + static_cast<std::size_t>(c - '0');
+                    }
+                    else
+                    {
+                        valid = false;
+                        break;
+                    }
+                }
+                if (valid)
+                {
+                    param2 = v;
+                    has_param2 = true;
+                }
+            }
         }
     }
 
     if (m_lines.empty())
     {
         m_lines.emplace_back();
+        m_cursor_line = 0;
     }
-    std::string& line = m_lines.back();
+    if (m_cursor_line >= m_lines.size())
+    {
+        m_cursor_line = m_lines.size() - 1;
+    }
+
     switch (command)
     {
+    case 'A':
+    {
+        const std::size_t count = (has_param1 && param1 > 0) ? param1 : 1;
+        m_cursor_line = (count <= m_cursor_line) ? (m_cursor_line - count) : 0;
+        break;
+    }
+    case 'B':
+    {
+        const std::size_t count = (has_param1 && param1 > 0) ? param1 : 1;
+        m_cursor_line += count;
+        while (m_cursor_line >= m_lines.size())
+        {
+            m_lines.emplace_back();
+        }
+        break;
+    }
     case 'C':
-        m_cursor_column = std::min(m_cursor_column + amount, line.size());
+    {
+        const std::size_t count = (has_param1 && param1 > 0) ? param1 : 1;
+        m_cursor_column += count;
         break;
+    }
     case 'D':
-        m_cursor_column = amount > m_cursor_column
-            ? m_input_start_column
-            : std::max(m_cursor_column - amount, m_input_start_column);
+    {
+        const std::size_t count = (has_param1 && param1 > 0) ? param1 : 1;
+        m_cursor_column = (count <= m_cursor_column) ? (m_cursor_column - count) : 0;
         break;
+    }
     case 'G':
-        m_cursor_column = std::max(
-            m_input_start_column,
-            std::min(amount - 1, line.size()));
+    {
+        m_cursor_column = (has_param1 && param1 > 0) ? (param1 - 1) : 0;
         break;
+    }
+    case 'd':
+    {
+        const std::size_t row = (has_param1 && param1 > 0) ? (param1 - 1) : 0;
+        while (row >= m_lines.size())
+        {
+            m_lines.emplace_back();
+        }
+        m_cursor_line = row;
+        break;
+    }
+    case 'H':
+    case 'f':
+    {
+        const std::size_t row = (has_param1 && param1 > 0) ? (param1 - 1) : 0;
+        const std::size_t col = (has_param2 && param2 > 0) ? (param2 - 1) : 0;
+        std::size_t target_line = row;
+        if (!m_in_alternate_screen && m_rows > 0 && m_lines.size() >= m_rows)
+        {
+            target_line = (m_lines.size() - m_rows) + row;
+        }
+        while (target_line >= m_lines.size())
+        {
+            m_lines.emplace_back();
+        }
+        m_cursor_line = target_line;
+        m_cursor_column = col;
+        break;
+    }
+    case 'h':
+    {
+        if (m_control_sequence == "?1049" || m_control_sequence == "?47" || m_control_sequence == "?1047")
+        {
+            if (!m_in_alternate_screen)
+            {
+                m_in_alternate_screen = true;
+                m_main_screen_lines = m_lines;
+                m_main_cursor_line = m_cursor_line;
+                m_main_cursor_column = m_cursor_column;
+                const std::size_t count = std::max<std::size_t>(m_rows, 1);
+                m_lines.assign(count, std::string{});
+                m_cursor_line = 0;
+                m_cursor_column = 0;
+            }
+        }
+        break;
+    }
+    case 'l':
+    {
+        if (m_control_sequence == "?1049" || m_control_sequence == "?47" || m_control_sequence == "?1047")
+        {
+            if (m_in_alternate_screen)
+            {
+                m_in_alternate_screen = false;
+                m_lines = std::move(m_main_screen_lines);
+                m_cursor_line = std::min(m_main_cursor_line, m_lines.empty() ? 0 : m_lines.size() - 1);
+                m_cursor_column = m_main_cursor_column;
+            }
+        }
+        break;
+    }
+    case 's':
+    {
+        m_saved_cursor_line = m_cursor_line;
+        m_saved_cursor_column = m_cursor_column;
+        break;
+    }
+    case 'u':
+    {
+        m_cursor_line = std::min(m_saved_cursor_line, m_lines.empty() ? 0 : m_lines.size() - 1);
+        m_cursor_column = m_saved_cursor_column;
+        break;
+    }
     case 'K':
-        if (first_parameter == "2")
+    {
+        std::string& line = m_lines[m_cursor_line];
+        if (m_control_sequence == "2")
         {
             line.clear();
             m_cursor_column = 0;
-            m_input_start_column = 0;
         }
-        else if (first_parameter == "1")
+        else if (m_control_sequence == "1")
         {
-            const std::size_t end = std::min(m_cursor_column + 1, line.size());
-            if (m_input_start_column < end)
+            std::vector<std::string> cps = split_utf8_codepoints(line);
+            const std::size_t end = std::min(m_cursor_column + 1, cps.size());
+            for (std::size_t i = 0; i < end; ++i)
             {
-                const std::size_t count = end - m_input_start_column;
-                line.replace(m_input_start_column, count, count, ' ');
+                cps[i] = " ";
             }
+            line.clear();
+            for (const auto& cp : cps) line.append(cp);
         }
-        else if (m_cursor_column < line.size())
+        else
         {
-            line.erase(m_cursor_column);
+            erase_utf8_from(line, m_cursor_column);
         }
         break;
+    }
+    case 'X':
+    {
+        const std::size_t count = (has_param1 && param1 > 0) ? param1 : 1;
+        std::string& line = m_lines[m_cursor_line];
+        std::vector<std::string> cps = split_utf8_codepoints(line);
+        if (m_cursor_column < cps.size())
+        {
+            const std::size_t erase_len = std::min(count, cps.size() - m_cursor_column);
+            for (std::size_t i = m_cursor_column; i < m_cursor_column + erase_len; ++i)
+            {
+                cps[i] = " ";
+            }
+            line.clear();
+            for (const auto& cp : cps) line.append(cp);
+        }
+        break;
+    }
+    case 'P':
+    {
+        const std::size_t count = (has_param1 && param1 > 0) ? param1 : 1;
+        std::string& line = m_lines[m_cursor_line];
+        std::vector<std::string> cps = split_utf8_codepoints(line);
+        if (m_cursor_column < cps.size())
+        {
+            const std::size_t del_len = std::min(count, cps.size() - m_cursor_column);
+            cps.erase(cps.begin() + static_cast<std::ptrdiff_t>(m_cursor_column),
+                      cps.begin() + static_cast<std::ptrdiff_t>(m_cursor_column + del_len));
+            line.clear();
+            for (const auto& cp : cps) line.append(cp);
+        }
+        break;
+    }
+    case '@':
+    {
+        const std::size_t count = (has_param1 && param1 > 0) ? param1 : 1;
+        std::string& line = m_lines[m_cursor_line];
+        std::vector<std::string> cps = split_utf8_codepoints(line);
+        if (m_cursor_column <= cps.size())
+        {
+            cps.insert(cps.begin() + static_cast<std::ptrdiff_t>(m_cursor_column), count, " ");
+            line.clear();
+            for (const auto& cp : cps) line.append(cp);
+        }
+        break;
+    }
+    case 'M':
+    {
+        const std::size_t count = (has_param1 && param1 > 0) ? param1 : 1;
+        if (m_cursor_line < m_lines.size())
+        {
+            const std::size_t del_count = std::min(count, m_lines.size() - m_cursor_line);
+            m_lines.erase(m_lines.begin() + static_cast<std::ptrdiff_t>(m_cursor_line),
+                          m_lines.begin() + static_cast<std::ptrdiff_t>(m_cursor_line + del_count));
+            if (m_in_alternate_screen)
+            {
+                m_lines.resize(std::max<std::size_t>(m_rows, 1));
+            }
+        }
+        break;
+    }
+    case 'L':
+    {
+        const std::size_t count = (has_param1 && param1 > 0) ? param1 : 1;
+        if (m_cursor_line < m_lines.size())
+        {
+            m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_cursor_line), count, std::string{});
+            if (m_in_alternate_screen && m_lines.size() > m_rows)
+            {
+                m_lines.resize(m_rows);
+            }
+        }
+        break;
+    }
     case 'J':
-        if (first_parameter == "2" || first_parameter == "3")
+    {
+        if (m_control_sequence == "2" || m_control_sequence == "3")
         {
             clear_screen();
         }
-        else if (first_parameter.empty() || first_parameter == "0")
+        else if (m_control_sequence.empty() || m_control_sequence == "0")
         {
-            line.erase(std::min(m_cursor_column, line.size()));
-        }
-        else if (first_parameter == "1")
-        {
-            const std::size_t end = std::min(m_cursor_column + 1, line.size());
-            if (m_input_start_column < end)
+            if (m_cursor_line < m_lines.size())
             {
-                line.replace(m_input_start_column,
-                    end - m_input_start_column,
-                    end - m_input_start_column,
-                    ' ');
+                erase_utf8_from(m_lines[m_cursor_line], m_cursor_column);
+                if (!m_in_alternate_screen && m_cursor_line + 1 < m_lines.size())
+                {
+                    m_lines.erase(m_lines.begin() + static_cast<std::ptrdiff_t>(m_cursor_line + 1), m_lines.end());
+                }
             }
         }
         break;
-    case 'H':
-        m_cursor_column = m_input_start_column;
-        break;
+    }
     default:
         break;
     }
 }
 
-void TerminalSession::append_character(char character)
+void TerminalSession::append_codepoint(std::string_view utf8_char)
 {
-    if (m_lines.empty()) m_lines.emplace_back();
-    if (m_cursor_column < m_input_start_column)
+    if (m_lines.empty())
     {
-        m_cursor_column = m_input_start_column;
+        m_lines.emplace_back();
+        m_cursor_line = 0;
     }
-    if (character == ' ' && m_cursor_column == m_input_start_column &&
-        m_pending_input.empty())
+    while (m_cursor_line >= m_lines.size())
     {
-        return;
+        m_lines.emplace_back();
     }
     if (m_cursor_column >= m_columns)
     {
-        m_lines.emplace_back();
-        m_cursor_column = 0;
-        m_input_start_column = 0;
-        trim_scrollback();
+        if (m_in_alternate_screen)
+        {
+            if (m_cursor_line + 1 < m_rows)
+            {
+                ++m_cursor_line;
+                while (m_cursor_line >= m_lines.size())
+                {
+                    m_lines.emplace_back();
+                }
+                m_cursor_column = 0;
+            }
+            else
+            {
+                m_cursor_column = m_columns - 1;
+            }
+        }
+        else
+        {
+            if (m_cursor_line + 1 < m_lines.size())
+            {
+                ++m_cursor_line;
+            }
+            else
+            {
+                m_lines.emplace_back();
+                m_cursor_line = m_lines.size() - 1;
+            }
+            m_cursor_column = 0;
+            trim_scrollback();
+        }
     }
-    std::string& line = m_lines.back();
-    if (m_cursor_column < line.size()) line[m_cursor_column] = character;
-    else
-    {
-        if (m_cursor_column > line.size()) line.append(m_cursor_column - line.size(), ' ');
-        line.push_back(character);
-    }
+    set_utf8_cell(m_lines[m_cursor_line], m_cursor_column, utf8_char);
     ++m_cursor_column;
+}
+
+void TerminalSession::append_character(char character)
+{
+    append_codepoint(std::string_view(&character, 1));
 }
 
 void TerminalSession::append_line()
 {
-    m_lines.emplace_back();
-    m_cursor_column = 0;
-    m_input_start_column = 0;
-    m_pending_input.clear();
-    trim_scrollback();
+    if (m_in_alternate_screen)
+    {
+        if (m_cursor_line + 1 < m_rows)
+        {
+            ++m_cursor_line;
+            while (m_cursor_line >= m_lines.size())
+            {
+                m_lines.emplace_back();
+            }
+        }
+        m_cursor_column = 0;
+    }
+    else
+    {
+        m_lines.emplace_back();
+        m_cursor_line = m_lines.size() - 1;
+        m_cursor_column = 0;
+        m_input_start_column = 0;
+        m_pending_input.clear();
+        trim_scrollback();
+    }
 }
 
 void TerminalSession::append_status(std::string message)
 {
-    if (!m_lines.empty() && m_lines.back().empty()) m_lines.back() = std::move(message);
-    else m_lines.push_back(std::move(message));
+    if (!m_lines.empty() && m_lines.back().empty())
+    {
+        m_lines.back() = std::move(message);
+    }
+    else
+    {
+        m_lines.push_back(std::move(message));
+    }
     append_line();
 }
 
 void TerminalSession::clear_screen() noexcept
 {
-    m_lines.assign(1, std::string{});
+    if (m_in_alternate_screen)
+    {
+        const std::size_t count = std::max<std::size_t>(m_rows, 1);
+        m_lines.assign(count, std::string{});
+    }
+    else
+    {
+        m_lines.assign(1, std::string{});
+    }
+    m_cursor_line = 0;
     m_cursor_column = 0;
+    m_saved_cursor_line = 0;
+    m_saved_cursor_column = 0;
     m_input_start_column = 0;
     m_pending_input.clear();
     m_parser_state = ParserState::Text;
@@ -874,9 +1514,95 @@ void TerminalSession::clear_screen() noexcept
 
 void TerminalSession::trim_scrollback()
 {
-    if (m_lines.size() <= maximum_scrollback_lines) return;
+    if (m_in_alternate_screen)
+    {
+        return;
+    }
+    if (m_lines.size() <= maximum_scrollback_lines)
+    {
+        return;
+    }
     const std::size_t remove_count = m_lines.size() - maximum_scrollback_lines;
     m_lines.erase(m_lines.begin(), m_lines.begin() + static_cast<std::ptrdiff_t>(remove_count));
+    if (m_cursor_line >= remove_count)
+    {
+        m_cursor_line -= remove_count;
+    }
+    else
+    {
+        m_cursor_line = 0;
+    }
+    if (m_saved_cursor_line >= remove_count)
+    {
+        m_saved_cursor_line -= remove_count;
+    }
+    else
+    {
+        m_saved_cursor_line = 0;
+    }
+}
+
+bool TerminalSession::navigate_history(bool up)
+{
+    if (m_command_history.empty() || m_lines.empty())
+    {
+        return false;
+    }
+
+    m_cursor_line = m_lines.size() - 1;
+
+    if (m_input_start_column == 0 && m_lines.back().size() >= m_pending_input.size())
+    {
+        m_input_start_column = m_lines.back().size() - m_pending_input.size();
+    }
+
+    if (up)
+    {
+        if (!m_history_index.has_value())
+        {
+            m_saved_pending_input = m_pending_input;
+            m_history_index = m_command_history.size() - 1;
+        }
+        else if (*m_history_index > 0)
+        {
+            --(*m_history_index);
+        }
+        else
+        {
+            return false;
+        }
+    }
+    else
+    {
+        if (!m_history_index.has_value())
+        {
+            return false;
+        }
+        if (*m_history_index + 1 < m_command_history.size())
+        {
+            ++(*m_history_index);
+        }
+        else
+        {
+            m_history_index.reset();
+        }
+    }
+
+    const std::string_view target_text = m_history_index.has_value()
+        ? std::string_view{m_command_history[*m_history_index]}
+        : std::string_view{m_saved_pending_input};
+
+    if (m_input_start_column > m_lines.back().size())
+    {
+        m_input_start_column = m_lines.back().size();
+    }
+
+    m_lines.back().resize(m_input_start_column);
+    m_lines.back().append(target_text);
+    m_cursor_column = m_lines.back().size();
+    m_pending_input = std::string(target_text);
+
+    return true;
 }
 
 } // namespace Zenvra::Terminal

@@ -69,6 +69,12 @@ public:
 
     /// Toggles the integrated terminal panel visibility.
     virtual void toggle_terminal() {}
+
+    /// Shows the About modal dialog with backdrop blur.
+    virtual void show_about_dialog() {}
+
+    /// Returns true if a modal is currently open and active.
+    [[nodiscard]] virtual bool is_modal_active() const { return false; }
 };
 
 } // namespace Zenvra::Platform

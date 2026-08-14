@@ -421,23 +421,51 @@ void CocoaWindow::set_titlebar_hit_test_callback(TitlebarHitTestCallback callbac
 
 void CocoaWindow::set_command_invoked_callback(CommandInvokedCallback callback)
 {
-    m_command_invoked_callback = callback;
-    Runtime::CocoaMenuBridge::set_command_callback(m_command_invoked_callback);
+    m_command_invoked_callback = std::move(callback);
+    auto dispatcher = [this](std::string_view command_id) {
+        const std::optional<bool> editor_result =
+            m_renderer.handle_editor_command(command_id);
+        if (editor_result)
+        {
+            if (m_content_view != nullptr)
+            {
+                ZenvraContentView* view = (__bridge ZenvraContentView*)m_content_view;
+                [view setNeedsDisplay:YES];
+            }
+            return;
+        }
+        if (m_command_invoked_callback)
+        {
+            m_command_invoked_callback(command_id);
+        }
+    };
+    Runtime::CocoaMenuBridge::set_command_callback(dispatcher);
     if (m_content_view != nullptr)
     {
         ZenvraContentView* view = (__bridge ZenvraContentView*)m_content_view;
-        [view setCommandInvokedCallback:m_command_invoked_callback];
+        [view setCommandInvokedCallback:dispatcher];
     }
 }
 
 void CocoaWindow::set_command_state_query_callback(CommandStateQueryCallback callback)
 {
-    m_command_state_query_callback = callback;
-    Runtime::CocoaMenuBridge::set_command_state_query_callback(m_command_state_query_callback);
+    m_command_state_query_callback = std::move(callback);
+    auto query_dispatcher = [this](std::string_view command_id) {
+        const std::optional<bool> editor_enabled =
+            m_renderer.is_editor_command_enabled(command_id);
+        if (editor_enabled)
+        {
+            return CommandPresentationState{*editor_enabled, false};
+        }
+        return m_command_state_query_callback
+                   ? m_command_state_query_callback(command_id)
+                   : CommandPresentationState{true, false};
+    };
+    Runtime::CocoaMenuBridge::set_command_state_query_callback(query_dispatcher);
     if (m_content_view != nullptr)
     {
         ZenvraContentView* view = (__bridge ZenvraContentView*)m_content_view;
-        [view setCommandCallback:m_command_state_query_callback];
+        [view setCommandCallback:query_dispatcher];
     }
 }
 

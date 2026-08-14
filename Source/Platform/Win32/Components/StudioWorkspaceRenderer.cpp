@@ -1,5 +1,6 @@
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
 #include "Utility/stb_image.h"
+#include "Utility/Antialiasing.h"
 
 #include "UI/Editor/EditorFileSystem.h"
 #include "Utility/Fonts.h"
@@ -111,6 +112,22 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi)
         {
             hack_loaded = AddFontResourceExA(
                 hack_ttf.string().c_str(), FR_PRIVATE, nullptr) > 0;
+        }
+
+        // JetBrains Mono – specs / code / monospace font
+        const std::filesystem::path jb_ttf =
+            *project_root / "Assets" / "fonts" / "JetBrainsMono" / "JetBrainsMonoNLNerdFont-Regular.ttf";
+        const std::filesystem::path jb_bold_ttf =
+            *project_root / "Assets" / "fonts" / "JetBrainsMono" / "JetBrainsMonoNLNerdFont-Bold.ttf";
+        if (std::filesystem::exists(jb_ttf, size_error) &&
+            std::filesystem::file_size(jb_ttf, size_error) > 100)
+        {
+            AddFontResourceExA(jb_ttf.string().c_str(), FR_PRIVATE, nullptr);
+        }
+        if (std::filesystem::exists(jb_bold_ttf, size_error) &&
+            std::filesystem::file_size(jb_bold_ttf, size_error) > 100)
+        {
+            AddFontResourceExA(jb_bold_ttf.string().c_str(), FR_PRIVATE, nullptr);
         }
 
         // Open Sans – UI / sidebar / tab / large title font
@@ -296,6 +313,10 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(
     if (m_terminal_panel.is_resizing())
     {
         return m_terminal_panel.handle_pointer_drag(layout, point_y);
+    }
+    if (m_terminal_panel.handle_pointer_drag(layout, point_x, point_y))
+    {
+        return true;
     }
     return m_text_editor.handle_pointer_drag(
         *this, device_context, layout, point_x, point_y);
@@ -1085,9 +1106,52 @@ void StudioWorkspaceRenderer::draw_png_icon(
 
     std::error_code path_error;
     std::filesystem::path resolved_path{asset_path};
+    if (resolved_path.is_relative() && !m_icon_asset_root.empty())
+    {
+        const std::filesystem::path themed_path = m_icon_asset_root / resolved_path;
+        if (std::filesystem::is_regular_file(themed_path, path_error))
+        {
+            resolved_path = themed_path;
+        }
+        else
+        {
+            const std::filesystem::path legacy_path =
+                m_icon_asset_root / resolved_path.filename();
+            if (std::filesystem::is_regular_file(legacy_path, path_error))
+            {
+                resolved_path = legacy_path;
+            }
+            else
+            {
+                const std::filesystem::path root_path =
+                    m_icon_asset_root.parent_path().parent_path() / resolved_path;
+                if (std::filesystem::is_regular_file(root_path, path_error))
+                {
+                    resolved_path = root_path;
+                }
+            }
+        }
+    }
     if (!std::filesystem::is_regular_file(resolved_path, path_error))
     {
-        resolved_path = m_icon_asset_root / resolved_path;
+        auto search_dir = std::filesystem::current_path(path_error);
+        for (int i = 0; i < 6 && !search_dir.empty(); ++i)
+        {
+            const auto candidate = search_dir / "Assets" / "icons" / std::filesystem::path(asset_path).filename();
+            if (std::filesystem::is_regular_file(candidate, path_error))
+            {
+                resolved_path = candidate;
+                break;
+            }
+            const auto candidate_direct = search_dir / asset_path;
+            if (std::filesystem::is_regular_file(candidate_direct, path_error))
+            {
+                resolved_path = candidate_direct;
+                break;
+            }
+            if (search_dir == search_dir.parent_path()) break;
+            search_dir = search_dir.parent_path();
+        }
     }
     if (!std::filesystem::is_regular_file(resolved_path, path_error))
     {
@@ -1118,87 +1182,24 @@ void StudioWorkspaceRenderer::draw_png_icon(
             if (width > height)
             {
                 draw_w = max_size;
-                draw_h = static_cast<int>(max_size / aspect);
+                draw_h = std::max(1, static_cast<int>(max_size / aspect));
             }
             else
             {
                 draw_h = max_size;
-                draw_w = static_cast<int>(max_size * aspect);
+                draw_w = std::max(1, static_cast<int>(max_size * aspect));
             }
         }
         
-        // Make the buffer square to fit in m_svg_cache perfectly with max_size x max_size
-        std::vector<std::uint32_t> bmp_data(
-            static_cast<std::size_t>(max_size) * static_cast<std::size_t>(max_size));
+        // High quality area-averaging supersampling to eliminate pixelation and jagged edges
+        auto resampled = Utility::AntialiasedImage::resample_area_average(
+            data, width, height, draw_w, draw_h);
 
-        const uint32_t bg_r = static_cast<uint32_t>(background.red);
-        const uint32_t bg_g = static_cast<uint32_t>(background.green);
-        const uint32_t bg_b = static_cast<uint32_t>(background.blue);
-        const uint32_t bg_pixel = (bg_r << 16) | (bg_g << 8) | bg_b;
-
-        uint32_t* dst = bmp_data.data();
-
-        int pad_x = (max_size - draw_w) / 2;
-        int pad_y = (max_size - draw_h) / 2;
-
-        for (int y = 0; y < max_size; ++y)
-        {
-            for (int x = 0; x < max_size; ++x)
-            {
-                // BMP is bottom-up, so y=0 is the bottom row
-                int img_y = max_size - 1 - y;
-                
-                if (x >= pad_x && x < pad_x + draw_w && img_y >= pad_y && img_y < pad_y + draw_h)
-                {
-                    float gx = ((x - pad_x) + 0.5f) * width / draw_w - 0.5f;
-                    float gy = ((img_y - pad_y) + 0.5f) * height / draw_h - 0.5f;
-                    int gxi = static_cast<int>(gx);
-                    int gyi = static_cast<int>(gy);
-                    if (gxi < 0) gxi = 0;
-                    if (gyi < 0) gyi = 0;
-                    if (gxi >= width - 1) gxi = width - 2;
-                    if (gyi >= height - 1) gyi = height - 2;
-
-                    float dx = gx - gxi;
-                    float dy = gy - gyi;
-
-                    auto get_pixel = [&](int px, int py, int offset) -> float {
-                        return static_cast<float>(data[(py * width + px) * 4 + offset]);
-                    };
-
-                    float r00 = get_pixel(gxi, gyi, 0), r10 = get_pixel(gxi + 1, gyi, 0);
-                    float r01 = get_pixel(gxi, gyi + 1, 0), r11 = get_pixel(gxi + 1, gyi + 1, 0);
-                    float g00 = get_pixel(gxi, gyi, 1), g10 = get_pixel(gxi + 1, gyi, 1);
-                    float g01 = get_pixel(gxi, gyi + 1, 1), g11 = get_pixel(gxi + 1, gyi + 1, 1);
-                    float b00 = get_pixel(gxi, gyi, 2), b10 = get_pixel(gxi + 1, gyi, 2);
-                    float b01 = get_pixel(gxi, gyi + 1, 2), b11 = get_pixel(gxi + 1, gyi + 1, 2);
-                    float a00 = get_pixel(gxi, gyi, 3), a10 = get_pixel(gxi + 1, gyi, 3);
-                    float a01 = get_pixel(gxi, gyi + 1, 3), a11 = get_pixel(gxi + 1, gyi + 1, 3);
-
-                    auto bilerp = [dx, dy](float v00, float v10, float v01, float v11) -> uint32_t {
-                        float val = v00 * (1 - dx) * (1 - dy) + v10 * dx * (1 - dy) +
-                                    v01 * (1 - dx) * dy + v11 * dx * dy;
-                        return static_cast<uint32_t>(val + 0.5f);
-                    };
-
-                    uint32_t source_r = bilerp(r00, r10, r01, r11);
-                    uint32_t source_g = bilerp(g00, g10, g01, g11);
-                    uint32_t source_b = bilerp(b00, b10, b01, b11);
-                    uint32_t a = bilerp(a00, a10, a01, a11);
-
-                    const uint32_t out_r = source_r * a / 255 + bg_r * (255 - a) / 255;
-                    const uint32_t out_g = source_g * a / 255 + bg_g * (255 - a) / 255;
-                    const uint32_t out_b = source_b * a / 255 + bg_b * (255 - a) / 255;
-
-                    dst[y * max_size + x] = (out_r << 16) | (out_g << 8) | out_b;
-                }
-                else
-                {
-                    dst[y * max_size + x] = bg_pixel;
-                }
-            }
-        }
         stbi_image_free(data);
+
+        Utility::ColorRGBA bg_color{background.red, background.green, background.blue, 255};
+        auto bmp_data = Utility::AntialiasedImage::composite_to_dib(
+            resampled, draw_w, draw_h, max_size, bg_color);
 
         auto emplaced = m_svg_cache.emplace(cache_key, std::move(bmp_data));
         it = emplaced.first;

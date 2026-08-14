@@ -11,7 +11,7 @@ add_library(ZDEPlatform
 )
 add_library(Zenvra::Platform ALIAS ZDEPlatform)
 
-target_include_directories(ZDEPlatform PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/..")
+target_include_directories(ZDEPlatform PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/.." "${PROJECT_SOURCE_DIR}")
 target_link_libraries(ZDEPlatform PUBLIC Zenvra::Core)
 
 if(WIN32)

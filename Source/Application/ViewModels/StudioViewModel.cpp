@@ -28,7 +28,7 @@ Commands::Command create_unavailable_command(
         .execute = [id = std::string(command_id)] {
             std::clog << "[ZDE] " << id << " requested (not yet implemented)\n";
         },
-        .is_enabled = [] { return true; },
+        .is_enabled = [] { return false; },
         .is_checked = {},
     };
 }
@@ -380,15 +380,19 @@ bool StudioViewModel::register_future_commands()
     add_command(create_unavailable_command(
         Commands::CommandIds::selection_copy_line_down, "Copy Line Down", "Copy current line down.", "Selection"));
     add_command(create_unavailable_command(
-        Commands::CommandIds::selection_move_line_up, "Move Line Up", "Move current line up.", "Selection"));
+        Commands::CommandIds::selection_move_line_up, "Move Line Up", "Move current line up.", "Selection",
+        Shortcut{KeyCode::Up, false, false, true}));
     add_command(create_unavailable_command(
-        Commands::CommandIds::selection_move_line_down, "Move Line Down", "Move current line down.", "Selection"));
+        Commands::CommandIds::selection_move_line_down, "Move Line Down", "Move current line down.", "Selection",
+        Shortcut{KeyCode::Down, false, false, true}));
     add_command(create_unavailable_command(
         Commands::CommandIds::selection_duplicate, "Duplicate Selection", "Duplicate selection.", "Selection"));
     add_command(create_unavailable_command(
-        Commands::CommandIds::selection_add_cursor_above, "Add Cursor Above", "Add secondary cursor above.", "Selection"));
+        Commands::CommandIds::selection_add_cursor_above, "Add Cursor Above", "Add secondary cursor above.", "Selection",
+        Shortcut{KeyCode::Up, true, true, false}));
     add_command(create_unavailable_command(
-        Commands::CommandIds::selection_add_cursor_below, "Add Cursor Below", "Add secondary cursor below.", "Selection"));
+        Commands::CommandIds::selection_add_cursor_below, "Add Cursor Below", "Add secondary cursor below.", "Selection",
+        Shortcut{KeyCode::Down, true, true, false}));
     add_command(create_unavailable_command(
         Commands::CommandIds::selection_add_cursors_to_line_ends, "Add Cursors to Line Ends", "Add cursors to line ends.", "Selection"));
     add_command(create_unavailable_command(

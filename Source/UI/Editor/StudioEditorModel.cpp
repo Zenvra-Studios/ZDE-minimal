@@ -155,8 +155,8 @@ StudioEditorPalette StudioEditorPalette::jetbrains_dark() noexcept {
       .success = {83, 157, 84, 255},
       .tooltip_background = {43, 45, 49, 255},
       .hover_background = {53, 53, 56, 255},
-      .indent_guide = {43, 45, 50, 255},
-      .indent_guide_active = {58, 60, 68, 255},
+      .indent_guide = {48, 50, 56, 255},
+      .indent_guide_active = {95, 100, 112, 255},
   };
 }
 
@@ -221,11 +221,13 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
   const float ctrl_width = (safe_top > 0.0F) ? StudioEditorMetrics::titlebar_window_controls_width * safe_scale : 0.0F;
   
   const float integrated_tab_x = std::min(nav_width, safe_width);
-  const float integrated_tab_right = std::max(safe_width - ctrl_width, integrated_tab_x);
+  const float integrated_tab_right = (safe_width > (integrated_tab_x + ctrl_width))
+                                         ? (safe_width - ctrl_width)
+                                         : integrated_tab_x;
   const UI::Rect tab_bounds{
       integrated_tab_x,
       integrated_tab_y,
-      integrated_tab_right - integrated_tab_x,
+      std::max(0.0F, integrated_tab_right - integrated_tab_x),
       integrated_tab_height,
   };
   const UI::Rect workspace_body = editor_workspace_bounds;

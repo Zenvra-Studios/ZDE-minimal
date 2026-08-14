@@ -24,6 +24,11 @@ enum class EditorInputCommand
     InsertTab,
     DeleteBackward,
     DeleteForward,
+    MoveLineUp,
+    MoveLineDown,
+    AddCursorAbove,
+    AddCursorBelow,
+    Escape,
 };
 
 struct TextPosition
@@ -38,6 +43,33 @@ struct TextSelection
 {
     TextPosition start;
     TextPosition end;
+};
+
+struct TextCursor
+{
+    std::size_t line = 0;
+    std::size_t column = 0;
+    std::size_t preferred_column = 0;
+    TextPosition selection_anchor{0, 0};
+
+    [[nodiscard]] bool has_selection() const noexcept
+    {
+        return selection_anchor != TextPosition{line, column};
+    }
+
+    [[nodiscard]] TextSelection get_selection() const noexcept
+    {
+        const TextPosition caret{line, column};
+        return selection_anchor <= caret
+            ? TextSelection{selection_anchor, caret}
+            : TextSelection{caret, selection_anchor};
+    }
+
+    auto operator<=>(const TextCursor& other) const noexcept
+    {
+        if (auto cmp = line <=> other.line; cmp != 0) return cmp;
+        return column <=> other.column;
+    }
 };
 
 class TextDocumentModel
@@ -70,6 +102,8 @@ public:
     [[nodiscard]] TextSelection get_selection() const noexcept;
     [[nodiscard]] std::string get_selected_text() const;
     [[nodiscard]] std::span<const std::string> get_lines() const noexcept;
+    [[nodiscard]] std::vector<TextCursor> get_all_cursors() const;
+    [[nodiscard]] bool has_secondary_cursors() const noexcept;
 
     bool set_caret(
         std::size_t line_index,
@@ -83,6 +117,11 @@ public:
     bool execute(EditorInputCommand command, bool extend_selection = false);
     bool delete_selection();
     bool toggle_line_comment();
+    bool move_line_up();
+    bool move_line_down();
+    bool add_cursor_above();
+    bool add_cursor_below();
+    bool clear_secondary_cursors() noexcept;
     void mark_saved() noexcept;
 
 private:
@@ -101,6 +140,7 @@ private:
     std::size_t m_caret_column = 0;
     std::size_t m_preferred_column = 0;
     TextPosition m_selection_anchor;
+    std::vector<TextCursor> m_secondary_cursors;
     bool m_dirty = false;
     bool m_read_only = false;
 };

@@ -27,15 +27,24 @@ enum class FoldMarker
     End,        ///< Last line of an expanded range (corner guide ╰).
 };
 
+/// Scope information for the active indent guide highlight near the caret.
+struct ActiveIndentScope
+{
+    std::size_t start_line = 0;
+    std::size_t end_line = 0;
+    std::size_t column = 0;
+    bool valid = false;
+};
+
 /// Computes and caches code-folding ranges and scope guide information for a
 /// text document.  The model is intentionally platform-agnostic so that both
 /// Win32 and X11 renderers can share the same folding logic.
 class EditorFoldingModel
 {
 public:
-    /// Re-analyse the document lines and rebuild the fold-range table.
+    /// Re-analyse the document lines and rebuild the fold-range table and indent guides.
     /// Call this whenever the document text changes.
-    void rebuild(const std::vector<std::string>& lines);
+    void rebuild(const std::vector<std::string>& lines, std::size_t tab_size = 4);
 
     /// Toggle the collapsed state of the fold that starts at `line_index`.
     /// Returns true if the state actually changed.
@@ -60,22 +69,30 @@ public:
     /// Check if a line is the start of any fold range.
     [[nodiscard]] bool is_fold_start(std::size_t line_index) const noexcept;
 
+    /// Returns effective indentation depth (in columns) for a given line.
+    /// Blank lines inherit indentation from surrounding context.
+    [[nodiscard]] std::size_t get_effective_indent(std::size_t line_index) const noexcept;
+
+    /// Returns the active indent guide scope enclosing `caret_line`.
+    [[nodiscard]] ActiveIndentScope get_active_indent_scope(
+        std::size_t caret_line,
+        std::size_t tab_size = 4) const noexcept;
+
     /// Returns pointers to all expanded (non-collapsed) fold ranges whose
-    /// line span overlaps the viewport [first_line, last_line].  Used by the
-    /// indent-guide renderer.
+    /// line span overlaps the viewport [first_line, last_line].
     [[nodiscard]] std::vector<const FoldRange*> get_indent_guide_ranges(
         std::size_t first_line,
         std::size_t last_line) const;
 
     /// Returns the innermost expanded fold range that contains `line_index`,
-    /// or nullptr if the line is not inside any expanded range.  Used to
-    /// highlight the "active" indent guide near the caret.
+    /// or nullptr if the line is not inside any expanded range.
     [[nodiscard]] const FoldRange* get_active_indent_range(
         std::size_t line_index) const noexcept;
 
 private:
     std::vector<FoldRange> m_ranges;
     std::unordered_set<std::size_t> m_collapsed;
+    std::vector<std::size_t> m_effective_indents;
 };
 
 } // namespace Zenvra::UI::Components

@@ -329,6 +329,18 @@ std::string_view Menubar::get_command_id(int native_command_id) noexcept
     case ID_SELECTION_SELECT_ALL:
         command_id = Commands::CommandIds::selection_select_all;
         break;
+    case ID_SELECTION_MOVE_LINE_UP:
+        command_id = Commands::CommandIds::selection_move_line_up;
+        break;
+    case ID_SELECTION_MOVE_LINE_DOWN:
+        command_id = Commands::CommandIds::selection_move_line_down;
+        break;
+    case ID_SELECTION_ADD_CURSOR_ABOVE:
+        command_id = Commands::CommandIds::selection_add_cursor_above;
+        break;
+    case ID_SELECTION_ADD_CURSOR_BELOW:
+        command_id = Commands::CommandIds::selection_add_cursor_below;
+        break;
     case ID_VIEW_EXPLORER:
         command_id = Commands::CommandIds::view_explorer;
         break;

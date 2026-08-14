@@ -7,10 +7,15 @@
 namespace Zenvra::Platform::Win32::Components
 {
 
+namespace
+{
+
 int round_to_int(float value)
 {
     return static_cast<int>(std::lround(value));
 }
+
+} // namespace
 
 void ActivitySidebar::render(
     const StudioWorkspaceRenderer& surface,

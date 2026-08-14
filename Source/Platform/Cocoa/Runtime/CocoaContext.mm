@@ -2,6 +2,7 @@
 #include "CocoaContext.h"
 #include "CocoaMenuBridge.h"
 #include <iostream>
+
 @interface ZenvraAppDelegate : NSObject <NSApplicationDelegate>
 @end
 
@@ -11,10 +12,7 @@
 }
 @end
 
-namespace Zenvra {
-namespace Platform {
-namespace Cocoa {
-namespace Runtime {
+namespace Zenvra::Platform::Cocoa::Runtime {
 
 bool CocoaContext::initialize()
 {
@@ -41,7 +39,4 @@ void CocoaContext::shutdown()
     // macOS normally handles cleanup upon application termination natively.
 }
 
-} // namespace Runtime
-} // namespace Cocoa
-} // namespace Platform
 } // namespace Zenvra

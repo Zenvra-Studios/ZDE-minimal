@@ -137,8 +137,15 @@ bool Application::initialize()
 
 void Application::show_about() const
 {
-    std::cout << m_specification.name << " v0.1.0\n"
-              << "ZDE-owned application foundation (MVVM).\n";
+    if (m_window)
+    {
+        m_window->show_about_dialog();
+    }
+    else
+    {
+        std::cout << m_specification.name << " v0.1.0\n"
+                  << "ZDE-owned application foundation (MVVM).\n";
+    }
 }
 
 } // namespace Zenvra::Application

@@ -4,6 +4,7 @@
 #include "Platform/Win32/Components/Menubar.h"
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
 #include "UI/Chrome/WindowChromeLayout.h"
+#include "UI/Components/AboutModal.h"
 #include "UI/Theme/StudioTheme.h"
 
 #include <windows.h>
@@ -46,6 +47,8 @@ public:
     void set_command_state_query_callback(CommandStateQueryCallback callback) override;
 
     [[nodiscard]] bool open_project_folder() override;
+    void show_about_dialog() override;
+    [[nodiscard]] bool is_modal_active() const override;
 
 private:
     static constexpr std::size_t max_popup_menu_items = 16;
@@ -68,6 +71,7 @@ private:
     LRESULT handle_message(HWND window_handle, UINT message, WPARAM w_param, LPARAM l_param);
     [[nodiscard]] LRESULT hit_test_non_client(LPARAM l_param);
     [[nodiscard]] LRESULT hit_test_resize_border(POINT client_position) const;
+    void enforce_sharp_corners();
     void paint_custom_chrome();
     void refresh_chrome_layout();
     void refresh_ui_font();
@@ -89,6 +93,8 @@ private:
         std::size_t menu_index,
         std::size_t item_index) const;
     void update_hovered_control(UI::Chrome::WindowControl control);
+    void draw_about_modal(HDC device_context, int client_width, int client_height);
+    void copy_to_clipboard(const std::string& text);
     static std::wstring utf8_to_wide(std::string_view text);
 
     HWND m_window_handle = nullptr;
@@ -106,6 +112,7 @@ private:
     UI::Theme::StudioTheme m_theme = UI::Theme::StudioTheme::zenvra_dark();
     UI::Chrome::WindowChromeLayout m_chrome_layout_engine;
     UI::Chrome::WindowChromeLayoutResult m_chrome_layout;
+    UI::Components::AboutModal m_about_modal;
     UI::Chrome::WindowControl m_hovered_control = UI::Chrome::WindowControl::NoControl;
     UI::Chrome::WindowControl m_pressed_control = UI::Chrome::WindowControl::NoControl;
     std::optional<std::size_t> m_hovered_menu_index;

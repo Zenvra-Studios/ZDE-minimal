@@ -9,8 +9,8 @@ namespace Zenvra::UI::Components
 namespace
 {
 
-/// Count leading whitespace characters (spaces and tabs, where tab = 4 spaces).
-std::size_t measure_indent(std::string_view line)
+/// Count leading whitespace characters (spaces and tabs, with configurable tab_size).
+std::size_t measure_line_indent(std::string_view line, std::size_t tab_size)
 {
     std::size_t indent = 0;
     for (char ch : line)
@@ -21,7 +21,7 @@ std::size_t measure_indent(std::string_view line)
         }
         else if (ch == '\t')
         {
-            indent += 4;
+            indent += tab_size;
         }
         else
         {
@@ -31,13 +31,17 @@ std::size_t measure_indent(std::string_view line)
     return indent;
 }
 
+bool is_whitespace_only(std::string_view line)
+{
+    return line.find_first_not_of(" \t\r\n") == std::string_view::npos;
+}
+
 /// Check whether a line contains an unmatched opening brace '{' that is not
 /// inside a string or comment.  This is a simplified heuristic.
 bool has_opening_brace(std::string_view line)
 {
     bool in_string = false;
     bool in_char = false;
-    char quote = '\0';
     int brace_delta = 0;
 
     for (std::size_t i = 0; i < line.size(); ++i)
@@ -55,7 +59,6 @@ bool has_opening_brace(std::string_view line)
         {
             if (ch == '"') in_string = true;
             else in_char = true;
-            quote = ch;
             continue;
         }
         if ((in_string || in_char) && ch == '\\' && i + 1 < line.size())
@@ -92,17 +95,64 @@ bool has_closing_brace(std::string_view line)
 
 } // namespace
 
-void EditorFoldingModel::rebuild(const std::vector<std::string>& lines)
+void EditorFoldingModel::rebuild(const std::vector<std::string>& lines, std::size_t tab_size)
 {
     m_ranges.clear();
+    const std::size_t count = lines.size();
+    m_effective_indents.assign(count, 0);
 
-    // Stack of (start_line, indent_level) for unmatched opening braces.
+    if (count == 0)
+    {
+        m_collapsed.clear();
+        return;
+    }
+
+    if (tab_size == 0)
+    {
+        tab_size = 4;
+    }
+
+    // 1. Compute raw indents for non-empty lines
+    std::vector<int> raw_indents(count, -1);
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        if (!is_whitespace_only(lines[i]))
+        {
+            raw_indents[i] = static_cast<int>(measure_line_indent(lines[i], tab_size));
+        }
+    }
+
+    // 2. Propagate indentation to empty lines from surrounding non-empty lines
+    int last_indent = 0;
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        if (raw_indents[i] >= 0)
+        {
+            last_indent = raw_indents[i];
+            m_effective_indents[i] = static_cast<std::size_t>(raw_indents[i]);
+        }
+        else
+        {
+            int next_indent = last_indent;
+            for (std::size_t j = i + 1; j < count; ++j)
+            {
+                if (raw_indents[j] >= 0)
+                {
+                    next_indent = raw_indents[j];
+                    break;
+                }
+            }
+            m_effective_indents[i] = static_cast<std::size_t>(std::max(last_indent, next_indent));
+        }
+    }
+
+    // 3. Stack of (start_line, indent_level) for unmatched opening braces.
     std::stack<std::pair<std::size_t, std::size_t>> open_stack;
 
     for (std::size_t i = 0; i < lines.size(); ++i)
     {
         const std::string_view line{lines[i]};
-        const std::size_t indent = measure_indent(line);
+        const std::size_t indent = m_effective_indents[i];
 
         if (has_opening_brace(line))
         {
@@ -238,6 +288,62 @@ bool EditorFoldingModel::is_fold_start(std::size_t line_index) const noexcept
         if (r.start_line == line_index) return true;
     }
     return false;
+}
+
+std::size_t EditorFoldingModel::get_effective_indent(std::size_t line_index) const noexcept
+{
+    if (line_index < m_effective_indents.size())
+    {
+        return m_effective_indents[line_index];
+    }
+    return 0;
+}
+
+ActiveIndentScope EditorFoldingModel::get_active_indent_scope(
+    std::size_t caret_line,
+    std::size_t tab_size) const noexcept
+{
+    if (caret_line >= m_effective_indents.size() || tab_size == 0)
+    {
+        return {};
+    }
+
+    const std::size_t caret_indent = m_effective_indents[caret_line];
+    if (caret_indent < tab_size)
+    {
+        return {};
+    }
+
+    // Active column is the deepest tab stop at or before caret indent
+    const std::size_t active_col = (caret_indent / tab_size) * tab_size;
+
+    std::size_t start = caret_line;
+    while (start > 0 && m_effective_indents[start - 1] >= active_col)
+    {
+        --start;
+    }
+    if (start > 0 && m_effective_indents[start - 1] < active_col)
+    {
+        --start;
+    }
+
+    std::size_t end = caret_line;
+    const std::size_t total = m_effective_indents.size();
+    while (end + 1 < total && m_effective_indents[end + 1] >= active_col)
+    {
+        ++end;
+    }
+    if (end + 1 < total && m_effective_indents[end + 1] < active_col)
+    {
+        ++end;
+    }
+
+    return ActiveIndentScope{
+        .start_line = start,
+        .end_line = end,
+        .column = active_col,
+        .valid = true
+    };
 }
 
 std::vector<const FoldRange*> EditorFoldingModel::get_indent_guide_ranges(

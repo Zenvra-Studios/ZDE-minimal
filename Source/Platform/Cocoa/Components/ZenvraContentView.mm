@@ -656,6 +656,60 @@ using namespace Zenvra::Platform::Cocoa::Components;
         return;
     }
     
+    if (_renderer->is_editor_focused()) {
+        const NSEventModifierFlags modifiers = [event modifierFlags];
+        const bool has_cmd = (modifiers & NSEventModifierFlagCommand) != 0;
+        const bool has_ctrl = (modifiers & NSEventModifierFlagControl) != 0;
+        const bool has_alt = (modifiers & NSEventModifierFlagOption) != 0;
+        const bool has_shift = (modifiers & NSEventModifierFlagShift) != 0;
+
+        NSString* chars = [event charactersIgnoringModifiers];
+        if ([chars length] == 1) {
+            const unichar character = [chars characterAtIndex:0];
+            if (character == 0x1B) {
+                if (_renderer->handle_editor_input(
+                        Zenvra::UI::Editor::EditorInputCommand::Escape, false)) {
+                    [self setNeedsDisplay:YES];
+                    return;
+                }
+            }
+
+            if ((has_ctrl && has_shift) || (has_ctrl && has_alt) || (has_cmd && has_alt) || (has_alt && has_shift)) {
+                if (character == NSUpArrowFunctionKey || [event keyCode] == 126) {
+                    if (_renderer->handle_editor_input(
+                            Zenvra::UI::Editor::EditorInputCommand::AddCursorAbove, false)) {
+                        [self setNeedsDisplay:YES];
+                    }
+                    return;
+                }
+                if (character == NSDownArrowFunctionKey || [event keyCode] == 125) {
+                    if (_renderer->handle_editor_input(
+                            Zenvra::UI::Editor::EditorInputCommand::AddCursorBelow, false)) {
+                        [self setNeedsDisplay:YES];
+                    }
+                    return;
+                }
+            }
+
+            if (has_alt && !has_cmd && !has_ctrl && !has_shift) {
+                if (character == NSUpArrowFunctionKey || [event keyCode] == 126) {
+                    if (_renderer->handle_editor_input(
+                            Zenvra::UI::Editor::EditorInputCommand::MoveLineUp, false)) {
+                        [self setNeedsDisplay:YES];
+                    }
+                    return;
+                }
+                if (character == NSDownArrowFunctionKey || [event keyCode] == 125) {
+                    if (_renderer->handle_editor_input(
+                            Zenvra::UI::Editor::EditorInputCommand::MoveLineDown, false)) {
+                        [self setNeedsDisplay:YES];
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
     // Editor path: try to pass to NSTextInputClient for proper IME handling
     if (![[self inputContext] handleEvent:event]) {
         // If not handled by IME, it's a raw key (or modifier combo)

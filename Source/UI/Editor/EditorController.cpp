@@ -80,6 +80,16 @@ bool EditorController::execute_action(EditorAction action)
             document->insert_text(m_clipboard);
     case EditorAction::ToggleComment:
         return document != nullptr && document->toggle_line_comment();
+    case EditorAction::MoveLineUp:
+        return document != nullptr && !document->is_read_only() &&
+            document->move_line_up();
+    case EditorAction::MoveLineDown:
+        return document != nullptr && !document->is_read_only() &&
+            document->move_line_down();
+    case EditorAction::AddCursorAbove:
+        return document != nullptr && document->add_cursor_above();
+    case EditorAction::AddCursorBelow:
+        return document != nullptr && document->add_cursor_below();
     }
     return false;
 }
@@ -106,6 +116,10 @@ bool EditorController::can_execute_action(EditorAction action) const noexcept
         return document != nullptr && !document->is_read_only() &&
             !m_clipboard.empty();
     case EditorAction::ToggleComment:
+    case EditorAction::MoveLineUp:
+    case EditorAction::MoveLineDown:
+    case EditorAction::AddCursorAbove:
+    case EditorAction::AddCursorBelow:
         return document != nullptr && !document->is_read_only();
     }
     return false;
@@ -150,6 +164,22 @@ std::optional<EditorAction> EditorController::action_from_command_id(
     if (command_id == edit_toggle_comment)
     {
         return EditorAction::ToggleComment;
+    }
+    if (command_id == selection_move_line_up)
+    {
+        return EditorAction::MoveLineUp;
+    }
+    if (command_id == selection_move_line_down)
+    {
+        return EditorAction::MoveLineDown;
+    }
+    if (command_id == selection_add_cursor_above)
+    {
+        return EditorAction::AddCursorAbove;
+    }
+    if (command_id == selection_add_cursor_below)
+    {
+        return EditorAction::AddCursorBelow;
     }
     return std::nullopt;
 }

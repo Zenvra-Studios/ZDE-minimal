@@ -69,4 +69,4 @@ inline constexpr const char* BlurFragmentShader = R"glsl(
 }
 )glsl";
 
-} // namespace spectrax::ui::shaders
+} // namespace Zenvra::Graphics::Shaders

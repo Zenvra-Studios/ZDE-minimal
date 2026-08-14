@@ -103,6 +103,7 @@ void TextDocumentModel::replace_contents(
     m_caret_line = 0;
     m_caret_column = 0;
     m_selection_anchor = {};
+    m_secondary_cursors.clear();
     m_dirty = false;
     update_preferred_column();
 }
@@ -232,6 +233,28 @@ std::span<const std::string> TextDocumentModel::get_lines() const noexcept
     return m_lines;
 }
 
+std::vector<TextCursor> TextDocumentModel::get_all_cursors() const
+{
+    std::vector<TextCursor> result;
+    result.reserve(1 + m_secondary_cursors.size());
+    result.push_back(TextCursor{
+        .line = m_caret_line,
+        .column = m_caret_column,
+        .preferred_column = m_preferred_column,
+        .selection_anchor = m_selection_anchor,
+    });
+    for (const auto& cursor : m_secondary_cursors)
+    {
+        result.push_back(cursor);
+    }
+    return result;
+}
+
+bool TextDocumentModel::has_secondary_cursors() const noexcept
+{
+    return !m_secondary_cursors.empty();
+}
+
 bool TextDocumentModel::set_caret(
     std::size_t line_index,
     std::size_t byte_column,
@@ -247,6 +270,7 @@ bool TextDocumentModel::set_caret(
     if (!extend_selection)
     {
         m_selection_anchor = {m_caret_line, m_caret_column};
+        m_secondary_cursors.clear();
     }
     update_preferred_column();
     return changed || (!extend_selection && had_selection);
@@ -254,6 +278,7 @@ bool TextDocumentModel::set_caret(
 
 bool TextDocumentModel::select_all() noexcept
 {
+    m_secondary_cursors.clear();
     const TextPosition previous_caret{m_caret_line, m_caret_column};
     const TextPosition previous_anchor = m_selection_anchor;
     m_selection_anchor = {};
@@ -266,6 +291,7 @@ bool TextDocumentModel::select_all() noexcept
 
 bool TextDocumentModel::select_word_at(std::size_t line_index, std::size_t byte_column)
 {
+    m_secondary_cursors.clear();
     if (m_read_only || line_index >= m_lines.size())
     {
         return false;
@@ -278,70 +304,43 @@ bool TextDocumentModel::select_word_at(std::size_t line_index, std::size_t byte_
     byte_column = clamp_to_character_boundary(line, byte_column);
     if (byte_column >= line.size())
     {
-        byte_column = previous_character_column(line, byte_column);
+        byte_column = line.size() == 0 ? 0 : previous_character_column(line, line.size());
     }
-    const char clicked = line[byte_column];
-    if (clicked == ' ' || clicked == '\t')
+    const bool clicked_word = is_word_character(line[byte_column]);
+    std::size_t start = byte_column;
+    while (start > 0)
+    {
+        const std::size_t previous = previous_character_column(line, start);
+        if (is_word_character(line[previous]) != clicked_word)
+        {
+            break;
+        }
+        start = previous;
+    }
+    std::size_t end = byte_column;
+    while (end < line.size())
+    {
+        const std::size_t next = next_character_column(line, end);
+        if (is_word_character(line[end]) != clicked_word)
+        {
+            break;
+        }
+        end = next;
+    }
+    if (start == end)
     {
         return false;
     }
-    const bool clicked_word = is_word_character(clicked);
-    std::size_t start = byte_column;
-    std::size_t end = byte_column;
-    if (clicked_word)
-    {
-        while (start > 0)
-        {
-            const std::size_t previous = previous_character_column(line, start);
-            if (!is_word_character(line[previous]))
-            {
-                break;
-            }
-            start = previous;
-        }
-        std::size_t next = next_character_column(line, end);
-        while (next < line.size() && is_word_character(line[next]))
-        {
-            end = next;
-            next = next_character_column(line, end);
-        }
-        end = next;
-    }
-    else
-    {
-        while (start > 0)
-        {
-            const std::size_t previous = previous_character_column(line, start);
-            const char character = line[previous];
-            if (character == ' ' || character == '\t' || is_word_character(character))
-            {
-                break;
-            }
-            start = previous;
-        }
-        std::size_t next = next_character_column(line, end);
-        while (next < line.size())
-        {
-            const char character = line[next];
-            if (character == ' ' || character == '\t' || is_word_character(character))
-            {
-                break;
-            }
-            end = next;
-            next = next_character_column(line, end);
-        }
-        end = next;
-    }
-
+    m_selection_anchor = {line_index, start};
     m_caret_line = line_index;
     m_caret_column = end;
-    m_selection_anchor = {line_index, start};
     update_preferred_column();
     return true;
 }
 
 bool TextDocumentModel::select_line_at(std::size_t line_index) noexcept
 {
+    m_secondary_cursors.clear();
     if (m_read_only || line_index >= m_lines.size())
     {
         return false;
@@ -358,6 +357,7 @@ bool TextDocumentModel::select_line_at(std::size_t line_index) noexcept
 
 bool TextDocumentModel::clear_selection() noexcept
 {
+    m_secondary_cursors.clear();
     if (!has_selection())
     {
         return false;
@@ -368,10 +368,60 @@ bool TextDocumentModel::clear_selection() noexcept
 
 bool TextDocumentModel::insert_text(std::string_view utf8_text)
 {
-    if (m_read_only)
+    if (m_read_only || utf8_text.empty())
     {
         return false;
     }
+
+    if (!m_secondary_cursors.empty())
+    {
+        std::vector<TextCursor> all = get_all_cursors();
+        std::sort(all.begin(), all.end(), [](const TextCursor& a, const TextCursor& b) {
+            if (a.line != b.line) return a.line > b.line;
+            return a.column > b.column;
+        });
+
+        for (auto& cur : all)
+        {
+            if (cur.has_selection())
+            {
+                const TextSelection sel = cur.get_selection();
+                if (sel.start.line == sel.end.line && sel.start.line == cur.line)
+                {
+                    m_lines[cur.line].erase(sel.start.column, sel.end.column - sel.start.column);
+                    cur.column = sel.start.column;
+                }
+            }
+            m_lines[cur.line].insert(cur.column, utf8_text);
+            cur.column += utf8_text.size();
+            cur.selection_anchor = {cur.line, cur.column};
+            cur.preferred_column = cur.column;
+        }
+
+        std::sort(all.begin(), all.end(), [](const TextCursor& a, const TextCursor& b) {
+            if (a.line != b.line) return a.line < b.line;
+            return a.column < b.column;
+        });
+
+        all.erase(std::unique(all.begin(), all.end(), [](const TextCursor& a, const TextCursor& b) {
+            return a.line == b.line && a.column == b.column;
+        }), all.end());
+
+        m_caret_line = all.front().line;
+        m_caret_column = all.front().column;
+        m_preferred_column = all.front().preferred_column;
+        m_selection_anchor = all.front().selection_anchor;
+
+        m_secondary_cursors.clear();
+        for (std::size_t i = 1; i < all.size(); ++i)
+        {
+            m_secondary_cursors.push_back(all[i]);
+        }
+
+        m_dirty = true;
+        return true;
+    }
+
     bool changed = delete_selection();
     std::size_t segment_start = 0;
     
@@ -439,10 +489,216 @@ bool TextDocumentModel::insert_text(std::string_view utf8_text)
 
 bool TextDocumentModel::execute(EditorInputCommand command, bool extend_selection)
 {
+    if (command == EditorInputCommand::AddCursorAbove)
+    {
+        return add_cursor_above();
+    }
+    if (command == EditorInputCommand::AddCursorBelow)
+    {
+        return add_cursor_below();
+    }
+    if (command == EditorInputCommand::Escape)
+    {
+        return clear_secondary_cursors();
+    }
+
+    if (!m_secondary_cursors.empty())
+    {
+        if (command == EditorInputCommand::DeleteBackward)
+        {
+            if (m_read_only) return false;
+            std::vector<TextCursor> all = get_all_cursors();
+            std::sort(all.begin(), all.end(), [](const TextCursor& a, const TextCursor& b) {
+                if (a.line != b.line) return a.line > b.line;
+                return a.column > b.column;
+            });
+            for (auto& cur : all)
+            {
+                if (cur.has_selection())
+                {
+                    const TextSelection sel = cur.get_selection();
+                    if (sel.start.line == sel.end.line && sel.start.line == cur.line)
+                    {
+                        m_lines[cur.line].erase(sel.start.column, sel.end.column - sel.start.column);
+                        cur.column = sel.start.column;
+                        cur.selection_anchor = {cur.line, cur.column};
+                        cur.preferred_column = cur.column;
+                    }
+                }
+                else if (cur.column > 0)
+                {
+                    const std::size_t erase_start = previous_character_column(m_lines[cur.line], cur.column);
+                    m_lines[cur.line].erase(erase_start, cur.column - erase_start);
+                    cur.column = erase_start;
+                    cur.selection_anchor = {cur.line, cur.column};
+                    cur.preferred_column = cur.column;
+                }
+            }
+            std::sort(all.begin(), all.end(), [](const TextCursor& a, const TextCursor& b) {
+                if (a.line != b.line) return a.line < b.line;
+                return a.column < b.column;
+            });
+            all.erase(std::unique(all.begin(), all.end(), [](const TextCursor& a, const TextCursor& b) {
+                return a.line == b.line && a.column == b.column;
+            }), all.end());
+            m_caret_line = all.front().line;
+            m_caret_column = all.front().column;
+            m_preferred_column = all.front().preferred_column;
+            m_selection_anchor = all.front().selection_anchor;
+            m_secondary_cursors.clear();
+            for (std::size_t i = 1; i < all.size(); ++i)
+            {
+                m_secondary_cursors.push_back(all[i]);
+            }
+            m_dirty = true;
+            return true;
+        }
+        if (command == EditorInputCommand::DeleteForward)
+        {
+            if (m_read_only) return false;
+            std::vector<TextCursor> all = get_all_cursors();
+            std::sort(all.begin(), all.end(), [](const TextCursor& a, const TextCursor& b) {
+                if (a.line != b.line) return a.line > b.line;
+                return a.column > b.column;
+            });
+            for (auto& cur : all)
+            {
+                if (cur.has_selection())
+                {
+                    const TextSelection sel = cur.get_selection();
+                    if (sel.start.line == sel.end.line && sel.start.line == cur.line)
+                    {
+                        m_lines[cur.line].erase(sel.start.column, sel.end.column - sel.start.column);
+                        cur.column = sel.start.column;
+                        cur.selection_anchor = {cur.line, cur.column};
+                        cur.preferred_column = cur.column;
+                    }
+                }
+                else if (cur.column < m_lines[cur.line].size())
+                {
+                    const std::size_t next_col = next_character_column(m_lines[cur.line], cur.column);
+                    m_lines[cur.line].erase(cur.column, next_col - cur.column);
+                    cur.selection_anchor = {cur.line, cur.column};
+                    cur.preferred_column = cur.column;
+                }
+            }
+            std::sort(all.begin(), all.end(), [](const TextCursor& a, const TextCursor& b) {
+                if (a.line != b.line) return a.line < b.line;
+                return a.column < b.column;
+            });
+            all.erase(std::unique(all.begin(), all.end(), [](const TextCursor& a, const TextCursor& b) {
+                return a.line == b.line && a.column == b.column;
+            }), all.end());
+            m_caret_line = all.front().line;
+            m_caret_column = all.front().column;
+            m_preferred_column = all.front().preferred_column;
+            m_selection_anchor = all.front().selection_anchor;
+            m_secondary_cursors.clear();
+            for (std::size_t i = 1; i < all.size(); ++i)
+            {
+                m_secondary_cursors.push_back(all[i]);
+            }
+            m_dirty = true;
+            return true;
+        }
+        if (command == EditorInputCommand::MoveLeft)
+        {
+            std::vector<TextCursor> all = get_all_cursors();
+            for (auto& cur : all)
+            {
+                if (cur.column > 0)
+                {
+                    cur.column = previous_character_column(m_lines[cur.line], cur.column);
+                }
+                cur.preferred_column = cur.column;
+                if (!extend_selection) cur.selection_anchor = {cur.line, cur.column};
+            }
+            m_caret_line = all.front().line;
+            m_caret_column = all.front().column;
+            m_preferred_column = all.front().preferred_column;
+            m_selection_anchor = all.front().selection_anchor;
+            m_secondary_cursors.clear();
+            for (std::size_t i = 1; i < all.size(); ++i)
+            {
+                m_secondary_cursors.push_back(all[i]);
+            }
+            return true;
+        }
+        if (command == EditorInputCommand::MoveRight)
+        {
+            std::vector<TextCursor> all = get_all_cursors();
+            for (auto& cur : all)
+            {
+                if (cur.column < m_lines[cur.line].size())
+                {
+                    cur.column = next_character_column(m_lines[cur.line], cur.column);
+                }
+                cur.preferred_column = cur.column;
+                if (!extend_selection) cur.selection_anchor = {cur.line, cur.column};
+            }
+            m_caret_line = all.front().line;
+            m_caret_column = all.front().column;
+            m_preferred_column = all.front().preferred_column;
+            m_selection_anchor = all.front().selection_anchor;
+            m_secondary_cursors.clear();
+            for (std::size_t i = 1; i < all.size(); ++i)
+            {
+                m_secondary_cursors.push_back(all[i]);
+            }
+            return true;
+        }
+        if (command == EditorInputCommand::MoveHome)
+        {
+            std::vector<TextCursor> all = get_all_cursors();
+            for (auto& cur : all)
+            {
+                cur.column = 0;
+                cur.preferred_column = 0;
+                if (!extend_selection) cur.selection_anchor = {cur.line, 0};
+            }
+            m_caret_line = all.front().line;
+            m_caret_column = 0;
+            m_preferred_column = 0;
+            m_selection_anchor = all.front().selection_anchor;
+            m_secondary_cursors.clear();
+            for (std::size_t i = 1; i < all.size(); ++i)
+            {
+                m_secondary_cursors.push_back(all[i]);
+            }
+            return true;
+        }
+        if (command == EditorInputCommand::MoveEnd)
+        {
+            std::vector<TextCursor> all = get_all_cursors();
+            for (auto& cur : all)
+            {
+                cur.column = m_lines[cur.line].size();
+                cur.preferred_column = cur.column;
+                if (!extend_selection) cur.selection_anchor = {cur.line, cur.column};
+            }
+            m_caret_line = all.front().line;
+            m_caret_column = all.front().column;
+            m_preferred_column = all.front().preferred_column;
+            m_selection_anchor = all.front().selection_anchor;
+            m_secondary_cursors.clear();
+            for (std::size_t i = 1; i < all.size(); ++i)
+            {
+                m_secondary_cursors.push_back(all[i]);
+            }
+            return true;
+        }
+        if (command == EditorInputCommand::MoveUp || command == EditorInputCommand::MoveDown)
+        {
+            clear_secondary_cursors();
+        }
+    }
+
     const bool editing_command = command == EditorInputCommand::InsertNewLine ||
         command == EditorInputCommand::InsertTab ||
         command == EditorInputCommand::DeleteBackward ||
-        command == EditorInputCommand::DeleteForward;
+        command == EditorInputCommand::DeleteForward ||
+        command == EditorInputCommand::MoveLineUp ||
+        command == EditorInputCommand::MoveLineDown;
     if (m_read_only && editing_command)
     {
         return false;
@@ -552,6 +808,10 @@ bool TextDocumentModel::execute(EditorInputCommand command, bool extend_selectio
             edited = true;
         }
         break;
+    case EditorInputCommand::MoveLineUp:
+        return move_line_up();
+    case EditorInputCommand::MoveLineDown:
+        return move_line_down();
     }
     if (edited)
     {
@@ -657,6 +917,206 @@ bool TextDocumentModel::toggle_line_comment()
     m_dirty = true;
     update_preferred_column();
     return true;
+}
+
+bool TextDocumentModel::move_line_up()
+{
+    if (m_read_only || m_lines.empty())
+    {
+        return false;
+    }
+
+    std::size_t start_line = m_caret_line;
+    std::size_t end_line = m_caret_line;
+    if (has_selection())
+    {
+        const TextSelection selection = get_selection();
+        start_line = selection.start.line;
+        end_line = (selection.end.column == 0 && selection.end.line > selection.start.line)
+            ? selection.end.line - 1
+            : selection.end.line;
+    }
+
+    if (start_line == 0)
+    {
+        return false;
+    }
+
+    std::rotate(
+        m_lines.begin() + static_cast<std::ptrdiff_t>(start_line - 1),
+        m_lines.begin() + static_cast<std::ptrdiff_t>(start_line),
+        m_lines.begin() + static_cast<std::ptrdiff_t>(end_line + 1));
+
+    --m_caret_line;
+    if (has_selection())
+    {
+        --m_selection_anchor.line;
+        m_selection_anchor.column = clamp_to_character_boundary(
+            m_lines[m_selection_anchor.line], m_selection_anchor.column);
+    }
+    else
+    {
+        m_selection_anchor = {m_caret_line, m_caret_column};
+    }
+    m_caret_column = clamp_to_character_boundary(m_lines[m_caret_line], m_caret_column);
+
+    m_dirty = true;
+    update_preferred_column();
+    return true;
+}
+
+bool TextDocumentModel::move_line_down()
+{
+    if (m_read_only || m_lines.empty())
+    {
+        return false;
+    }
+
+    std::size_t start_line = m_caret_line;
+    std::size_t end_line = m_caret_line;
+    if (has_selection())
+    {
+        const TextSelection selection = get_selection();
+        start_line = selection.start.line;
+        end_line = (selection.end.column == 0 && selection.end.line > selection.start.line)
+            ? selection.end.line - 1
+            : selection.end.line;
+    }
+
+    if (end_line + 1 >= m_lines.size())
+    {
+        return false;
+    }
+
+    std::rotate(
+        m_lines.begin() + static_cast<std::ptrdiff_t>(start_line),
+        m_lines.begin() + static_cast<std::ptrdiff_t>(end_line + 1),
+        m_lines.begin() + static_cast<std::ptrdiff_t>(end_line + 2));
+
+    ++m_caret_line;
+    if (has_selection())
+    {
+        ++m_selection_anchor.line;
+        m_selection_anchor.column = clamp_to_character_boundary(
+            m_lines[m_selection_anchor.line], m_selection_anchor.column);
+    }
+    else
+    {
+        m_selection_anchor = {m_caret_line, m_caret_column};
+    }
+    m_caret_column = clamp_to_character_boundary(m_lines[m_caret_line], m_caret_column);
+
+    m_dirty = true;
+    update_preferred_column();
+    return true;
+}
+
+bool TextDocumentModel::add_cursor_above()
+{
+    if (m_lines.empty())
+    {
+        return false;
+    }
+
+    std::size_t min_line = m_caret_line;
+    std::size_t preferred_col = m_preferred_column;
+    for (const auto& cur : m_secondary_cursors)
+    {
+        if (cur.line < min_line)
+        {
+            min_line = cur.line;
+            preferred_col = cur.preferred_column;
+        }
+    }
+
+    if (min_line == 0)
+    {
+        return false;
+    }
+
+    const std::size_t target_line = min_line - 1;
+    const std::size_t target_col = clamp_to_character_boundary(
+        m_lines[target_line], preferred_col);
+
+    if (m_caret_line == target_line && m_caret_column == target_col)
+    {
+        return false;
+    }
+    for (const auto& cur : m_secondary_cursors)
+    {
+        if (cur.line == target_line && cur.column == target_col)
+        {
+            return false;
+        }
+    }
+
+    m_secondary_cursors.push_back(TextCursor{
+        .line = target_line,
+        .column = target_col,
+        .preferred_column = preferred_col,
+        .selection_anchor = {target_line, target_col},
+    });
+
+    return true;
+}
+
+bool TextDocumentModel::add_cursor_below()
+{
+    if (m_lines.empty())
+    {
+        return false;
+    }
+
+    std::size_t max_line = m_caret_line;
+    std::size_t preferred_col = m_preferred_column;
+    for (const auto& cur : m_secondary_cursors)
+    {
+        if (cur.line > max_line)
+        {
+            max_line = cur.line;
+            preferred_col = cur.preferred_column;
+        }
+    }
+
+    if (max_line + 1 >= m_lines.size())
+    {
+        return false;
+    }
+
+    const std::size_t target_line = max_line + 1;
+    const std::size_t target_col = clamp_to_character_boundary(
+        m_lines[target_line], preferred_col);
+
+    if (m_caret_line == target_line && m_caret_column == target_col)
+    {
+        return false;
+    }
+    for (const auto& cur : m_secondary_cursors)
+    {
+        if (cur.line == target_line && cur.column == target_col)
+        {
+            return false;
+        }
+    }
+
+    m_secondary_cursors.push_back(TextCursor{
+        .line = target_line,
+        .column = target_col,
+        .preferred_column = preferred_col,
+        .selection_anchor = {target_line, target_col},
+    });
+
+    return true;
+}
+
+bool TextDocumentModel::clear_secondary_cursors() noexcept
+{
+    if (!m_secondary_cursors.empty())
+    {
+        m_secondary_cursors.clear();
+        return true;
+    }
+    return false;
 }
 
 void TextDocumentModel::mark_saved() noexcept

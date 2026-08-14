@@ -31,19 +31,69 @@ static std::filesystem::path current_terminal_directory(const std::filesystem::p
     return std::filesystem::path{};
 }
 
-bool TerminalPanel::toggle() { return m_model.toggle(current_terminal_directory(m_working_directory)); }
+static std::string utf8_substr_columns(std::string_view s, std::size_t start_col, std::size_t count_col)
+{
+  if (s.empty()) return {};
+  std::size_t col = 0;
+  std::size_t byte_start = s.size();
+  std::size_t byte_end = s.size();
+
+  for (std::size_t i = 0; i < s.size(); )
+  {
+    if (col == start_col)
+    {
+      byte_start = i;
+    }
+    if (col == start_col + count_col)
+    {
+      byte_end = i;
+      break;
+    }
+    unsigned char c = static_cast<unsigned char>(s[i]);
+    std::size_t len = 1;
+    if ((c & 0x80) == 0) len = 1;
+    else if ((c & 0xE0) == 0xC0) len = 2;
+    else if ((c & 0xF0) == 0xE0) len = 3;
+    else if ((c & 0xF8) == 0xF0) len = 4;
+
+    len = std::min(len, s.size() - i);
+    i += len;
+    ++col;
+  }
+  if (byte_start >= s.size()) return {};
+  return std::string(s.substr(byte_start, byte_end - byte_start));
+}
+
+static void copy_text_to_clipboard(const std::string& text) {
+  if (text.empty()) return;
+  NSPasteboard* pb = [NSPasteboard generalPasteboard];
+  [pb clearContents];
+  [pb setString:[NSString stringWithUTF8String:text.c_str()] forType:NSPasteboardTypeString];
+}
+
+} // namespace
+
+namespace Zenvra::Platform::Cocoa::Components {
+
+bool TerminalPanel::toggle() {
+  const bool was_visible = m_model.is_visible();
+  const bool changed = m_model.toggle(current_terminal_directory(m_working_directory));
+  if (m_model.is_visible() && !was_visible) {
+    m_resize_model.reset();
+  } else if (!m_model.is_visible()) {
+    static_cast<void>(m_resize_model.end_resize());
+    static_cast<void>(m_resize_model.set_hovered(false));
+  }
+  return changed;
+}
 
 bool TerminalPanel::handle_pointer_press(
     const UI::Editor::StudioEditorLayoutResult &layout, float px, float py,
     double event_time) {
   if (is_resize_handle_point(layout, px, py)) {
-    constexpr double double_click_interval = 0.4;
-    const float maximum_distance = 5.0F * layout.dpi_scale;
-    const bool double_click = m_last_resize_click_time != 0.0 &&
-        event_time - m_last_resize_click_time <= double_click_interval &&
-        std::abs(px - m_last_resize_click_x) <= maximum_distance &&
-        std::abs(py - m_last_resize_click_y) <= maximum_distance;
-    if (double_click) {
+    if (event_time - m_last_resize_click_time < 0.35 &&
+        std::abs(px - m_last_resize_click_x) < 4.0F &&
+        std::abs(py - m_last_resize_click_y) < 4.0F) {
       m_last_resize_click_time = 0.0;
       return m_resize_model.toggle_maximized();
     }
@@ -71,6 +121,26 @@ bool TerminalPanel::handle_pointer_press(
       return true;
     }
   }
+  if (layout.terminal_content_bounds.contains(px, py)) {
+    const float line_height = std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+    const float padding_x = 10.0F * layout.dpi_scale;
+    const float content_top_padding = 5.0F * layout.dpi_scale;
+    const float local_y = py - (layout.terminal_content_bounds.y + content_top_padding);
+    const int row = static_cast<int>(std::floor(local_y / line_height));
+    const std::size_t offset = std::min(m_model.get_scroll_offset(), m_last_total_rows);
+    const std::size_t end = m_last_total_rows > offset ? m_last_total_rows - offset : 0;
+    const std::size_t start = end > m_last_visible_rows ? end - m_last_visible_rows : 0;
+    const std::size_t line_idx = start + std::clamp(row, 0, static_cast<int>(m_last_visible_rows > 0 ? m_last_visible_rows - 1 : 0));
+
+    const float local_x = px - (layout.terminal_content_bounds.x + padding_x);
+    const float glyph_w = std::max(8.0F * layout.dpi_scale, 1.0F);
+    const int col = static_cast<int>(std::round(local_x / glyph_w));
+    const std::size_t col_idx = std::max(0, col);
+
+    m_model.start_selection(line_idx, col_idx);
+    return true;
+  }
+  m_model.clear_selection();
   return true;
 }
 
@@ -95,13 +165,21 @@ bool TerminalPanel::handle_pointer_release() noexcept {
 
 bool TerminalPanel::handle_text_input(std::string_view text) {
   m_cursor_blink.reset();
+  m_model.clear_selection();
   return m_model.send_text(text);
 }
 bool TerminalPanel::handle_key(Terminal::TerminalInputKey key) {
   m_cursor_blink.reset();
+  m_model.clear_selection();
   return m_model.send_key(key);
 }
 bool TerminalPanel::handle_control(char letter) {
+  if ((letter == 'c' || letter == 'C') && m_model.has_selection()) {
+    const std::string sel_text = m_model.get_selected_text();
+    copy_text_to_clipboard(sel_text);
+    m_model.clear_selection();
+    return true;
+  }
   m_cursor_blink.reset();
   return m_model.send_control(letter);
 }
@@ -333,25 +411,42 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
     m_force_horizontal_scroll_to_cursor = false;
   }
 
-  const std::size_t end = lines.size() - offset;
-  const std::size_t start = end > visible_rows ? end - visible_rows : 0;
-  const std::size_t displayed_rows = end - start;
+  const std::size_t end = session->is_in_alternate_screen()
+      ? std::min(lines.size(), visible_rows)
+      : (lines.size() - offset);
+  const std::size_t start = session->is_in_alternate_screen()
+      ? 0
+      : (end > visible_rows ? end - visible_rows : 0);
 
   surface.push_clip(context, layout.terminal_content_bounds);
 
   const float first_center_y = layout.terminal_content_bounds.y + content_top_padding +
                                line_height * 0.5F;
-  float current_y = first_center_y;
+  const Terminal::TerminalSelection& selection = m_model.get_selection();
+  const bool has_selection = m_model.has_selection();
+
   for (std::size_t index = start; index < end; ++index) {
-    const std::size_t h_offset = m_horizontal_scroll_offset;
-    const std::size_t len = lines[index].size();
-    const std::string_view line =
-        len > h_offset
-            ? std::string_view{lines[index]}.substr(
-                  h_offset, std::min(visible_columns, len - h_offset))
-            : std::string_view{};
+    const std::string& line = lines[index];
+    const std::size_t len = line.size();
+
+    if (has_selection && selection.intersects_line(index)) {
+      const auto [col_start, col_end] = selection.get_line_range(index, len);
+      if (col_end > col_start) {
+        const std::string pre_sel = utf8_substr_columns(line, 0, col_start);
+        const std::string sel_str = utf8_substr_columns(line, col_start, col_end - col_start);
+        const int sel_x = round_to_int(layout.terminal_content_bounds.x + padding_x) +
+            surface.m_editor_font->getTextWidth(pre_sel);
+        const int sel_w = std::max(surface.m_editor_font->getTextWidth(sel_str), 4);
+
+        surface.fill_rectangle(
+            context,
+            UI::Rect{static_cast<float>(sel_x), current_y - line_height * 0.5F, static_cast<float>(sel_w), line_height},
+            surface.m_colors.accent);
+      }
+    }
+
     if (!line.empty()) {
-      surface.draw_text(context, *surface.m_editor_font, std::string(line),
+      surface.draw_text(context, *surface.m_editor_font, line,
                         layout.terminal_content_bounds.x + padding_x,
                         current_y, surface.m_text.primary);
     }
@@ -381,45 +476,30 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
         surface.m_colors.text_muted, 1.0F * surface.m_dpi_scale);
   }
 
-  // Horizontal scrollbar
-  if (max_line_length > visible_columns) {
-    const float track_left = layout.terminal_content_bounds.x + padding_x;
-    const float track_right = layout.terminal_content_bounds.right() - 14.0F * surface.m_dpi_scale;
-    const float track_width = std::max(track_right - track_left, 1.0F);
-    const float thumb_width = std::max(
-        track_width * static_cast<float>(visible_columns) / static_cast<float>(max_line_length),
-        18.0F * surface.m_dpi_scale);
-    const std::size_t maximum_start = max_line_length - visible_columns;
-    const float progress = maximum_start == 0 ? 0.0F
-        : static_cast<float>(m_horizontal_scroll_offset) / static_cast<float>(maximum_start);
-
-    surface.fill_rectangle(
-        context,
-        UI::Rect{
-            track_left + progress * std::max(track_width - thumb_width, 0.0F),
-            layout.terminal_content_bounds.bottom() - 4.0F * surface.m_dpi_scale,
-            std::min(thumb_width, track_width), 2.0F * surface.m_dpi_scale},
-        surface.m_colors.text_muted);
-  }
-
   // Blinking cursor
-  if (is_focused() && offset == 0 && !lines.empty() && m_cursor_blink.is_visible()) {
-    const std::size_t h_offset = m_horizontal_scroll_offset;
-    const std::string &last = lines.back();
-    const std::size_t len = last.size();
-    const std::string cursor_text =
-        len > h_offset
-            ? last.substr(h_offset, std::min(visible_columns, len - h_offset))
-            : "";
+  const std::size_t cursor_line_idx = session->get_cursor_line();
+  const std::size_t cursor_col_idx = session->get_cursor_column();
+  if (is_focused() && cursor_line_idx >= start && cursor_line_idx < end && m_cursor_blink.is_visible()) {
+    const std::size_t visual_row = cursor_line_idx - start;
+    const float line_center_y = first_center_y + static_cast<float>(visual_row) * line_height;
+    const float caret_height = line_height - 2.0F * surface.m_dpi_scale;
+    const float caret_width = std::max(2.0F * surface.m_dpi_scale, 1.5F);
+
+    std::string cursor_prefix;
+    if (cursor_line_idx < lines.size()) {
+      const std::string &target_line = lines[cursor_line_idx];
+      if (cursor_col_idx > 0) {
+        cursor_prefix = utf8_substr_columns(target_line, 0, cursor_col_idx);
+      }
+    }
 
     const int cursor_x = round_to_int(layout.terminal_content_bounds.x + padding_x) +
-        surface.m_editor_font->getTextWidth(cursor_text) + round_to_int(6.0F * surface.m_dpi_scale);
-    const float cursor_y = first_center_y + static_cast<float>(displayed_rows - 1) * line_height -
-        line_height * 0.5F;
+        surface.m_editor_font->getTextWidth(cursor_prefix);
+    const float cursor_y = line_center_y - caret_height * 0.5F;
     surface.fill_rectangle(
         context,
         UI::Rect{static_cast<float>(cursor_x), cursor_y,
-            std::max(surface.m_dpi_scale, 1.0F), line_height - 2.0F * surface.m_dpi_scale},
+            caret_width, caret_height},
         surface.m_colors.text_primary);
   }
 }

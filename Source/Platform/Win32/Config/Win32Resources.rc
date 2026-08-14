@@ -18,7 +18,7 @@ BEGIN
     POPUP "&Edit"
     BEGIN
         MENUITEM "&Undo\tCtrl+Z", ID_EDIT_UNDO, GRAYED
-        MENUITEM "&Redo", ID_EDIT_REDO, GRAYED
+        MENUITEM "&Redo\tCtrl+Y", ID_EDIT_REDO, GRAYED
         MENUITEM SEPARATOR
         MENUITEM "Cu&t\tCtrl+X", ID_EDIT_CUT, GRAYED
         MENUITEM "&Copy\tCtrl+C", ID_EDIT_COPY, GRAYED
@@ -27,13 +27,19 @@ BEGIN
     POPUP "&Selection"
     BEGIN
         MENUITEM "Select &All\tCtrl+A", ID_SELECTION_SELECT_ALL, GRAYED
+        MENUITEM SEPARATOR
+        MENUITEM "Move Line &Up\tAlt+Up", ID_SELECTION_MOVE_LINE_UP, GRAYED
+        MENUITEM "Move Line &Down\tAlt+Down", ID_SELECTION_MOVE_LINE_DOWN, GRAYED
+        MENUITEM SEPARATOR
+        MENUITEM "Add Cursor &Above\tCtrl+Alt+Up", ID_SELECTION_ADD_CURSOR_ABOVE, GRAYED
+        MENUITEM "Add Cursor &Below\tCtrl+Alt+Down", ID_SELECTION_ADD_CURSOR_BELOW, GRAYED
     END
     POPUP "&View"
     BEGIN
-        MENUITEM "&Explorer", ID_VIEW_EXPLORER, GRAYED
-        MENUITEM "&Search", ID_VIEW_SEARCH, GRAYED
-        MENUITEM "&Output", ID_VIEW_OUTPUT, GRAYED
-        MENUITEM "&Problems", ID_VIEW_PROBLEMS, GRAYED
+        MENUITEM "&Explorer\tCtrl+Shift+E", ID_VIEW_EXPLORER, GRAYED
+        MENUITEM "&Search\tCtrl+Shift+F", ID_VIEW_SEARCH, GRAYED
+        MENUITEM "&Output\tCtrl+`", ID_VIEW_OUTPUT, GRAYED
+        MENUITEM "&Problems\tCtrl+Shift+M", ID_VIEW_PROBLEMS, GRAYED
     END
     POPUP "&Navigate"
     BEGIN
@@ -41,21 +47,21 @@ BEGIN
     END
     POPUP "&Project"
     BEGIN
-        MENUITEM "&Open Project...", ID_PROJECT_OPEN, GRAYED
-        MENUITEM "&Close Project", ID_PROJECT_CLOSE, GRAYED
+        MENUITEM "&Open Project...\tCtrl+K Ctrl+O", ID_PROJECT_OPEN, GRAYED
+        MENUITEM "&Close Project\tCtrl+K F", ID_PROJECT_CLOSE, GRAYED
     END
     POPUP "&Build"
     BEGIN
-        MENUITEM "&Build Project", ID_BUILD_PROJECT, GRAYED
+        MENUITEM "&Build Project\tCtrl+Shift+B", ID_BUILD_PROJECT, GRAYED
     END
     POPUP "&Run"
     BEGIN
-        MENUITEM "&Start", ID_RUN_START, GRAYED
+        MENUITEM "&Start\tF5", ID_RUN_START, GRAYED
     END
     POPUP "&Window"
     BEGIN
         MENUITEM "&Reset Layout", ID_WINDOW_RESET_LAYOUT, GRAYED
-        MENUITEM "Toggle &Fullscreen", ID_WINDOW_TOGGLE_FULLSCREEN, GRAYED
+        MENUITEM "Toggle &Fullscreen\tF11", ID_WINDOW_TOGGLE_FULLSCREEN, GRAYED
     END
     POPUP "&Help"
     BEGIN

@@ -1560,6 +1560,47 @@ void X11Window::handle_key_press(XKeyEvent &event) {
 
   if (!m_interaction_state.open_menu_index &&
       !m_interaction_state.overflow_menu_open &&
+      m_chrome_renderer.is_editor_focused()) {
+    const bool alt_pressed = (event.state & Mod1Mask) != 0;
+    const bool ctrl_pressed = (event.state & ControlMask) != 0;
+    const bool shift_pressed = (event.state & ShiftMask) != 0;
+
+    if (key_symbol == XK_Escape) {
+      if (m_chrome_renderer.handle_editor_input(UI::Editor::EditorInputCommand::Escape, false)) {
+        render();
+        return;
+      }
+    }
+
+    if ((ctrl_pressed && shift_pressed && (key_symbol == XK_Up || key_symbol == XK_KP_Up || key_symbol == XK_Down || key_symbol == XK_KP_Down)) ||
+        (ctrl_pressed && alt_pressed && (key_symbol == XK_Up || key_symbol == XK_KP_Up || key_symbol == XK_Down || key_symbol == XK_KP_Down))) {
+      const auto cmd = (key_symbol == XK_Up || key_symbol == XK_KP_Up)
+          ? UI::Editor::EditorInputCommand::AddCursorAbove
+          : UI::Editor::EditorInputCommand::AddCursorBelow;
+      if (m_chrome_renderer.handle_editor_input(cmd, false)) {
+        render();
+      }
+      return;
+    }
+
+    if (alt_pressed && !ctrl_pressed) {
+      std::optional<UI::Editor::EditorInputCommand> editor_command;
+      if (key_symbol == XK_Up || key_symbol == XK_KP_Up) {
+        editor_command = UI::Editor::EditorInputCommand::MoveLineUp;
+      } else if (key_symbol == XK_Down || key_symbol == XK_KP_Down) {
+        editor_command = UI::Editor::EditorInputCommand::MoveLineDown;
+      }
+      if (editor_command) {
+        if (m_chrome_renderer.handle_editor_input(*editor_command, false)) {
+          render();
+        }
+        return;
+      }
+    }
+  }
+
+  if (!m_interaction_state.open_menu_index &&
+      !m_interaction_state.overflow_menu_open &&
       m_chrome_renderer.is_editor_focused() && (event.state & Mod1Mask) == 0) {
     std::optional<UI::Editor::EditorInputCommand> editor_command;
     switch (key_symbol) {
