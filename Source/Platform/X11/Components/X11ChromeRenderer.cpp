@@ -442,6 +442,8 @@ void X11ChromeRenderer::render(
     if (interaction_state.overflow_menu_hovered ||
         interaction_state.overflow_menu_open || hidden_menu_open) {
       UI::Rect hover_bounds = chrome_layout.overflow_menu_bounds;
+      hover_bounds.x += 2.0F * m_dpi_scale;
+      hover_bounds.width -= 4.0F * m_dpi_scale;
       hover_bounds.y += 4.0F * m_dpi_scale;
       hover_bounds.height -= 8.0F * m_dpi_scale;
       fill_rectangle(back_buffer, hover_bounds, m_colors.hover, 4, m_colors.titlebar_background);
@@ -455,11 +457,14 @@ void X11ChromeRenderer::render(
         round_to_int(chrome_layout.overflow_menu_bounds.y +
                      chrome_layout.overflow_menu_bounds.height * 0.5F);
     XSetForeground(m_display, m_graphics_context, m_colors.text_primary);
+    const int line_thickness = std::max(1, round_to_int(m_dpi_scale));
+    XSetLineAttributes(m_display, m_graphics_context, line_thickness, LineSolid, CapRound, JoinRound);
     for (int row = -1; row <= 1; ++row) {
       XDrawLine(m_display, back_buffer, m_graphics_context,
                 center_x - line_half_width, center_y + row * line_gap,
                 center_x + line_half_width, center_y + row * line_gap);
     }
+    XSetLineAttributes(m_display, m_graphics_context, 1, LineSolid, CapButt, JoinMiter);
   }
 
   const float scale = chrome_layout.dpi_scale;

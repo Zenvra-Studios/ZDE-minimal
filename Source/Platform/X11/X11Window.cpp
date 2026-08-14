@@ -225,6 +225,26 @@ void X11Window::poll_events() {
                        reinterpret_cast<XPointer>(&target)) != 0) {
     if (target.popup_window != 0 && event.xany.window == target.popup_window && event.type != MappingNotify) {
       m_chrome_renderer.handle_popup_event(event);
+      if (const auto command = m_chrome_renderer.take_popup_command()) {
+        m_interaction_state.open_menu_index.reset();
+        m_interaction_state.overflow_menu_open = false;
+        m_interaction_state.hovered_popup_item_index.reset();
+        m_interaction_state.hovered_overflow_menu_index.reset();
+        m_pressed_popup_item_index.reset();
+        m_menu_pointer_tracking = false;
+        render();
+        if (!command->empty()) {
+          const std::optional<bool> editor_result =
+              m_chrome_renderer.handle_editor_command(*command);
+          if (editor_result) {
+            if (*editor_result) {
+              render();
+            }
+          } else if (m_command_invoked_callback) {
+            m_command_invoked_callback(*command);
+          }
+        }
+      }
     } else {
       handle_event(event);
     }
@@ -607,6 +627,7 @@ void X11Window::refresh_chrome_layout() {
       static_cast<float>(m_client_width), m_dpi_scale,
       UI::Chrome::WindowChromeLayoutOptions{
           .show_window_controls = m_custom_chrome_enabled,
+          .hamburger_only = true,
       });
 }
 
@@ -1020,12 +1041,22 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
   }
 
   if (m_chrome_layout.is_overflow_menu(point_x, point_y)) {
-    // Close any overlay dropdown first
-    m_interaction_state.open_menu_index.reset();
-    m_interaction_state.hovered_popup_item_index.reset();
-    m_interaction_state.hovered_overflow_menu_index.reset();
-    m_menu_pointer_tracking = true;
-    m_interaction_state.overflow_menu_open = true;
+    if (m_interaction_state.overflow_menu_open) {
+      m_chrome_renderer.close_popup();
+      m_interaction_state.open_menu_index.reset();
+      m_interaction_state.hovered_popup_item_index.reset();
+      m_interaction_state.hovered_overflow_menu_index.reset();
+      m_interaction_state.overflow_menu_open = false;
+      m_menu_pointer_tracking = false;
+      m_pressed_popup_item_index.reset();
+    } else {
+      m_chrome_renderer.close_popup();
+      m_interaction_state.open_menu_index.reset();
+      m_interaction_state.hovered_popup_item_index.reset();
+      m_interaction_state.hovered_overflow_menu_index.reset();
+      m_menu_pointer_tracking = true;
+      m_interaction_state.overflow_menu_open = true;
+    }
     render();
     return;
   }
@@ -1374,6 +1405,7 @@ void X11Window::handle_key_press(XKeyEvent &event) {
 
   if (key_symbol == XK_Escape && (m_interaction_state.open_menu_index ||
                                   m_interaction_state.overflow_menu_open)) {
+    m_chrome_renderer.close_popup();
     m_interaction_state.open_menu_index.reset();
     m_interaction_state.overflow_menu_open = false;
     m_interaction_state.hovered_popup_item_index.reset();

@@ -332,6 +332,7 @@ void CocoaWindow::refresh_chrome_layout()
     UI::Chrome::WindowChromeLayoutOptions options;
     options.show_window_controls = false; // Let macOS native traffic lights handle this
     options.show_titlebar = m_custom_chrome_enabled;
+    options.hamburger_only = false;
     options.chrome_style = m_custom_chrome_enabled ? UI::Chrome::ChromeStyle::FullCustom : UI::Chrome::ChromeStyle::NativeMacOS;
     if (m_custom_chrome_enabled) {
         options.titlebar_height = 36.0F; // Taller custom strip; traffic lights are re-centered below

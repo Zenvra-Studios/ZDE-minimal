@@ -231,7 +231,7 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(
        result.visible_menu_count < window_menu_count)
           ? metrics.overflow_menu_width * safe_scale
           : 0.0F;
-  if (hamburger_width > 0.0F && current_x + hamburger_width <= menu_limit) {
+  if (hamburger_width > 0.0F && current_x + hamburger_width <= controls_start) {
     result.overflow_menu_bounds = {current_x, 0.0F, hamburger_width, titlebar_height};
   }
 
