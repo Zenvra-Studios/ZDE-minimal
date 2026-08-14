@@ -38,13 +38,6 @@ add_custom_target(ZDE_Manifest DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/manifest-run
 add_dependencies(ZDE ZDE_Manifest)
 
 if(APPLE)
-    # Bundle icons/fonts so the workspace renderer can resolve them even when
-    # the .app is launched from Finder/Xcode (CWD is not the source tree).
-    add_custom_command(TARGET ZDE POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_SOURCE_DIR}/Assets"
-        "$<TARGET_BUNDLE_CONTENT_DIR:ZDE>/Resources/Assets"
-    )
     # main.cpp resolves runtime.json relative to the executable directory,
     # which inside a .app is Contents/MacOS. The stamp-driven rule above also
     # copies it; this one just guarantees presence after the bundle link.
