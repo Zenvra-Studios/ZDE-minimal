@@ -2,6 +2,7 @@ add_subdirectory(Core)
 add_subdirectory(Commands)
 add_subdirectory(UI)
 add_subdirectory(Terminal)
+add_subdirectory(Services)
 add_subdirectory(Platform)
 add_subdirectory(Application)
 add_subdirectory(Bootstrapper)
@@ -72,7 +73,6 @@ foreach(module_dir IN ITEMS
     Panels
     Plugins
     Server
-    Services
     Utility
     Workspace
 )

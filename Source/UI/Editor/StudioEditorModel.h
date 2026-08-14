@@ -58,6 +58,7 @@ enum class SidebarIcon
     Run,
     Terminal,
     Problems,
+    Shader,
 };
 
 enum class SidebarPlacement
@@ -127,6 +128,12 @@ struct StudioEditorLayoutResult
     Rect terminal_content_bounds;
     Rect status_bar_bounds;
     Rect scrollbar_bounds;
+    Rect shader_panel_bounds;
+    Rect shader_panel_header_bounds;
+    Rect shader_panel_viewport_bounds;
+    Rect shader_panel_controls_bounds;
+    Rect shader_splitter_bounds;
+    bool shader_panel_visible = false;
     float dpi_scale = 1.0F;
 };
 
@@ -166,7 +173,9 @@ public:
         float terminal_height = 218.0F,
         bool terminal_maximized = false,
         bool tool_sidebar_visible = false,
-        float tool_sidebar_width = 260.0F) const noexcept;
+        float tool_sidebar_width = 260.0F,
+        bool shader_panel_visible = false,
+        float shader_panel_width = 380.0F) const noexcept;
 };
 
 [[nodiscard]] std::span<const SidebarItem> get_studio_sidebar_items() noexcept;

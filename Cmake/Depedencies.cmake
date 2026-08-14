@@ -17,8 +17,17 @@ CPMAddPackage(
         "ZLIB_BUILD_EXAMPLES OFF"
 )
 
-# lunasvg - SVG rendering library
+# plutovg - 2D vector graphics library (required by lunasvg)
 set(PLUTOVG_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+CPMAddPackage(
+    NAME plutovg
+    VERSION 1.3.3
+    URL "https://github.com/sammycage/plutovg/archive/refs/tags/v1.3.3.tar.gz"
+    OPTIONS
+        "PLUTOVG_BUILD_EXAMPLES OFF"
+)
+
+# lunasvg - SVG rendering library
 set(LUNASVG_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 CPMAddPackage(
     NAME lunasvg

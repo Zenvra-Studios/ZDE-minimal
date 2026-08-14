@@ -228,12 +228,22 @@ void TerminalPanelModel::remove_session(std::size_t index) noexcept
  * 
  * 
  */
-bool TerminalPanelModel::scroll(std::ptrdiff_t line_delta, std::size_t maximum_offset) noexcept
+bool TerminalPanelModel::scroll(std::ptrdiff_t line_delta,
+                               std::size_t maximum_offset,
+                               std::size_t column,
+                               std::size_t row) noexcept
 {
-    if (get_active_session() == nullptr || line_delta == 0)
+    TerminalSession* session = get_active_session();
+    if (session == nullptr || line_delta == 0)
     {
         return false;
     }
+
+    if (session->send_mouse_scroll(line_delta, column, row))
+    {
+        return true;
+    }
+
     const std::size_t previous = m_scroll_offset;
     if (line_delta < 0)
     {
@@ -247,6 +257,41 @@ bool TerminalPanelModel::scroll(std::ptrdiff_t line_delta, std::size_t maximum_o
         m_scroll_offset = amount > m_scroll_offset ? 0 : m_scroll_offset - amount;
     }
     return previous != m_scroll_offset;
+}
+
+bool TerminalPanelModel::send_mouse_button(
+    TerminalSession::MouseButton button,
+    TerminalSession::MouseAction action,
+    std::size_t column, std::size_t row,
+    bool shift, bool meta, bool ctrl)
+{
+    if (TerminalSession* session = get_active_session())
+    {
+        return session->send_mouse_button(button, action, column, row, shift, meta, ctrl);
+    }
+    return false;
+}
+
+bool TerminalPanelModel::send_mouse_motion(
+    std::size_t column, std::size_t row,
+    bool button_pressed,
+    TerminalSession::MouseButton pressed_button,
+    bool shift, bool meta, bool ctrl)
+{
+    if (TerminalSession* session = get_active_session())
+    {
+        return session->send_mouse_motion(column, row, button_pressed, pressed_button, shift, meta, ctrl);
+    }
+    return false;
+}
+
+bool TerminalPanelModel::is_mouse_tracking_active() const noexcept
+{
+    if (const TerminalSession* session = get_active_session())
+    {
+        return session->is_mouse_tracking_active();
+    }
+    return false;
 }
 
 void TerminalPanelModel::resize(std::size_t columns, std::size_t rows) noexcept

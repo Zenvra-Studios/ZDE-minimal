@@ -48,7 +48,20 @@ public:
   [[nodiscard]] bool send_control(char letter);
   [[nodiscard]] bool poll();
   [[nodiscard]] bool scroll(std::ptrdiff_t line_delta,
-                            std::size_t maximum_offset) noexcept;
+                            std::size_t maximum_offset,
+                            std::size_t column = 1,
+                            std::size_t row = 1) noexcept;
+  [[nodiscard]] bool send_mouse_button(
+      TerminalSession::MouseButton button,
+      TerminalSession::MouseAction action,
+      std::size_t column, std::size_t row,
+      bool shift = false, bool meta = false, bool ctrl = false);
+  [[nodiscard]] bool send_mouse_motion(
+      std::size_t column, std::size_t row,
+      bool button_pressed,
+      TerminalSession::MouseButton pressed_button = TerminalSession::MouseButton::Left,
+      bool shift = false, bool meta = false, bool ctrl = false);
+  [[nodiscard]] bool is_mouse_tracking_active() const noexcept;
   void resize(std::size_t columns, std::size_t rows) noexcept;
 
   [[nodiscard]] bool is_visible() const noexcept;

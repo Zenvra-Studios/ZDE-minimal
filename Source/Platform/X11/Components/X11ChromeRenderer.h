@@ -138,6 +138,14 @@ public:
     [[nodiscard]] bool handle_text_input(std::string_view utf8_text);
     [[nodiscard]] bool handle_terminal_key(Terminal::TerminalInputKey key);
     [[nodiscard]] bool handle_terminal_control(char letter);
+    [[nodiscard]] bool handle_terminal_scroll(
+        float point_x,
+        float point_y,
+        std::ptrdiff_t line_delta,
+        bool horizontal,
+        int client_width,
+        int client_height,
+        float content_top) noexcept;
     [[nodiscard]] bool handle_terminal_scroll(std::ptrdiff_t line_delta, bool horizontal) noexcept;
     [[nodiscard]] bool handle_tool_sidebar_scroll(
         std::ptrdiff_t line_delta,
@@ -223,6 +231,20 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_sidebar_resizing() const noexcept;
+    [[nodiscard]] bool is_shader_panel_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_shader_splitter_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_shader_panel_resizing() const noexcept;
+    [[nodiscard]] bool toggle_shader_panel() noexcept;
     [[nodiscard]] bool is_empty_state_button_hovered() const noexcept;
     [[nodiscard]] bool tick_animations() noexcept;
 

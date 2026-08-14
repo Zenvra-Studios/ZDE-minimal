@@ -65,8 +65,12 @@ void ActivitySidebar::render(
         
         const bool active = item.icon == UI::Editor::SidebarIcon::Terminal
             ? surface.m_terminal_panel.is_visible()
-            : surface.m_tool_sidebar.is_active(item.icon);
-        const bool hovered = surface.m_tool_sidebar.is_hovered(item.icon);
+            : item.icon == UI::Editor::SidebarIcon::Shader
+                ? surface.m_shader_sandbox_panel.is_visible()
+                : surface.m_tool_sidebar.is_active(item.icon);
+        const bool hovered = (item.icon == UI::Editor::SidebarIcon::Shader || item.icon == UI::Editor::SidebarIcon::Terminal)
+            ? false
+            : surface.m_tool_sidebar.is_hovered(item.icon);
         if (active || hovered)
         {
             surface.fill_rectangle(
@@ -128,6 +132,7 @@ void ActivitySidebar::draw_icon(
     case UI::Editor::SidebarIcon::Services:
         svg_path = "Assets/icons/puzzle.svg";
         break;
+    case UI::Editor::SidebarIcon::Shader:
     case UI::Editor::SidebarIcon::Run:
         svg_path = "Assets/icons/play.svg";
         break;

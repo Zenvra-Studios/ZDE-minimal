@@ -12,7 +12,7 @@ namespace Zenvra::UI::Editor {
 
 namespace {
 
-constexpr std::array<SidebarItem, 6> sidebar_items{
+constexpr std::array<SidebarItem, 7> sidebar_items{
     SidebarItem{"project", "Project", SidebarIcon::Project,
                 SidebarPlacement::Top, true},
     SidebarItem{"version-control", "Version Control",
@@ -20,6 +20,8 @@ constexpr std::array<SidebarItem, 6> sidebar_items{
     SidebarItem{"search", "Search", SidebarIcon::Search, SidebarPlacement::Top,
                 false},
     SidebarItem{"services", "Services", SidebarIcon::Services,
+                SidebarPlacement::Top, false},
+    SidebarItem{"shader", "Shader Sandbox", SidebarIcon::Shader,
                 SidebarPlacement::Top, false},
     SidebarItem{"more", "More Tool Windows", SidebarIcon::More,
                 SidebarPlacement::Top, false},
@@ -163,7 +165,8 @@ StudioEditorPalette StudioEditorPalette::jetbrains_dark() noexcept {
 StudioEditorLayoutResult StudioEditorLayout::calculate(
     float client_width, float client_height, float content_top, float dpi_scale,
     bool terminal_visible, float terminal_height, bool terminal_maximized,
-    bool tool_sidebar_visible, float tool_sidebar_width) const noexcept {
+    bool tool_sidebar_visible, float tool_sidebar_width,
+    bool shader_panel_visible, float shader_panel_width) const noexcept {
   const float safe_width = std::max(client_width, 0.0F);
   const float safe_height = std::max(client_height, 0.0F);
   const float safe_scale = std::max(dpi_scale, 0.5F);
@@ -172,15 +175,24 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
   const float status_height = StudioEditorMetrics::status_height * safe_scale;
   const float gutter_width = StudioEditorMetrics::gutter_width * safe_scale;
   const float scrollbar_width = 14.0F * safe_scale;
+  const float splitter_width = shader_panel_visible ? (4.0F * safe_scale) : 0.0F;
+
   const float available_after_activity =
       std::max(safe_width - activity_width, 0.0F);
   const float minimum_editor_region =
       std::min(240.0F * safe_scale, available_after_activity);
-  const float maximum_sidebar_width =
-      std::max(available_after_activity - minimum_editor_region, 0.0F);
+
+  const float requested_shader_width = shader_panel_visible
+      ? std::clamp(shader_panel_width * safe_scale, 180.0F * safe_scale,
+                   std::max(available_after_activity - minimum_editor_region - splitter_width, 0.0F))
+      : 0.0F;
+
+  const float remaining_for_sidebar = std::max(
+      available_after_activity - minimum_editor_region - requested_shader_width - splitter_width,
+      0.0F);
   const float sidebar_width = tool_sidebar_visible
                                   ? std::clamp(tool_sidebar_width * safe_scale,
-                                               0.0F, maximum_sidebar_width)
+                                               0.0F, remaining_for_sidebar)
                                   : 0.0F;
 
   // The tab strip fills the titlebar edge-to-edge. If there is no custom chrome
@@ -207,12 +219,16 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
       Utility::FlexItem::fixed(activity_width),
       Utility::FlexItem::fixed(sidebar_width),
       Utility::FlexItem::flexible(),
+      Utility::FlexItem::fixed(splitter_width),
+      Utility::FlexItem::fixed(requested_shader_width),
   };
   const Utility::FlexLayoutResult content =
       Utility::Row::calculate(content_bounds, content_items);
   const UI::Rect activity_bounds = content.items[0];
   const UI::Rect sidebar_bounds = content.items[1];
   const UI::Rect editor_workspace_bounds = content.items[2];
+  const UI::Rect shader_splitter_bounds = content.items[3];
+  const UI::Rect shader_panel_bounds = content.items[4];
 
   const float integrated_tab_y = 0.0F;
   const float integrated_tab_height = effective_tab_height;
@@ -263,6 +279,16 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
   const Utility::FlexLayoutResult terminal =
       Utility::Column::calculate(terminal_bounds, terminal_items);
 
+  const float shader_header_height = std::min(28.0F * safe_scale, shader_panel_bounds.height);
+  const float shader_controls_height = std::min(36.0F * safe_scale, std::max(shader_panel_bounds.height - shader_header_height, 0.0F));
+  const std::array shader_sub_items{
+      Utility::FlexItem::fixed(shader_header_height),
+      Utility::FlexItem::flexible(),
+      Utility::FlexItem::fixed(shader_controls_height),
+  };
+  const Utility::FlexLayoutResult shader_layout =
+      Utility::Column::calculate(shader_panel_bounds, shader_sub_items);
+
   StudioEditorLayoutResult result;
   result.dpi_scale = safe_scale;
   result.workspace_bounds = root_bounds;
@@ -275,19 +301,26 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
   result.terminal_header_bounds = terminal.items[0];
   result.terminal_content_bounds = terminal.items[1];
   result.status_bar_bounds = status_bounds;
+  result.shader_panel_bounds = shader_panel_bounds;
+  result.shader_panel_header_bounds = shader_layout.items[0];
+  result.shader_panel_viewport_bounds = shader_layout.items[1];
+  result.shader_panel_controls_bounds = shader_layout.items[2];
+  result.shader_splitter_bounds = shader_splitter_bounds;
+  result.shader_panel_visible = shader_panel_visible;
+
   const float minimap_width = std::min(
       112.0F * safe_scale, std::max(result.editor_bounds.width * 0.17F, 0.0F));
   result.minimap_bounds = {
-      std::max(safe_width - scrollbar_width - minimap_width,
+      std::max(result.editor_bounds.right() - scrollbar_width - minimap_width,
                result.editor_bounds.x),
       result.editor_bounds.y,
       std::min(minimap_width,
-               std::max(safe_width - scrollbar_width - result.editor_bounds.x,
+               std::max(result.editor_bounds.width - scrollbar_width,
                         0.0F)),
       result.editor_bounds.height,
   };
   result.scrollbar_bounds = {
-      std::max(safe_width - scrollbar_width, result.editor_bounds.x),
+      std::max(result.editor_bounds.right() - scrollbar_width, result.editor_bounds.x),
       result.editor_bounds.y,
       std::min(scrollbar_width, result.editor_bounds.width),
       result.editor_bounds.height,

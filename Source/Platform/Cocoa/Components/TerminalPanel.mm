@@ -382,9 +382,7 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
           static_cast<float>(glyph_width),
       1.0F));
 
-  constexpr std::size_t minimum_pty_columns = 200;
-  const std::size_t pty_columns = std::max(visible_columns, minimum_pty_columns);
-  m_model.resize(pty_columns, std::max<std::size_t>(visible_rows, 1));
+  m_model.resize(visible_columns, std::max<std::size_t>(visible_rows, 1));
   if (visible_rows == 0) {
     return;
   }

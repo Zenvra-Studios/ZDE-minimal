@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -26,12 +27,44 @@ public:
     [[nodiscard]] bool poll();
     void resize(std::size_t columns, std::size_t rows) noexcept;
 
+    enum class MouseTracking
+    {
+        Off,
+        X10,
+        ButtonEvent,
+        AnyEvent,
+    };
+
+    enum class MouseButton
+    {
+        Left = 0,
+        Middle = 1,
+        Right = 2,
+        Release = 3,
+    };
+
+    enum class MouseAction
+    {
+        Press,
+        Release,
+        Motion,
+    };
+
     [[nodiscard]] bool is_running() const noexcept;
     [[nodiscard]] const std::filesystem::path& get_shell_path() const noexcept;
     [[nodiscard]] std::span<const std::string> get_lines() const noexcept;
     [[nodiscard]] std::size_t get_cursor_line() const noexcept { return m_cursor_line; }
     [[nodiscard]] std::size_t get_cursor_column() const noexcept { return m_cursor_column; }
     [[nodiscard]] bool is_in_alternate_screen() const noexcept { return m_in_alternate_screen; }
+    [[nodiscard]] bool is_mouse_tracking_active() const noexcept { return m_mouse_tracking != MouseTracking::Off; }
+    [[nodiscard]] MouseTracking get_mouse_tracking() const noexcept { return m_mouse_tracking; }
+    [[nodiscard]] bool send_mouse_scroll(std::ptrdiff_t line_delta, std::size_t column = 1, std::size_t row = 1);
+    [[nodiscard]] bool send_mouse_button(MouseButton button, MouseAction action,
+                                         std::size_t column, std::size_t row,
+                                         bool shift = false, bool meta = false, bool ctrl = false);
+    [[nodiscard]] bool send_mouse_motion(std::size_t column, std::size_t row,
+                                         bool button_pressed, MouseButton pressed_button = MouseButton::Left,
+                                         bool shift = false, bool meta = false, bool ctrl = false);
     [[nodiscard]] static std::filesystem::path resolve_host_shell();
 
 private:
@@ -77,6 +110,10 @@ private:
     std::string m_control_sequence;
     std::size_t m_columns = 100;
     std::size_t m_rows = 24;
+    MouseTracking m_mouse_tracking = MouseTracking::Off;
+    bool m_sgr_mouse = false;
+    bool m_application_cursor_keys = false;
+    bool m_alternate_scroll = true;
     bool m_in_alternate_screen = false;
     bool m_running = false;
 };

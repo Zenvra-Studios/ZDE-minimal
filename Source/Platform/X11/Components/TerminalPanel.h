@@ -25,8 +25,14 @@ public:
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y,
-        Time event_time);
+        Time event_time,
+        int click_count = 1,
+        bool shift_held = false);
     [[nodiscard]] bool handle_pointer_move(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) noexcept;
+    [[nodiscard]] bool handle_pointer_drag(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y) noexcept;
@@ -37,6 +43,12 @@ public:
     [[nodiscard]] bool handle_text_input(std::string_view text);
     [[nodiscard]] bool handle_key(Terminal::TerminalInputKey key);
     [[nodiscard]] bool handle_control(char letter);
+    [[nodiscard]] bool handle_scroll(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y,
+        std::ptrdiff_t line_delta,
+        bool horizontal) noexcept;
     [[nodiscard]] bool handle_scroll(std::ptrdiff_t line_delta, bool horizontal) noexcept;
     [[nodiscard]] bool poll();
     [[nodiscard]] bool tick_animations() noexcept;
@@ -82,11 +94,16 @@ private:
     std::size_t m_last_total_rows = 0;
     std::size_t m_last_visible_rows = 0;
     bool m_selecting_text = false;
+    bool m_cli_mouse_down = false;
+    std::size_t m_last_cli_mouse_col = 1;
+    std::size_t m_last_cli_mouse_row = 1;
     Time m_last_resize_click_time = 0;
     float m_last_resize_click_x = 0.0F;
     float m_last_resize_click_y = 0.0F;
     mutable std::unordered_map<std::size_t, float> m_tab_animated_x;
     mutable std::unordered_map<std::size_t, float> m_tab_target_x;
+    std::size_t m_horizontal_scroll_offset = 0;
+    bool m_force_horizontal_scroll_to_cursor = false;
 };
 
 } // namespace Zenvra::Platform::X11::Components

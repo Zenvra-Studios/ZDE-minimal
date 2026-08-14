@@ -19,6 +19,8 @@
 #include "UI/Components/AboutModal.h"
 #include "Drivers/Graphics/BackdropBlurPipeline.h"
 #include "Drivers/Graphics/shaders/BackdropBlur.h"
+#include "Services/Shader/ShaderCompiler.h"
+#include "Services/Shader/ShaderRuntimeEngine.h"
 #include "Utility/Column.h"
 #include "Utility/Grid.h"
 #include "Utility/Row.h"
@@ -707,6 +709,33 @@ void test_terminal_layout_and_host_session()
                    bounds.y + bounds.height * 0.5F) == index,
             "the terminal rail icon must have a real clickable hit target");
     }
+
+    const auto shader_item = std::find_if(
+        sidebar_items.begin(), sidebar_items.end(), [](const SidebarItem& item) {
+            return item.icon == SidebarIcon::Shader;
+        });
+    expect(shader_item != sidebar_items.end(),
+        "the activity rail must expose the shader sandbox tool window");
+
+    const StudioEditorLayoutResult with_shader = layout_engine.calculate(
+        1200.0F, 800.0F, 35.0F, 1.0F, false, 218.0F, false, false, 260.0F, true, 380.0F);
+    expect(with_shader.shader_panel_visible, "shader panel must be marked visible");
+    expect(!with_shader.shader_panel_bounds.is_empty(), "shader panel bounds must not be empty");
+    expect(with_shader.shader_panel_header_bounds.height > 0.0F, "shader header must have positive height");
+    expect(with_shader.shader_panel_viewport_bounds.height > 0.0F, "shader viewport must have positive height");
+    expect(with_shader.shader_panel_controls_bounds.height > 0.0F, "shader controls must have positive height");
+    expect(with_shader.editor_bounds.right() <= with_shader.shader_panel_bounds.x, "editor bounds must stay to the left of shader panel");
+    expect(with_shader.minimap_bounds.right() == with_shader.scrollbar_bounds.x, "minimap must be anchored adjacent to scrollbar inside editor region");
+
+    Zenvra::Services::Shader::ShaderCompiler shader_compiler;
+    std::vector<Zenvra::Services::Shader::ShaderDiagnostic> diags;
+    auto compiled_shader = shader_compiler.compile(
+        "void mainImage(out vec4 fragColor, in vec2 fragCoord) { fragColor = vec4(1.0); }", diags);
+    expect(compiled_shader.has_value(), "valid Shadertoy shader must compile successfully");
+    expect(diags.empty(), "valid shader should have no syntax errors");
+
+    auto broken_shader = shader_compiler.compile("void mainImage(out vec4 fragColor, in vec2 fragCoord) {", diags);
+    expect(!broken_shader.has_value() && !diags.empty(), "unmatched bracket shader must fail validation with diagnostic");
 
     Zenvra::Terminal::TerminalSession session;
     expect(!Zenvra::Terminal::TerminalSession::resolve_host_shell().empty(),

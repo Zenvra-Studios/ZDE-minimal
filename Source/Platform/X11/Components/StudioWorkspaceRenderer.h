@@ -2,6 +2,7 @@
 
 #include "Platform/X11/Components/ActivitySidebar.h"
 #include "Platform/X11/Components/FooterToolbar.h"
+#include "Platform/X11/Components/ShaderSandboxPanel.h"
 #include "Platform/X11/Components/TerminalPanel.h"
 #include "Platform/X11/Components/TextEditor.h"
 #include "Platform/X11/Components/ToolSidebar.h"
@@ -80,6 +81,14 @@ public:
     [[nodiscard]] bool handle_text_input(std::string_view utf8_text);
     [[nodiscard]] bool handle_terminal_key(Terminal::TerminalInputKey key);
     [[nodiscard]] bool handle_terminal_control(char letter);
+    [[nodiscard]] bool handle_terminal_scroll(
+        float point_x,
+        float point_y,
+        std::ptrdiff_t line_delta,
+        bool horizontal,
+        int client_width,
+        int client_height,
+        float content_top) noexcept;
     [[nodiscard]] bool handle_terminal_scroll(std::ptrdiff_t line_delta, bool horizontal) noexcept;
     [[nodiscard]] bool handle_tool_sidebar_scroll(
         std::ptrdiff_t line_delta,
@@ -165,6 +174,21 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_sidebar_resizing() const noexcept;
+    [[nodiscard]] bool is_shader_panel_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_shader_splitter_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_shader_panel_resizing() const noexcept;
+    [[nodiscard]] bool toggle_shader_panel() noexcept;
+    [[nodiscard]] bool is_shader_panel_visible() const noexcept;
     [[nodiscard]] bool is_empty_state_button_hovered() const noexcept;
     [[nodiscard]] bool tick_animations() noexcept;
     void shutdown();
@@ -177,6 +201,7 @@ private:
     friend class EditorScrollbar;
     friend class ExplorerHeader;
     friend class FooterToolbar;
+    friend class ShaderSandboxPanel;
     friend class TerminalPanel;
     friend class TextEditor;
     friend class ToolSidebar;
@@ -261,6 +286,11 @@ private:
         int max_size,
         const UI::Theme::Color& background) const;
 
+    [[nodiscard]] UI::Editor::StudioEditorLayoutResult calculate_layout(
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+
     Display* m_display = nullptr;
     int m_screen = 0;
     float m_dpi_scale = 1.0F;
@@ -280,6 +310,7 @@ private:
     ToolSidebar m_tool_sidebar;
     TextEditor m_text_editor;
     mutable TerminalPanel m_terminal_panel;
+    mutable ShaderSandboxPanel m_shader_sandbox_panel;
     static constexpr std::size_t max_image_cache_size = 64;
     void store_cached_image(const std::string& key, XImage* image) const;
     mutable std::unordered_map<std::string, XImage*> m_svg_cache;

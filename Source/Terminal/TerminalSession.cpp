@@ -780,6 +780,14 @@ void TerminalSession::resize(std::size_t columns, std::size_t rows) noexcept
     }
     m_columns = columns;
     m_rows = rows;
+    if (m_in_alternate_screen)
+    {
+        m_lines.resize(m_rows);
+        if (m_cursor_line >= m_rows)
+        {
+            m_cursor_line = m_rows > 0 ? m_rows - 1 : 0;
+        }
+    }
 #if !defined(_WIN32)
     if (m_implementation->master_fd >= 0)
     {
@@ -1236,32 +1244,102 @@ void TerminalSession::apply_control_sequence(char command)
     }
     case 'h':
     {
-        if (m_control_sequence == "?1049" || m_control_sequence == "?47" || m_control_sequence == "?1047")
+        if (!m_control_sequence.empty() && m_control_sequence.front() == '?')
         {
-            if (!m_in_alternate_screen)
+            std::string_view seq = std::string_view{m_control_sequence}.substr(1);
+            while (!seq.empty())
             {
-                m_in_alternate_screen = true;
-                m_main_screen_lines = m_lines;
-                m_main_cursor_line = m_cursor_line;
-                m_main_cursor_column = m_cursor_column;
-                const std::size_t count = std::max<std::size_t>(m_rows, 1);
-                m_lines.assign(count, std::string{});
-                m_cursor_line = 0;
-                m_cursor_column = 0;
+                const std::size_t sep = seq.find(';');
+                const std::string_view token = (sep != std::string_view::npos) ? seq.substr(0, sep) : seq;
+                if (token == "1049" || token == "47" || token == "1047")
+                {
+                    if (!m_in_alternate_screen)
+                    {
+                        m_in_alternate_screen = true;
+                        m_main_screen_lines = m_lines;
+                        m_main_cursor_line = m_cursor_line;
+                        m_main_cursor_column = m_cursor_column;
+                        const std::size_t count = std::max<std::size_t>(m_rows, 1);
+                        m_lines.assign(count, std::string{});
+                        m_cursor_line = 0;
+                        m_cursor_column = 0;
+                    }
+                }
+                else if (token == "1000")
+                {
+                    m_mouse_tracking = MouseTracking::X10;
+                }
+                else if (token == "1002")
+                {
+                    m_mouse_tracking = MouseTracking::ButtonEvent;
+                }
+                else if (token == "1003")
+                {
+                    m_mouse_tracking = MouseTracking::AnyEvent;
+                }
+                else if (token == "1006")
+                {
+                    m_sgr_mouse = true;
+                }
+                else if (token == "1007")
+                {
+                    m_alternate_scroll = true;
+                }
+                else if (token == "1")
+                {
+                    m_application_cursor_keys = true;
+                }
+
+                if (sep == std::string_view::npos)
+                {
+                    break;
+                }
+                seq = seq.substr(sep + 1);
             }
         }
         break;
     }
     case 'l':
     {
-        if (m_control_sequence == "?1049" || m_control_sequence == "?47" || m_control_sequence == "?1047")
+        if (!m_control_sequence.empty() && m_control_sequence.front() == '?')
         {
-            if (m_in_alternate_screen)
+            std::string_view seq = std::string_view{m_control_sequence}.substr(1);
+            while (!seq.empty())
             {
-                m_in_alternate_screen = false;
-                m_lines = std::move(m_main_screen_lines);
-                m_cursor_line = std::min(m_main_cursor_line, m_lines.empty() ? 0 : m_lines.size() - 1);
-                m_cursor_column = m_main_cursor_column;
+                const std::size_t sep = seq.find(';');
+                const std::string_view token = (sep != std::string_view::npos) ? seq.substr(0, sep) : seq;
+                if (token == "1049" || token == "47" || token == "1047")
+                {
+                    if (m_in_alternate_screen)
+                    {
+                        m_in_alternate_screen = false;
+                        m_lines = std::move(m_main_screen_lines);
+                        m_cursor_line = std::min(m_main_cursor_line, m_lines.empty() ? 0 : m_lines.size() - 1);
+                        m_cursor_column = m_main_cursor_column;
+                    }
+                }
+                else if (token == "1000" || token == "1002" || token == "1003")
+                {
+                    m_mouse_tracking = MouseTracking::Off;
+                }
+                else if (token == "1006")
+                {
+                    m_sgr_mouse = false;
+                }
+                else if (token == "1007")
+                {
+                    m_alternate_scroll = false;
+                }
+                else if (token == "1")
+                {
+                    m_application_cursor_keys = false;
+                }
+
+                if (sep == std::string_view::npos)
+                {
+                    break;
+                }
+                seq = seq.substr(sep + 1);
             }
         }
         break;
@@ -1589,8 +1667,8 @@ bool TerminalSession::navigate_history(bool up)
     }
 
     const std::string_view target_text = m_history_index.has_value()
-        ? std::string_view{m_command_history[*m_history_index]}
-        : std::string_view{m_saved_pending_input};
+        ? std::string_view(m_command_history[*m_history_index])
+        : std::string_view(m_saved_pending_input);
 
     if (m_input_start_column > m_lines.back().size())
     {
@@ -1603,6 +1681,169 @@ bool TerminalSession::navigate_history(bool up)
     m_pending_input = std::string(target_text);
 
     return true;
+}
+
+bool TerminalSession::send_mouse_scroll(std::ptrdiff_t line_delta, std::size_t column, std::size_t row)
+{
+    if (!m_running || line_delta == 0)
+    {
+        return false;
+    }
+
+    if (m_mouse_tracking != MouseTracking::Off)
+    {
+        const int button = (line_delta < 0) ? 64 : 65; // 64 = WheelUp, 65 = WheelDown
+        const std::size_t steps = std::clamp<std::size_t>(std::abs(line_delta) / 3, 1, 5);
+        if (m_sgr_mouse)
+        {
+            // SGR format: \x1b[<button;col;rowM
+            std::string seq;
+            for (std::size_t i = 0; i < steps; ++i)
+            {
+                seq += "\x1B[<" + std::to_string(button) + ";" +
+                       std::to_string(std::max<std::size_t>(1, column)) + ";" +
+                       std::to_string(std::max<std::size_t>(1, row)) + "M";
+            }
+            return write_input(seq);
+        }
+        else
+        {
+            // X10 / normal mouse format: \x1b[M Cb Cx Cy (where each is 32 + val)
+            std::string seq;
+            const char cb = static_cast<char>(32 + button);
+            const char cx = static_cast<char>(32 + std::clamp<std::size_t>(column, 1, 223));
+            const char cy = static_cast<char>(32 + std::clamp<std::size_t>(row, 1, 223));
+            for (std::size_t i = 0; i < steps; ++i)
+            {
+                seq += "\x1B[M";
+                seq.push_back(cb);
+                seq.push_back(cx);
+                seq.push_back(cy);
+            }
+            return write_input(seq);
+        }
+    }
+
+    if (m_in_alternate_screen && m_alternate_scroll)
+    {
+        // Alternate scroll mode: Send Arrow Up / Down keys to the running CLI program (less, vim, nano, man, etc.)
+        const std::string_view arrow = (line_delta < 0)
+            ? (m_application_cursor_keys ? "\x1BOA" : "\x1B[A")
+            : (m_application_cursor_keys ? "\x1BOB" : "\x1B[B");
+        const std::size_t steps = std::clamp<std::size_t>(std::abs(line_delta), 1, 5);
+        std::string seq;
+        for (std::size_t i = 0; i < steps; ++i)
+        {
+            seq.append(arrow);
+        }
+        return write_input(seq);
+    }
+
+    return false;
+}
+
+bool TerminalSession::send_mouse_button(
+    MouseButton button, MouseAction action,
+    std::size_t column, std::size_t row,
+    bool shift, bool meta, bool ctrl)
+{
+    if (!m_running || m_mouse_tracking == MouseTracking::Off)
+    {
+        return false;
+    }
+
+    if (m_mouse_tracking == MouseTracking::X10 && action != MouseAction::Press)
+    {
+        return false;
+    }
+
+    int btn_code = static_cast<int>(button);
+    if (action == MouseAction::Motion)
+    {
+        btn_code += 32;
+    }
+    if (shift) btn_code += 4;
+    if (meta)  btn_code += 8;
+    if (ctrl)  btn_code += 16;
+
+    const std::size_t col = std::max<std::size_t>(1, column);
+    const std::size_t r = std::max<std::size_t>(1, row);
+
+    if (m_sgr_mouse)
+    {
+        const char terminator = (action == MouseAction::Release) ? 'm' : 'M';
+        const std::string seq = "\x1B[<" + std::to_string(btn_code) + ";" +
+                                std::to_string(col) + ";" +
+                                std::to_string(r) + terminator;
+        return write_input(seq);
+    }
+    else
+    {
+        if (action == MouseAction::Release)
+        {
+            btn_code = 3;
+            if (shift) btn_code += 4;
+            if (meta)  btn_code += 8;
+            if (ctrl)  btn_code += 16;
+        }
+        const char cb = static_cast<char>(32 + btn_code);
+        const char cx = static_cast<char>(32 + std::clamp<std::size_t>(col, 1, 223));
+        const char cy = static_cast<char>(32 + std::clamp<std::size_t>(r, 1, 223));
+        std::string seq = "\x1B[M";
+        seq.push_back(cb);
+        seq.push_back(cx);
+        seq.push_back(cy);
+        return write_input(seq);
+    }
+}
+
+bool TerminalSession::send_mouse_motion(
+    std::size_t column, std::size_t row,
+    bool button_pressed, MouseButton pressed_button,
+    bool shift, bool meta, bool ctrl)
+{
+    if (!m_running || m_mouse_tracking == MouseTracking::Off)
+    {
+        return false;
+    }
+
+    if (m_mouse_tracking == MouseTracking::X10)
+    {
+        return false;
+    }
+
+    if (m_mouse_tracking == MouseTracking::ButtonEvent && !button_pressed)
+    {
+        return false;
+    }
+
+    int btn_code = button_pressed ? static_cast<int>(pressed_button) : 3;
+    btn_code += 32;
+    if (shift) btn_code += 4;
+    if (meta)  btn_code += 8;
+    if (ctrl)  btn_code += 16;
+
+    const std::size_t col = std::max<std::size_t>(1, column);
+    const std::size_t r = std::max<std::size_t>(1, row);
+
+    if (m_sgr_mouse)
+    {
+        const std::string seq = "\x1B[<" + std::to_string(btn_code) + ";" +
+                                std::to_string(col) + ";" +
+                                std::to_string(r) + "M";
+        return write_input(seq);
+    }
+    else
+    {
+        const char cb = static_cast<char>(32 + btn_code);
+        const char cx = static_cast<char>(32 + std::clamp<std::size_t>(col, 1, 223));
+        const char cy = static_cast<char>(32 + std::clamp<std::size_t>(r, 1, 223));
+        std::string seq = "\x1B[M";
+        seq.push_back(cb);
+        seq.push_back(cx);
+        seq.push_back(cy);
+        return write_input(seq);
+    }
 }
 
 } // namespace Zenvra::Terminal

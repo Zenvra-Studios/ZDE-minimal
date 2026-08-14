@@ -1,4 +1,5 @@
 #include "Platform/X11/Components/StudioWorkspaceRenderer.h"
+#include "Utility/Antialiasing.h"
 #include "Utility/IcoDecoder.h"
 #include "Utility/stb_image.h"
 
@@ -184,13 +185,36 @@ bool StudioWorkspaceRenderer::initialize(Display* display, int screen, float dpi
     m_text.success = to_xft_color(m_palette.success);
     static_cast<void>(m_tool_sidebar.initialize());
     static_cast<void>(m_terminal_panel.toggle());
+    static_cast<void>(m_shader_sandbox_panel.initialize());
     m_terminal_panel.set_focused(false);
     return true;
 }
 
 bool StudioWorkspaceRenderer::open_file(const std::filesystem::path& path)
 {
-    return m_text_editor.open_file(path);
+    const bool opened = m_text_editor.open_file(path);
+    if (opened)
+    {
+        const std::string ext = path.extension().string();
+        if (ext == ".glsl" || ext == ".frag" || ext == ".vert" || ext == ".comp" || ext == ".shader")
+        {
+            m_shader_sandbox_panel.set_visible(true);
+            if (const UI::Editor::TextDocumentModel* doc = m_text_editor.get_document())
+            {
+                std::string full_text;
+                for (const auto& line : doc->get_lines())
+                {
+                    full_text += line;
+                    full_text += '\n';
+                }
+                if (!full_text.empty())
+                {
+                    m_shader_sandbox_panel.set_source_code(full_text);
+                }
+            }
+        }
+    }
+    return opened;
 }
 
 bool StudioWorkspaceRenderer::set_workspace_root(const std::filesystem::path& root)
@@ -225,16 +249,8 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     Time event_time,
     std::string& command_out)
 {
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     if (const std::optional<std::size_t> sidebar_index =
             UI::Editor::hit_test_studio_sidebar(layout, point_x, point_y))
     {
@@ -244,7 +260,32 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
         {
             return m_terminal_panel.toggle();
         }
+        if (items[*sidebar_index].icon == UI::Editor::SidebarIcon::Shader)
+        {
+            const bool res = m_shader_sandbox_panel.toggle();
+            if (res)
+            {
+                if (const UI::Editor::TextDocumentModel* doc = m_text_editor.get_document())
+                {
+                    std::string full_text;
+                    for (const auto& line : doc->get_lines())
+                    {
+                        full_text += line;
+                        full_text += '\n';
+                    }
+                    if (!full_text.empty())
+                    {
+                        m_shader_sandbox_panel.set_source_code(full_text);
+                    }
+                }
+            }
+            return true;
+        }
         return m_tool_sidebar.activate(items[*sidebar_index].icon);
+    }
+    if (m_shader_sandbox_panel.handle_pointer_press(layout, point_x, point_y))
+    {
+        return true;
     }
     std::optional<std::filesystem::path> sidebar_file;
     if (m_tool_sidebar.handle_pointer_press(
@@ -256,14 +297,21 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
             if (sidebar_file->string() == "::OPEN_FOLDER::") {
                 command_out = "zde.project.open";
             } else {
-                static_cast<void>(m_text_editor.open_file(*sidebar_file));
+                static_cast<void>(open_file(*sidebar_file));
             }
         }
         return true;
     }
-    if (m_terminal_panel.handle_pointer_press(layout, point_x, point_y, event_time))
+    if (m_terminal_panel.handle_pointer_press(
+            layout, point_x, point_y, event_time, click_count, extend_selection))
     {
         return true;
+    }
+    if (m_shader_sandbox_panel.is_visible() &&
+        m_shader_sandbox_panel.contains(layout, point_x, point_y))
+    {
+        m_terminal_panel.set_focused(false);
+        return m_shader_sandbox_panel.handle_pointer_press(layout, point_x, point_y);
     }
     m_terminal_panel.set_focused(false);
     return m_text_editor.handle_pointer_press(
@@ -278,22 +326,16 @@ bool StudioWorkspaceRenderer::handle_pointer_move(
     int client_height,
     float content_top) noexcept
 {
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     const bool sidebar_changed = m_tool_sidebar.handle_pointer_move(
         layout, point_x, point_y);
     const bool editor_changed = m_text_editor.handle_pointer_move(
         layout, point_x, point_y);
+    const bool shader_changed = m_shader_sandbox_panel.handle_pointer_move(
+        layout, point_x, point_y);
     return m_terminal_panel.handle_pointer_move(layout, point_x, point_y) ||
-        sidebar_changed || editor_changed;
+        sidebar_changed || editor_changed || shader_changed;
 }
 
 bool StudioWorkspaceRenderer::handle_pointer_drag(
@@ -303,16 +345,8 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(
     int client_height,
     float content_top)
 {
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     if (m_tool_sidebar.is_resizing())
     {
         return m_tool_sidebar.handle_pointer_drag(layout, point_x);
@@ -320,6 +354,17 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(
     if (m_terminal_panel.is_resizing())
     {
         return m_terminal_panel.handle_pointer_drag(layout, point_y);
+    }
+    if (m_terminal_panel.handle_pointer_drag(layout, point_x, point_y))
+    {
+        return true;
+    }
+    if (m_shader_sandbox_panel.is_resizing() || m_shader_sandbox_panel.contains(layout, point_x, point_y))
+    {
+        if (m_shader_sandbox_panel.handle_pointer_drag(layout, point_x, point_y))
+        {
+            return true;
+        }
     }
     return m_text_editor.handle_pointer_drag(*this, layout, point_x, point_y);
 }
@@ -329,7 +374,8 @@ bool StudioWorkspaceRenderer::handle_pointer_release() noexcept
     const bool terminal_changed = m_terminal_panel.handle_pointer_release();
     const bool sidebar_changed = m_tool_sidebar.handle_pointer_release();
     const bool editor_changed = m_text_editor.handle_pointer_release();
-    return terminal_changed || sidebar_changed || editor_changed;
+    const bool shader_changed = m_shader_sandbox_panel.handle_pointer_release();
+    return terminal_changed || sidebar_changed || editor_changed || shader_changed;
 }
 
 bool StudioWorkspaceRenderer::handle_scroll(
@@ -342,16 +388,8 @@ bool StudioWorkspaceRenderer::handle_scroll(
     int client_height,
     float content_top) noexcept
 {
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     return m_text_editor.handle_scroll(*this, layout, point_x, point_y,
                                        command_out, line_delta, horizontal);
 }
@@ -382,9 +420,32 @@ std::optional<bool> StudioWorkspaceRenderer::is_editor_command_enabled(
 
 bool StudioWorkspaceRenderer::handle_text_input(std::string_view utf8_text)
 {
-    return m_terminal_panel.is_focused()
+    const bool res = m_terminal_panel.is_focused()
         ? m_terminal_panel.handle_text_input(utf8_text)
         : m_text_editor.handle_text_input(utf8_text);
+    if (res && !m_terminal_panel.is_focused())
+    {
+        if (const UI::Editor::TextDocumentModel* doc = m_text_editor.get_document())
+        {
+            const std::string_view fname = doc->get_file_name();
+            if (fname.ends_with(".glsl") || fname.ends_with(".frag") ||
+                fname.ends_with(".vert") || fname.ends_with(".shader") ||
+                m_shader_sandbox_panel.is_visible())
+            {
+                std::string full_text;
+                for (const auto& line : doc->get_lines())
+                {
+                    full_text += line;
+                    full_text += '\n';
+                }
+                if (!full_text.empty())
+                {
+                    m_shader_sandbox_panel.set_source_code(full_text);
+                }
+            }
+        }
+    }
+    return res;
 }
 
 bool StudioWorkspaceRenderer::handle_terminal_key(Terminal::TerminalInputKey key)
@@ -395,6 +456,20 @@ bool StudioWorkspaceRenderer::handle_terminal_key(Terminal::TerminalInputKey key
 bool StudioWorkspaceRenderer::handle_terminal_control(char letter)
 {
     return m_terminal_panel.handle_control(letter);
+}
+
+bool StudioWorkspaceRenderer::handle_terminal_scroll(
+    float point_x,
+    float point_y,
+    std::ptrdiff_t line_delta,
+    bool horizontal,
+    int client_width,
+    int client_height,
+    float content_top) noexcept
+{
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
+    return m_terminal_panel.handle_scroll(layout, point_x, point_y, line_delta, horizontal);
 }
 
 bool StudioWorkspaceRenderer::handle_terminal_scroll(std::ptrdiff_t line_delta, bool horizontal) noexcept
@@ -408,16 +483,8 @@ bool StudioWorkspaceRenderer::handle_tool_sidebar_scroll(
     int client_height,
     float content_top) noexcept
 {
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     return m_tool_sidebar.handle_scroll(layout, line_delta);
 }
 
@@ -438,16 +505,8 @@ bool StudioWorkspaceRenderer::is_activity_bar_point(
     int client_height,
     float content_top) const noexcept
 {
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     return layout.activity_bar_bounds.contains(point_x, point_y);
 }
 
@@ -458,16 +517,8 @@ bool StudioWorkspaceRenderer::is_tab_bar_point(
     int client_height,
     float content_top) const noexcept
 {
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     if (m_ui_font == nullptr)
     {
         return false;
@@ -482,16 +533,8 @@ bool StudioWorkspaceRenderer::is_tab_bar_area_point(
     int client_height,
     float content_top) const noexcept
 {
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     return layout.tab_bar_bounds.contains(point_x, point_y);
 }
 
@@ -502,16 +545,8 @@ bool StudioWorkspaceRenderer::is_editor_point(
     int client_height,
     float content_top) const noexcept
 {
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     return (layout.gutter_bounds.contains(point_x, point_y) ||
         layout.editor_bounds.contains(point_x, point_y)) &&
         !layout.minimap_bounds.contains(point_x, point_y) &&
@@ -525,16 +560,8 @@ bool StudioWorkspaceRenderer::is_scrollbar_point(
     int client_height,
     float content_top) const noexcept
 {
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     return m_text_editor.is_scrollbar_point(layout, point_x, point_y);
 }
 
@@ -545,16 +572,8 @@ bool StudioWorkspaceRenderer::is_minimap_point(
     int client_height,
     float content_top) const noexcept
 {
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     return m_text_editor.is_minimap_point(layout, point_x, point_y);
 }
 
@@ -565,16 +584,8 @@ bool StudioWorkspaceRenderer::is_fold_margin_point(
     int client_height,
     float content_top) const noexcept
 {
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     return m_text_editor.is_fold_margin_point(*this, layout, point_x, point_y);
 }
 
@@ -585,16 +596,8 @@ bool StudioWorkspaceRenderer::is_terminal_point(
     int client_height,
     float content_top) const noexcept
 {
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     return m_terminal_panel.is_visible() && layout.terminal_content_bounds.contains(point_x, point_y);
 }
 
@@ -605,16 +608,8 @@ bool StudioWorkspaceRenderer::is_tool_sidebar_point(
     int client_height,
     float content_top) const noexcept
 {
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     return m_tool_sidebar.contains(layout, point_x, point_y);
 }
 
@@ -625,16 +620,8 @@ bool StudioWorkspaceRenderer::is_terminal_resize_handle_point(
     int client_height,
     float content_top) const noexcept
 {
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     return m_terminal_panel.is_resize_handle_point(layout, point_x, point_y);
 }
 
@@ -657,16 +644,8 @@ bool StudioWorkspaceRenderer::is_terminal_interactive_point(
     int client_height,
     float content_top) const noexcept
 {
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     return m_terminal_panel.is_interactive_point(layout, point_x, point_y);
 }
 
@@ -677,22 +656,53 @@ bool StudioWorkspaceRenderer::is_sidebar_resize_handle_point(
     int client_height,
     float content_top) const noexcept
 {
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     return m_tool_sidebar.is_resize_handle_point(layout, point_x, point_y);
 }
 
 bool StudioWorkspaceRenderer::is_sidebar_resizing() const noexcept
 {
     return m_tool_sidebar.is_resizing();
+}
+
+bool StudioWorkspaceRenderer::is_shader_panel_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
+    return m_shader_sandbox_panel.contains(layout, point_x, point_y);
+}
+
+bool StudioWorkspaceRenderer::is_shader_splitter_point(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
+    return m_shader_sandbox_panel.is_resize_handle_point(layout, point_x, point_y);
+}
+
+bool StudioWorkspaceRenderer::is_shader_panel_resizing() const noexcept
+{
+    return m_shader_sandbox_panel.is_resizing();
+}
+
+bool StudioWorkspaceRenderer::toggle_shader_panel() noexcept
+{
+    return m_shader_sandbox_panel.toggle();
+}
+
+bool StudioWorkspaceRenderer::is_shader_panel_visible() const noexcept
+{
+    return m_shader_sandbox_panel.is_visible();
 }
 
 bool StudioWorkspaceRenderer::is_empty_state_button_hovered() const noexcept
@@ -705,7 +715,8 @@ bool StudioWorkspaceRenderer::tick_animations() noexcept
     const bool caret_changed = m_text_editor.tick_animations();
     const bool terminal_changed = m_terminal_panel.poll();
     const bool terminal_blink_changed = m_terminal_panel.tick_animations();
-    return caret_changed || terminal_changed || terminal_blink_changed;
+    const bool shader_changed = m_shader_sandbox_panel.tick_animations();
+    return caret_changed || terminal_changed || terminal_blink_changed || shader_changed;
 }
 
 void StudioWorkspaceRenderer::shutdown()
@@ -734,6 +745,25 @@ void StudioWorkspaceRenderer::shutdown()
     m_display = nullptr;
 }
 
+UI::Editor::StudioEditorLayoutResult StudioWorkspaceRenderer::calculate_layout(
+    int client_width,
+    int client_height,
+    float content_top) const noexcept
+{
+    return m_layout_engine.calculate(
+        static_cast<float>(client_width),
+        static_cast<float>(client_height),
+        content_top,
+        m_dpi_scale,
+        m_terminal_panel.is_visible(),
+        m_terminal_panel.get_height(),
+        m_terminal_panel.is_maximized(),
+        m_tool_sidebar.is_visible(),
+        m_tool_sidebar.get_width(),
+        m_shader_sandbox_panel.is_visible(),
+        m_shader_sandbox_panel.get_width());
+}
+
 void StudioWorkspaceRenderer::render(
     Drawable drawable,
     int client_width,
@@ -746,16 +776,8 @@ void StudioWorkspaceRenderer::render(
     {
         return;
     }
-    const UI::Editor::StudioEditorLayoutResult layout = m_layout_engine.calculate(
-        static_cast<float>(client_width),
-        static_cast<float>(client_height),
-        content_top,
-        m_dpi_scale,
-        m_terminal_panel.is_visible(),
-        m_terminal_panel.get_height(),
-        m_terminal_panel.is_maximized(),
-        m_tool_sidebar.is_visible(),
-        m_tool_sidebar.get_width());
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
     fill_rectangle(drawable, layout.workspace_bounds, m_pixels.workspace_background);
     fill_rectangle(drawable, layout.tab_bar_bounds, m_pixels.tab_background);
     fill_rectangle(drawable, layout.activity_bar_bounds, m_pixels.sidebar_background);
@@ -768,6 +790,7 @@ void StudioWorkspaceRenderer::render(
     m_terminal_panel.render(*this, drawable, layout);
     m_tool_sidebar.render(*this, drawable, layout);
     m_activity_sidebar.render(*this, drawable, layout);
+    m_shader_sandbox_panel.render(*this, drawable, layout);
     if (const UI::Editor::TextDocumentModel* document = m_text_editor.get_document())
     {
         const std::vector<UI::Editor::BreadcrumbItem> full_breadcrumbs =
@@ -1132,28 +1155,30 @@ void StudioWorkspaceRenderer::draw_png_icon(
             return;
         }
 
-        // Compute size to fit in max_size
         int draw_w = width;
         int draw_h = height;
         if (width > max_size || height > max_size)
         {
-            float aspect = static_cast<float>(width) / static_cast<float>(height);
+            const float aspect = static_cast<float>(width) / static_cast<float>(height);
             if (width > height)
             {
                 draw_w = max_size;
-                draw_h = static_cast<int>(max_size / aspect);
+                draw_h = std::max(1, static_cast<int>(max_size / aspect));
             }
             else
             {
                 draw_h = max_size;
-                draw_w = static_cast<int>(max_size * aspect);
+                draw_w = std::max(1, static_cast<int>(max_size * aspect));
             }
         }
-        
-        char* x11_data = static_cast<char*>(std::malloc(draw_w * draw_h * 4));
+
+        const auto resampled = Utility::AntialiasedImage::resample_area_average(
+            data, width, height, draw_w, draw_h);
+        stbi_image_free(data);
+
+        char* x11_data = static_cast<char*>(std::malloc(static_cast<std::size_t>(draw_w * draw_h * 4)));
         if (!x11_data)
         {
-            stbi_image_free(data);
             return;
         }
 
@@ -1162,55 +1187,19 @@ void StudioWorkspaceRenderer::draw_png_icon(
         const uint32_t bg_b = static_cast<uint32_t>(background.blue);
 
         uint32_t* dst = reinterpret_cast<uint32_t*>(x11_data);
-
-        for (int y = 0; y < draw_h; ++y)
+        for (int i = 0; i < draw_w * draw_h; ++i)
         {
-            for (int x = 0; x < draw_w; ++x)
-            {
-                float gx = (x + 0.5f) * width / draw_w - 0.5f;
-                float gy = (y + 0.5f) * height / draw_h - 0.5f;
-                int gxi = static_cast<int>(gx);
-                int gyi = static_cast<int>(gy);
-                if (gxi < 0) gxi = 0;
-                if (gyi < 0) gyi = 0;
-                if (gxi >= width - 1) gxi = width - 2;
-                if (gyi >= height - 1) gyi = height - 2;
+            const uint32_t sr = resampled[static_cast<std::size_t>(i) * 4U + 0];
+            const uint32_t sg = resampled[static_cast<std::size_t>(i) * 4U + 1];
+            const uint32_t sb = resampled[static_cast<std::size_t>(i) * 4U + 2];
+            const uint32_t a  = resampled[static_cast<std::size_t>(i) * 4U + 3];
 
-                float dx = gx - gxi;
-                float dy = gy - gyi;
+            const uint32_t out_r = (sr * a + bg_r * (255 - a) + 127) / 255;
+            const uint32_t out_g = (sg * a + bg_g * (255 - a) + 127) / 255;
+            const uint32_t out_b = (sb * a + bg_b * (255 - a) + 127) / 255;
 
-                auto get_pixel = [&](int px, int py, int offset) -> float {
-                    return static_cast<float>(data[(py * width + px) * 4 + offset]);
-                };
-
-                float r00 = get_pixel(gxi, gyi, 0), r10 = get_pixel(gxi + 1, gyi, 0);
-                float r01 = get_pixel(gxi, gyi + 1, 0), r11 = get_pixel(gxi + 1, gyi + 1, 0);
-                float g00 = get_pixel(gxi, gyi, 1), g10 = get_pixel(gxi + 1, gyi, 1);
-                float g01 = get_pixel(gxi, gyi + 1, 1), g11 = get_pixel(gxi + 1, gyi + 1, 1);
-                float b00 = get_pixel(gxi, gyi, 2), b10 = get_pixel(gxi + 1, gyi, 2);
-                float b01 = get_pixel(gxi, gyi + 1, 2), b11 = get_pixel(gxi + 1, gyi + 1, 2);
-                float a00 = get_pixel(gxi, gyi, 3), a10 = get_pixel(gxi + 1, gyi, 3);
-                float a01 = get_pixel(gxi, gyi + 1, 3), a11 = get_pixel(gxi + 1, gyi + 1, 3);
-
-                auto bilerp = [dx, dy](float v00, float v10, float v01, float v11) -> uint32_t {
-                    float val = v00 * (1 - dx) * (1 - dy) + v10 * dx * (1 - dy) +
-                                v01 * (1 - dx) * dy + v11 * dx * dy;
-                    return static_cast<uint32_t>(val + 0.5f);
-                };
-
-                uint32_t source_r = bilerp(r00, r10, r01, r11);
-                uint32_t source_g = bilerp(g00, g10, g01, g11);
-                uint32_t source_b = bilerp(b00, b10, b01, b11);
-                uint32_t a = bilerp(a00, a10, a01, a11);
-
-                const uint32_t out_r = source_r * a / 255 + bg_r * (255 - a) / 255;
-                const uint32_t out_g = source_g * a / 255 + bg_g * (255 - a) / 255;
-                const uint32_t out_b = source_b * a / 255 + bg_b * (255 - a) / 255;
-
-                dst[y * draw_w + x] = (out_r << 16) | (out_g << 8) | out_b;
-            }
+            dst[i] = (out_r << 16) | (out_g << 8) | out_b;
         }
-        stbi_image_free(data);
 
         image = XCreateImage(
             m_display,
@@ -1301,7 +1290,6 @@ bool StudioWorkspaceRenderer::draw_ico_icon(
 
         const int width = decoded->width;
         const int height = decoded->height;
-        const unsigned char* data = decoded->pixels.data();
 
         // Compute size to fit in max_size.
         int draw_w = width;
@@ -1312,16 +1300,19 @@ bool StudioWorkspaceRenderer::draw_ico_icon(
             if (width > height)
             {
                 draw_w = max_size;
-                draw_h = static_cast<int>(max_size / aspect);
+                draw_h = std::max(1, static_cast<int>(max_size / aspect));
             }
             else
             {
                 draw_h = max_size;
-                draw_w = static_cast<int>(max_size * aspect);
+                draw_w = std::max(1, static_cast<int>(max_size * aspect));
             }
         }
 
-        char* x11_data = static_cast<char*>(std::malloc(draw_w * draw_h * 4));
+        const auto resampled = Utility::AntialiasedImage::resample_area_average(
+            decoded->pixels.data(), width, height, draw_w, draw_h);
+
+        char* x11_data = static_cast<char*>(std::malloc(static_cast<std::size_t>(draw_w * draw_h * 4)));
         if (!x11_data)
         {
             return false;
@@ -1332,53 +1323,18 @@ bool StudioWorkspaceRenderer::draw_ico_icon(
         const uint32_t bg_b = static_cast<uint32_t>(background.blue);
 
         uint32_t* dst = reinterpret_cast<uint32_t*>(x11_data);
-
-        for (int y = 0; y < draw_h; ++y)
+        for (int i = 0; i < draw_w * draw_h; ++i)
         {
-            for (int x = 0; x < draw_w; ++x)
-            {
-                float gx = (x + 0.5f) * width / draw_w - 0.5f;
-                float gy = (y + 0.5f) * height / draw_h - 0.5f;
-                int gxi = static_cast<int>(gx);
-                int gyi = static_cast<int>(gy);
-                if (gxi < 0) gxi = 0;
-                if (gyi < 0) gyi = 0;
-                if (gxi >= width - 1) gxi = width - 2;
-                if (gyi >= height - 1) gyi = height - 2;
+            const uint32_t sr = resampled[static_cast<std::size_t>(i) * 4U + 0];
+            const uint32_t sg = resampled[static_cast<std::size_t>(i) * 4U + 1];
+            const uint32_t sb = resampled[static_cast<std::size_t>(i) * 4U + 2];
+            const uint32_t a  = resampled[static_cast<std::size_t>(i) * 4U + 3];
 
-                float dx = gx - gxi;
-                float dy = gy - gyi;
+            const uint32_t out_r = (sr * a + bg_r * (255 - a) + 127) / 255;
+            const uint32_t out_g = (sg * a + bg_g * (255 - a) + 127) / 255;
+            const uint32_t out_b = (sb * a + bg_b * (255 - a) + 127) / 255;
 
-                auto get_pixel = [&](int px, int py, int offset) -> float {
-                    return static_cast<float>(data[(py * width + px) * 4 + offset]);
-                };
-
-                float r00 = get_pixel(gxi, gyi, 0), r10 = get_pixel(gxi + 1, gyi, 0);
-                float r01 = get_pixel(gxi, gyi + 1, 0), r11 = get_pixel(gxi + 1, gyi + 1, 0);
-                float g00 = get_pixel(gxi, gyi, 1), g10 = get_pixel(gxi + 1, gyi, 1);
-                float g01 = get_pixel(gxi, gyi + 1, 1), g11 = get_pixel(gxi + 1, gyi + 1, 1);
-                float b00 = get_pixel(gxi, gyi, 2), b10 = get_pixel(gxi + 1, gyi, 2);
-                float b01 = get_pixel(gxi, gyi + 1, 2), b11 = get_pixel(gxi + 1, gyi + 1, 2);
-                float a00 = get_pixel(gxi, gyi, 3), a10 = get_pixel(gxi + 1, gyi, 3);
-                float a01 = get_pixel(gxi, gyi + 1, 3), a11 = get_pixel(gxi + 1, gyi + 1, 3);
-
-                auto bilerp = [dx, dy](float v00, float v10, float v01, float v11) -> uint32_t {
-                    float val = v00 * (1 - dx) * (1 - dy) + v10 * dx * (1 - dy) +
-                                v01 * (1 - dx) * dy + v11 * dx * dy;
-                    return static_cast<uint32_t>(val + 0.5f);
-                };
-
-                uint32_t source_r = bilerp(r00, r10, r01, r11);
-                uint32_t source_g = bilerp(g00, g10, g01, g11);
-                uint32_t source_b = bilerp(b00, b10, b01, b11);
-                uint32_t a = bilerp(a00, a10, a01, a11);
-
-                const uint32_t out_r = source_r * a / 255 + bg_r * (255 - a) / 255;
-                const uint32_t out_g = source_g * a / 255 + bg_g * (255 - a) / 255;
-                const uint32_t out_b = source_b * a / 255 + bg_b * (255 - a) / 255;
-
-                dst[y * draw_w + x] = (out_r << 16) | (out_g << 8) | out_b;
-            }
+            dst[i] = (out_r << 16) | (out_g << 8) | out_b;
         }
 
         image = XCreateImage(

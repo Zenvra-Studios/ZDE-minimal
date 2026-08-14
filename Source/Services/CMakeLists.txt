@@ -1,8 +1,13 @@
-# CMakeLists.txt for Services module.
+add_library(ZDEServices
+    Shader/CpuShaderRasterizer.cpp
+    Shader/ShaderCompiler.cpp
+    Shader/ShaderRuntimeEngine.cpp
+)
+add_library(Zenvra::Services ALIAS ZDEServices)
 
-file(GLOB_RECURSE Services_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
-
-if(Services_SOURCES)
-    add_library(Services SHARED ${Services_SOURCES})
-    target_include_directories(Services PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-endif()
+target_include_directories(ZDEServices PUBLIC 
+    "${CMAKE_CURRENT_SOURCE_DIR}/.."
+    "${PROJECT_SOURCE_DIR}"
+)
+target_link_libraries(ZDEServices PUBLIC Zenvra::Core Zenvra::UI)
+zde_enable_warnings(ZDEServices)

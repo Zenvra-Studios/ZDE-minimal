@@ -1112,7 +1112,7 @@ void TextEditor::draw_document(
   const float line_height = 20.0F * surface.m_dpi_scale;
   const float first_center_y = layout.editor_bounds.y + line_height * 0.5F;
   const float code_x = layout.editor_bounds.x + 14.0F * surface.m_dpi_scale -
-          surface.m_text_scroll_offset;
+          m_text_scroll_offset;
   const std::size_t visible_count = static_cast<std::size_t>(
       std::max(static_cast<int>(layout.editor_bounds.height / line_height), 1));
   const std::size_t total_lines = document->get_line_count();
@@ -1138,7 +1138,6 @@ void TextEditor::draw_document(
   // on, then walk forward skipping hidden lines while drawing.
   const std::size_t first_line = visual_row_to_physical_line(
       m_folding, m_scrollbar.get_first_visible_line(), total_lines);
-  const std::size_t first_visual_row = m_scrollbar.get_first_visible_line();
   const std::size_t render_count = visible_count;
   const bool syntax_highlighting =
       UI::Editor::supports_editor_syntax_highlighting(
@@ -1219,6 +1218,12 @@ void TextEditor::draw_document(
       }
     }
   }
+
+  const float hscroll_height = (m_max_text_scroll > 0.0F) ? 14.0F * surface.m_dpi_scale : 0.0F;
+  UI::Rect text_clip_rect = layout.editor_bounds;
+  text_clip_rect.height = std::max(0.0F, text_clip_rect.height - hscroll_height);
+
+  float max_line_width = 0.0F;
 
   // Pass 1: Gutter and backgrounds
   std::size_t row_pass1 = 0;
@@ -1334,6 +1339,99 @@ void TextEditor::draw_document(
                         round_to_int(center_y + line_height * 0.5F),
                         surface.m_pixels.border);
     }
+  }
+
+  // Pass 2: Selection & Text rendering with clipping
+  surface.push_clip(text_clip_rect);
+
+  std::vector<UI::Rect> selection_targets;
+  for (const auto &cursor : document->get_all_cursors()) {
+    if (cursor.has_selection()) {
+      const UI::Editor::TextSelection selection = cursor.get_selection();
+      const std::size_t start_line = selection.start.line;
+      const std::size_t end_line =
+          std::min(selection.end.line, start_line + 1000);
+
+      for (std::size_t line_index = start_line; line_index <= end_line;
+           ++line_index) {
+        if (m_folding.is_line_hidden(line_index)) {
+          continue;
+        }
+        const std::string_view line = document->get_line(line_index);
+        const std::size_t selection_start =
+            line_index == selection.start.line ? selection.start.column : 0;
+        const std::size_t selection_end =
+            line_index == selection.end.line ? selection.end.column : line.size();
+
+        const float selection_x = static_cast<float>(surface.m_editor_font->getTextWidth(
+            std::string{line.substr(0, selection_start)}));
+        float selection_width = static_cast<float>(surface.m_editor_font->getTextWidth(
+            std::string{line.substr(selection_start, selection_end - selection_start)}));
+
+        if (line_index < selection.end.line) {
+          selection_width += 6.0F * surface.m_dpi_scale;
+        }
+
+        selection_targets.push_back(UI::Rect{
+            selection_x,
+            static_cast<float>(physical_line_to_visual_row(
+                m_folding, line_index, total_lines)) *
+                line_height,
+            selection_width, line_height});
+      }
+    }
+  }
+
+  if (selection_targets.empty()) {
+    m_selection_animation.clear();
+  } else {
+    m_selection_animation.set_targets(selection_targets);
+  }
+
+  if (m_selection_animation.has_rects()) {
+    const std::size_t first_visual_row = m_scrollbar.get_first_visible_line();
+    for (const UI::Rect &anim_rect :
+         m_selection_animation.get_animated_rects()) {
+      if (anim_rect.width <= 0.0F)
+        continue;
+
+      const float screen_y = layout.editor_bounds.y + anim_rect.y -
+                             static_cast<float>(first_visual_row) * line_height;
+      const float screen_x = code_x + anim_rect.x;
+
+      if (screen_y + anim_rect.height >= layout.editor_bounds.y &&
+          screen_y <= layout.editor_bounds.bottom()) {
+        const int snap_y = round_to_int(screen_y);
+        const int snap_bottom = round_to_int(screen_y + anim_rect.height);
+        const int snap_x = round_to_int(screen_x);
+        const int snap_right = round_to_int(screen_x + anim_rect.width);
+
+        surface.fill_rounded_rectangle(
+            drawable,
+            UI::Rect{static_cast<float>(snap_x), static_cast<float>(snap_y),
+                     static_cast<float>(snap_right - snap_x),
+                     static_cast<float>(snap_bottom - snap_y)},
+            surface.m_pixels.selection_background, 4.0F * surface.m_dpi_scale,
+            surface.m_pixels.editor_background);
+      }
+    }
+  }
+
+  std::size_t row_pass2 = 0;
+  for (std::size_t line_index = first_line;
+       row_pass2 < render_count && line_index < total_lines; ++line_index) {
+    if (m_folding.is_line_hidden(line_index)) {
+      continue;
+    }
+    const std::string_view line = document->get_line(line_index);
+    if (const float current_line_width = static_cast<float>(
+            surface.m_editor_font->getTextWidth(std::string{line}));
+        current_line_width > max_line_width) {
+      max_line_width = current_line_width;
+    }
+    const float center_y =
+        first_center_y + static_cast<float>(row_pass2) * line_height;
+    ++row_pass2;
     if (syntax_highlighting) {
       float token_x = code_x;
       std::size_t rendered_bytes = 0;
@@ -1372,7 +1470,7 @@ void TextEditor::draw_document(
           if (brace_offset > 0) {
             const std::string pre{token.text.substr(0, brace_offset)};
             surface.draw_text(drawable, *surface.m_editor_font, pre, token_x,
-                              center_y, token_color(token.kind));
+                              center_y, token_color(token.kind), &text_clip_rect);
             token_x +=
                 static_cast<float>(surface.m_editor_font->getTextWidth(pre));
           }
@@ -1457,7 +1555,7 @@ void TextEditor::draw_document(
     }
   }
 
-  XSetClipMask(surface.m_display, surface.m_graphics_context, None);
+  surface.pop_clip();
 
   // Update max horizontal scroll (decays slowly when content shrinks).
   const float content_width =
