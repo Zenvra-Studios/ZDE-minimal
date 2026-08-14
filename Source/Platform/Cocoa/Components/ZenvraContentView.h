@@ -16,6 +16,7 @@ namespace Zenvra::Platform::Cocoa::Components {
 - (void)updateLayout:(const Zenvra::UI::Chrome::WindowChromeLayoutResult&)layout;
 - (void)setCommandCallback:(Zenvra::Platform::CommandStateQueryCallback)callback;
 - (void)setCommandInvokedCallback:(Zenvra::Platform::CommandInvokedCallback)callback;
+- (void)checkToolbarMenuHoverAtPointX:(float)px pointY:(float)py currentMenuIndex:(std::size_t)currentMenuIndex menuToCancel:(NSMenu*)menuToCancel;
 
 @end
 #else

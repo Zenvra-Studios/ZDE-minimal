@@ -232,7 +232,8 @@ public:
         int client_height,
         const UI::Chrome::WindowChromeLayoutResult& chrome_layout,
         const ChromeInteractionState& interaction_state,
-        const CommandStateQueryCallback& command_state_query_callback) const;
+        const CommandStateQueryCallback& command_state_query_callback,
+        std::optional<UI::Rect> dirty_rect = std::nullopt);
 
     [[nodiscard]] OverflowMenuGeometry calculate_overflow_menu_geometry(
         const UI::Chrome::WindowChromeLayoutResult& chrome_layout) const noexcept;
@@ -345,6 +346,13 @@ private:
         std::string selected_command;
     };
     PopupWindowState m_popup;
+
+    Pixmap m_back_buffer = 0;
+    unsigned int m_back_buffer_w = 0;
+    unsigned int m_back_buffer_h = 0;
+    Pixmap m_popup_back_buffer = 0;
+    unsigned int m_popup_back_buffer_w = 0;
+    unsigned int m_popup_back_buffer_h = 0;
 };
 
 } // namespace Zenvra::Platform::X11::Components

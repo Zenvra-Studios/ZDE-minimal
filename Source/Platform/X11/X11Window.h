@@ -98,7 +98,7 @@ private:
     void apply_size_hints() const;
     void refresh_chrome_layout();
     void refresh_window_state();
-    void render();
+    void render(std::optional<UI::Rect> dirty_rect = std::nullopt);
     void handle_event(XEvent& event);
     void handle_motion(const XMotionEvent& event);
     void handle_button_press(const XButtonEvent& event);

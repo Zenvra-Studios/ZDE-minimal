@@ -932,6 +932,27 @@ void StudioWorkspaceRenderer::draw_text(
     }
 }
 
+void StudioWorkspaceRenderer::store_cached_image(const std::string& key, XImage* image) const
+{
+    if (!image)
+    {
+        return;
+    }
+    if (m_svg_cache.size() >= max_image_cache_size)
+    {
+        auto oldest = m_svg_cache.begin();
+        if (oldest != m_svg_cache.end())
+        {
+            if (oldest->second)
+            {
+                XDestroyImage(oldest->second);
+            }
+            m_svg_cache.erase(oldest);
+        }
+    }
+    m_svg_cache[key] = image;
+}
+
 void StudioWorkspaceRenderer::draw_svg_icon(
     Drawable drawable,
     const std::string& path,
@@ -1056,7 +1077,7 @@ void StudioWorkspaceRenderer::draw_svg_icon(
             std::free(x11_data);
             return;
         }
-        m_svg_cache[cache_key] = image;
+        store_cached_image(cache_key, image);
     }
 
     if (image)
@@ -1208,8 +1229,8 @@ void StudioWorkspaceRenderer::draw_png_icon(
             return;
         }
         
-        // We abuse m_svg_cache to also store PNGs for simplicity
-        m_svg_cache[cache_key] = image;
+        // We reuse the image cache to also store PNGs for simplicity
+        store_cached_image(cache_key, image);
     }
 
     if (image)
@@ -1378,7 +1399,7 @@ bool StudioWorkspaceRenderer::draw_ico_icon(
         }
 
         // Reuse the SVG/PNG cache for ICOs as well.
-        m_svg_cache[cache_key] = image;
+        store_cached_image(cache_key, image);
     }
 
     const int draw_x = center_x - image->width / 2;

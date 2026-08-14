@@ -681,7 +681,7 @@ void X11Window::refresh_window_state() {
   m_interaction_state.maximized = m_is_maximized;
 }
 
-void X11Window::render() {
+void X11Window::render(std::optional<UI::Rect> dirty_rect) {
   if (m_display == nullptr || m_window_handle == 0) {
     return;
   }
@@ -695,16 +695,25 @@ void X11Window::render() {
   m_interaction_state.focused = m_is_focused;
   m_chrome_renderer.render(m_window_handle, m_client_width, m_client_height,
                            m_chrome_layout, m_interaction_state,
-                           m_command_state_query_callback);
+                           m_command_state_query_callback,
+                           dirty_rect);
 }
 
 void X11Window::handle_event(XEvent &event) {
   switch (event.type) {
-  case Expose:
-    if (event.xexpose.count == 0) {
-      render();
+  case Expose: {
+    const XExposeEvent &e = event.xexpose;
+    if (e.count == 0) {
+      const UI::Rect dirty_rect{
+          static_cast<float>(e.x),
+          static_cast<float>(e.y),
+          static_cast<float>(e.width),
+          static_cast<float>(e.height),
+      };
+      render(dirty_rect);
     }
     break;
+  }
 
   case ConfigureNotify:
     if (event.xconfigure.width != m_client_width ||

@@ -482,7 +482,7 @@ bool TextEditor::handle_scroll(
     (void)cmd_out;
     if (layout.tab_bar_bounds.contains(px, py))
     {
-        const float speed = 32.0f * layout.dpi_scale;
+        const float speed = 32.0F * layout.dpi_scale;
         m_tab_scroll_offset += static_cast<float>(delta) * speed;
         m_tab_scroll_offset = std::clamp(m_tab_scroll_offset, 0.0f, m_max_tab_scroll);
         return true;
@@ -491,7 +491,7 @@ bool TextEditor::handle_scroll(
     {
         if (layout.editor_bounds.contains(px, py))
         {
-            const float speed = 32.0f * layout.dpi_scale;
+            const float speed = 32.0F * layout.dpi_scale;
             m_text_scroll_offset += static_cast<float>(delta) * speed;
             m_text_scroll_offset = std::clamp(m_text_scroll_offset, 0.0f, m_max_text_scroll);
             return true;

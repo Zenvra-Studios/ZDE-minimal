@@ -243,6 +243,7 @@ bool CocoaChromeRenderer::update_chrome_hover_state(
     ChromeInteractionState &state) const noexcept {
   ChromeInteractionState updated = state;
   updated.hovered_menu_index.reset();
+  updated.hovered_popup_item_index.reset();
   updated.overflow_menu_hovered = false;
   updated.command_center_hovered = false;
   updated.run_button_hovered = false;
@@ -381,11 +382,14 @@ void CocoaChromeRenderer::render(
           icon_color, hovered ? m_theme.hover : m_theme.titlebar_background);
   };
 
+  const bool gear_hovered = interaction_state.gear_button_hovered || (interaction_state.open_menu_index && *interaction_state.open_menu_index == 13);
+  const bool ellipsis_hovered = interaction_state.ellipsis_button_hovered || (interaction_state.open_menu_index && *interaction_state.open_menu_index == 14);
+
   draw_toolbar_icon(chrome_layout.build_bounds, interaction_state.build_button_hovered, "build.svg", m_theme.text_primary);
   draw_toolbar_icon(chrome_layout.run_bounds, interaction_state.run_button_hovered, "play.svg", UI::Theme::Color{152, 195, 121, 255}, 20.0F);
   draw_toolbar_icon(chrome_layout.debug_bounds, interaction_state.debug_button_hovered, "bug.svg", UI::Theme::Color{229, 192, 123, 255}, 18.0F);
-  draw_toolbar_icon(chrome_layout.gear_bounds, interaction_state.gear_button_hovered, "gear.svg", m_theme.text_primary);
-  draw_toolbar_icon(chrome_layout.ellipsis_bounds, interaction_state.ellipsis_button_hovered, "ellipsis.svg", m_theme.text_primary);
+  draw_toolbar_icon(chrome_layout.gear_bounds, gear_hovered, "gear.svg", m_theme.text_primary);
+  draw_toolbar_icon(chrome_layout.ellipsis_bounds, ellipsis_hovered, "ellipsis.svg", m_theme.text_primary);
 
   // Combo Boxes
   auto draw_combo = [&](const UI::Rect &bounds, bool hovered, std::string_view text, bool is_binary) {
@@ -401,8 +405,8 @@ void CocoaChromeRenderer::render(
               binary_icon_size, m_theme.text_primary,
               hovered ? m_theme.hover : m_theme.titlebar_background);
           text_left = 36.0F * scale;
-      } else if (text == "x64" || text == "macOS" || text == "Debug") {
-          text_left = 8.0F * scale;
+      } else if (text == "x64" || text == "Debug") {
+          text_left = 12.0F * scale;
       }
       
       draw_text(context, text, bounds, text_left, m_text_colors.primary);
@@ -417,10 +421,13 @@ void CocoaChromeRenderer::render(
       }
   };
   
-  draw_combo(chrome_layout.compiler_bounds, interaction_state.compiler_button_hovered, "Clang", false);
-  draw_combo(chrome_layout.platform_bounds, interaction_state.platform_button_hovered, "macOS", false);
-  draw_combo(chrome_layout.binary_bounds, interaction_state.binary_button_hovered, "ZDE-Minimal", true);
-  draw_combo(chrome_layout.mode_bounds, interaction_state.mode_button_hovered, "Debug", false);
+  const bool compiler_hovered = interaction_state.compiler_button_hovered || (interaction_state.open_menu_index && *interaction_state.open_menu_index == 10);
+  const bool platform_hovered = interaction_state.platform_button_hovered || (interaction_state.open_menu_index && *interaction_state.open_menu_index == 11);
+  const bool binary_hovered = interaction_state.binary_button_hovered || (interaction_state.open_menu_index && *interaction_state.open_menu_index == 12);
+
+  draw_combo(chrome_layout.compiler_bounds, compiler_hovered, "Debug", false);
+  draw_combo(chrome_layout.platform_bounds, platform_hovered, "x64", false);
+  draw_combo(chrome_layout.binary_bounds, binary_hovered, "untitled", true);
 
   // Command Center / File Buffer: intentionally not drawn on macOS.
   // The integrated tab strip (workspace) fills the titlebar span between the
@@ -543,5 +550,18 @@ PopupMenuGeometry CocoaChromeRenderer::calculate_popup_geometry(
     bool) const noexcept {
   return {};
 }
+
+std::optional<std::size_t> CocoaChromeRenderer::get_popup_item_index(
+    float, float,
+    const UI::Chrome::WindowChromeLayoutResult &,
+    const ChromeInteractionState &) const noexcept {
+  return std::nullopt;
+}
+
+void CocoaChromeRenderer::draw_popup_menu(
+    CGContextRef,
+    const UI::Chrome::WindowChromeLayoutResult &,
+    const ChromeInteractionState &,
+    const CommandStateQueryCallback &) const {}
 
 } // namespace Zenvra::Platform::Cocoa::Components

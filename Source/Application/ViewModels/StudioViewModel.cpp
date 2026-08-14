@@ -370,6 +370,122 @@ bool StudioViewModel::register_future_commands()
         "Run the active project.",
         "Run"));
 
+    // Additional Editor & Navigation Commands
+    add_command(create_unavailable_command(
+        Commands::CommandIds::selection_expand, "Expand Selection", "Expand selection to surrounding scope.", "Selection"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::selection_shrink, "Shrink Selection", "Shrink selection.", "Selection"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::selection_copy_line_up, "Copy Line Up", "Copy current line up.", "Selection"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::selection_copy_line_down, "Copy Line Down", "Copy current line down.", "Selection"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::selection_move_line_up, "Move Line Up", "Move current line up.", "Selection"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::selection_move_line_down, "Move Line Down", "Move current line down.", "Selection"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::selection_duplicate, "Duplicate Selection", "Duplicate selection.", "Selection"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::selection_add_cursor_above, "Add Cursor Above", "Add secondary cursor above.", "Selection"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::selection_add_cursor_below, "Add Cursor Below", "Add secondary cursor below.", "Selection"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::selection_add_cursors_to_line_ends, "Add Cursors to Line Ends", "Add cursors to line ends.", "Selection"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::selection_add_next_occurrence, "Add Next Occurrence", "Select next match.", "Selection"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::selection_add_previous_occurrence, "Add Previous Occurrence", "Select previous match.", "Selection"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::selection_select_all_occurrences, "Select All Occurrences", "Select all matching occurrences.", "Selection"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::selection_switch_multi_cursor_modifier, "Switch Multi-Cursor Modifier", "Switch multi-cursor modifier.", "Selection"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::selection_column_selection_mode, "Column Selection Mode", "Toggle column selection mode.", "Selection"));
+
+    add_command(create_unavailable_command(
+        Commands::CommandIds::edit_find, "Find", "Find in editor.", "Edit"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::edit_find_in_project, "Find in Files", "Find in project files.", "Edit"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::edit_toggle_comment, "Toggle Line Comment", "Toggle line comment.", "Edit"));
+
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_zoom_in, "Zoom In", "Zoom in.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_zoom_out, "Zoom Out", "Zoom out.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_reset_zoom, "Reset Zoom", "Reset zoom.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_toggle_left_dock, "Primary Side Bar", "Toggle primary sidebar.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_toggle_right_dock, "Secondary Side Bar", "Toggle secondary sidebar.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_toggle_bottom_dock, "Toggle Panel", "Toggle bottom panel.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_split_up, "Split Up", "Split editor up.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_split_down, "Split Down", "Split editor down.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_split_left, "Split Left", "Split editor left.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_split_right, "Split Right", "Split editor right.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_git_panel, "Source Control", "Show Source Control panel.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_debugger_panel, "Run and Debug", "Show Debugger panel.", "View"));
+
+    add_command(create_unavailable_command(
+        Commands::CommandIds::help_welcome, "Welcome", "Open Welcome page.", "Help"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::help_show_all_commands, "Command Palette", "Show all commands.", "Help"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::help_editor_playground, "Editor Playground", "Open interactive playground.", "Help"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::help_open_walkthrough, "Open Walkthrough", "Open walkthrough.", "Help"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::help_provide_feedback, "Report Issue", "Report an issue.", "Help"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::help_view_license, "View License", "View license.", "Help"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::help_toggle_developer_tools, "Toggle Developer Tools", "Toggle dev tools.", "Help"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::help_open_process_explorer, "Process Explorer", "Open process explorer.", "Help"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::help_check_for_updates, "Check for Updates", "Check for updates.", "Help"));
+
+    add_command(create_unavailable_command(
+        Commands::CommandIds::open_settings, "Settings", "Open settings.", "Preferences"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::open_themes, "Color Theme", "Select color theme.", "Preferences"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::open_plugins, "Extensions", "Manage extensions.", "Preferences"));
+
+    // Toolbar Overlay Dropdown Commands
+    add_command(create_unavailable_command(
+        Commands::CommandIds::build_debug, "Debug Profile", "Select Debug build profile.", "Build"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::build_release, "Release Profile", "Select Release build profile.", "Build"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::edit_profiles, "Configuration Manager", "Edit build profiles.", "Build"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::platform_x64, "x64", "Target x64 platform.", "Platform"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::platform_x86, "x86", "Target x86 platform.", "Platform"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::platform_win32, "Win32", "Target Win32 platform.", "Platform"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::platform_arm64, "ARM64", "Target ARM64 platform.", "Platform"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::platform_aarch64, "AArch64", "Target AArch64 platform.", "Platform"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::platform_apple_arm, "Apple ARM", "Target Apple ARM platform.", "Platform"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::run_zde, "Run ZDE", "Launch ZDE target.", "Run"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::run_tests, "Run Tests", "Launch test target.", "Run"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::more_tools, "More Tools", "Open more developer tools.", "Tools"));
+
     return registered;
 }
 

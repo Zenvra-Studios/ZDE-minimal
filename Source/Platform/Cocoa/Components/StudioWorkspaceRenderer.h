@@ -219,6 +219,9 @@ private:
     ToolSidebar m_tool_sidebar;
     TextEditor m_text_editor;
     mutable TerminalPanel m_terminal_panel;
+    static constexpr std::size_t max_image_cache_size = 64;
+    void store_cached_image(const std::string& key, CGImageRef image) const;
+    mutable std::unordered_map<std::string, CGImageRef> m_image_cache;
 };
 
 } // namespace Zenvra::Platform::Cocoa::Components

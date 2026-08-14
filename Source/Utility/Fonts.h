@@ -241,9 +241,13 @@ private:
 public:
 
   /**
-   * @brief Destructor. Closes Xft fonts and frees cached XftColors.
+   * @brief Destructor. Closes Xft fonts and frees cached XftColors and XftDraw.
    */
   ~AntialiasedFont() {
+    if (m_draw) {
+      XftDrawDestroy(m_draw);
+      m_draw = nullptr;
+    }
     if (m_font) {
       XftFontClose(m_display, m_font);
     }
@@ -273,14 +277,19 @@ public:
     if (!color || !m_font)
       return;
 
-    XftDraw *draw = XftDrawCreate(m_display, drawable, m_visual, m_colormap);
-    if (draw) {
+    if (!m_draw) {
+      m_draw = XftDrawCreate(m_display, drawable, m_visual, m_colormap);
+    } else {
+      XftDrawChange(m_draw, drawable);
+    }
+    if (m_draw) {
       if (clip) {
-        XftDrawSetClipRectangles(draw, 0, 0, clip, 1);
+        XftDrawSetClipRectangles(m_draw, 0, 0, clip, 1);
+      } else {
+        XftDrawSetClip(m_draw, nullptr);
       }
-      XftDrawStringUtf8(draw, color, m_font, x, y,
+      XftDrawStringUtf8(m_draw, color, m_font, x, y,
                         (const FcChar8 *)text.c_str(), text.length());
-      XftDrawDestroy(draw);
     }
   }
 
@@ -331,6 +340,7 @@ private:
   Visual *m_visual;
   Colormap m_colormap;
   XftFont *m_font;
+  XftDraw *m_draw = nullptr;
   std::unordered_map<std::string, XftColor> m_allocated_colors;
   bool m_ligaturesEnabled = false;
 };

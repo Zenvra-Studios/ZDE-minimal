@@ -13,11 +13,22 @@ static inline int round_to_int(float v) { return static_cast<int>(std::lround(v)
 
 static std::filesystem::path current_terminal_directory(const std::filesystem::path& working_directory)
 {
-    if (!working_directory.empty() && std::filesystem::is_directory(working_directory))
+    std::error_code ec;
+    if (!working_directory.empty() && std::filesystem::is_directory(working_directory, ec))
     {
         return working_directory;
     }
-    return std::filesystem::current_path();
+    const std::filesystem::path current = std::filesystem::current_path(ec);
+    if (!ec && !current.empty())
+    {
+        return current;
+    }
+    const char* home = std::getenv("HOME");
+    if (home != nullptr && *home != '\0')
+    {
+        return std::filesystem::path{home};
+    }
+    return std::filesystem::path{};
 }
 
 bool TerminalPanel::toggle() { return m_model.toggle(current_terminal_directory(m_working_directory)); }

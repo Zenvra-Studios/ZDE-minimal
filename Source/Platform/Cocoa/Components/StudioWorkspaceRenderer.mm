@@ -642,6 +642,14 @@ bool StudioWorkspaceRenderer::tick_animations() noexcept
 
 void StudioWorkspaceRenderer::shutdown()
 {
+    for (auto& [path, image] : m_image_cache)
+    {
+        if (image)
+        {
+            CGImageRelease(image);
+        }
+    }
+    m_image_cache.clear();
     m_terminal_panel.shutdown();
     m_minimap_font.reset();
     m_editor_font.reset();
@@ -875,6 +883,28 @@ std::filesystem::path StudioWorkspaceRenderer::resolve_icon_path(
     return resolved_path;
 }
 
+void StudioWorkspaceRenderer::store_cached_image(const std::string& key, CGImageRef image) const
+{
+    if (!image)
+    {
+        return;
+    }
+    if (m_image_cache.size() >= max_image_cache_size)
+    {
+        auto oldest = m_image_cache.begin();
+        if (oldest != m_image_cache.end())
+        {
+            if (oldest->second)
+            {
+                CGImageRelease(oldest->second);
+            }
+            m_image_cache.erase(oldest);
+        }
+    }
+    CGImageRetain(image);
+    m_image_cache[key] = image;
+}
+
 bool StudioWorkspaceRenderer::draw_png_image(
     CGContextRef context,
     const std::string& path,
@@ -891,33 +921,48 @@ bool StudioWorkspaceRenderer::draw_png_image(
         return false;
     }
 
-    CGImageSourceRef source = CGImageSourceCreateWithURL(
-        (__bridge CFURLRef)[NSURL fileURLWithPath:@(resolved_path.c_str())],
-        nullptr);
-    if (source == nullptr)
+    const std::string cache_key = resolved_path.string() + "@png#" + std::to_string(size);
+    CGImageRef image = nullptr;
+    auto it = m_image_cache.find(cache_key);
+    if (it != m_image_cache.end())
     {
-        return false;
+        image = it->second;
     }
-    CGImageRef image = CGImageSourceCreateImageAtIndex(source, 0, nullptr);
-    CFRelease(source);
-    if (image == nullptr)
+    else
     {
-        return false;
+        CGImageSourceRef source = CGImageSourceCreateWithURL(
+            (__bridge CFURLRef)[NSURL fileURLWithPath:@(resolved_path.c_str())],
+            nullptr);
+        if (source == nullptr)
+        {
+            return false;
+        }
+        image = CGImageSourceCreateImageAtIndex(source, 0, nullptr);
+        CFRelease(source);
+        if (image == nullptr)
+        {
+            return false;
+        }
+        store_cached_image(cache_key, image);
+        CGImageRelease(image);
     }
 
-    const int half = size / 2;
-    const int draw_x = center_x - half;
-    const int draw_y = center_y - half;
+    if (image)
+    {
+        const int half = size / 2;
+        const int draw_x = center_x - half;
+        const int draw_y = center_y - half;
 
-    CGContextSaveGState(context);
-    CGContextTranslateCTM(context, static_cast<CGFloat>(draw_x), static_cast<CGFloat>(draw_y + size));
-    CGContextScaleCTM(context, 1.0, -1.0);
-    CGContextDrawImage(context,
-        CGRectMake(0, 0, static_cast<CGFloat>(size), static_cast<CGFloat>(size)),
-        image);
-    CGContextRestoreGState(context);
-    CGImageRelease(image);
-    return true;
+        CGContextSaveGState(context);
+        CGContextTranslateCTM(context, static_cast<CGFloat>(draw_x), static_cast<CGFloat>(draw_y + size));
+        CGContextScaleCTM(context, 1.0, -1.0);
+        CGContextDrawImage(context,
+            CGRectMake(0, 0, static_cast<CGFloat>(size), static_cast<CGFloat>(size)),
+            image);
+        CGContextRestoreGState(context);
+        return true;
+    }
+    return false;
 }
 
 void StudioWorkspaceRenderer::draw_svg_icon(
@@ -942,71 +987,87 @@ void StudioWorkspaceRenderer::draw_svg_icon(
     preserve_source_colors = preserve_source_colors &&
         resolved_path.parent_path().filename() == "material-icon-theme";
 
-    auto document = lunasvg::Document::loadFromFile(resolved_path.string());
-    if (!document)
+    const std::string cache_key = resolved_path.string() + "@" + std::to_string(size) + "#" +
+        color_to_hex(color) + "/" + color_to_hex(background) + (preserve_source_colors ? "_p" : "");
+    CGImageRef cg_image = nullptr;
+    auto it = m_image_cache.find(cache_key);
+    if (it != m_image_cache.end())
     {
-        return;
+        cg_image = it->second;
     }
-
-    auto bitmap = document->renderToBitmap(
-        static_cast<std::uint32_t>(size), static_cast<std::uint32_t>(size));
-    if (bitmap.isNull())
+    else
     {
-        return;
-    }
-
-    const int half = size / 2;
-    const int draw_x = center_x - half;
-    const int draw_y = center_y - half;
-
-    // Create a CGImage from the bitmap data
-    const std::uint32_t width = bitmap.width();
-    const std::uint32_t height = bitmap.height();
-    const std::uint8_t* data = bitmap.data();
-
-    // lunasvg outputs RGBA premultiplied. Apply tint if not preserving source colors.
-    std::vector<std::uint8_t> tinted_data;
-    const std::uint8_t* image_data = data;
-    if (!preserve_source_colors)
-    {
-        tinted_data.resize(static_cast<std::size_t>(width * height * 4));
-        for (std::uint32_t i = 0; i < width * height; ++i)
+        auto document = lunasvg::Document::loadFromFile(resolved_path.string());
+        if (!document)
         {
-            const float alpha = static_cast<float>(data[i * 4 + 3]) / 255.0F;
-            tinted_data[i * 4 + 0] = static_cast<std::uint8_t>(static_cast<float>(color.red) * alpha);
-            tinted_data[i * 4 + 1] = static_cast<std::uint8_t>(static_cast<float>(color.green) * alpha);
-            tinted_data[i * 4 + 2] = static_cast<std::uint8_t>(static_cast<float>(color.blue) * alpha);
-            tinted_data[i * 4 + 3] = data[i * 4 + 3];
+            return;
         }
-        image_data = tinted_data.data();
-    }
 
-    CGColorSpaceRef color_space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
-    CGContextRef bitmap_context = CGBitmapContextCreate(
-        const_cast<std::uint8_t*>(image_data),
-        width, height, 8, width * 4, color_space,
-        kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
-    if (bitmap_context)
-    {
-        CGImageRef cg_image = CGBitmapContextCreateImage(bitmap_context);
+        auto bitmap = document->renderToBitmap(
+            static_cast<std::uint32_t>(size), static_cast<std::uint32_t>(size));
+        if (bitmap.isNull())
+        {
+            return;
+        }
+
+        const std::uint32_t width = bitmap.width();
+        const std::uint32_t height = bitmap.height();
+        const std::uint8_t* data = bitmap.data();
+
+        // lunasvg outputs RGBA premultiplied. Apply tint if not preserving source colors.
+        std::vector<std::uint8_t> tinted_data;
+        const std::uint8_t* image_data = data;
+        if (!preserve_source_colors)
+        {
+            tinted_data.resize(static_cast<std::size_t>(width * height * 4));
+            for (std::uint32_t i = 0; i < width * height; ++i)
+            {
+                const float alpha = static_cast<float>(data[i * 4 + 3]) / 255.0F;
+                tinted_data[i * 4 + 0] = static_cast<std::uint8_t>(static_cast<float>(color.red) * alpha);
+                tinted_data[i * 4 + 1] = static_cast<std::uint8_t>(static_cast<float>(color.green) * alpha);
+                tinted_data[i * 4 + 2] = static_cast<std::uint8_t>(static_cast<float>(color.blue) * alpha);
+                tinted_data[i * 4 + 3] = data[i * 4 + 3];
+            }
+            image_data = tinted_data.data();
+        }
+
+        CGColorSpaceRef color_space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+        CGContextRef bitmap_context = CGBitmapContextCreate(
+            const_cast<std::uint8_t*>(image_data),
+            width, height, 8, width * 4, color_space,
+            kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+        if (bitmap_context)
+        {
+            cg_image = CGBitmapContextCreateImage(bitmap_context);
+            CGContextRelease(bitmap_context);
+        }
+        CGColorSpaceRelease(color_space);
+
         if (cg_image)
         {
-            CGContextSaveGState(context);
-            CGContextTranslateCTM(context, static_cast<CGFloat>(draw_x), static_cast<CGFloat>(draw_y + size));
-            CGContextScaleCTM(context, 1.0, -1.0);
-            
-            CGContextDrawImage(context,
-                CGRectMake(0, 0,
-                           static_cast<CGFloat>(size),
-                           static_cast<CGFloat>(size)),
-                cg_image);
-                
-            CGContextRestoreGState(context);
+            store_cached_image(cache_key, cg_image);
             CGImageRelease(cg_image);
         }
-        CGContextRelease(bitmap_context);
     }
-    CGColorSpaceRelease(color_space);
+
+    if (cg_image)
+    {
+        const int half = size / 2;
+        const int draw_x = center_x - half;
+        const int draw_y = center_y - half;
+
+        CGContextSaveGState(context);
+        CGContextTranslateCTM(context, static_cast<CGFloat>(draw_x), static_cast<CGFloat>(draw_y + size));
+        CGContextScaleCTM(context, 1.0, -1.0);
+        
+        CGContextDrawImage(context,
+            CGRectMake(0, 0,
+                       static_cast<CGFloat>(size),
+                       static_cast<CGFloat>(size)),
+            cg_image);
+            
+        CGContextRestoreGState(context);
+    }
 }
 
 } // namespace Zenvra::Platform::Cocoa::Components

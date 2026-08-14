@@ -174,6 +174,10 @@ public:
         const UI::Chrome::WindowChromeLayoutResult& chrome_layout,
         std::size_t menu_index,
         bool opened_from_overflow = false) const noexcept;
+    [[nodiscard]] std::optional<std::size_t> get_popup_item_index(
+        float point_x, float point_y,
+        const UI::Chrome::WindowChromeLayoutResult& chrome_layout,
+        const ChromeInteractionState& interaction_state) const noexcept;
 
 private:
     struct ThemeColors

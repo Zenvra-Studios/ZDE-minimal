@@ -150,6 +150,18 @@ bool X11ChromeRenderer::initialize(Display *display, int screen,
 void X11ChromeRenderer::shutdown() {
   close_popup();
   m_workspace_renderer.shutdown();
+  if (m_display != nullptr && m_back_buffer != 0) {
+    XFreePixmap(m_display, m_back_buffer);
+    m_back_buffer = 0;
+    m_back_buffer_w = 0;
+    m_back_buffer_h = 0;
+  }
+  if (m_display != nullptr && m_popup_back_buffer != 0) {
+    XFreePixmap(m_display, m_popup_back_buffer);
+    m_popup_back_buffer = 0;
+    m_popup_back_buffer_w = 0;
+    m_popup_back_buffer_h = 0;
+  }
   // AntialiasedFont releases Xft resources through this display, so it must
   // be destroyed before the renderer forgets the connection.
   m_font.reset();
@@ -392,7 +404,8 @@ void X11ChromeRenderer::render(
     Window window_handle, int client_width, int client_height,
     const UI::Chrome::WindowChromeLayoutResult &chrome_layout,
     const ChromeInteractionState &interaction_state,
-    const CommandStateQueryCallback &command_state_query_callback) const {
+    const CommandStateQueryCallback &command_state_query_callback,
+    std::optional<UI::Rect> dirty_rect) {
   if (m_display == nullptr || m_graphics_context == nullptr ||
       window_handle == 0 || client_width <= 0 || client_height <= 0) {
     return;
@@ -400,12 +413,23 @@ void X11ChromeRenderer::render(
 
   const unsigned int pixmap_width = static_cast<unsigned int>(client_width);
   const unsigned int pixmap_height = static_cast<unsigned int>(client_height);
-  Pixmap back_buffer = XCreatePixmap(
-      m_display, window_handle, pixmap_width, pixmap_height,
-      static_cast<unsigned int>(DefaultDepth(m_display, m_screen)));
-  if (back_buffer == 0) {
+  if (m_back_buffer == 0 || m_back_buffer_w != pixmap_width ||
+      m_back_buffer_h != pixmap_height) {
+    if (m_back_buffer != 0) {
+      XFreePixmap(m_display, m_back_buffer);
+      m_back_buffer = 0;
+    }
+    m_back_buffer = XCreatePixmap(
+        m_display, window_handle, pixmap_width, pixmap_height,
+        static_cast<unsigned int>(DefaultDepth(m_display, m_screen)));
+    m_back_buffer_w = pixmap_width;
+    m_back_buffer_h = pixmap_height;
+  }
+  if (m_back_buffer == 0) {
     return;
   }
+
+  Pixmap back_buffer = m_back_buffer;
 
   fill_rectangle(back_buffer,
                  UI::Rect{0.0F, 0.0F, static_cast<float>(client_width),
@@ -688,9 +712,18 @@ void X11ChromeRenderer::render(
   draw_popup_menu(back_buffer, chrome_layout, interaction_state,
                   command_state_query_callback);
 
-  XCopyArea(m_display, back_buffer, window_handle, m_graphics_context, 0, 0,
-            pixmap_width, pixmap_height, 0, 0);
-  XFreePixmap(m_display, back_buffer);
+  if (dirty_rect && !dirty_rect->is_empty()) {
+    const int src_x = std::clamp(round_to_int(dirty_rect->x), 0, static_cast<int>(pixmap_width));
+    const int src_y = std::clamp(round_to_int(dirty_rect->y), 0, static_cast<int>(pixmap_height));
+    const int src_w = std::clamp(round_to_int(dirty_rect->width), 1, static_cast<int>(pixmap_width) - src_x);
+    const int src_h = std::clamp(round_to_int(dirty_rect->height), 1, static_cast<int>(pixmap_height) - src_y);
+    XCopyArea(m_display, back_buffer, window_handle, m_graphics_context,
+              src_x, src_y, static_cast<unsigned int>(src_w),
+              static_cast<unsigned int>(src_h), src_x, src_y);
+  } else {
+    XCopyArea(m_display, back_buffer, window_handle, m_graphics_context, 0, 0,
+              pixmap_width, pixmap_height, 0, 0);
+  }
   XFlush(m_display);
 }
 
@@ -1295,6 +1328,12 @@ Window X11ChromeRenderer::popup_window() const noexcept {
 }
 
 void X11ChromeRenderer::destroy_popup_window() noexcept {
+  if (m_display != nullptr && m_popup_back_buffer != 0) {
+    XFreePixmap(m_display, m_popup_back_buffer);
+    m_popup_back_buffer = 0;
+    m_popup_back_buffer_w = 0;
+    m_popup_back_buffer_h = 0;
+  }
   if (m_display != nullptr && m_popup.window != 0) {
     XDestroyWindow(m_display, m_popup.window);
     XFlush(m_display);
@@ -1324,17 +1363,30 @@ int X11ChromeRenderer::popup_item_index_at(int local_x, int local_y) const
 }
 
 void X11ChromeRenderer::paint_popup() {
-  if (!m_popup.open || m_popup.window == 0 || m_display == nullptr) {
+  if (!m_popup.open || m_popup.window == 0 || m_display == nullptr ||
+      m_popup.width <= 0 || m_popup.height <= 0) {
     return;
   }
 
-  const int radius = std::max(round_to_int(7.0F * m_dpi_scale), 5);
-  Pixmap buffer = XCreatePixmap(
-      m_display, m_popup.window, static_cast<unsigned int>(m_popup.width),
-      static_cast<unsigned int>(m_popup.height), m_popup_depth);
-  if (buffer == 0) {
+  const unsigned int popup_width = static_cast<unsigned int>(m_popup.width);
+  const unsigned int popup_height = static_cast<unsigned int>(m_popup.height);
+  if (m_popup_back_buffer == 0 || m_popup_back_buffer_w != popup_width ||
+      m_popup_back_buffer_h != popup_height) {
+    if (m_popup_back_buffer != 0) {
+      XFreePixmap(m_display, m_popup_back_buffer);
+      m_popup_back_buffer = 0;
+    }
+    m_popup_back_buffer = XCreatePixmap(
+        m_display, m_popup.window, popup_width, popup_height, m_popup_depth);
+    m_popup_back_buffer_w = popup_width;
+    m_popup_back_buffer_h = popup_height;
+  }
+  if (m_popup_back_buffer == 0) {
     return;
   }
+
+  Pixmap buffer = m_popup_back_buffer;
+  const int radius = std::max(round_to_int(7.0F * m_dpi_scale), 5);
 
   GC gc = m_popup_graphics_context ? m_popup_graphics_context : m_graphics_context;
 
@@ -1433,7 +1485,6 @@ void X11ChromeRenderer::paint_popup() {
   XCopyArea(m_display, buffer, m_popup.window, gc, 0, 0,
             static_cast<unsigned int>(m_popup.width),
             static_cast<unsigned int>(m_popup.height), 0, 0);
-  XFreePixmap(m_display, buffer);
   XFlush(m_display);
 }
 
