@@ -1869,22 +1869,14 @@ void Win32Window::enforce_sharp_corners() {
     return;
   }
 
-  // 1. Strictly enforce DWM no-rounding preference (DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_DONOTROUND = 1)
+  // Let the native OS system manage window corners (DWMWCP_DEFAULT = 0 on Windows 11+, native square on Win10)
   constexpr DWORD dwm_window_corner_preference_attribute = 33;
-  const DWORD corner_preference = 1;
+  const DWORD corner_preference = 0; // DWMWCP_DEFAULT
   DwmSetWindowAttribute(m_window_handle, dwm_window_corner_preference_attribute,
                         &corner_preference, sizeof(corner_preference));
 
-  // 2. Physical window region enforcement (forces 100% sharp 90-degree rectangular corners on all Windows versions)
-  RECT window_bounds{};
-  if (GetWindowRect(m_window_handle, &window_bounds) != FALSE) {
-    const int width = window_bounds.right - window_bounds.left;
-    const int height = window_bounds.bottom - window_bounds.top;
-    if (width > 0 && height > 0) {
-      HRGN rectangular_region = CreateRectRgn(0, 0, width, height);
-      SetWindowRgn(m_window_handle, rectangular_region, TRUE);
-    }
-  }
+  // Clear custom clipping region so DWM hardware-accelerated rounded corners and drop shadows are rendered natively by the OS
+  SetWindowRgn(m_window_handle, nullptr, TRUE);
 }
 
 void Win32Window::paint_custom_chrome() {
