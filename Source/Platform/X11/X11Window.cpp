@@ -2426,6 +2426,7 @@ void X11Window::execute_popup_selection() {
 }
 
 float X11Window::calculate_dpi_scale() const {
+  // 1. Check X11 resource manager for explicit Xft.dpi setting
   const char *resource_manager = XResourceManagerString(m_display);
   if (resource_manager != nullptr) {
     const char *dpi_entry = std::strstr(resource_manager, "Xft.dpi:");
@@ -2440,6 +2441,28 @@ float X11Window::calculate_dpi_scale() const {
     }
   }
 
+  // 2. Check GNOME / GTK environment variables
+  if (const char *gdk_scale = std::getenv("GDK_SCALE")) {
+    const float scale = std::strtof(gdk_scale, nullptr);
+    if (scale >= 1.0F && scale <= 4.0F) {
+      if (const char *gdk_dpi_scale = std::getenv("GDK_DPI_SCALE")) {
+        const float dpi_mult = std::strtof(gdk_dpi_scale, nullptr);
+        if (dpi_mult > 0.1F && dpi_mult < 4.0F) {
+          return std::clamp(scale * dpi_mult, 0.5F, 4.0F);
+        }
+      }
+      return scale;
+    }
+  }
+
+  // 3. Under Wayland sessions (XWayland), compositors handle scaling. Default to 1.0F.
+  const char *wayland_display = std::getenv("WAYLAND_DISPLAY");
+  const char *session_type = std::getenv("XDG_SESSION_TYPE");
+  if (wayland_display != nullptr || (session_type != nullptr && std::strcmp(session_type, "wayland") == 0)) {
+    return 1.0F;
+  }
+
+  // 4. Physical display geometry on X11 native
   const int width_pixels = DisplayWidth(m_display, m_screen);
   const int width_millimeters = DisplayWidthMM(m_display, m_screen);
   if (width_pixels > 0 && width_millimeters > 0) {

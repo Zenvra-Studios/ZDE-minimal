@@ -11,6 +11,8 @@ struct Color
     std::uint8_t green = 0;
     std::uint8_t blue = 0;
     std::uint8_t alpha = 255;
+
+    constexpr bool operator==(const Color&) const noexcept = default;
 };
 
 struct StudioTheme

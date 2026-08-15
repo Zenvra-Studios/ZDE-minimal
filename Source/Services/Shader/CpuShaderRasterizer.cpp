@@ -140,10 +140,87 @@ inline std::uint32_t to_rgba_u32(const Vec4& col) noexcept
 
 CpuShaderRasterizer::CpuShaderRasterizer()
 {
+    m_worker_count = static_cast<int>(std::max(std::thread::hardware_concurrency(), 2U));
+    m_workers.reserve(static_cast<std::size_t>(m_worker_count));
+    for (int i = 0; i < m_worker_count; ++i)
+    {
+        m_workers.emplace_back(&CpuShaderRasterizer::worker_loop, this);
+    }
     resize(320, 240);
 }
 
-CpuShaderRasterizer::~CpuShaderRasterizer() = default;
+CpuShaderRasterizer::~CpuShaderRasterizer()
+{
+    m_stop_workers = true;
+    m_cv_work.notify_all();
+    for (auto& worker : m_workers)
+    {
+        if (worker.joinable())
+        {
+            worker.join();
+        }
+    }
+}
+
+void CpuShaderRasterizer::worker_loop()
+{
+    while (!m_stop_workers)
+    {
+        RenderTask task;
+        {
+            std::unique_lock<std::mutex> lock(m_pool_mutex);
+            m_cv_work.wait(lock, [this]() {
+                return m_stop_workers || !m_task_queue.empty();
+            });
+            if (m_stop_workers && m_task_queue.empty())
+            {
+                return;
+            }
+            task = m_task_queue.back();
+            m_task_queue.pop_back();
+        }
+
+        const int w = m_width;
+        const int h = m_height;
+        const int step = task.step;
+        const auto& shader = *task.shader;
+        const auto& uniforms = *task.uniforms;
+        const auto& channels = *task.channels;
+
+        for (int y = task.y_start; y < task.y_end; y += step)
+        {
+            for (int x = 0; x < w; x += step)
+            {
+                const Vec2 fragCoord{
+                    static_cast<float>(x) + 0.5F,
+                    static_cast<float>(h - 1 - y) + 0.5F
+                };
+                const Vec4 color = shader(fragCoord, uniforms, channels);
+                const std::uint32_t pixel = to_rgba_u32(color);
+
+                if (step == 1)
+                {
+                    m_pixel_buffer[static_cast<std::size_t>(y * w + x)] = pixel;
+                }
+                else
+                {
+                    for (int sy = 0; sy < step && (y + sy) < h; ++sy)
+                    {
+                        for (int sx = 0; sx < step && (x + sx) < w; ++sx)
+                        {
+                            m_pixel_buffer[static_cast<std::size_t>((y + sy) * w + (x + sx))] = pixel;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (--m_pending_tasks == 0)
+        {
+            m_cv_done.notify_all();
+        }
+    }
+}
 
 void CpuShaderRasterizer::resize(int width, int height)
 {
@@ -177,48 +254,33 @@ void CpuShaderRasterizer::render_frame(
         break;
     }
 
-    const unsigned int hardware_threads = std::max(std::thread::hardware_concurrency(), 2U);
-    const int chunk_height = std::max(m_height / static_cast<int>(hardware_threads), 8);
-    std::vector<std::future<void>> tasks;
+    const int chunk_height = std::max(m_height / (m_worker_count * 2), 4);
 
-    for (int y_start = 0; y_start < m_height; y_start += chunk_height)
     {
-        const int y_end = std::min(y_start + chunk_height, m_height);
-        tasks.push_back(std::async(std::launch::async, [this, &shader_func, &uniforms, &channels, y_start, y_end, step]() {
-            for (int y = y_start; y < y_end; y += step)
-            {
-                for (int x = 0; x < m_width; x += step)
-                {
-                    // Shadertoy coordinate convention: bottom-left is (0, 0), top-right is (width, height)
-                    const Vec2 fragCoord{
-                        static_cast<float>(x) + 0.5F,
-                        static_cast<float>(m_height - 1 - y) + 0.5F
-                    };
-                    const Vec4 color = shader_func(fragCoord, uniforms, channels);
-                    const std::uint32_t pixel = to_rgba_u32(color);
-
-                    if (step == 1)
-                    {
-                        m_pixel_buffer[static_cast<std::size_t>(y * m_width + x)] = pixel;
-                    }
-                    else
-                    {
-                        for (int sy = 0; sy < step && (y + sy) < m_height; ++sy)
-                        {
-                            for (int sx = 0; sx < step && (x + sx) < m_width; ++sx)
-                            {
-                                m_pixel_buffer[static_cast<std::size_t>((y + sy) * m_width + (x + sx))] = pixel;
-                            }
-                        }
-                    }
-                }
-            }
-        }));
+        std::lock_guard<std::mutex> lock(m_pool_mutex);
+        m_task_queue.clear();
+        for (int y_start = 0; y_start < m_height; y_start += chunk_height)
+        {
+            const int y_end = std::min(y_start + chunk_height, m_height);
+            m_task_queue.push_back(RenderTask{
+                .y_start = y_start,
+                .y_end = y_end,
+                .step = step,
+                .shader = &shader_func,
+                .uniforms = &uniforms,
+                .channels = &channels
+            });
+        }
+        m_pending_tasks = static_cast<int>(m_task_queue.size());
     }
 
-    for (auto& task : tasks)
+    m_cv_work.notify_all();
+
     {
-        task.get();
+        std::unique_lock<std::mutex> lock(m_pool_mutex);
+        m_cv_done.wait(lock, [this]() {
+            return m_pending_tasks == 0;
+        });
     }
 }
 

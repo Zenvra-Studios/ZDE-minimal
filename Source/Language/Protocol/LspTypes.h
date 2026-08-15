@@ -81,13 +81,13 @@ enum class CompletionItemKind : int
 
 struct CompletionItem
 {
-    std::string label;
+    std::string label = {};
     CompletionItemKind kind = CompletionItemKind::Text;
-    std::string detail;
-    std::string documentation;
-    std::string insert_text;
-    std::string sort_text;
-    std::string filter_text;
+    std::string detail = {};
+    std::string documentation = {};
+    std::string insert_text = {};
+    std::string sort_text = {};
+    std::string filter_text = {};
 };
 
 struct Hover

@@ -92,10 +92,10 @@ bool X11ChromeRenderer::initialize(Display *display, int screen,
     return false;
   }
 
-  char font_pattern[96]{};
-  const int pixel_size = std::max(round_to_int(12.0F * m_dpi_scale), 8);
+  char font_pattern[128]{};
+  const int pixel_size = std::max(round_to_int(12.5F * m_dpi_scale), 10);
   std::snprintf(font_pattern, sizeof(font_pattern),
-                "sans:pixelsize=%d:antialias=true:hinting=true", pixel_size);
+                "Open Sans, Adwaita Sans, Inter, Cantarell, sans-serif:pixelsize=%d:antialias=true:hinting=true:hintstyle=hintslight", pixel_size);
   m_font = std::make_unique<AntialiasedFont>(m_display, m_screen, font_pattern);
   if (m_font->getHeight() <= 0) {
     shutdown();

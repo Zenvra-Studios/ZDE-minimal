@@ -2,12 +2,16 @@
 
 #include "Services/Shader/ShaderTypes.h"
 
+#include <atomic>
 #include <cmath>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <span>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace Zenvra::Services::Shader
@@ -108,6 +112,26 @@ private:
     int m_width = 320;
     int m_height = 240;
     std::vector<std::uint32_t> m_pixel_buffer;
+
+    struct RenderTask {
+        int y_start = 0;
+        int y_end = 0;
+        int step = 1;
+        const PixelShaderFunc* shader = nullptr;
+        const ShaderUniforms* uniforms = nullptr;
+        const std::array<ShaderChannel, 4>* channels = nullptr;
+    };
+
+    std::vector<std::thread> m_workers;
+    std::vector<RenderTask> m_task_queue;
+    std::mutex m_pool_mutex;
+    std::condition_variable m_cv_work;
+    std::condition_variable m_cv_done;
+    std::atomic<bool> m_stop_workers{false};
+    std::atomic<int> m_pending_tasks{0};
+    int m_worker_count = 0;
+
+    void worker_loop();
 };
 
 } // namespace Zenvra::Services::Shader

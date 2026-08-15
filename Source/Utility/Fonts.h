@@ -195,28 +195,38 @@ private:
 
 #elif (defined(__unix__) || defined(__linux__)) && !defined(__APPLE__)
 
+#include <fontconfig/fontconfig.h>
 #include <X11/Xft/Xft.h>
 #include <X11/Xlib.h>
+#include <X11/Xutil.h>
 
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <string_view>
+#include <unordered_map>
 
 /**
  * @class AntialiasedFont
  * @brief Helper class to handle high-quality anti-aliased font rendering in raw
- * Xlib using Xft.
+ * Xlib using Xft and Fontconfig.
  *
- * Traditional Xlib core fonts (XLoadFont, XDrawString) are pixel-based and look
- * jagged. This class wraps Xft (X FreeType) and Fontconfig to render modern
- * anti-aliased vector fonts (TrueType/OpenType) with sub-pixel quality on X11
- * drawables.
+ * Wraps Xft (X FreeType) and Fontconfig to render modern anti-aliased vector
+ * fonts (TrueType/OpenType) with sub-pixel quality, slight hinting (hintslight),
+ * LCD filtering, and ARGB visual safety across GNOME, Wayland (XWayland), and X11.
  */
 class AntialiasedFont {
 public:
   /**
-   * @brief Constructor. Opens a vector font by description.
+   * @brief Constructor. Opens a vector font by description using the default visual.
    * @param display Connection to the X server.
    * @param screen_num Screen index.
-   * @param font_name Font name string in Fontconfig format (e.g. "DejaVu
-   * Sans-10:bold", "sans-11").
+   * @param font_name Font name string in Fontconfig format (e.g. "JetBrains Mono:pixelsize=14", "sans:pixelsize=12").
    */
   AntialiasedFont(Display *display, int screen_num,
                   const std::string &font_name)
@@ -231,24 +241,104 @@ public:
    */
   AntialiasedFont(Display *display, int screen_num,
                   const std::string &font_name,
-                  Visual* visual, Colormap colormap)
+                  Visual *visual, Colormap colormap)
       : m_display(display), m_visual(visual), m_colormap(colormap), m_font(nullptr) {
     init(screen_num, font_name);
   }
 
 private:
   void init(int screen_num, const std::string &font_name) {
-    /* Open the vector font using Fontconfig pattern matching */
-    m_font = XftFontOpenName(m_display, screen_num, font_name.c_str());
+    if (!m_display) {
+      return;
+    }
+
+    FcPattern *pattern = FcNameParse(reinterpret_cast<const FcChar8 *>(font_name.c_str()));
+    if (!pattern) {
+      pattern = FcPatternCreate();
+    }
+
+    // Force essential typography settings for GNOME / Wayland / modern Linux:
+    // 1. Antialiasing enabled
+    FcPatternDel(pattern, FC_ANTIALIAS);
+    FcPatternAddBool(pattern, FC_ANTIALIAS, FcTrue);
+
+    // 2. Subpixel antialiasing (RGB) for rich, crisp subpixel resolution
+    FcPatternDel(pattern, FC_RGBA);
+    FcPatternAddInteger(pattern, FC_RGBA, FC_RGBA_RGB);
+
+    // 3. LCD Filter (for smooth color-balanced subpixel rendering)
+#ifdef FC_LCD_FILTER
+    FcPatternDel(pattern, FC_LCD_FILTER);
+    FcPatternAddInteger(pattern, FC_LCD_FILTER, FC_LCD_DEFAULT);
+#endif
+
+    // 4. Slight Hinting (prevents glyph warping/distortion while maintaining sharp horizontal baselines)
+    FcPatternDel(pattern, FC_HINTING);
+    FcPatternAddBool(pattern, FC_HINTING, FcTrue);
+    FcPatternDel(pattern, FC_HINT_STYLE);
+    FcPatternAddInteger(pattern, FC_HINT_STYLE, FC_HINT_SLIGHT);
+
+    // 5. Use FreeType's smooth autohinter for full-bodied, organic curve rendering
+    FcPatternDel(pattern, FC_AUTOHINT);
+    FcPatternAddBool(pattern, FC_AUTOHINT, FcTrue);
+
+    // 6. Disable embedded bitmaps
+    FcPatternDel(pattern, FC_EMBEDDED_BITMAP);
+    FcPatternAddBool(pattern, FC_EMBEDDED_BITMAP, FcFalse);
+
+    // If visual is 32-bit ARGB (e.g. popups / transparent overlays), disable subpixel RGBA
+    // and use grayscale antialiasing to prevent alpha channel destruction and color fringing.
+    if (m_visual) {
+      XVisualInfo vinfo_template{};
+      vinfo_template.visualid = XVisualIDFromVisual(m_visual);
+      int nitems = 0;
+      XVisualInfo *vinfo_list = XGetVisualInfo(m_display, VisualIDMask, &vinfo_template, &nitems);
+      if (vinfo_list) {
+        if (nitems > 0 && vinfo_list[0].depth == 32) {
+          FcPatternDel(pattern, FC_RGBA);
+          FcPatternAddInteger(pattern, FC_RGBA, FC_RGBA_NONE);
+        }
+        XFree(vinfo_list);
+      }
+    }
+
+    // Perform standard Fontconfig substitutions and merge desktop Xft settings
+    FcConfigSubstitute(nullptr, pattern, FcMatchPattern);
+    XftDefaultSubstitute(m_display, screen_num, pattern);
+    FcDefaultSubstitute(pattern);
+
+    FcResult result;
+    FcPattern *match = FcFontMatch(nullptr, pattern, &result);
+    if (match) {
+      m_font = XftFontOpenPattern(m_display, match);
+    }
+    FcPatternDestroy(pattern);
+
     if (!m_font) {
       std::cerr << "Warning: Could not open font '" << font_name
-                << "', falling back to 'sans-10'" << std::endl;
-      m_font = XftFontOpenName(m_display, screen_num, "sans-10");
+                << "', falling back to system sans" << std::endl;
+      FcPattern *fallback = FcPatternCreate();
+      FcPatternAddString(fallback, FC_FAMILY, reinterpret_cast<const FcChar8 *>("sans-serif"));
+      FcPatternAddDouble(fallback, FC_PIXEL_SIZE, 12.0);
+      FcPatternAddBool(fallback, FC_ANTIALIAS, FcTrue);
+      FcPatternAddBool(fallback, FC_HINTING, FcTrue);
+      FcPatternAddInteger(fallback, FC_HINT_STYLE, FC_HINT_SLIGHT);
+#ifdef FC_LCD_FILTER
+      FcPatternAddInteger(fallback, FC_LCD_FILTER, FC_LCD_DEFAULT);
+#endif
+      FcConfigSubstitute(nullptr, fallback, FcMatchPattern);
+      XftDefaultSubstitute(m_display, screen_num, fallback);
+      FcDefaultSubstitute(fallback);
+
+      FcPattern *fallback_match = FcFontMatch(nullptr, fallback, &result);
+      if (fallback_match) {
+        m_font = XftFontOpenPattern(m_display, fallback_match);
+      }
+      FcPatternDestroy(fallback);
     }
   }
 
 public:
-
   /**
    * @brief Destructor. Closes Xft fonts and frees cached XftColors and XftDraw.
    */
@@ -257,14 +347,66 @@ public:
       XftDrawDestroy(m_draw);
       m_draw = nullptr;
     }
-    if (m_font) {
+    if (m_font && m_display) {
       XftFontClose(m_display, m_font);
+      m_font = nullptr;
     }
 
     /* Free all cached allocated colors */
-    for (auto &pair : m_allocated_colors) {
-      XftColorFree(m_display, m_visual, m_colormap, &pair.second);
+    if (m_display && m_visual && m_colormap) {
+      for (auto &pair : m_allocated_colors) {
+        XftColorFree(m_display, m_visual, m_colormap, &pair.second);
+      }
     }
+    m_allocated_colors.clear();
+  }
+
+  AntialiasedFont(const AntialiasedFont &) = delete;
+  AntialiasedFont &operator=(const AntialiasedFont &) = delete;
+
+  AntialiasedFont(AntialiasedFont &&other) noexcept
+      : m_display(other.m_display),
+        m_visual(other.m_visual),
+        m_colormap(other.m_colormap),
+        m_font(other.m_font),
+        m_draw(other.m_draw),
+        m_current_drawable(other.m_current_drawable),
+        m_allocated_colors(std::move(other.m_allocated_colors)),
+        m_ligaturesEnabled(other.m_ligaturesEnabled) {
+    other.m_font = nullptr;
+    other.m_draw = nullptr;
+    other.m_current_drawable = 0;
+  }
+
+  AntialiasedFont &operator=(AntialiasedFont &&other) noexcept {
+    if (this != &other) {
+      if (m_draw) {
+        XftDrawDestroy(m_draw);
+      }
+      if (m_font && m_display) {
+        XftFontClose(m_display, m_font);
+      }
+      if (m_display && m_visual && m_colormap) {
+        for (auto &pair : m_allocated_colors) {
+          XftColorFree(m_display, m_visual, m_colormap, &pair.second);
+        }
+      }
+      m_allocated_colors.clear();
+
+      m_display = other.m_display;
+      m_visual = other.m_visual;
+      m_colormap = other.m_colormap;
+      m_font = other.m_font;
+      m_draw = other.m_draw;
+      m_current_drawable = other.m_current_drawable;
+      m_allocated_colors = std::move(other.m_allocated_colors);
+      m_ligaturesEnabled = other.m_ligaturesEnabled;
+
+      other.m_font = nullptr;
+      other.m_draw = nullptr;
+      other.m_current_drawable = 0;
+    }
+    return *this;
   }
 
   bool isValid() const noexcept { return m_font != nullptr; }
@@ -273,24 +415,33 @@ public:
   bool isLigaturesEnabled() const { return m_ligaturesEnabled; }
 
   /**
-   * @brief Draw an UTF-8 string on a drawable.
+   * @brief Draw a UTF-8 string on a drawable.
    * @param drawable Window or Pixmap target.
    * @param color_name Color name or hex value (e.g. "black", "#3b82f6").
    * @param x X coordinate (baseline origin).
    * @param y Y coordinate (baseline origin).
    * @param text String content to draw.
+   * @param clip Optional clip rectangle.
    */
   void drawString(Drawable drawable, const std::string &color_name, int x,
-                  int y, const std::string &text, const XRectangle *clip = nullptr) {
-    XftColor *color = getColor(color_name);
-    if (!color || !m_font)
+                  int y, std::string_view text, const XRectangle *clip = nullptr) {
+    if (text.empty() || !m_font || !m_display || drawable == 0) {
       return;
+    }
+
+    XftColor *color = getColor(color_name);
+    if (!color) {
+      return;
+    }
 
     if (!m_draw) {
       m_draw = XftDrawCreate(m_display, drawable, m_visual, m_colormap);
-    } else {
+      m_current_drawable = drawable;
+    } else if (m_current_drawable != drawable) {
       XftDrawChange(m_draw, drawable);
+      m_current_drawable = drawable;
     }
+
     if (m_draw) {
       if (clip) {
         XftDrawSetClipRectangles(m_draw, 0, 0, clip, 1);
@@ -298,7 +449,8 @@ public:
         XftDrawSetClip(m_draw, nullptr);
       }
       XftDrawStringUtf8(m_draw, color, m_font, x, y,
-                        (const FcChar8 *)text.c_str(), text.length());
+                        reinterpret_cast<const FcChar8 *>(text.data()),
+                        static_cast<int>(text.size()));
     }
   }
 
@@ -310,22 +462,24 @@ public:
   }
 
   /**
-   * @brief Calculate the exact pixel width of a text string.
+   * @brief Calculate the exact pixel width of a UTF-8 text string.
    * @param text Target string.
    * @return Width in pixels.
    */
-  int getTextWidth(const std::string &text) const {
-    if (!m_font)
+  int getTextWidth(std::string_view text) const {
+    if (!m_font || text.empty() || !m_display) {
       return 0;
-    XGlyphInfo extents;
-    XftTextExtentsUtf8(m_display, m_font, (const FcChar8 *)text.c_str(),
-                       text.length(), &extents);
+    }
+    XGlyphInfo extents{};
+    XftTextExtentsUtf8(m_display, m_font,
+                       reinterpret_cast<const FcChar8 *>(text.data()),
+                       static_cast<int>(text.size()), &extents);
     return extents.xOff;
   }
 
 private:
   /**
-   * @brief Internally allocate and cache XftColors.
+   * @brief Internally allocate and cache XftColors with full 16-bit RGB precision.
    */
   XftColor *getColor(const std::string &color_name) {
     auto it = m_allocated_colors.find(color_name);
@@ -333,9 +487,54 @@ private:
       return &it->second;
     }
 
-    XftColor color;
-    if (XftColorAllocName(m_display, m_visual, m_colormap, color_name.c_str(),
-                          &color)) {
+    if (color_name.empty() || !m_display || !m_visual) {
+      return nullptr;
+    }
+
+    // Parse hex colors directly with high precision
+    if (color_name[0] == '#') {
+      unsigned int r = 255, g = 255, b = 255, a = 255;
+      const std::size_t len = color_name.length();
+      if (len == 7) { // #rrggbb
+        if (std::sscanf(color_name.c_str(), "#%02x%02x%02x", &r, &g, &b) == 3) {
+          a = 255;
+        }
+      } else if (len == 9) { // #rrggbbaa
+        std::sscanf(color_name.c_str(), "#%02x%02x%02x%02x", &r, &g, &b, &a);
+      } else if (len == 4) { // #rgb
+        unsigned int sr = 0, sg = 0, sb = 0;
+        if (std::sscanf(color_name.c_str(), "#%1x%1x%1x", &sr, &sg, &sb) == 3) {
+          r = sr * 17;
+          g = sg * 17;
+          b = sb * 17;
+          a = 255;
+        }
+      } else if (len == 5) { // #rgba
+        unsigned int sr = 0, sg = 0, sb = 0, sa = 0;
+        if (std::sscanf(color_name.c_str(), "#%1x%1x%1x%1x", &sr, &sg, &sb, &sa) == 4) {
+          r = sr * 17;
+          g = sg * 17;
+          b = sb * 17;
+          a = sa * 17;
+        }
+      }
+
+      XRenderColor render_color{};
+      render_color.red   = static_cast<unsigned short>((r * 65535U) / 255U);
+      render_color.green = static_cast<unsigned short>((g * 65535U) / 255U);
+      render_color.blue  = static_cast<unsigned short>((b * 65535U) / 255U);
+      render_color.alpha = static_cast<unsigned short>((a * 65535U) / 255U);
+
+      XftColor color{};
+      if (XftColorAllocValue(m_display, m_visual, m_colormap, &render_color, &color)) {
+        m_allocated_colors[color_name] = color;
+        return &m_allocated_colors[color_name];
+      }
+    }
+
+    // Named color fallback
+    XftColor color{};
+    if (XftColorAllocName(m_display, m_visual, m_colormap, color_name.c_str(), &color)) {
       m_allocated_colors[color_name] = color;
       return &m_allocated_colors[color_name];
     }
@@ -345,11 +544,12 @@ private:
     return nullptr;
   }
 
-  Display *m_display;
-  Visual *m_visual;
-  Colormap m_colormap;
-  XftFont *m_font;
+  Display *m_display = nullptr;
+  Visual *m_visual = nullptr;
+  Colormap m_colormap = 0;
+  XftFont *m_font = nullptr;
   XftDraw *m_draw = nullptr;
+  Drawable m_current_drawable = 0;
   std::unordered_map<std::string, XftColor> m_allocated_colors;
   bool m_ligaturesEnabled = false;
 };

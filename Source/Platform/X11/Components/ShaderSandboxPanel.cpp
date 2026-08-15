@@ -81,6 +81,8 @@ bool ShaderSandboxPanel::handle_pointer_press(
     m_is_resizing = true;
     m_drag_start_x = point_x;
     m_drag_start_width = m_width;
+    m_prev_scale = m_engine.get_resolution_scale();
+    m_engine.set_resolution_scale(Services::Shader::ResolutionScale::Half);
     return true;
   }
 
@@ -231,7 +233,10 @@ bool ShaderSandboxPanel::handle_pointer_drag(
 bool ShaderSandboxPanel::handle_pointer_release() noexcept {
   const bool was_resizing = m_is_resizing;
   const bool was_mouse_down = m_viewport_mouse_down;
-  m_is_resizing = false;
+  if (m_is_resizing) {
+    m_is_resizing = false;
+    m_engine.set_resolution_scale(m_prev_scale);
+  }
   if (m_viewport_mouse_down) {
     m_viewport_mouse_down = false;
     m_engine.set_mouse(0.0F, 0.0F, false);

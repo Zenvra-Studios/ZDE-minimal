@@ -31,13 +31,13 @@ TEST(LanguageServerTests, LspProtocolFramingAndSerialization)
 TEST(LanguageServerTests, SemanticTokensDeltaDecoding)
 {
     // Test LSP 5-tuple delta format:
-    // Token 1: line 0, start col 5, length 4, type 0 (Type), modifier 0
-    // Token 2: line 0, delta start col 6 (abs col 11), length 3, type 7 (Variable), modifier 0
-    // Token 3: delta line 2 (abs line 2), start col 4, length 8, type 11 (Function), modifier 0
+    // Token 1: line 0, start col 5, length 4, type (Type), modifier 0
+    // Token 2: line 0, delta start col 6 (abs col 11), length 3, type (Variable), modifier 0
+    // Token 3: delta line 2 (abs line 2), start col 4, length 8, type (Function), modifier 0
     std::vector<uint32_t> raw_tokens = {
-        0, 5, 4, 0, 0,
-        0, 6, 3, 7, 0,
-        2, 4, 8, 11, 0
+        0, 5, 4, static_cast<uint32_t>(Language::Syntax::SemanticTokenType::Type), 0,
+        0, 6, 3, static_cast<uint32_t>(Language::Syntax::SemanticTokenType::Variable), 0,
+        2, 4, 8, static_cast<uint32_t>(Language::Syntax::SemanticTokenType::Function), 0
     };
 
     auto decoded = Language::Syntax::SemanticTokensManager::decode_lsp_tokens(raw_tokens);
@@ -277,4 +277,121 @@ TEST(LanguageServerTests, CMakeLanguageDatabaseHover)
     ASSERT_TRUE(hover_kw.has_value());
     EXPECT_TRUE(hover_kw->contents.find("PUBLIC") != std::string::npos);
 }
+
+TEST(LanguageServerTests, CppSyntaxHighlightingNamespacesFunctionsClasses)
+{
+    const auto* grammar = Language::Syntax::GrammarRegistry::instance().get_grammar_for_extension(".cpp");
+    ASSERT_NE(grammar, nullptr);
+
+    // 1. Namespace declaration
+    {
+        std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+        const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+            "namespace Zenvra::Platform::X11::Components", *grammar, tokens);
+        ASSERT_GT(count, 0u);
+
+        bool found_namespace_kw = false;
+        bool found_zenvra_label = false;
+        bool found_platform_label = false;
+        bool found_x11_label = false;
+        bool found_components_label = false;
+
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            if (tokens[i].text == "namespace" && tokens[i].kind == UI::Editor::EditorTokenKind::Keyword) found_namespace_kw = true;
+            if (tokens[i].text == "Zenvra" && tokens[i].kind == UI::Editor::EditorTokenKind::Label) found_zenvra_label = true;
+            if (tokens[i].text == "Platform" && tokens[i].kind == UI::Editor::EditorTokenKind::Label) found_platform_label = true;
+            if (tokens[i].text == "X11" && tokens[i].kind == UI::Editor::EditorTokenKind::Label) found_x11_label = true;
+            if (tokens[i].text == "Components" && tokens[i].kind == UI::Editor::EditorTokenKind::Label) found_components_label = true;
+        }
+
+        EXPECT_TRUE(found_namespace_kw);
+        EXPECT_TRUE(found_zenvra_label);
+        EXPECT_TRUE(found_platform_label);
+        EXPECT_TRUE(found_x11_label);
+        EXPECT_TRUE(found_components_label);
+    }
+
+    // 2. Member function definition with class qualifier
+    {
+        std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+        const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+            "void EditorScrollbar::reset() noexcept", *grammar, tokens);
+        ASSERT_GT(count, 0u);
+
+        bool found_void_type = false;
+        bool found_scrollbar_class = false;
+        bool found_reset_func = false;
+        bool found_noexcept_kw = false;
+
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            if (tokens[i].text == "void" && tokens[i].kind == UI::Editor::EditorTokenKind::Type) found_void_type = true;
+            if (tokens[i].text == "EditorScrollbar" && tokens[i].kind == UI::Editor::EditorTokenKind::Label) found_scrollbar_class = true;
+            if (tokens[i].text == "reset" && tokens[i].kind == UI::Editor::EditorTokenKind::Label) found_reset_func = true;
+            if (tokens[i].text == "noexcept" && tokens[i].kind == UI::Editor::EditorTokenKind::Keyword) found_noexcept_kw = true;
+        }
+
+        EXPECT_TRUE(found_void_type);
+        EXPECT_TRUE(found_scrollbar_class);
+        EXPECT_TRUE(found_reset_func);
+        EXPECT_TRUE(found_noexcept_kw);
+    }
+
+    // 3. Class declaration
+    {
+        std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+        const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+            "class MyComponent : public BaseComponent", *grammar, tokens);
+        ASSERT_GT(count, 0u);
+
+        bool found_class_kw = false;
+        bool found_my_component = false;
+        bool found_public_kw = false;
+        bool found_base_component = false;
+
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            if (tokens[i].text == "class" && tokens[i].kind == UI::Editor::EditorTokenKind::Keyword) found_class_kw = true;
+            if (tokens[i].text == "MyComponent" && tokens[i].kind == UI::Editor::EditorTokenKind::Label) found_my_component = true;
+            if (tokens[i].text == "public" && tokens[i].kind == UI::Editor::EditorTokenKind::Keyword) found_public_kw = true;
+            if (tokens[i].text == "BaseComponent" && tokens[i].kind == UI::Editor::EditorTokenKind::Label) found_base_component = true;
+        }
+
+        EXPECT_TRUE(found_class_kw);
+        EXPECT_TRUE(found_my_component);
+        EXPECT_TRUE(found_public_kw);
+        EXPECT_TRUE(found_base_component);
+    }
+}
+
+TEST(LanguageServerTests, SemanticTokensColorMapping)
+{
+    const auto palette = UI::Editor::StudioEditorPalette::jetbrains_dark();
+
+    // Namespace, Class, Struct, Interface, Function, Method, Macro must all map to palette.label (Pink)
+    EXPECT_EQ(Language::Syntax::SemanticTokensManager::get_token_color(
+        Language::Syntax::SemanticTokenType::Namespace, palette), palette.label);
+    EXPECT_EQ(Language::Syntax::SemanticTokensManager::get_token_color(
+        Language::Syntax::SemanticTokenType::Class, palette), palette.label);
+    EXPECT_EQ(Language::Syntax::SemanticTokensManager::get_token_color(
+        Language::Syntax::SemanticTokenType::Struct, palette), palette.label);
+    EXPECT_EQ(Language::Syntax::SemanticTokensManager::get_token_color(
+        Language::Syntax::SemanticTokenType::Interface, palette), palette.label);
+    EXPECT_EQ(Language::Syntax::SemanticTokensManager::get_token_color(
+        Language::Syntax::SemanticTokenType::Function, palette), palette.label);
+    EXPECT_EQ(Language::Syntax::SemanticTokensManager::get_token_color(
+        Language::Syntax::SemanticTokenType::Method, palette), palette.label);
+    EXPECT_EQ(Language::Syntax::SemanticTokensManager::get_token_color(
+        Language::Syntax::SemanticTokenType::Macro, palette), palette.label);
+
+    // Types map to palette.type (Cyan)
+    EXPECT_EQ(Language::Syntax::SemanticTokensManager::get_token_color(
+        Language::Syntax::SemanticTokenType::Type, palette), palette.type);
+
+    // Keywords map to palette.keyword (Peach)
+    EXPECT_EQ(Language::Syntax::SemanticTokensManager::get_token_color(
+        Language::Syntax::SemanticTokenType::Keyword, palette), palette.keyword);
+}
+
 

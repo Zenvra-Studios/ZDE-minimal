@@ -96,6 +96,7 @@ private:
     bool m_is_resizing = false;
     float m_drag_start_x = 0.0F;
     float m_drag_start_width = 380.0F;
+    Services::Shader::ResolutionScale m_prev_scale = Services::Shader::ResolutionScale::Full;
 
     // Interactive button hover states
     bool m_hover_play = false;

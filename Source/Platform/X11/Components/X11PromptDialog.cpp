@@ -38,18 +38,31 @@ bool X11PromptDialog::initialize(Display* display, int screen, float dpi_scale,
     m_dpi_scale = std::max(dpi_scale, 1.0F);
     m_icon_asset_root = icon_asset_root;
 
-    const int base_title_size = std::max(8, static_cast<int>(8.5F * m_dpi_scale));
-    const int base_ui_size = std::max(9, static_cast<int>(9.0F * m_dpi_scale));
-    const int base_small_size = std::max(8, static_cast<int>(8.0F * m_dpi_scale));
+    const int base_title_size = std::max(12, static_cast<int>(13.5F * m_dpi_scale));
+    const int base_ui_size = std::max(10, static_cast<int>(12.0F * m_dpi_scale));
+    const int base_small_size = std::max(9, static_cast<int>(11.0F * m_dpi_scale));
+    const int base_editor_size = std::max(11, static_cast<int>(13.0F * m_dpi_scale));
 
-    m_title_font = std::make_unique<AntialiasedFont>(
-        m_display, m_screen, "sans-" + std::to_string(base_title_size));
-    m_ui_font = std::make_unique<AntialiasedFont>(
-        m_display, m_screen, "sans-" + std::to_string(base_ui_size));
-    m_editor_font = std::make_unique<AntialiasedFont>(
-        m_display, m_screen, "monospace-" + std::to_string(base_ui_size));
-    m_small_font = std::make_unique<AntialiasedFont>(
-        m_display, m_screen, "sans-" + std::to_string(base_small_size));
+    char pattern[256]{};
+    std::snprintf(pattern, sizeof(pattern),
+                  "Open Sans, Adwaita Sans, Inter, Cantarell, sans-serif:pixelsize=%d:antialias=true:hinting=true:hintstyle=hintslight",
+                  base_title_size);
+    m_title_font = std::make_unique<AntialiasedFont>(m_display, m_screen, pattern);
+
+    std::snprintf(pattern, sizeof(pattern),
+                  "Open Sans, Adwaita Sans, Inter, Cantarell, sans-serif:pixelsize=%d:antialias=true:hinting=true:hintstyle=hintslight",
+                  base_ui_size);
+    m_ui_font = std::make_unique<AntialiasedFont>(m_display, m_screen, pattern);
+
+    std::snprintf(pattern, sizeof(pattern),
+                  "Hack, JetBrainsMono Nerd Font, JetBrains Mono, monospace:pixelsize=%d:antialias=true:hinting=true:hintstyle=hintslight",
+                  base_editor_size);
+    m_editor_font = std::make_unique<AntialiasedFont>(m_display, m_screen, pattern);
+
+    std::snprintf(pattern, sizeof(pattern),
+                  "Open Sans, Adwaita Sans, Inter, Cantarell, sans-serif:pixelsize=%d:antialias=true:hinting=true:hintstyle=hintslight",
+                  base_small_size);
+    m_small_font = std::make_unique<AntialiasedFont>(m_display, m_screen, pattern);
 
     return true;
 }
