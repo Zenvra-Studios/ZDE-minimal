@@ -3,6 +3,7 @@
 
 // #include "Workspace/Workspace.h"
 #include "Commands/CommandIds.h"
+#include "Language/LanguageServerManager.h"
 #include "Platform/PlatformDialogs.h"
 #include "Platform/X11/Runtime/X11Context.h"
 #include "UI/Components/MenuModel.h"
@@ -20,6 +21,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string_view>
 #include <utility>
@@ -204,6 +206,20 @@ bool X11Window::initialize() {
     release_native_resources();
     return false;
   }
+
+  static_cast<void>(
+      m_prompt_dialog.initialize(m_display, m_screen, m_dpi_scale,
+                                 m_chrome_renderer.get_icon_asset_root()));
+  static_cast<void>(
+      m_add_item_dialog.initialize(m_display, m_screen, m_dpi_scale,
+                                   m_chrome_renderer.get_icon_asset_root()));
+
+  Language::LanguageServerManager::instance().set_diagnostics_callback(
+      [this](const std::string &uri,
+             const std::vector<Language::Protocol::Diagnostic> &diags) {
+        m_chrome_renderer.get_text_editor().on_diagnostics_updated(uri, diags);
+        render();
+      });
   
   apply_window_icon();
   refresh_chrome_layout();
@@ -230,9 +246,45 @@ void X11Window::poll_events() {
   while (XPending(m_display) > 0) {
     XEvent event{};
     XNextEvent(m_display, &event);
+    if (event.type == SelectionRequest) {
+      XSelectionRequestEvent *req = &event.xselectionrequest;
+      XSelectionEvent sel_ev{};
+      sel_ev.type = SelectionNotify;
+      sel_ev.requestor = req->requestor;
+      sel_ev.selection = req->selection;
+      sel_ev.target = req->target;
+      sel_ev.property = req->property;
+      sel_ev.time = req->time;
+
+      Atom utf8_string = XInternAtom(m_display, "UTF8_STRING", False);
+      Atom targets = XInternAtom(m_display, "TARGETS", False);
+
+      if (req->target == targets) {
+        Atom supported_targets[] = {utf8_string, XA_STRING};
+        XChangeProperty(m_display, req->requestor, req->property, XA_ATOM, 32,
+                        PropModeReplace, reinterpret_cast<unsigned char *>(supported_targets), 2);
+      } else if (req->target == utf8_string || req->target == XA_STRING) {
+        XChangeProperty(m_display, req->requestor, req->property, req->target, 8,
+                        PropModeReplace, reinterpret_cast<const unsigned char *>(m_clipboard_text.data()),
+                        m_clipboard_text.size());
+      } else {
+        sel_ev.property = None;
+      }
+      XSendEvent(m_display, req->requestor, False, 0, reinterpret_cast<XEvent *>(&sel_ev));
+      XFlush(m_display);
+      continue;
+    }
+    if (m_prompt_dialog.is_open() && event.xany.window == m_prompt_dialog.window()) {
+      m_prompt_dialog.handle_event(event);
+      continue;
+    }
+    if (m_add_item_dialog.is_open() && event.xany.window == m_add_item_dialog.window()) {
+      m_add_item_dialog.handle_event(event);
+      continue;
+    }
     if (event_matches_window(m_display, &event, reinterpret_cast<XPointer>(&target))) {
       if (target.popup_window != 0 && event.xany.window == target.popup_window && event.type != MappingNotify) {
-        m_chrome_renderer.handle_popup_event(event);
+        static_cast<void>(m_chrome_renderer.handle_popup_event(event));
         if (const auto command = m_chrome_renderer.take_popup_command()) {
           m_interaction_state.open_menu_index.reset();
           m_interaction_state.overflow_menu_open = false;
@@ -242,14 +294,18 @@ void X11Window::poll_events() {
           m_menu_pointer_tracking = false;
           render();
           if (!command->empty()) {
-            const std::optional<bool> editor_result =
-                m_chrome_renderer.handle_editor_command(*command);
-            if (editor_result) {
-              if (*editor_result) {
-                render();
+            if (command->starts_with("zde.explorer.")) {
+              execute_explorer_command(*command);
+            } else {
+              const std::optional<bool> editor_result =
+                  m_chrome_renderer.handle_editor_command(*command);
+              if (editor_result) {
+                if (*editor_result) {
+                  render();
+                }
+              } else if (m_command_invoked_callback) {
+                m_command_invoked_callback(*command);
               }
-            } else if (m_command_invoked_callback) {
-              m_command_invoked_callback(*command);
             }
           }
         }
@@ -389,6 +445,7 @@ bool X11Window::open_project_folder() {
               << '\n';
     return true;
   }
+  Language::LanguageServerManager::instance().set_workspace_root(*selected);
 
   std::error_code path_error;
   const std::filesystem::path canonical =
@@ -492,6 +549,7 @@ void X11Window::release_native_resources() {
   }
   m_file_drop_target.shutdown();
   m_chrome_renderer.shutdown();
+  Language::LanguageServerManager::instance().stop_all();
   for (Cursor &cursor : m_move_resize_cursors) {
     if (cursor != None) {
       XFreeCursor(m_display, cursor);
@@ -932,16 +990,26 @@ void X11Window::handle_motion(const XMotionEvent &event) {
       binary_button_hovered != m_interaction_state.binary_button_hovered ||
       build_button_hovered != m_interaction_state.build_button_hovered ||
       gear_button_hovered != m_interaction_state.gear_button_hovered;
+  const bool over_titlebar_action =
+      hovered_control != UI::Chrome::WindowControl::NoControl ||
+      overflow_menu_hovered || run_button_hovered || debug_button_hovered ||
+      ellipsis_button_hovered || compiler_button_hovered ||
+      platform_button_hovered || binary_button_hovered ||
+      build_button_hovered || gear_button_hovered ||
+      hovered_menu.has_value();
+
   bool workspace_changed = false;
-  if (m_interaction_state.open_menu_index.has_value() || m_interaction_state.overflow_menu_open || m_menu_pointer_tracking) {
-      workspace_changed = m_chrome_renderer.handle_workspace_pointer_move(
-                  -10000.0F, -10000.0F, m_client_width, m_client_height,
-                  m_chrome_layout.titlebar_bounds.bottom());
+  if (m_interaction_state.open_menu_index.has_value() ||
+      m_interaction_state.overflow_menu_open || m_menu_pointer_tracking ||
+      over_titlebar_action) {
+    workspace_changed = m_chrome_renderer.handle_workspace_pointer_move(
+        -10000.0F, -10000.0F, m_client_width, m_client_height,
+        m_chrome_layout.titlebar_bounds.bottom());
   } else {
-      workspace_changed = m_chrome_renderer.handle_workspace_pointer_move(
-                  static_cast<float>(event.x), static_cast<float>(event.y),
-                  m_client_width, m_client_height,
-                  m_chrome_layout.titlebar_bounds.bottom());
+    workspace_changed = m_chrome_renderer.handle_workspace_pointer_move(
+        static_cast<float>(event.x), static_cast<float>(event.y),
+        m_client_width, m_client_height,
+        m_chrome_layout.titlebar_bounds.bottom());
   }
   changed = workspace_changed || changed;
   m_interaction_state.hovered_control = hovered_control;
@@ -1053,8 +1121,35 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
     }
     return;
   }
+  if (event.button == Button3) {
+    const float point_x = static_cast<float>(event.x);
+    const float point_y = static_cast<float>(event.y);
+    const float content_top = m_chrome_layout.titlebar_bounds.bottom();
+
+    if (m_chrome_renderer.is_tool_sidebar_point(point_x, point_y, m_client_width, m_client_height, content_top)) {
+      const auto opt_target = m_chrome_renderer.handle_right_click(point_x, point_y, m_client_width, m_client_height, content_top);
+      if (opt_target) {
+        show_explorer_context_menu(*opt_target, event.x, event.y);
+        return;
+      }
+    } else if (m_chrome_renderer.is_editor_interactive_point(point_x, point_y)) {
+      show_editor_context_menu(event.x, event.y);
+      return;
+    }
+    return;
+  }
   if (event.button != Button1 && event.button != Button2) {
     return;
+  }
+
+  if (m_chrome_renderer.is_popup_open()) {
+    m_chrome_renderer.close_popup();
+    m_interaction_state.open_menu_index.reset();
+    m_interaction_state.hovered_popup_item_index.reset();
+    m_interaction_state.overflow_menu_open = false;
+    m_pressed_popup_item_index.reset();
+    m_menu_pointer_tracking = false;
+    render();
   }
 
   const float point_x = static_cast<float>(event.x);
@@ -1118,6 +1213,20 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
       m_interaction_state.overflow_menu_open = true;
     }
     render();
+    return;
+  }
+
+  if (m_chrome_layout.is_build_button(point_x, point_y)) {
+    m_chrome_renderer.close_popup();
+    m_interaction_state.open_menu_index.reset();
+    m_interaction_state.hovered_popup_item_index.reset();
+    m_interaction_state.overflow_menu_open = false;
+    const std::optional<bool> editor_result =
+        m_chrome_renderer.handle_editor_command(
+            Commands::CommandIds::build_build_project);
+    if (!editor_result && m_command_invoked_callback) {
+      m_command_invoked_callback(Commands::CommandIds::build_build_project);
+    }
     return;
   }
 
@@ -1414,6 +1523,34 @@ void X11Window::handle_key_press(XKeyEvent &event) {
     return;
   }
   if (!m_custom_chrome_enabled) {
+    return;
+  }
+
+  if (m_chrome_renderer.is_prompt_modal_visible()) {
+    if (key_symbol == XK_Escape) {
+      static_cast<void>(m_chrome_renderer.get_workspace_renderer().get_prompt_modal().handle_escape());
+      render();
+      return;
+    }
+    if (key_symbol == XK_Return || key_symbol == XK_KP_Enter) {
+      static_cast<void>(m_chrome_renderer.get_workspace_renderer().get_prompt_modal().handle_enter());
+      render();
+      return;
+    }
+    if (key_symbol == XK_BackSpace) {
+      static_cast<void>(m_chrome_renderer.get_workspace_renderer().get_prompt_modal().handle_backspace());
+      render();
+      return;
+    }
+    char buf[32]{};
+    KeySym sym{};
+    int len = XLookupString(&event, buf, sizeof(buf), &sym, nullptr);
+    if (len > 0 && !std::iscntrl(static_cast<unsigned char>(buf[0]))) {
+      static_cast<void>(m_chrome_renderer.get_workspace_renderer().get_prompt_modal().handle_char(
+          static_cast<char32_t>(static_cast<unsigned char>(buf[0]))));
+      render();
+      return;
+    }
     return;
   }
 
@@ -2522,6 +2659,181 @@ bool X11Window::is_root_atom_supported(Atom atom) const {
   }
   XFree(property_data);
   return supported;
+}
+
+void X11Window::copy_to_clipboard(const std::string &text) {
+  m_clipboard_text = text;
+  Atom clipboard = XInternAtom(m_display, "CLIPBOARD", False);
+  XSetSelectionOwner(m_display, clipboard, m_window_handle, CurrentTime);
+  XSetSelectionOwner(m_display, XA_PRIMARY, m_window_handle, CurrentTime);
+}
+
+void X11Window::show_explorer_context_menu(
+    const std::filesystem::path &target_path, int client_x, int client_y) {
+  m_context_menu_target_path = target_path;
+  const std::vector<Components::PopupMenuItem> items = {
+      {"New File...", "zde.explorer.newFile", false, true, false, ""},
+      {"New Folder...", "zde.explorer.newFolder", false, true, false, ""},
+      {"", "", true, true, false, ""},
+      {"Open to the Side", "zde.explorer.openToSide", false, true, false,
+       "Ctrl+Enter"},
+      {"Reveal in File Manager", "zde.explorer.reveal", false, true, false,
+       "Shift+Alt+R"},
+      {"Open in Integrated Terminal", "zde.explorer.openTerminal", false, true,
+       false, ""},
+      {"", "", true, true, false, ""},
+      {"Cut", "zde.explorer.cut", false, true, false, "Ctrl+X"},
+      {"Copy", "zde.explorer.copy", false, true, false, "Ctrl+C"},
+      {"Paste", "zde.explorer.paste", false, true, false, "Ctrl+V"},
+      {"", "", true, true, false, ""},
+      {"Copy Path", "zde.explorer.copyPath", false, true, false, "Shift+Alt+C"},
+      {"Copy Relative Path", "zde.explorer.copyRelativePath", false, true,
+       false, "Ctrl+K Ctrl+Shift+C"},
+      {"", "", true, true, false, ""},
+      {"Rename...", "zde.explorer.rename", false, true, false, "F2"},
+      {"Delete", "zde.explorer.delete", false, true, false, "Delete"}};
+
+  const UI::Rect anchor{static_cast<float>(client_x),
+                        static_cast<float>(client_y), 0.0F, 0.0F};
+  static_cast<void>(
+      m_chrome_renderer.open_popup(m_window_handle, anchor, items, false, false));
+}
+
+void X11Window::show_editor_context_menu(int client_x, int client_y) {
+  const std::vector<Components::PopupMenuItem> items = {
+      {"Cut", std::string{Commands::CommandIds::edit_cut}, false, true, false,
+       "Ctrl+X"},
+      {"Copy", std::string{Commands::CommandIds::edit_copy}, false, true, false,
+       "Ctrl+C"},
+      {"Paste", std::string{Commands::CommandIds::edit_paste}, false, true,
+       false, "Ctrl+V"},
+      {"", "", true, true, false, ""},
+      {"Select All", std::string{Commands::CommandIds::selection_select_all},
+       false, true, false, "Ctrl+A"},
+      {"Toggle Line Comment",
+       std::string{Commands::CommandIds::edit_toggle_comment}, false, true,
+       false, "Ctrl+/"},
+      {"", "", true, true, false, ""},
+      {"Undo", std::string{Commands::CommandIds::edit_undo}, false, true, false,
+       "Ctrl+Z"},
+      {"Redo", std::string{Commands::CommandIds::edit_redo}, false, true, false,
+       "Ctrl+Y"},
+      {"", "", true, true, false, ""},
+      {"Command Palette...",
+       std::string{Commands::CommandIds::help_show_all_commands}, false, true,
+       false, "Ctrl+Shift+P"}};
+
+  const UI::Rect anchor{static_cast<float>(client_x),
+                        static_cast<float>(client_y), 0.0F, 0.0F};
+  static_cast<void>(
+      m_chrome_renderer.open_popup(m_window_handle, anchor, items, false, false));
+}
+
+void X11Window::execute_explorer_command(std::string_view command) {
+  const auto target_path = m_context_menu_target_path;
+
+  if (command == "zde.explorer.newFile") {
+    const auto root = m_chrome_renderer.get_workspace_renderer()
+                          .get_tool_sidebar()
+                          .get_model()
+                          .get_workspace_root();
+    const std::string proj_name =
+        root.empty() ? "Project" : root.filename().string();
+    m_add_item_dialog.open(
+        m_window_handle, target_path, proj_name,
+        [this](const std::string &name, const std::string &initial_content) {
+          std::filesystem::path created_p;
+          if (m_chrome_renderer.get_workspace_renderer()
+                  .get_tool_sidebar()
+                  .get_model()
+                  .create_file(name, created_p)) {
+            if (!initial_content.empty()) {
+              std::ofstream out(created_p, std::ios::binary);
+              if (out.is_open()) {
+                out.write(initial_content.data(),
+                          static_cast<std::streamsize>(initial_content.size()));
+                out.close();
+              }
+            }
+            static_cast<void>(
+                m_chrome_renderer.get_text_editor().open_file(created_p));
+          }
+          render();
+        });
+  } else if (command == "zde.explorer.newFolder") {
+    m_prompt_dialog.open_new_folder(
+        m_window_handle, target_path, [this](const std::string &name) {
+          std::filesystem::path created_p;
+          static_cast<void>(m_chrome_renderer.get_workspace_renderer()
+                                .get_tool_sidebar()
+                                .get_model()
+                                .create_directory(name, created_p));
+          render();
+        });
+  } else if (command == "zde.explorer.openToSide") {
+    std::error_code ec;
+    if (!std::filesystem::is_directory(target_path, ec)) {
+      static_cast<void>(
+          m_chrome_renderer.get_text_editor().open_file(target_path));
+    }
+  } else if (command == "zde.explorer.reveal") {
+    std::string cmd =
+        "xdg-open \"" + target_path.parent_path().string() + "\" &";
+    static_cast<void>(std::system(cmd.c_str()));
+  } else if (command == "zde.explorer.openTerminal") {
+    std::error_code ec;
+    std::filesystem::path term_dir =
+        std::filesystem::is_directory(target_path, ec)
+            ? target_path
+            : target_path.parent_path();
+    if (!m_chrome_renderer.get_workspace_renderer()
+             .get_terminal_panel()
+             .is_visible()) {
+      static_cast<void>(
+          m_chrome_renderer.get_workspace_renderer().get_terminal_panel().toggle());
+    }
+    std::string cd_cmd = "cd \"" + term_dir.string() + "\"\n";
+    static_cast<void>(m_chrome_renderer.get_workspace_renderer()
+                          .get_terminal_panel()
+                          .handle_text_input(cd_cmd));
+  } else if (command == "zde.explorer.cut" || command == "zde.explorer.copy" ||
+             command == "zde.explorer.copyPath") {
+    copy_to_clipboard(target_path.string());
+  } else if (command == "zde.explorer.copyRelativePath") {
+    const auto root = m_chrome_renderer.get_workspace_renderer()
+                          .get_tool_sidebar()
+                          .get_model()
+                          .get_workspace_root();
+    std::error_code ec;
+    const auto rel = std::filesystem::relative(target_path, root, ec);
+    copy_to_clipboard(ec ? target_path.string() : rel.string());
+  } else if (command == "zde.explorer.rename") {
+    m_prompt_dialog.open_rename(
+        m_window_handle, target_path, [this, target_path](const std::string &new_name) {
+          std::filesystem::path new_p;
+          if (m_chrome_renderer.get_workspace_renderer()
+                  .get_tool_sidebar()
+                  .get_model()
+                  .rename_item(target_path, new_name, new_p)) {
+            static_cast<void>(
+                m_chrome_renderer.get_text_editor().close_file(target_path));
+            static_cast<void>(
+                m_chrome_renderer.get_text_editor().open_file(new_p));
+          }
+          render();
+        });
+  } else if (command == "zde.explorer.delete") {
+    m_prompt_dialog.open_delete(
+        m_window_handle, target_path, [this, target_path]() {
+          static_cast<void>(
+              m_chrome_renderer.get_text_editor().close_file(target_path));
+          static_cast<void>(m_chrome_renderer.get_workspace_renderer()
+                                .get_tool_sidebar()
+                                .get_model()
+                                .delete_item(target_path));
+          render();
+        });
+  }
 }
 
 } // namespace Zenvra::Platform::X11

@@ -53,6 +53,12 @@
             "linux": "libZDEUtility.so",
             "macos": "libZDEUtility.dylib",
             "required": true
+        },
+        {
+            "windows": "ZDELanguage.dll",
+            "linux": "libZDELanguage.so",
+            "macos": "libZDELanguage.dylib",
+            "required": true
         }
     ]
 }

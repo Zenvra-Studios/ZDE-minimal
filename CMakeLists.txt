@@ -40,6 +40,14 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib/$<CONFIG>")
 
+# --- RPATH configuration for Linux / macOS ---------------------------------
+set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
+if(NOT APPLE)
+    set(CMAKE_INSTALL_RPATH "$ORIGIN")
+    set(CMAKE_BUILD_RPATH "$ORIGIN")
+endif()
+
+
 # --- Dependencies ---------------------------------------------------------
 # CPM.cmake is CMake's package manager, used to fetch third-party libraries.
 # It is vendored in Cmake/CPM.cmake (v0.40.2, see https://github.com/cpm-cmake/CPM.cmake).

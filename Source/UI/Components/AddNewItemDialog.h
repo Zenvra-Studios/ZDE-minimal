@@ -1,5 +1,7 @@
 #pragma once
 
+#if defined(_WIN32)
+
 #include "UI/Geometry.h"
 #include "UI/Theme/StudioTheme.h"
 #include <string>
@@ -133,3 +135,6 @@ private:
 };
 
 } // namespace Zenvra::UI::Components
+
+#endif // defined(_WIN32)
+

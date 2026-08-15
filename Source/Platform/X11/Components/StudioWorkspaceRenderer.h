@@ -6,6 +6,7 @@
 #include "Platform/X11/Components/TerminalPanel.h"
 #include "Platform/X11/Components/TextEditor.h"
 #include "Platform/X11/Components/ToolSidebar.h"
+#include "UI/Components/PromptModal.h"
 #include "UI/Editor/StudioEditorModel.h"
 
 #include <X11/Xlib.h>
@@ -151,6 +152,21 @@ public:
         int client_width,
         int client_height,
         float content_top) const noexcept;
+    [[nodiscard]] std::optional<std::filesystem::path> handle_right_click(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top);
+    [[nodiscard]] UI::Components::PromptModal& get_prompt_modal() const noexcept { return m_prompt_modal; }
+    [[nodiscard]] bool is_prompt_modal_visible() const noexcept;
+    void render_prompt_modal(Drawable drawable, int client_width, int client_height) const;
+    [[nodiscard]] ToolSidebar& get_tool_sidebar() noexcept { return m_tool_sidebar; }
+    [[nodiscard]] const ToolSidebar& get_tool_sidebar() const noexcept { return m_tool_sidebar; }
+    [[nodiscard]] TerminalPanel& get_terminal_panel() noexcept { return m_terminal_panel; }
+    [[nodiscard]] const TerminalPanel& get_terminal_panel() const noexcept { return m_terminal_panel; }
+    [[nodiscard]] TextEditor& get_text_editor() noexcept { return m_text_editor; }
+    [[nodiscard]] const TextEditor& get_text_editor() const noexcept { return m_text_editor; }
     [[nodiscard]] bool is_terminal_resize_handle_point(
         float point_x,
         float point_y,
@@ -260,6 +276,15 @@ private:
         float center_y,
         const std::string& color,
         const UI::Rect* clip_rect = nullptr) const;
+    void draw_text(
+        Drawable drawable,
+        AntialiasedFont& font,
+        std::string_view text,
+        float point_x,
+        float center_y,
+        const UI::Theme::Color& color,
+        const UI::Rect* clip_rect = nullptr) const;
+    [[nodiscard]] int get_text_width(AntialiasedFont& font, std::string_view text) const;
     void push_clip(const UI::Rect& rect) const;
     void pop_clip() const;
     void draw_svg_icon(
@@ -311,6 +336,7 @@ private:
     TextEditor m_text_editor;
     mutable TerminalPanel m_terminal_panel;
     mutable ShaderSandboxPanel m_shader_sandbox_panel;
+    mutable UI::Components::PromptModal m_prompt_modal;
     static constexpr std::size_t max_image_cache_size = 64;
     void store_cached_image(const std::string& key, XImage* image) const;
     mutable std::unordered_map<std::string, XImage*> m_svg_cache;

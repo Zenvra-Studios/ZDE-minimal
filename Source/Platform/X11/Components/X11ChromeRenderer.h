@@ -248,6 +248,26 @@ public:
     [[nodiscard]] bool is_empty_state_button_hovered() const noexcept;
     [[nodiscard]] bool tick_animations() noexcept;
 
+    [[nodiscard]] TextEditor& get_text_editor() noexcept { return m_workspace_renderer.m_text_editor; }
+    [[nodiscard]] const TextEditor& get_text_editor() const noexcept { return m_workspace_renderer.m_text_editor; }
+    [[nodiscard]] StudioWorkspaceRenderer& get_workspace_renderer() noexcept { return m_workspace_renderer; }
+    [[nodiscard]] const StudioWorkspaceRenderer& get_workspace_renderer() const noexcept { return m_workspace_renderer; }
+
+    [[nodiscard]] std::optional<std::filesystem::path> handle_right_click(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top)
+    {
+        return m_workspace_renderer.handle_right_click(
+            point_x, point_y, client_width, client_height, content_top);
+    }
+    [[nodiscard]] bool is_prompt_modal_visible() const noexcept
+    {
+        return m_workspace_renderer.is_prompt_modal_visible();
+    }
+
     void render(
         Window window_handle,
         int client_width,

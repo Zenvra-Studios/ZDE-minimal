@@ -3,8 +3,12 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
-#include <dwmapi.h>
+
 #include <lunasvg.h>
+
+#if defined(_WIN32)
+
+#include <dwmapi.h>
 #include <windowsx.h>
 
 namespace Zenvra::UI::Components {
@@ -1221,3 +1225,6 @@ bool AddNewItemDialog::is_interactive_point(float x, float y, const LayoutResult
 }
 
 } // namespace Zenvra::UI::Components
+
+#endif // defined(_WIN32)
+

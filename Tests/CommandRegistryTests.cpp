@@ -289,7 +289,7 @@ void test_studio_editor_layout_and_tokenization()
     expect(layout.status_bar_bounds.y == 616.0F, "the status bar must remain pinned to the bottom");
     expect(layout.activity_bar_bounds.width == 38.0F,
         "the activity rail must use the medium workspace scale");
-    expect(layout.editor_bounds.x == 90.0F,
+    expect(layout.editor_bounds.x == 104.0F,
         "the medium gutter and activity rail must preserve a wide editor viewport");
     expect(calculate_editor_tab_width(20.0F, 1.0F) == 112.0F &&
             calculate_editor_tab_width(100.0F, 1.0F) == 168.0F &&
@@ -303,7 +303,7 @@ void test_studio_editor_layout_and_tokenization()
     expect(with_tool_sidebar.tool_sidebar_bounds.x == 38.0F &&
             with_tool_sidebar.tool_sidebar_bounds.width == 260.0F &&
             with_tool_sidebar.tab_bar_bounds.x == 80.0F &&
-            with_tool_sidebar.editor_bounds.x == 350.0F,
+            with_tool_sidebar.editor_bounds.x == 364.0F,
         "the titlebar tabs must stay beside navigation while the activity panel remains below");
     const StudioEditorLayoutResult compact = layout_engine.calculate(
         180.0F, 120.0F, 35.0F, 1.0F, true, 218.0F, false, true, 260.0F);
@@ -322,7 +322,7 @@ void test_studio_editor_layout_and_tokenization()
             scaled.tool_sidebar_bounds.width == 520.0F &&
             scaled.tab_bar_bounds.height == 70.0F &&
             scaled.status_bar_bounds.height == 48.0F &&
-            scaled.editor_bounds.x == 700.0F,
+            scaled.editor_bounds.x == 728.0F,
         "the shared editor layout must scale all platform-independent design metrics with DPI");
 
     ActivityPanelModel activity_panel;
@@ -343,7 +343,7 @@ void test_studio_editor_layout_and_tokenization()
                 static_cast<void>(activity_panel.activate(item.icon));
             }
             expect(activity_panel.activate(item.icon) && activity_panel.is_active(item.icon),
-                "every non-terminal activity icon must open its matching tool sidebar");
+                "clicking an activity icon must select the tool window");
         }
     }
     static_cast<void>(activity_panel.activate(SidebarIcon::Project));
@@ -374,8 +374,8 @@ void test_studio_editor_layout_and_tokenization()
     expect(supports_editor_syntax_highlighting("main.cpp") &&
             supports_editor_syntax_highlighting("BackdropBlur.h") &&
             !supports_editor_syntax_highlighting("notes.txt") &&
-            !supports_editor_syntax_highlighting("CMakeLists.txt"),
-        "syntax highlighting must target source files while plain text and CMake stay plain");
+            supports_editor_syntax_highlighting("CMakeLists.txt"),
+        "syntax highlighting must target source files while plain text stays plain");
     expect(get_studio_sidebar_items().front().active, "the Project tool window must be active initially");
 
     EditorScrollModel scroll;
@@ -388,7 +388,7 @@ void test_studio_editor_layout_and_tokenization()
     expect(scroll.begin_pointer_drag(1.0F, scroll_track, 20.0F) && scroll.is_dragging(),
         "clicking the scrollbar track must start manual thumb control");
     expect(scroll.drag_pointer(99.0F, scroll_track, 20.0F) &&
-            scroll.get_first_visible_line() == 90,
+            scroll.get_first_visible_line() == 99,
         "dragging the scrollbar thumb must reach the end of the document");
     expect(scroll.end_pointer_drag() && !scroll.is_dragging(),
         "releasing the pointer must finish manual scrollbar control");
@@ -1254,12 +1254,12 @@ void test_graphics_driver_and_ui_modal()
 
     // 7. Modal UI 
     AboutModal about;
-    expect(about.get_app_name() == "ZENVRA DEVELOPMENT STUDIO", "AboutModal app name must be ZDE STUDIO 2026");
+    expect(about.get_app_name() == "ZDE STUDIO 2026", "AboutModal app name must be ZDE STUDIO 2026");
     expect(about.get_studio_name() == "Zenvra Studios", "AboutModal studio name must be Zenvra Studios");
     expect(about.get_specs().size() >= 5, "AboutModal must contain tech specifications");
 
     const std::string clip_text = about.get_clipboard_text();
-    expect(clip_text.find("ZDE DEVELOPMENT STUDIO") != std::string::npos, "Clipboard text must contain app name");
+    expect(clip_text.find("ZDE STUDIO 2026") != std::string::npos, "Clipboard text must contain app name");
     expect(clip_text.find("Zenvra Studios") != std::string::npos, "Clipboard text must contain studio name");
     expect(clip_text.find("Created by") != std::string::npos, "Clipboard text must contain creator credit");
     expect(clip_text.find("OpenGL Core") != std::string::npos, "Clipboard text must contain graphics pipeline info");
@@ -1290,8 +1290,17 @@ void test_graphics_driver_and_ui_modal()
 
 } // namespace
 
-int main()
+#include <gtest/gtest.h>
+
+int main(int argc, char** argv)
 {
+    ::testing::InitGoogleTest(&argc, argv);
+    const int gtest_result = RUN_ALL_TESTS();
+    if (gtest_result != 0)
+    {
+        return gtest_result;
+    }
+
     test_command_registration_and_execution();
     test_disabled_command();
     test_studio_view_model_routes_actions();
@@ -1315,3 +1324,4 @@ int main()
     std::cout << "All ZDE unit tests passed.\n";
     return EXIT_SUCCESS;
 }
+

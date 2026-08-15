@@ -130,6 +130,26 @@ bool ToolSidebar::handle_pointer_press(
   return true;
 }
 
+std::optional<std::filesystem::path> ToolSidebar::handle_right_click(
+    const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
+    float point_y) {
+  if (!contains(layout, point_x, point_y) ||
+      m_model.get_active_icon() != UI::Editor::SidebarIcon::Project) {
+    return std::nullopt;
+  }
+  const std::optional<std::size_t> row = row_from_point(layout, point_y);
+  if (row) {
+    const std::size_t item_index = m_model.get_scroll_offset() + *row;
+    const auto items = m_model.get_project_items();
+    if (item_index < items.size()) {
+      m_model.set_selected_path(items[item_index].path);
+      return items[item_index].path;
+    }
+  }
+  m_model.set_selected_path(m_model.get_workspace_root());
+  return m_model.get_workspace_root();
+}
+
 bool ToolSidebar::handle_pointer_move(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) noexcept {

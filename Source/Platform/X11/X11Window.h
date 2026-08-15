@@ -3,6 +3,8 @@
 #include "Platform/IPlatformWindow.h"
 #include "Platform/X11/Components/FileDropTarget.h"
 #include "Platform/X11/Components/X11ChromeRenderer.h"
+#include "Platform/X11/Components/X11PromptDialog.h"
+#include "Platform/X11/Components/X11AddNewItemDialog.h"
 #include "UI/Chrome/WindowChromeLayout.h"
 #include "UI/Theme/StudioTheme.h"
 
@@ -112,6 +114,10 @@ private:
     void open_menu(std::size_t menu_index, bool select_first_item, const UI::Rect* anchor_override = nullptr);
     void move_popup_selection(int direction);
     void execute_popup_selection();
+    void show_explorer_context_menu(const std::filesystem::path& target_path, int client_x, int client_y);
+    void show_editor_context_menu(int client_x, int client_y);
+    void execute_explorer_command(std::string_view command);
+    void copy_to_clipboard(const std::string& text);
 
     [[nodiscard]] float calculate_dpi_scale() const;
     [[nodiscard]] WorkArea get_work_area() const;
@@ -178,6 +184,10 @@ private:
     int m_restore_width = 0;
     int m_restore_height = 0;
     bool m_restore_bounds_valid = false;
+    std::filesystem::path m_context_menu_target_path;
+    std::string m_clipboard_text;
+    Components::X11PromptDialog m_prompt_dialog;
+    Components::X11AddNewItemDialog m_add_item_dialog;
 };
 
 } // namespace Zenvra::Platform::X11

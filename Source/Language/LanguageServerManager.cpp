@@ -70,6 +70,8 @@ Client::ILanguageClient* LanguageServerManager::get_or_start_client_for_file(std
             const std::filesystem::path direct_candidates[] = {
                 root / "compile_commands.json",
                 root / "build" / "compile_commands.json",
+                root / "build" / "linux-debug" / "compile_commands.json",
+                root / "build" / "linux-release" / "compile_commands.json",
                 root / "build" / "windows-x64-clang-ninja-debug" / "compile_commands.json",
                 root / "build" / "windows-x64-clang-ninja-release" / "compile_commands.json",
             };
@@ -749,6 +751,206 @@ std::vector<Protocol::CompletionItem> get_templates_for_file(std::string_view fi
     return results;
 }
 
+std::vector<Protocol::CompletionItem> get_standard_cpp_headers()
+{
+    static const std::vector<std::pair<std::string_view, std::string_view>> s_headers = {
+        {"algorithm", "Algorithms on ranges, sorting, searching, permutations"},
+        {"any", "Type-safe container for single values of any type"},
+        {"array", "Fixed-size sequence container"},
+        {"atomic", "Atomic operations library for multithreading"},
+        {"barrier", "Thread coordination barrier synchronization"},
+        {"bit", "Bit manipulation utilities and endian access"},
+        {"bitset", "Fixed-size bit array and boolean operations"},
+        {"cassert", "C-style runtime diagnostic assertion macro"},
+        {"cctype", "Character classification and case conversion functions"},
+        {"cerrno", "C-style error numbers and errno variable"},
+        {"cfloat", "Limits of floating-point types"},
+        {"chrono", "Date and time utilities, duration, clocks, time_point"},
+        {"cinttypes", "Formatting macros for exact-width integer types"},
+        {"climits", "Limits of integral types"},
+        {"clocale", "C-style localization and collation control"},
+        {"cmath", "Mathematical functions, trigonometry, power, logarithms"},
+        {"codecvt", "Unicode character conversion facets"},
+        {"compare", "Three-way comparison (spaceship operator <=>) support"},
+        {"complex", "Complex numbers and arithmetic"},
+        {"concepts", "Fundamental language concepts for template constraints"},
+        {"condition_variable", "Condition variable synchronization primitives"},
+        {"coroutine", "Coroutine support library and promises"},
+        {"csetjmp", "Execution flow non-local jumps (setjmp/longjmp)"},
+        {"csignal", "Signal handling and raise facilities"},
+        {"cstdarg", "Variable argument list handling (va_list, va_start)"},
+        {"cstddef", "Standard types: size_t, ptrdiff_t, nullptr_t, byte"},
+        {"cstdint", "Fixed-width integer types: int32_t, uint64_t, etc."},
+        {"cstdio", "C-style standard I/O (printf, fopen, fread, etc.)"},
+        {"cstdlib", "C-style general utilities (malloc, free, exit, atoi)"},
+        {"cstring", "C-style string manipulation (strlen, memcpy, strcmp)"},
+        {"ctime", "C-style time and date functions"},
+        {"cuchar", "C-style Unicode character manipulation"},
+        {"cwchar", "C-style wide character manipulation"},
+        {"cwctype", "C-style wide character classification"},
+        {"deque", "Double-ended queue sequence container"},
+        {"exception", "Exception handling base classes and utilities"},
+        {"execution", "Execution policies for parallel algorithms"},
+        {"expected", "Monadic error handling container (std::expected)"},
+        {"filesystem", "Filesystem navigation, paths, directory iteration"},
+        {"flat_map", "Sorted vector based associative map container"},
+        {"flat_set", "Sorted vector based set container"},
+        {"format", "Modern type-safe text formatting library (std::format)"},
+        {"forward_list", "Singly-linked list sequence container"},
+        {"fstream", "File stream input and output classes"},
+        {"functional", "Function objects, std::function, bind, invoke"},
+        {"future", "Asynchronous operations support: std::future, async, promise"},
+        {"generator", "Coroutine-based generator view"},
+        {"hazard_pointer", "Hazard pointers for lock-free data structures"},
+        {"initializer_list", "List-initialization syntax support"},
+        {"iomanip", "Input/output stream manipulators"},
+        {"ios", "Base class for all input/output streams"},
+        {"iosfwd", "Forward declarations of all stream classes"},
+        {"iostream", "Standard input/output stream objects: std::cin, std::cout, std::cerr"},
+        {"istream", "Input stream classes"},
+        {"iterator", "Iterator primitives, adaptors, and concepts"},
+        {"latch", "Countdown latch synchronization primitive"},
+        {"limits", "Numeric limits for all fundamental types"},
+        {"list", "Doubly-linked list sequence container"},
+        {"locale", "Localization facilities and facets"},
+        {"map", "Sorted associative container (std::map, std::multimap)"},
+        {"mdspan", "Multi-dimensional array view"},
+        {"memory", "Smart pointers: std::unique_ptr, std::shared_ptr, allocators"},
+        {"memory_resource", "Polymorphic memory resources and PMR containers"},
+        {"mutex", "Mutual exclusion synchronization primitives: std::mutex, lock_guard"},
+        {"new", "Low-level memory allocation and placement new operators"},
+        {"numbers", "Mathematical constants (pi, e, sqrt2, etc.)"},
+        {"numeric", "Generalized numeric operations (accumulate, iota, reduce)"},
+        {"optional", "Optional value wrapper (std::optional, std::nullopt)"},
+        {"ostream", "Output stream classes"},
+        {"print", "Print to stdout/stderr formatted text (std::print, std::println)"},
+        {"queue", "Queue and priority queue container adaptors"},
+        {"random", "Random number generators and distributions"},
+        {"ranges", "Range algorithms and view adaptors"},
+        {"ratio", "Compile-time rational arithmetic"},
+        {"rcu", "Read-Copy Update synchronization primitives"},
+        {"regex", "Regular expressions matching and replacement"},
+        {"scoped_allocator", "Nested allocator support"},
+        {"semaphore", "Counting semaphore synchronization primitives"},
+        {"set", "Sorted associative set container (std::set, std::multiset)"},
+        {"shared_mutex", "Shared (reader-writer) mutual exclusion"},
+        {"source_location", "Source code file/line capture (std::source_location)"},
+        {"span", "Contiguous sequence view (std::span)"},
+        {"spanstream", "In-memory stream backed by span"},
+        {"sstream", "String stream classes (std::stringstream)"},
+        {"stack", "LIFO stack container adaptor"},
+        {"stacktrace", "Stack trace capture and formatting"},
+        {"stdexcept", "Standard exception classes: std::runtime_error, std::invalid_argument"},
+        {"stdfloat", "Extended floating-point types"},
+        {"stop_token", "Cooperative thread cancellation primitives"},
+        {"streambuf", "Stream buffer classes"},
+        {"string", "Standard dynamic string class: std::string"},
+        {"string_view", "Non-owning string reference (std::string_view)"},
+        {"syncstream", "Synchronized output streams for multithreading"},
+        {"system_error", "Operating system error codes and error_condition"},
+        {"thread", "Thread management facilities: std::thread, jthread"},
+        {"tuple", "Fixed-size heterogeneous collection of values (std::tuple)"},
+        {"type_traits", "Compile-time type inspection and transformation"},
+        {"typeindex", "Runtime type wrapper for associative containers"},
+        {"typeinfo", "Runtime type identification (typeid operator)"},
+        {"unordered_map", "Hash-table associative map container (std::unordered_map)"},
+        {"unordered_set", "Hash-table associative set container (std::unordered_set)"},
+        {"utility", "General utilities: std::pair, std::move, std::forward"},
+        {"valarray", "Numeric vector for element-wise mathematical operations"},
+        {"variant", "Type-safe tagged union container (std::variant)"},
+        {"vector", "Dynamic array sequence container (std::vector)"},
+        {"version", "C++ standard library feature-test macros"},
+        // Linux / POSIX / X11 headers
+        {"unistd.h", "Standard symbolic constants and types for POSIX"},
+        {"fcntl.h", "File control options and flags (open, fcntl)"},
+        {"pthread.h", "POSIX threads library"},
+        {"signal.h", "ANSI/POSIX signal handling"},
+        {"sys/types.h", "POSIX data types"},
+        {"sys/stat.h", "File status and permissions (stat, mkdir)"},
+        {"sys/time.h", "Time structures (timeval, gettimeofday)"},
+        {"sys/socket.h", "Internet and UNIX socket definitions"},
+        {"sys/wait.h", "Process termination waiting (waitpid)"},
+        {"X11/Xlib.h", "X Window System C library interface"},
+        {"X11/Xutil.h", "X Window System utility functions"},
+        {"X11/Xatom.h", "X Window System predefined atom definitions"},
+        {"X11/keysym.h", "X Window System key symbol definitions"},
+        {"X11/cursorfont.h", "X Window System standard cursor definitions"}
+    };
+
+    std::vector<Protocol::CompletionItem> items;
+    items.reserve(s_headers.size());
+    for (const auto& [hdr, doc] : s_headers)
+    {
+        items.push_back(Protocol::CompletionItem{
+            .label = std::string(hdr),
+            .kind = Protocol::CompletionItemKind::File,
+            .detail = "(Header) <" + std::string(hdr) + ">",
+            .documentation = std::string(doc),
+            .insert_text = std::string(hdr),
+            .sort_text = "0_" + std::string(hdr),
+            .filter_text = std::string(hdr)
+        });
+    }
+    return items;
+}
+
+std::vector<Protocol::CompletionItem> get_workspace_headers(const std::filesystem::path& workspace_root)
+{
+    std::vector<Protocol::CompletionItem> items;
+    if (workspace_root.empty()) return items;
+
+    std::error_code ec;
+    const std::filesystem::path search_dirs[] = {
+        workspace_root / "Source",
+        workspace_root / "Include",
+        workspace_root / "include",
+        workspace_root
+    };
+
+    std::unordered_set<std::string> seen;
+    for (const auto& dir : search_dirs)
+    {
+        if (!std::filesystem::exists(dir, ec) || !std::filesystem::is_directory(dir, ec))
+        {
+            continue;
+        }
+
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(dir, ec))
+        {
+            if (entry.is_regular_file(ec))
+            {
+                const auto ext = entry.path().extension().string();
+                if (ext == ".h" || ext == ".hpp" || ext == ".hxx" || ext == ".inl" || ext == ".inc")
+                {
+                    std::filesystem::path rel;
+                    if (dir == workspace_root / "Source")
+                    {
+                        rel = std::filesystem::relative(entry.path(), dir, ec);
+                    }
+                    else
+                    {
+                        rel = std::filesystem::relative(entry.path(), workspace_root, ec);
+                    }
+                    std::string rel_str = rel.generic_string();
+                    if (!rel_str.empty() && seen.insert(rel_str).second)
+                    {
+                        items.push_back(Protocol::CompletionItem{
+                            .label = rel_str,
+                            .kind = Protocol::CompletionItemKind::File,
+                            .detail = "(Project Header) \"" + rel_str + "\"",
+                            .documentation = "Local project header: " + rel_str,
+                            .insert_text = rel_str,
+                            .sort_text = "0_" + rel_str,
+                            .filter_text = rel_str
+                        });
+                    }
+                }
+            }
+        }
+    }
+    return items;
+}
+
 } // namespace
 
 void LanguageServerManager::request_completion(
@@ -797,6 +999,91 @@ void LanguageServerManager::request_completion(
         return;
     }
 
+    const std::string_view prefix_to_caret = line_text.substr(0, std::min(pos.character, line_text.size()));
+    const std::size_t inc_pos = prefix_to_caret.find("#include");
+    const std::size_t imp_pos = prefix_to_caret.find("#import");
+    const bool is_include_line = (inc_pos != std::string_view::npos || imp_pos != std::string_view::npos);
+
+    if (is_include_line)
+    {
+        const std::size_t last_lt = prefix_to_caret.rfind('<');
+        const std::size_t last_gt = prefix_to_caret.rfind('>');
+        const bool is_system_include = (last_lt != std::string_view::npos && (last_gt == std::string_view::npos || last_lt > last_gt));
+
+        const std::size_t first_quote = prefix_to_caret.find('"');
+        const bool is_local_include = (first_quote != std::string_view::npos && (std::count(prefix_to_caret.begin(), prefix_to_caret.end(), '"') % 2 == 1));
+
+        std::vector<Protocol::CompletionItem> header_items;
+        if (is_system_include)
+        {
+            header_items = get_standard_cpp_headers();
+        }
+        else if (is_local_include)
+        {
+            header_items = get_workspace_headers(m_workspace_root);
+            auto sys = get_standard_cpp_headers();
+            for (auto& s : sys) header_items.push_back(std::move(s));
+        }
+        else
+        {
+            header_items.push_back(Protocol::CompletionItem{
+                .label = "<header>",
+                .kind = Protocol::CompletionItemKind::Snippet,
+                .detail = "#include <header>",
+                .documentation = "System header include directive.",
+                .insert_text = "<${1:header}>$0",
+                .sort_text = "0_a_<header>",
+                .filter_text = "<header>"
+            });
+            header_items.push_back(Protocol::CompletionItem{
+                .label = "\"header\"",
+                .kind = Protocol::CompletionItemKind::Snippet,
+                .detail = "#include \"header\"",
+                .documentation = "Local project header include directive.",
+                .insert_text = "\"${1:header}\"$0",
+                .sort_text = "0_b_\"header\"",
+                .filter_text = "\"header\""
+            });
+            auto sys = get_standard_cpp_headers();
+            for (auto& s : sys) header_items.push_back(std::move(s));
+        }
+
+        auto* client = get_or_start_client_for_file(filename);
+        if (client != nullptr && client->is_active())
+        {
+            client->request_completion(uri, pos, [callback = std::move(callback), header_items = std::move(header_items)](std::vector<Protocol::CompletionItem> lsp_items) mutable {
+                std::unordered_set<std::string> seen;
+                std::vector<Protocol::CompletionItem> merged;
+                merged.reserve(header_items.size() + lsp_items.size());
+                for (auto& it : lsp_items)
+                {
+                    if (seen.insert(it.label).second)
+                    {
+                        merged.push_back(std::move(it));
+                    }
+                }
+                for (auto& hi : header_items)
+                {
+                    if (seen.insert(hi.label).second)
+                    {
+                        merged.push_back(std::move(hi));
+                    }
+                }
+                if (callback)
+                {
+                    callback(std::move(merged));
+                }
+            });
+            return;
+        }
+
+        if (callback)
+        {
+            callback(std::move(header_items));
+        }
+        return;
+    }
+
     const std::string file_str(filename);
     auto merge_with_templates = [file_str](std::vector<Protocol::CompletionItem> items) {
         auto templates = get_templates_for_file(file_str);
@@ -809,13 +1096,11 @@ void LanguageServerManager::request_completion(
         std::vector<Protocol::CompletionItem> merged;
         merged.reserve(templates.size() + items.size());
 
-        // 1. Put all rich IDE snippet templates at the top of the autocomplete list
         for (auto& tmpl : templates)
         {
             merged.push_back(std::move(tmpl));
         }
 
-        // 2. Append LSP items, skipping plain keyword duplicates that match rich templates
         for (auto& it : items)
         {
             if (it.kind == Protocol::CompletionItemKind::Keyword && template_labels.contains(it.label))

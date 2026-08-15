@@ -54,6 +54,13 @@ public:
         float point_x) noexcept;
     [[nodiscard]] bool handle_pointer_release() noexcept;
 
+    [[nodiscard]] std::optional<std::filesystem::path> handle_right_click(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y);
+    [[nodiscard]] UI::Editor::ActivityPanelModel& get_model() noexcept { return m_model; }
+    [[nodiscard]] const UI::Editor::ActivityPanelModel& get_model() const noexcept { return m_model; }
+
     void render(
         const StudioWorkspaceRenderer& surface,
         Drawable drawable,

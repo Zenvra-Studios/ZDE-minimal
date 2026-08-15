@@ -832,6 +832,148 @@ void StudioWorkspaceRenderer::render(
     }
 }
 
+std::optional<std::filesystem::path> StudioWorkspaceRenderer::handle_right_click(
+    float point_x,
+    float point_y,
+    int client_width,
+    int client_height,
+    float content_top)
+{
+    const UI::Editor::StudioEditorLayoutResult layout = calculate_layout(
+        client_width, client_height, content_top);
+    return m_tool_sidebar.handle_right_click(layout, point_x, point_y);
+}
+
+bool StudioWorkspaceRenderer::is_prompt_modal_visible() const noexcept
+{
+    return m_prompt_modal.is_visible();
+}
+
+void StudioWorkspaceRenderer::render_prompt_modal(
+    Drawable drawable,
+    int client_width,
+    int client_height) const
+{
+    if (!m_prompt_modal.is_visible())
+    {
+        return;
+    }
+
+    const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(client_width),
+                            static_cast<float>(client_height)};
+    const auto layout = m_prompt_modal.calculate_layout(viewport, m_dpi_scale);
+
+    // 1. Semi-transparent backdrop overlay
+    fill_rectangle(drawable, layout.base_layout.backdrop_bounds,
+                   allocate_color(UI::Theme::Color{0, 0, 0, 140}));
+
+    // 2. Dialog Container (VS Code sleek dark card)
+    const UI::Theme::Color dialog_bg{30, 30, 34, 255};
+    const UI::Theme::Color border_col{60, 64, 75, 255};
+
+    fill_rounded_rectangle(drawable, layout.base_layout.dialog_bounds,
+                           allocate_color(dialog_bg), 6.0F * m_dpi_scale,
+                           m_pixels.workspace_background);
+    draw_rectangle(drawable, layout.base_layout.dialog_bounds,
+                   allocate_color(border_col));
+
+    // 3. Title & Subtitle
+    draw_text(drawable, *m_ui_font, m_prompt_modal.get_title(),
+              layout.title_bounds.x,
+              layout.title_bounds.y + layout.title_bounds.height * 0.5F,
+              m_text.primary);
+    draw_text(drawable, *m_small_font, m_prompt_modal.get_subtitle(),
+              layout.subtitle_bounds.x,
+              layout.subtitle_bounds.y + layout.subtitle_bounds.height * 0.5F,
+              m_text.muted);
+
+    // 4. Close (X) button
+    const auto close_bg = m_prompt_modal.is_close_hovered()
+                              ? UI::Theme::Color{232, 17, 35, 255}
+                              : dialog_bg;
+    if (m_prompt_modal.is_close_hovered())
+    {
+        fill_rounded_rectangle(drawable, layout.close_button_bounds,
+                               allocate_color(close_bg), 3.0F * m_dpi_scale,
+                               allocate_color(dialog_bg));
+    }
+    draw_text(
+        drawable, *m_ui_font, "x",
+        layout.close_button_bounds.x + layout.close_button_bounds.width * 0.3F,
+        layout.close_button_bounds.y + layout.close_button_bounds.height * 0.5F,
+        m_text.muted);
+
+    // 5. Input field (if not ConfirmDelete)
+    if (m_prompt_modal.get_mode() != UI::Components::PromptMode::ConfirmDelete)
+    {
+        const auto& input = m_prompt_modal.get_input();
+        const UI::Theme::Color input_bg{20, 20, 24, 255};
+        const UI::Theme::Color input_border{0, 122, 204, 255}; // Accent Blue Border
+        fill_rounded_rectangle(drawable, layout.input_bounds,
+                               allocate_color(input_bg), 3.0F * m_dpi_scale,
+                               allocate_color(dialog_bg));
+        draw_rectangle(drawable, layout.input_bounds,
+                       allocate_color(input_border));
+
+        const std::string& text = input.get_text();
+        const float text_x = layout.input_bounds.x + 8.0F * m_dpi_scale;
+        const float text_y =
+            layout.input_bounds.y + layout.input_bounds.height * 0.5F;
+
+        if (text.empty())
+        {
+            draw_text(drawable, *m_ui_font, input.get_placeholder(), text_x, text_y,
+                      m_text.muted);
+        }
+        else
+        {
+            draw_text(drawable, *m_editor_font, text, text_x, text_y,
+                      m_text.primary);
+        }
+
+        // Draw Caret
+        const int text_w = m_editor_font->getTextWidth(text);
+        const float caret_x = text_x + static_cast<float>(text_w);
+        draw_line(drawable, round_to_int(caret_x),
+                  round_to_int(layout.input_bounds.y + 5.0F * m_dpi_scale),
+                  round_to_int(caret_x),
+                  round_to_int(layout.input_bounds.bottom() - 5.0F * m_dpi_scale),
+                  m_pixels.text_primary);
+    }
+
+    // 6. Cancel Button
+    const auto cancel_bg = m_prompt_modal.is_cancel_hovered()
+                               ? UI::Theme::Color{55, 55, 62, 255}
+                               : UI::Theme::Color{45, 45, 50, 255};
+    fill_rounded_rectangle(drawable, layout.cancel_button_bounds,
+                           allocate_color(cancel_bg), 3.0F * m_dpi_scale,
+                           allocate_color(dialog_bg));
+    draw_rectangle(drawable, layout.cancel_button_bounds,
+                   allocate_color(border_col));
+    draw_text(drawable, *m_ui_font, "Cancel",
+              layout.cancel_button_bounds.x + 22.0F * m_dpi_scale,
+              layout.cancel_button_bounds.y +
+                  layout.cancel_button_bounds.height * 0.5F,
+              m_text.primary);
+
+    // 7. OK / Confirm Button
+    UI::Theme::Color ok_bg =
+        (m_prompt_modal.get_mode() == UI::Components::PromptMode::ConfirmDelete)
+            ? (m_prompt_modal.is_ok_hovered()
+                   ? UI::Theme::Color{232, 17, 35, 255}
+                   : UI::Theme::Color{180, 20, 30, 255})
+            : (m_prompt_modal.is_ok_hovered()
+                   ? UI::Theme::Color{0, 122, 204, 255}
+                   : UI::Theme::Color{14, 99, 156, 255});
+    fill_rounded_rectangle(drawable, layout.ok_button_bounds,
+                           allocate_color(ok_bg), 3.0F * m_dpi_scale,
+                           allocate_color(dialog_bg));
+    draw_text(drawable, *m_ui_font, m_prompt_modal.get_confirm_label(),
+              layout.ok_button_bounds.x + 24.0F * m_dpi_scale,
+              layout.ok_button_bounds.y + layout.ok_button_bounds.height * 0.5F,
+              m_text.primary);
+}
+
 const std::filesystem::path& StudioWorkspaceRenderer::get_icon_asset_root() const noexcept
 {
     return m_icon_asset_root;
@@ -982,6 +1124,28 @@ void StudioWorkspaceRenderer::draw_text(
         font.drawString(drawable, color, round_to_int(point_x), baseline, std::string{text});
     }
 }
+
+void StudioWorkspaceRenderer::draw_text(
+    Drawable drawable,
+    AntialiasedFont& font,
+    std::string_view text,
+    float point_x,
+    float center_y,
+    const UI::Theme::Color& color,
+    const UI::Rect* clip_rect) const
+{
+    draw_text(drawable, font, text, point_x, center_y, to_xft_color(color), clip_rect);
+}
+
+int StudioWorkspaceRenderer::get_text_width(AntialiasedFont& font, std::string_view text) const
+{
+    if (text.empty())
+    {
+        return 0;
+    }
+    return font.getTextWidth(std::string{text});
+}
+
 
 void StudioWorkspaceRenderer::store_cached_image(const std::string& key, XImage* image) const
 {

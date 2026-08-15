@@ -22,6 +22,8 @@ add_library(ZDEPlatformX11
     Components/ToolSidebar.cpp
     Components/ExplorerHeader.cpp
     Components/X11ChromeRenderer.cpp
+    Components/X11PromptDialog.cpp
+    Components/X11AddNewItemDialog.cpp
     Runtime/X11Context.cpp
     Utility/X11Dialogs.cpp
 )

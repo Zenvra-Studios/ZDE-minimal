@@ -1,12 +1,16 @@
 #pragma once
 
+#include "Language/Protocol/LspTypes.h"
 #include "Platform/X11/Components/EditorMinimap.h"
 #include "Platform/X11/Components/EditorScrollbar.h"
+#include "UI/Components/Button.h"
+#include "UI/Components/CompletionPopup.h"
 #include "UI/Components/EditorFolding.h"
+#include "UI/Components/HoverTooltip.h"
+#include "UI/Components/SignatureHelpWidget.h"
 #include "UI/Editor/BraceAnimationModel.h"
 #include "UI/Editor/CaretBlinkModel.h"
 #include "UI/Editor/EditorController.h"
-#include "UI/Components/Button.h"
 #include "UI/Editor/SelectionAnimationModel.h"
 #include "UI/Editor/StudioEditorModel.h"
 #include "Utility/DragDropModel.h"
@@ -15,10 +19,12 @@
 
 #include <array>
 #include <filesystem>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace Zenvra::Platform::X11::Components
 {
@@ -29,6 +35,7 @@ class TextEditor
 {
 public:
     [[nodiscard]] bool open_file(const std::filesystem::path& path);
+    [[nodiscard]] bool close_file(const std::filesystem::path& path);
     [[nodiscard]] std::size_t open_dropped_paths(
         std::span<const std::filesystem::path> dropped_paths);
     [[nodiscard]] bool create_buffer();
@@ -94,6 +101,8 @@ public:
         return m_empty_state_open_btn.get_state().hovered || m_empty_state_clone_btn.get_state().hovered;
     }
 
+    void on_diagnostics_updated(const std::string& uri, std::vector<Language::Protocol::Diagnostic> diags);
+
     void render(
         const StudioWorkspaceRenderer& surface,
         Drawable drawable,
@@ -115,6 +124,8 @@ private:
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y) const;
+    [[nodiscard]] std::string get_active_document_uri() const;
+    [[nodiscard]] std::string get_active_document_filename() const;
 
     UI::Editor::EditorController m_controller;
     mutable UI::Components::EditorFoldingModel m_folding;
@@ -146,6 +157,11 @@ private:
     mutable UI::Editor::TextPosition m_last_brace_caret;
     mutable unsigned long m_brace_pulse_color = 0;
     mutable bool m_brace_pulse_color_ready = false;
+    mutable UI::Components::CompletionPopup m_completion_popup;
+    mutable UI::Components::HoverTooltip m_hover_tooltip;
+    mutable UI::Components::SignatureHelpWidget m_signature_help;
+    mutable std::mutex m_lsp_mutex;
 };
 
 } // namespace Zenvra::Platform::X11::Components
+

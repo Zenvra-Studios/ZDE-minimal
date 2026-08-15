@@ -15,6 +15,7 @@ enum class ToolchainKind
     MSVC,
     Clang,
     AppleClang,
+    Gcc,
 };
 
 enum class ToolchainStatus

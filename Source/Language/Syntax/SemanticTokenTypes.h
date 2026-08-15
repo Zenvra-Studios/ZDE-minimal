@@ -34,6 +34,12 @@ enum class SemanticTokenType : uint32_t
     Count = 22
 };
 
+#ifdef None
+#pragma push_macro("None")
+#undef None
+#define ZDE_RESTORED_NONE 1
+#endif
+
 namespace SemanticTokenModifier
 {
     inline constexpr uint32_t None           = 0;
@@ -88,3 +94,9 @@ namespace SemanticTokenModifier
 }
 
 } // namespace Zenvra::Language::Syntax
+
+#ifdef ZDE_RESTORED_NONE
+#pragma pop_macro("None")
+#undef ZDE_RESTORED_NONE
+#endif
+

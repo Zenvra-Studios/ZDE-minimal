@@ -78,6 +78,7 @@ public:
 
     /// Shutdown all active clients
     void shutdown_all();
+    void stop_all() { shutdown_all(); }
 
 private:
     LanguageServerManager();

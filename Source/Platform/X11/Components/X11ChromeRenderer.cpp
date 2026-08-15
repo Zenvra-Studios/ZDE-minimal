@@ -554,6 +554,17 @@ void X11ChromeRenderer::render(
     draw_centered_text(back_buffer, "Z", logo_bounds, m_text_colors.white);
   }
 
+  static_cast<void>(m_workspace_renderer.tick_animations());
+  m_workspace_renderer.render(back_buffer, client_width, client_height,
+                              chrome_layout.titlebar_bounds.bottom());
+
+  // Draw titlebar bottom separator border across full width with proper z-index above content
+  const int titlebar_bottom_y =
+      round_to_int(chrome_layout.titlebar_bounds.bottom()) - 1;
+  XSetForeground(m_display, m_graphics_context, m_colors.titlebar_border);
+  XDrawLine(m_display, back_buffer, m_graphics_context, 0, titlebar_bottom_y,
+            client_width, titlebar_bottom_y);
+
   draw_window_control(back_buffer, chrome_layout.minimize_bounds,
                       UI::Chrome::WindowControl::Minimize, interaction_state);
   draw_window_control(back_buffer, chrome_layout.maximize_bounds,
@@ -660,8 +671,12 @@ void X11ChromeRenderer::render(
     if (interaction_state.compiler_button_hovered) {
       draw_toolbar_hover(chrome_layout.compiler_bounds);
     }
-    draw_text(back_buffer, "Debug", chrome_layout.compiler_bounds,
-              12.0F * scale, m_text_colors.primary);
+    const UI::Rect text_rect{
+        chrome_layout.compiler_bounds.x + 12.0F * scale,
+        chrome_layout.compiler_bounds.y,
+        std::max(0.0F, chrome_layout.compiler_bounds.width - 28.0F * scale),
+        chrome_layout.compiler_bounds.height};
+    draw_centered_text(back_buffer, "Debug", text_rect, m_text_colors.primary);
     const int chevron_x =
         round_to_int(chrome_layout.compiler_bounds.right() - 14.0F * scale);
     const int chevron_y =
@@ -680,8 +695,12 @@ void X11ChromeRenderer::render(
     if (interaction_state.platform_button_hovered) {
       draw_toolbar_hover(chrome_layout.platform_bounds);
     }
-    draw_text(back_buffer, "x64", chrome_layout.platform_bounds, 8.0F * scale,
-              m_text_colors.primary);
+    const UI::Rect text_rect{
+        chrome_layout.platform_bounds.x + 12.0F * scale,
+        chrome_layout.platform_bounds.y,
+        std::max(0.0F, chrome_layout.platform_bounds.width - 28.0F * scale),
+        chrome_layout.platform_bounds.height};
+    draw_centered_text(back_buffer, "x64", text_rect, m_text_colors.primary);
     const int chevron_x =
         round_to_int(chrome_layout.platform_bounds.right() - 14.0F * scale);
     const int chevron_y =
@@ -709,8 +728,12 @@ void X11ChromeRenderer::render(
         binary_icon_size, m_workspace_renderer.m_palette.text_primary,
         interaction_state.binary_button_hovered ? m_hover_color
                                                 : m_titlebar_background_color);
-    draw_text(back_buffer, "untitled", chrome_layout.binary_bounds,
-              36.0F * scale, m_text_colors.primary);
+    const UI::Rect text_rect{
+        chrome_layout.binary_bounds.x + 36.0F * scale,
+        chrome_layout.binary_bounds.y,
+        std::max(0.0F, chrome_layout.binary_bounds.width - 52.0F * scale),
+        chrome_layout.binary_bounds.height};
+    draw_centered_text(back_buffer, "untitled", text_rect, m_text_colors.primary);
     const int chevron_x =
         round_to_int(chrome_layout.binary_bounds.right() - 14.0F * scale);
     const int chevron_y =
@@ -742,16 +765,11 @@ void X11ChromeRenderer::render(
                                               : m_titlebar_background_color);
   }
 
-  m_workspace_renderer.render(back_buffer, client_width, client_height,
-                              chrome_layout.titlebar_bounds.bottom());
-
-  // Draw titlebar bottom separator border across full width with proper z-index
-  // above content
-  const int titlebar_bottom_y =
-      round_to_int(chrome_layout.titlebar_bounds.bottom()) - 1;
-  XSetForeground(m_display, m_graphics_context, m_colors.titlebar_border);
-  XDrawLine(m_display, back_buffer, m_graphics_context, 0, titlebar_bottom_y,
-            client_width, titlebar_bottom_y);
+  if (!interaction_state.maximized) {
+    XSetForeground(m_display, m_graphics_context, m_colors.titlebar_border);
+    XDrawRectangle(m_display, back_buffer, m_graphics_context, 0, 0,
+                   pixmap_width - 1, pixmap_height - 1);
+  }
 
   draw_overflow_menu(back_buffer, chrome_layout, interaction_state);
   draw_popup_menu(back_buffer, chrome_layout, interaction_state,
@@ -1026,9 +1044,9 @@ void X11ChromeRenderer::draw_window_control(
   const bool hovered = interaction_state.hovered_control == control;
   if (pressed || hovered) {
     const unsigned long background =
-        control == UI::Chrome::WindowControl::Close && hovered
-            ? m_colors.close_hover
-            : (hovered ? m_colors.hover : m_colors.pressed);
+        control == UI::Chrome::WindowControl::Close
+            ? (pressed ? m_colors.pressed : m_colors.close_hover)
+            : (pressed ? m_colors.pressed : m_colors.hover);
     fill_rectangle(drawable, bounds, background);
   }
 
@@ -1042,31 +1060,48 @@ void X11ChromeRenderer::draw_window_control(
   const int center_x = round_to_int(bounds.x + bounds.width * 0.5F);
   const int center_y = round_to_int(bounds.y + bounds.height * 0.5F);
   const int half_size = std::max(round_to_int(5.0F * m_dpi_scale), 4);
+  const int icon_size = half_size * 2;
 
   XSetForeground(m_display, m_graphics_context, icon_color);
   XSetLineAttributes(m_display, m_graphics_context, line_width, LineSolid,
-                     CapButt, JoinMiter);
+                     CapProjecting, JoinMiter);
   if (control == UI::Chrome::WindowControl::Minimize) {
-    const int baseline_y =
-        center_y + std::max(round_to_int(2.0F * m_dpi_scale), 1);
     XDrawLine(m_display, drawable, m_graphics_context, center_x - half_size,
-              baseline_y, center_x + half_size, baseline_y);
+              center_y, center_x + half_size, center_y);
   } else if (control == UI::Chrome::WindowControl::MaximizeRestore) {
-    const unsigned int box_size = static_cast<unsigned int>(half_size * 2);
     if (interaction_state.maximized) {
       const int offset = std::max(round_to_int(2.0F * m_dpi_scale), 2);
-      XDrawRectangle(m_display, drawable, m_graphics_context,
-                     center_x - half_size + offset, center_y - half_size,
-                     box_size - static_cast<unsigned int>(offset),
-                     box_size - static_cast<unsigned int>(offset));
+      // Top and right edges of back box
+      XDrawLine(m_display, drawable, m_graphics_context,
+                center_x - half_size + offset, center_y - half_size,
+                center_x + half_size, center_y - half_size);
+      XDrawLine(m_display, drawable, m_graphics_context,
+                center_x + half_size, center_y - half_size,
+                center_x + half_size, center_y + half_size - offset);
+      XDrawLine(m_display, drawable, m_graphics_context,
+                center_x - half_size + offset, center_y - half_size,
+                center_x - half_size + offset, center_y - half_size + offset);
+
+      // Front box
+      const unsigned long front_bg =
+          (hovered ? m_colors.hover : (pressed ? m_colors.pressed : m_colors.titlebar_background));
+      fill_rectangle(
+          drawable,
+          UI::Rect{static_cast<float>(center_x - half_size),
+                   static_cast<float>(center_y - half_size + offset),
+                   static_cast<float>(icon_size - offset),
+                   static_cast<float>(icon_size - offset)},
+          front_bg);
+      XSetForeground(m_display, m_graphics_context, icon_color);
       XDrawRectangle(m_display, drawable, m_graphics_context,
                      center_x - half_size, center_y - half_size + offset,
-                     box_size - static_cast<unsigned int>(offset),
-                     box_size - static_cast<unsigned int>(offset));
+                     static_cast<unsigned int>(icon_size - offset),
+                     static_cast<unsigned int>(icon_size - offset));
     } else {
       XDrawRectangle(m_display, drawable, m_graphics_context,
-                     center_x - half_size, center_y - half_size, box_size,
-                     box_size);
+                     center_x - half_size, center_y - half_size,
+                     static_cast<unsigned int>(icon_size),
+                     static_cast<unsigned int>(icon_size));
     }
   } else if (control == UI::Chrome::WindowControl::Close) {
     XDrawLine(m_display, drawable, m_graphics_context, center_x - half_size,
@@ -1380,6 +1415,9 @@ bool X11ChromeRenderer::open_popup(Window parent_window,
   }
 
   XMapRaised(m_display, m_popup.window);
+  XGrabPointer(m_display, m_popup.window, True,
+               ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+               GrabModeAsync, GrabModeAsync, None, None, CurrentTime);
   m_popup.open = true;
   m_popup.hovered = select_first_item ? 0 : -1;
   paint_popup();
@@ -1388,6 +1426,9 @@ bool X11ChromeRenderer::open_popup(Window parent_window,
 }
 
 void X11ChromeRenderer::close_popup() noexcept {
+  if (m_display != nullptr && m_popup.open) {
+    XUngrabPointer(m_display, CurrentTime);
+  }
   destroy_popup_window();
   m_popup = PopupWindowState{};
 }
@@ -1651,11 +1692,18 @@ bool X11ChromeRenderer::handle_popup_event(const XEvent &event) {
     break;
   }
 
-  case ButtonPress:
+  case ButtonPress: {
+    const int item = popup_item_index_at(event.xbutton.x_root - m_popup.x,
+                                         event.xbutton.y_root - m_popup.y);
+    if (item < 0) {
+      close_popup();
+      return true;
+    }
     if (event.xbutton.button == Button1) {
       m_popup.pressed = true;
     }
     break;
+  }
 
   case ButtonRelease:
     if (event.xbutton.button == Button1) {
