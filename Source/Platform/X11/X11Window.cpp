@@ -141,10 +141,21 @@ bool X11Window::initialize() {
   m_screen = DefaultScreen(m_display);
   m_dpi_scale = calculate_dpi_scale();
   const Window root_window = RootWindow(m_display, m_screen);
+
+  XColor bg_xcolor{};
+  bg_xcolor.red = static_cast<unsigned short>(m_theme.window_background.red * 257U);
+  bg_xcolor.green = static_cast<unsigned short>(m_theme.window_background.green * 257U);
+  bg_xcolor.blue = static_cast<unsigned short>(m_theme.window_background.blue * 257U);
+  bg_xcolor.flags = DoRed | DoGreen | DoBlue;
+  unsigned long bg_pixel = BlackPixel(m_display, m_screen);
+  if (XAllocColor(m_display, DefaultColormap(m_display, m_screen), &bg_xcolor) != 0) {
+    bg_pixel = bg_xcolor.pixel;
+  }
+
   m_window_handle = XCreateSimpleWindow(
       m_display, root_window, 0, 0, static_cast<unsigned int>(m_client_width),
       static_cast<unsigned int>(m_client_height), 0,
-      BlackPixel(m_display, m_screen), BlackPixel(m_display, m_screen));
+      bg_pixel, bg_pixel);
   if (m_window_handle == 0) {
     return false;
   }

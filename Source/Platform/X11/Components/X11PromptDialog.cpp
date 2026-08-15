@@ -166,7 +166,7 @@ void X11PromptDialog::layout_and_create_window(Window parent, int width, int hei
 
     XSetWindowAttributes attrs{};
     attrs.override_redirect = True;
-    attrs.background_pixel = alloc_rgb(m_display, m_screen, 30, 30, 34);
+    attrs.background_pixel = alloc_rgb(m_display, m_screen, 28, 28, 30);
     attrs.save_under = True;
     attrs.event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask |
                        PointerMotionMask | KeyPressMask | LeaveWindowMask |
@@ -320,11 +320,11 @@ void X11PromptDialog::render() {
     }
 
     const float scale = m_dpi_scale;
-    const unsigned long bg_col = alloc_rgb(m_display, m_screen, 31, 31, 31);
-    const unsigned long titlebar_bg = alloc_rgb(m_display, m_screen, 29, 30, 33);
-    const unsigned long border_col = alloc_rgb(m_display, m_screen, 48, 50, 55);
-    const unsigned long titlebar_border = alloc_rgb(m_display, m_screen, 48, 50, 55);
-    const unsigned long input_bg = alloc_rgb(m_display, m_screen, 24, 24, 26);
+    const unsigned long bg_col = alloc_rgb(m_display, m_screen, 28, 28, 30);
+    const unsigned long titlebar_bg = alloc_rgb(m_display, m_screen, 24, 24, 26);
+    const unsigned long border_col = alloc_rgb(m_display, m_screen, 55, 55, 60);
+    const unsigned long titlebar_border = alloc_rgb(m_display, m_screen, 55, 55, 62);
+    const unsigned long input_bg = alloc_rgb(m_display, m_screen, 20, 20, 24);
     const unsigned long input_border = alloc_rgb(m_display, m_screen, 0, 122, 204);
 
     // 1. Fill dialog background

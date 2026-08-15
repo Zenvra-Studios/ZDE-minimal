@@ -85,8 +85,6 @@ private:
   bool m_selecting_text = false;
   float m_cached_line_height = 16.0F;
   float m_cached_char_width = 8.0F;
-  mutable std::unordered_map<std::size_t, float> m_tab_animated_x;
-  mutable std::unordered_map<std::size_t, float> m_tab_target_x;
 };
 
 } // namespace Zenvra::Platform::Win32::Components

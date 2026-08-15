@@ -380,6 +380,9 @@ void Win32Window::minimize() { ShowWindow(m_window_handle, SW_MINIMIZE); }
 void Win32Window::maximize() {
   ShowWindow(m_window_handle, SW_MAXIMIZE);
   enforce_sharp_corners();
+  refresh_chrome_layout();
+  InvalidateRect(m_window_handle, nullptr, TRUE);
+  UpdateWindow(m_window_handle);
 }
 
 void Win32Window::restore() {
@@ -1360,9 +1363,6 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           m_chrome_layout.is_overflow_menu(
               static_cast<float>(cursor_position.x),
               static_cast<float>(cursor_position.y)) ||
-          m_chrome_layout.command_center_bounds.contains(
-              static_cast<float>(cursor_position.x),
-              static_cast<float>(cursor_position.y)) ||
           m_chrome_layout.is_run_button(
               static_cast<float>(cursor_position.x),
               static_cast<float>(cursor_position.y)) ||
@@ -1808,6 +1808,25 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       const float dpi_scale = static_cast<float>(m_dpi) / 96.0F;
       min_max_info->ptMinTrackSize.x = round_to_int(720.0F * dpi_scale);
       min_max_info->ptMinTrackSize.y = round_to_int(480.0F * dpi_scale);
+
+      const HMONITOR monitor =
+          MonitorFromWindow(window_handle, MONITOR_DEFAULTTONEAREST);
+      if (monitor != nullptr) {
+        MONITORINFO monitor_info{};
+        monitor_info.cbSize = sizeof(monitor_info);
+        if (GetMonitorInfoW(monitor, &monitor_info) != FALSE) {
+          min_max_info->ptMaxPosition.x =
+              std::abs(monitor_info.rcWork.left - monitor_info.rcMonitor.left);
+          min_max_info->ptMaxPosition.y =
+              std::abs(monitor_info.rcWork.top - monitor_info.rcMonitor.top);
+          min_max_info->ptMaxSize.x =
+              std::abs(monitor_info.rcWork.right - monitor_info.rcWork.left);
+          min_max_info->ptMaxSize.y =
+              std::abs(monitor_info.rcWork.bottom - monitor_info.rcWork.top);
+          min_max_info->ptMaxTrackSize.x = min_max_info->ptMaxSize.x;
+          min_max_info->ptMaxTrackSize.y = min_max_info->ptMaxSize.y;
+        }
+      }
       return 0;
     }
     break;

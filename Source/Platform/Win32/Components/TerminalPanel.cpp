@@ -331,20 +331,7 @@ bool TerminalPanel::poll() {
   return changed;
 }
 bool TerminalPanel::tick_animations() noexcept {
-  bool needs_redraw = m_model.is_focused() && m_caret_blink.tick();
-  bool animating = false;
-  for (auto &[id, animated_x] : m_tab_animated_x) {
-    if (m_tab_target_x.contains(id)) {
-      const float target_x = m_tab_target_x[id];
-      if (std::abs(animated_x - target_x) > 0.5f) {
-        animated_x += (target_x - animated_x) * 0.3f;
-        animating = true;
-      } else {
-        animated_x = target_x;
-      }
-    }
-  }
-  return needs_redraw || animating;
+  return m_model.is_focused() && m_caret_blink.tick();
 }
 
 void TerminalPanel::shutdown() noexcept {
@@ -441,25 +428,27 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   if (layout.terminal_panel_bounds.is_empty()) {
     return;
   }
+  const float scale = surface.m_dpi_scale;
   surface.draw_text(device_context, *surface.m_ui_font, "Terminal",
-                    layout.terminal_header_bounds.x +
-                        10.0F * surface.m_dpi_scale,
+                    layout.terminal_header_bounds.x + 12.0F * scale,
                     layout.terminal_header_bounds.y +
                         layout.terminal_header_bounds.height * 0.5F,
                     surface.m_palette.text_primary);
+
+  // Vertical separator between title and tabs
+  const float divider_x = layout.terminal_header_bounds.x + 72.0F * scale;
+  surface.draw_line(
+      device_context, round_to_int(divider_x),
+      round_to_int(layout.terminal_header_bounds.y + 6.0F * scale),
+      round_to_int(divider_x),
+      round_to_int(layout.terminal_header_bounds.bottom() - 6.0F * scale),
+      surface.m_palette.border);
 
   const std::span<const Terminal::TerminalSessionEntry> sessions =
       m_model.get_sessions();
   const std::optional<std::size_t> active_index = m_model.get_active_index();
   for (std::size_t index = 0; index < sessions.size(); ++index) {
-    UI::Rect tab = session_tab_bounds(layout, index);
-    const std::size_t id = sessions[index].identifier;
-    m_tab_target_x[id] = tab.x;
-    if (!m_tab_animated_x.contains(id)) {
-      m_tab_animated_x[id] = tab.x;
-    }
-    tab.x = m_tab_animated_x[id];
-
+    const UI::Rect tab = session_tab_bounds(layout, index);
     const bool active = active_index && *active_index == index;
     surface.fill_rectangle(device_context, tab,
                            active ? surface.m_palette.tab_active_background
@@ -481,28 +470,28 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
     }
     surface.draw_svg_icon(
         device_context, "terminal.svg",
-        round_to_int(tab.x + 12.0F * surface.m_dpi_scale),
+        round_to_int(tab.x + 10.0F * scale),
         round_to_int(tab.y + tab.height * 0.5F),
-        std::max(round_to_int(13.0F * surface.m_dpi_scale), 10),
+        std::max(round_to_int(13.0F * scale), 10),
         active ? surface.m_palette.text_primary : surface.m_palette.text_muted,
         active ? surface.m_palette.tab_active_background
                : surface.m_palette.tab_background);
     surface.draw_text(
         device_context, *surface.m_small_font, sessions[index].title,
-        tab.x + 23.0F * surface.m_dpi_scale, tab.y + tab.height * 0.5F,
+        tab.x + 22.0F * scale, tab.y + tab.height * 0.5F,
         active ? surface.m_palette.text_primary : surface.m_palette.text_muted);
   }
 
   const UI::Rect add = add_button_bounds(layout);
   surface.draw_line(device_context, round_to_int(add.x + add.width * 0.5F),
-                    round_to_int(add.y + 7.0F * surface.m_dpi_scale),
+                    round_to_int(add.y + 8.0F * scale),
                     round_to_int(add.x + add.width * 0.5F),
-                    round_to_int(add.bottom() - 7.0F * surface.m_dpi_scale),
+                    round_to_int(add.bottom() - 8.0F * scale),
                     surface.m_palette.text_muted);
   surface.draw_line(
-      device_context, round_to_int(add.x + 7.0F * surface.m_dpi_scale),
+      device_context, round_to_int(add.x + 6.0F * scale),
       round_to_int(add.y + add.height * 0.5F),
-      round_to_int(add.right() - 7.0F * surface.m_dpi_scale),
+      round_to_int(add.right() - 6.0F * scale),
       round_to_int(add.y + add.height * 0.5F), surface.m_palette.text_muted);
   const UI::Rect close = close_button_bounds(layout);
   if (close.width > 0.0F) {
@@ -510,7 +499,7 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
         device_context, "close-minimal.svg",
         round_to_int(close.x + close.width * 0.5F),
         round_to_int(close.y + close.height * 0.5F),
-        std::max(round_to_int(11.0F * surface.m_dpi_scale), 9),
+        std::max(round_to_int(10.0F * scale), 9),
         surface.m_palette.text_muted, surface.m_palette.tab_active_background);
   }
 
@@ -518,20 +507,29 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   if (session == nullptr || surface.m_editor_font == nullptr) {
     return;
   }
-  if (sessions.size() <= 4 &&
-      layout.terminal_header_bounds.width >= 600.0F * surface.m_dpi_scale) {
-    const std::string shell_label =
-        "Local  " + session->get_shell_path().string();
-    const int label_width = surface.get_text_width(
+  const float right_space_start = add.right() + 16.0F * scale;
+  const float available_shell_width =
+      layout.terminal_header_bounds.right() - right_space_start - 16.0F * scale;
+
+  if (sessions.size() <= 4 && available_shell_width >= 80.0F * scale) {
+    std::string shell_label = "Local  " + session->get_shell_path().string();
+    int label_width = surface.get_text_width(
         device_context, *surface.m_small_font, shell_label);
-    surface.draw_text(device_context, *surface.m_small_font, shell_label,
-                      layout.terminal_header_bounds.right() -
-                          16.0F * surface.m_dpi_scale -
-                          static_cast<float>(label_width),
-                      layout.terminal_header_bounds.y +
-                          layout.terminal_header_bounds.height * 0.5F,
-                      session->is_running() ? surface.m_palette.success
-                                            : surface.m_palette.text_muted);
+    if (static_cast<float>(label_width) > available_shell_width) {
+      shell_label = "Local  " + session->get_shell_path().filename().string();
+      label_width = surface.get_text_width(
+          device_context, *surface.m_small_font, shell_label);
+    }
+    if (static_cast<float>(label_width) <= available_shell_width) {
+      surface.draw_text(device_context, *surface.m_small_font, shell_label,
+                        layout.terminal_header_bounds.right() -
+                            16.0F * scale -
+                            static_cast<float>(label_width),
+                        layout.terminal_header_bounds.y +
+                            layout.terminal_header_bounds.height * 0.5F,
+                        session->is_running() ? surface.m_palette.success
+                                              : surface.m_palette.text_muted);
+    }
   }
   const float padding_x = 10.0F * surface.m_dpi_scale;
   const float line_height = std::max(
@@ -675,14 +673,8 @@ UI::Rect TerminalPanel::session_tab_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout,
     std::size_t index) const noexcept {
   const float scale = layout.dpi_scale;
-  const float start_x = layout.terminal_header_bounds.x + 72.0F * scale;
-  const float reserved_width = 56.0F * scale;
-  const float available_width = std::max(
-      layout.terminal_header_bounds.right() - start_x - reserved_width, 0.0F);
-  const float tab_width =
-      std::min(112.0F * scale,
-               available_width / static_cast<float>(std::max<std::size_t>(
-                                     m_model.get_sessions().size(), 1)));
+  const float start_x = layout.terminal_header_bounds.x + 80.0F * scale;
+  const float tab_width = 108.0F * scale;
   return UI::Rect{start_x + static_cast<float>(index) * tab_width,
                   layout.terminal_header_bounds.y, tab_width,
                   layout.terminal_header_bounds.height};
@@ -691,16 +683,12 @@ UI::Rect TerminalPanel::session_tab_bounds(
 UI::Rect TerminalPanel::add_button_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
-  const float start_x = layout.terminal_header_bounds.x + 72.0F * scale;
-  const float available_width = std::max(
-      layout.terminal_header_bounds.right() - start_x - 56.0F * scale, 0.0F);
-  const float tab_width =
-      std::min(112.0F * scale,
-               available_width / static_cast<float>(std::max<std::size_t>(
-                                     m_model.get_sessions().size(), 1)));
+  const float start_x = layout.terminal_header_bounds.x + 80.0F * scale;
+  const float tab_width = 108.0F * scale;
   const float x =
-      start_x + static_cast<float>(m_model.get_sessions().size()) * tab_width;
-  return UI::Rect{x, layout.terminal_header_bounds.y, 28.0F * scale,
+      start_x + static_cast<float>(m_model.get_sessions().size()) * tab_width +
+      4.0F * scale;
+  return UI::Rect{x, layout.terminal_header_bounds.y, 24.0F * scale,
                   layout.terminal_header_bounds.height};
 }
 
@@ -715,16 +703,10 @@ UI::Rect TerminalPanel::close_button_bounds(
   if (*active_index >= sessions.size()) {
     return UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
   }
-  const std::size_t id = sessions[*active_index].identifier;
-  float tab_x = 0.0F;
-  if (auto it = m_tab_animated_x.find(id); it != m_tab_animated_x.end()) {
-    tab_x = it->second;
-  } else {
-    tab_x = session_tab_bounds(layout, *active_index).x;
-  }
-  const float tab_width = session_tab_bounds(layout, *active_index).width;
-  const float width = 24.0F * layout.dpi_scale;
-  return UI::Rect{tab_x + tab_width - width, layout.terminal_header_bounds.y,
+  const UI::Rect tab = session_tab_bounds(layout, *active_index);
+  const float width = 20.0F * layout.dpi_scale;
+  return UI::Rect{tab.right() - width - 2.0F * layout.dpi_scale,
+                  layout.terminal_header_bounds.y,
                   width, layout.terminal_header_bounds.height};
 }
 

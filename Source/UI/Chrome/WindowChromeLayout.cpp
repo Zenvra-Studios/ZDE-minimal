@@ -18,7 +18,6 @@ bool WindowChromeLayoutResult::is_drag_region(float point_x,
                                               float point_y) const noexcept {
   if (!titlebar_bounds.contains(point_x, point_y) ||
       logo_bounds.contains(point_x, point_y) ||
-      command_center_bounds.contains(point_x, point_y) ||
       is_overflow_menu(point_x, point_y) ||
       get_window_control(point_x, point_y) != WindowControl::NoControl ||
       get_menu_index(point_x, point_y).has_value() ||
@@ -273,22 +272,10 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(
   place_right(compiler_width, result.compiler_bounds);
 
   if (current_right > left_edge) {
-    float available_space = current_right - left_edge;
-    float center_x = client_width * 0.5F;
-    float cc_width = metrics.command_center_width * safe_scale;
-
-    if (available_space > cc_width && center_x - cc_width * 0.5F > left_edge &&
-        center_x + cc_width * 0.5F < current_right) {
-      result.command_center_bounds = {center_x - cc_width * 0.5F, 0.0F,
-                                      cc_width, titlebar_height};
-      // File buffer takes remaining space
-      result.file_buffer_bounds = {left_edge, 0.0F,
-                                   result.command_center_bounds.x - left_edge,
-                                   titlebar_height};
-    } else {
-      result.file_buffer_bounds = {left_edge, 0.0F, available_space,
-                                   titlebar_height};
-    }
+    const float available_space = current_right - left_edge;
+    result.command_center_bounds = {};
+    result.file_buffer_bounds = {left_edge, 0.0F, available_space,
+                                 titlebar_height};
   }
 
   return result;
