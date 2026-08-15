@@ -115,7 +115,7 @@ std::wstring windows_shell_arguments(const std::filesystem::path& shell_path)
     {
         return L" /D /Q /K";
     }
-    return L" -NoLogo -NoProfile -NoExit -Command -";
+    return L" -NoLogo";
 }
 
 #ifndef PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE
@@ -185,8 +185,15 @@ TerminalSession::~TerminalSession()
 std::filesystem::path TerminalSession::resolve_host_shell()
 {
 #if defined(_WIN32)
-    // Command Prompt behaves interactively over the redirected pipes used by
-    // this lightweight terminal host. PowerShell and Bash remain fallbacks.
+    for (const wchar_t* executable : {L"pwsh.exe", L"powershell.exe"})
+    {
+        if (const std::filesystem::path resolved = find_windows_executable(executable);
+            !resolved.empty())
+        {
+            return resolved;
+        }
+    }
+
     std::array<wchar_t, 32768> comspec{};
     const DWORD comspec_length = GetEnvironmentVariableW(
         L"COMSPEC", comspec.data(), static_cast<DWORD>(comspec.size()));
@@ -199,15 +206,6 @@ std::filesystem::path TerminalSession::resolve_host_shell()
         !command_prompt.empty())
     {
         return command_prompt;
-    }
-
-    for (const wchar_t* executable : {L"pwsh.exe", L"powershell.exe"})
-    {
-        if (const std::filesystem::path resolved = find_windows_executable(executable);
-            !resolved.empty())
-        {
-            return resolved;
-        }
     }
 
     constexpr std::array<std::wstring_view, 3> bash_candidates{
@@ -240,7 +238,9 @@ std::filesystem::path TerminalSession::resolve_host_shell()
 #endif
 }
 
-bool TerminalSession::start(const std::filesystem::path& working_directory)
+bool TerminalSession::start(const std::filesystem::path& working_directory,
+                            std::size_t initial_columns,
+                            std::size_t initial_rows)
 {
     stop();
     m_lines.assign(1, std::string{});
@@ -255,8 +255,8 @@ bool TerminalSession::start(const std::filesystem::path& working_directory)
     m_saved_pending_input.clear();
     m_parser_state = ParserState::Text;
     m_control_sequence.clear();
-    m_columns = 100;
-    m_rows = 24;
+    m_columns = std::clamp<std::size_t>(initial_columns, 40, 65535);
+    m_rows = std::clamp<std::size_t>(initial_rows, 10, 65535);
     m_shell_path = resolve_host_shell();
     if (m_shell_path.empty())
     {
@@ -265,6 +265,10 @@ bool TerminalSession::start(const std::filesystem::path& working_directory)
     }
 
 #if defined(_WIN32)
+    _wputenv_s(L"COLUMNS", std::to_wstring(m_columns).c_str());
+    _wputenv_s(L"LINES", std::to_wstring(m_rows).c_str());
+    _wputenv_s(L"TERM", L"xterm-256color");
+    _wputenv_s(L"COLORTERM", L"truecolor");
     load_conpty_api();
 
     HANDLE input_read = nullptr;
@@ -809,39 +813,8 @@ void TerminalSession::resize(std::size_t columns, std::size_t rows) noexcept
         };
         s_fn_ResizePseudoConsole(m_implementation->pseudo_console, console_size);
     }
-    else if (m_implementation->process != nullptr)
-    {
-        const DWORD process_id = GetProcessId(m_implementation->process);
-        if (process_id > 0)
-        {
-            FreeConsole();
-            if (AttachConsole(process_id))
-            {
-                HANDLE console_output = CreateFileW(L"CONOUT$", GENERIC_READ | GENERIC_WRITE,
-                    FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
-                if (console_output != INVALID_HANDLE_VALUE)
-                {
-                    COORD size;
-                    size.X = static_cast<SHORT>(columns);
-                    size.Y = static_cast<SHORT>(rows);
-                    
-                    SMALL_RECT rect;
-                    rect.Left = 0;
-                    rect.Top = 0;
-                    rect.Right = size.X - 1;
-                    rect.Bottom = size.Y - 1;
-                    
-                    SMALL_RECT min_rect = {0, 0, 1, 1};
-                    SetConsoleWindowInfo(console_output, TRUE, &min_rect);
-                    SetConsoleScreenBufferSize(console_output, size);
-                    SetConsoleWindowInfo(console_output, TRUE, &rect);
-                    
-                    CloseHandle(console_output);
-                }
-                FreeConsole();
-            }
-        }
-    }
+    _wputenv_s(L"COLUMNS", std::to_wstring(columns).c_str());
+    _wputenv_s(L"LINES", std::to_wstring(rows).c_str());
 #endif
 }
 

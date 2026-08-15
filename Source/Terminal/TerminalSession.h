@@ -21,7 +21,9 @@ public:
     TerminalSession(const TerminalSession&) = delete;
     TerminalSession& operator=(const TerminalSession&) = delete;
 
-    [[nodiscard]] bool start(const std::filesystem::path& working_directory = {});
+    [[nodiscard]] bool start(const std::filesystem::path& working_directory = {},
+                             std::size_t initial_columns = 160,
+                             std::size_t initial_rows = 30);
     void stop() noexcept;
     [[nodiscard]] bool write_input(std::string_view text);
     [[nodiscard]] bool poll();

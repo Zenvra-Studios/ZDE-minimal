@@ -41,7 +41,7 @@ bool TerminalPanelModel::create_session(const std::filesystem::path& working_dir
         return false;
     }
     auto session = std::make_unique<TerminalSession>();
-    if (!session->start(working_directory))
+    if (!session->start(working_directory, m_columns, m_rows))
     {
         return false;
     }
@@ -295,9 +295,14 @@ bool TerminalPanelModel::is_mouse_tracking_active() const noexcept
 
 void TerminalPanelModel::resize(std::size_t columns, std::size_t rows) noexcept
 {
-    if (TerminalSession* session = get_active_session())
+    m_columns = columns;
+    m_rows = rows;
+    for (auto& entry : m_sessions)
     {
-        session->resize(columns, rows);
+        if (entry.session)
+        {
+            entry.session->resize(columns, rows);
+        }
     }
 }
 

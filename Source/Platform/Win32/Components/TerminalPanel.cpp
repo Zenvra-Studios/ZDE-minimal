@@ -578,7 +578,6 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
                                 : (end > visible_rows ? end - visible_rows : 0);
   m_last_total_rows = lines.size();
   m_last_visible_rows = visible_rows;
-  const std::size_t displayed_rows = end - start;
   const float first_center_y = layout.terminal_content_bounds.y +
                                content_top_padding + line_height * 0.5F;
   float center_y = first_center_y;
