@@ -53,6 +53,18 @@ public:
     [[nodiscard]] std::span<const ProjectTreeItem> get_project_items() const noexcept;
     [[nodiscard]] std::size_t get_scroll_offset() const noexcept;
 
+    // Selection and item tracking
+    void set_selected_path(std::optional<std::filesystem::path> path) noexcept;
+    [[nodiscard]] const std::optional<std::filesystem::path>& get_selected_path() const noexcept;
+    [[nodiscard]] bool is_selected(const std::filesystem::path& path) const noexcept;
+    [[nodiscard]] std::filesystem::path get_target_directory_for_creation() const;
+
+    // File / Directory operations
+    [[nodiscard]] bool create_file(std::string_view relative_name, std::filesystem::path& out_path);
+    [[nodiscard]] bool create_directory(std::string_view relative_name, std::filesystem::path& out_path);
+    [[nodiscard]] bool rename_item(const std::filesystem::path& old_path, std::string_view new_name, std::filesystem::path& out_path);
+    [[nodiscard]] bool delete_item(const std::filesystem::path& target_path);
+
 private:
     static constexpr std::size_t maximum_tree_items = 2048;
 
@@ -64,6 +76,7 @@ private:
     std::filesystem::path m_workspace_root;
     std::vector<ProjectTreeItem> m_project_items;
     std::vector<std::filesystem::path> m_expanded_paths;
+    std::optional<std::filesystem::path> m_selected_path;
     std::size_t m_scroll_offset = 0;
     SidebarIcon m_active_icon = SidebarIcon::Project;
     bool m_visible = true;

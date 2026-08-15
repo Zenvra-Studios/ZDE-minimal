@@ -14,17 +14,35 @@ namespace Zenvra::Platform::Win32::Components
 
 class StudioWorkspaceRenderer;
 
+enum class SidebarActionKind {
+    None,
+    OpenFile,
+    NewFile,
+    NewFolder,
+    Refresh,
+    CollapseAll
+};
+
+struct SidebarPressResult {
+    bool handled = false;
+    SidebarActionKind action = SidebarActionKind::None;
+    std::optional<std::filesystem::path> path;
+};
+
 class ToolSidebar
 {
 public:
     [[nodiscard]] bool initialize();
     [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root);
     [[nodiscard]] bool activate(UI::Editor::SidebarIcon icon) noexcept;
-    [[nodiscard]] bool handle_pointer_press(
+    [[nodiscard]] SidebarPressResult handle_pointer_press(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
-        float point_y,
-        std::optional<std::filesystem::path>& file_to_open);
+        float point_y);
+    [[nodiscard]] std::optional<std::filesystem::path> handle_right_click(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y);
     [[nodiscard]] bool handle_pointer_move(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
@@ -32,6 +50,9 @@ public:
     [[nodiscard]] bool handle_scroll(
         const UI::Editor::StudioEditorLayoutResult& layout,
         std::ptrdiff_t line_delta) noexcept;
+
+    [[nodiscard]] UI::Editor::ActivityPanelModel& get_model() noexcept { return m_model; }
+    [[nodiscard]] const UI::Editor::ActivityPanelModel& get_model() const noexcept { return m_model; }
 
     [[nodiscard]] bool is_visible() const noexcept;
     [[nodiscard]] bool is_active(UI::Editor::SidebarIcon icon) const noexcept;

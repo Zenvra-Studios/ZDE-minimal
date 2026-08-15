@@ -1,0 +1,16 @@
+{
+  "name": "Shell Script",
+  "extensions": [".sh", ".bash", ".zsh", ".ps1", ".bat", ".cmd"],
+  "line_comment": "#",
+  "block_comment_start": "",
+  "block_comment_end": "",
+  "supports_preprocessor": false,
+  "keywords": [
+    "if", "then", "else", "elif", "fi", "case", "esac", "for", "while", "until",
+    "do", "done", "in", "function", "select", "time", "return", "exit", "export",
+    "local", "readonly", "set", "unset", "echo", "printf", "cd", "pwd", "source"
+  ],
+  "types": [],
+  "operators": ["=", "==", "!=", "-eq", "-ne", "-lt", "-le", "-gt", "-ge", "|", "&", "&&", "||", ";", ";;", ">", ">>", "<", "<<"],
+  "string_delimiters": ["\"", "'"]
+}

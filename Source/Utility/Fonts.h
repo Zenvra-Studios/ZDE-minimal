@@ -81,23 +81,23 @@ public:
     TEXTMETRIC tm;
     GetTextMetrics(hdc, &tm);
 
-    if (m_ligaturesEnabled && text.length() > 0) {
-        int wlen = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), NULL, 0);
-        if (wlen > 0) {
-            std::wstring wtext(wlen, 0);
-            MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), &wtext[0], wlen);
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), NULL, 0);
+    if (wlen > 0) {
+        std::wstring wtext(wlen, 0);
+        MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), &wtext[0], wlen);
 
+        if (m_ligaturesEnabled) {
             SCRIPT_STRING_ANALYSIS ssa = nullptr;
-            HRESULT hr = ScriptStringAnalyse(hdc, wtext.c_str(), wtext.length(), wtext.length() * 3 / 2 + 16, -1, SSA_GLYPHS | SSA_FALLBACK | SSA_LINK, 0, NULL, NULL, NULL, NULL, NULL, &ssa);
+            HRESULT hr = ScriptStringAnalyse(hdc, wtext.c_str(), static_cast<int>(wtext.length()), static_cast<int>(wtext.length() * 3 / 2 + 16), -1, SSA_GLYPHS | SSA_FALLBACK | SSA_LINK, 0, NULL, NULL, NULL, NULL, NULL, &ssa);
             if (SUCCEEDED(hr)) {
                 ScriptStringOut(ssa, x, y - tm.tmAscent, 0, NULL, 0, 0, FALSE);
                 ScriptStringFree(&ssa);
             } else {
-                TextOutA(hdc, x, y - tm.tmAscent, text.c_str(), static_cast<int>(text.length()));
+                TextOutW(hdc, x, y - tm.tmAscent, wtext.c_str(), static_cast<int>(wtext.length()));
             }
+        } else {
+            TextOutW(hdc, x, y - tm.tmAscent, wtext.c_str(), static_cast<int>(wtext.length()));
         }
-    } else {
-        TextOutA(hdc, x, y - tm.tmAscent, text.c_str(), text.length());
     }
 
     SelectObject(hdc, oldFont);
@@ -134,14 +134,14 @@ public:
     int width = 0;
     HFONT oldFont = (HFONT)SelectObject(hdc, m_font);
 
-    if (m_ligaturesEnabled) {
-        int wlen = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), NULL, 0);
-        if (wlen > 0) {
-            std::wstring wtext(wlen, 0);
-            MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), &wtext[0], wlen);
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), NULL, 0);
+    if (wlen > 0) {
+        std::wstring wtext(wlen, 0);
+        MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), &wtext[0], wlen);
 
+        if (m_ligaturesEnabled) {
             SCRIPT_STRING_ANALYSIS ssa = nullptr;
-            HRESULT hr = ScriptStringAnalyse(hdc, wtext.c_str(), wtext.length(), wtext.length() * 3 / 2 + 16, -1, SSA_GLYPHS | SSA_FALLBACK | SSA_LINK, 0, NULL, NULL, NULL, NULL, NULL, &ssa);
+            HRESULT hr = ScriptStringAnalyse(hdc, wtext.c_str(), static_cast<int>(wtext.length()), static_cast<int>(wtext.length() * 3 / 2 + 16), -1, SSA_GLYPHS | SSA_FALLBACK | SSA_LINK, 0, NULL, NULL, NULL, NULL, NULL, &ssa);
             if (SUCCEEDED(hr)) {
                 const SIZE* pSize = ScriptString_pSize(ssa);
                 if (pSize) {
@@ -150,12 +150,12 @@ public:
                 ScriptStringFree(&ssa);
             }
         }
-    }
 
-    if (width == 0) {
-        SIZE size;
-        GetTextExtentPoint32A(hdc, text.c_str(), static_cast<int>(text.length()), &size);
-        width = size.cx;
+        if (width == 0) {
+            SIZE size{};
+            GetTextExtentPoint32W(hdc, wtext.c_str(), static_cast<int>(wtext.length()), &size);
+            width = size.cx;
+        }
     }
 
     SelectObject(hdc, oldFont);

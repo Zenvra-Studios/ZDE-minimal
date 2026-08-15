@@ -1,0 +1,12 @@
+{
+  "name": "YAML",
+  "extensions": [".yaml", ".yml"],
+  "line_comment": "#",
+  "block_comment_start": "",
+  "block_comment_end": "",
+  "supports_preprocessor": false,
+  "keywords": ["true", "false", "yes", "no", "on", "off", "null", "~"],
+  "types": [],
+  "operators": [":", "-", "?", "|", ">", "&", "*", "!"],
+  "string_delimiters": ["\"", "'"]
+}

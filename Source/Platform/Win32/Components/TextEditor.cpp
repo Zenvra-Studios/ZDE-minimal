@@ -1,5 +1,6 @@
 #include "Platform/Win32/Components/TextEditor.h"
 
+#include "Language/LanguageServerManager.h"
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
 #include "UI/Editor/FileIconModel.h"
 #include "Utility/Flex.h"
@@ -24,6 +25,27 @@ int round_to_int(float value)
 COLORREF to_color_ref(const UI::Theme::Color& color)
 {
     return RGB(color.red, color.green, color.blue);
+}
+
+std::string make_lsp_uri(std::string_view filename)
+{
+    if (filename.empty() || filename.starts_with("Untitled") || filename.starts_with("untitled"))
+    {
+        return "file:///untitled.cpp";
+    }
+    std::error_code ec;
+    std::filesystem::path p(filename);
+    if (!p.is_absolute())
+    {
+        p = std::filesystem::current_path() / p;
+    }
+    p = std::filesystem::weakly_canonical(p, ec);
+    std::string generic = p.generic_string();
+    if (!generic.starts_with("/"))
+    {
+        generic = "/" + generic;
+    }
+    return "file://" + generic;
 }
 
 bool is_utf8_continuation(char character)
@@ -186,6 +208,49 @@ find_enclosing_braces(const UI::Editor::TextDocumentModel& document)
 
 } // namespace
 
+std::string TextEditor::get_active_document_uri() const
+{
+    if (const auto* path_ptr = m_controller.get_active_path())
+    {
+        return make_lsp_uri(path_ptr->string());
+    }
+    if (const auto* doc = m_controller.get_active_document())
+    {
+        return make_lsp_uri(doc->get_file_name());
+    }
+    return "file:///untitled.cpp";
+}
+
+std::string TextEditor::get_active_document_filename() const
+{
+    if (const auto* path_ptr = m_controller.get_active_path())
+    {
+        return path_ptr->string();
+    }
+    if (const auto* doc = m_controller.get_active_document())
+    {
+        return std::string(doc->get_file_name());
+    }
+    return "untitled.cpp";
+}
+
+void TextEditor::on_diagnostics_updated(const std::string& uri, std::vector<Language::Protocol::Diagnostic> diags)
+{
+    std::lock_guard<std::mutex> lock(m_lsp_mutex);
+    const std::string active_uri = get_active_document_uri();
+    if (uri == active_uri || uri.ends_with(get_active_document_filename()))
+    {
+        if (auto* doc = m_controller.get_active_document())
+        {
+            doc->set_diagnostics(std::move(diags));
+        }
+        if (m_window_handle != nullptr)
+        {
+            InvalidateRect(m_window_handle, nullptr, FALSE);
+        }
+    }
+}
+
 bool TextEditor::open_file(const std::filesystem::path& path)
 {
     const bool opened = m_controller.open_file(path);
@@ -197,8 +262,41 @@ bool TextEditor::open_file(const std::filesystem::path& path)
         m_hovered_tab_index.reset();
         m_hovered_tab_close_index.reset();
         m_hovered_fold_line.reset();
+
+        if (const auto* doc = m_controller.get_active_document(); doc != nullptr)
+        {
+            const std::string uri = get_active_document_uri();
+            const std::string fname = get_active_document_filename();
+            std::string content;
+            for (std::size_t i = 0; i < doc->get_line_count(); ++i)
+            {
+                content += doc->get_line(i);
+                content += "\n";
+            }
+            Language::LanguageServerManager::instance().on_document_opened(
+                uri, fname, 1, content);
+
+            auto diags = Language::LanguageServerManager::instance().get_diagnostics_for_document(uri);
+            if (!diags.empty())
+            {
+                const_cast<UI::Editor::TextDocumentModel*>(doc)->set_diagnostics(std::move(diags));
+            }
+        }
     }
     return opened;
+}
+
+bool TextEditor::close_file(const std::filesystem::path& path)
+{
+    const auto docs = m_controller.get_documents();
+    for (std::size_t i = 0; i < docs.size(); ++i)
+    {
+        if (docs[i].path == path)
+        {
+            return m_controller.close_file(i);
+        }
+    }
+    return false;
 }
 
 std::size_t TextEditor::open_dropped_paths(
@@ -214,6 +312,26 @@ std::size_t TextEditor::open_dropped_paths(
         m_hovered_tab_index.reset();
         m_hovered_tab_close_index.reset();
         m_hovered_fold_line.reset();
+
+        if (const auto* doc = m_controller.get_active_document(); doc != nullptr)
+        {
+            const std::string uri = get_active_document_uri();
+            const std::string fname = get_active_document_filename();
+            std::string content;
+            for (std::size_t i = 0; i < doc->get_line_count(); ++i)
+            {
+                content += doc->get_line(i);
+                content += "\n";
+            }
+            Language::LanguageServerManager::instance().on_document_opened(
+                uri, fname, 1, content);
+
+            auto diags = Language::LanguageServerManager::instance().get_diagnostics_for_document(uri);
+            if (!diags.empty())
+            {
+                const_cast<UI::Editor::TextDocumentModel*>(doc)->set_diagnostics(std::move(diags));
+            }
+        }
     }
     return opened_count;
 }
@@ -230,6 +348,26 @@ bool TextEditor::create_buffer()
         m_hovered_tab_index.reset();
         m_hovered_tab_close_index.reset();
         m_hovered_fold_line.reset();
+
+        if (const auto* doc = m_controller.get_active_document(); doc != nullptr)
+        {
+            const std::string uri = get_active_document_uri();
+            const std::string fname = get_active_document_filename();
+            std::string content;
+            for (std::size_t i = 0; i < doc->get_line_count(); ++i)
+            {
+                content += doc->get_line(i);
+                content += "\n";
+            }
+            Language::LanguageServerManager::instance().on_document_opened(
+                uri, fname, 1, content);
+
+            auto diags = Language::LanguageServerManager::instance().get_diagnostics_for_document(uri);
+            if (!diags.empty())
+            {
+                const_cast<UI::Editor::TextDocumentModel*>(doc)->set_diagnostics(std::move(diags));
+            }
+        }
     }
     return created;
 }
@@ -486,6 +624,8 @@ bool TextEditor::handle_pointer_press(
         return true;
     }
 
+    m_completion_popup.hide();
+    m_signature_help.hide();
     m_focused = true;
     m_pointer_selecting = true;
     const UI::Editor::TextPosition position = position_from_point(
@@ -748,6 +888,13 @@ bool TextEditor::handle_scroll(
 
     if (event.delta_y == 0) return false;
 
+    // Intercept scroll if pointer is over completion popup
+    if (m_completion_popup.is_visible() &&
+        m_completion_popup.is_point_inside(event.point_x, event.point_y, 24.0F * surface.m_dpi_scale, 340.0F * surface.m_dpi_scale))
+    {
+        return m_completion_popup.scroll(event.delta_y);
+    }
+
     // Vertical scroll in editor area only
     if (layout.editor_bounds.contains(event.point_x, event.point_y) ||
         layout.gutter_bounds.contains(event.point_x, event.point_y) ||
@@ -773,11 +920,248 @@ bool TextEditor::handle_input(
     UI::Editor::EditorInputCommand command,
     bool extend_selection)
 {
+    {
+        std::lock_guard<std::mutex> lock(m_lsp_mutex);
+        if (m_completion_popup.is_visible())
+        {
+            if (command == UI::Editor::EditorInputCommand::MoveUp)
+            {
+                m_completion_popup.select_previous();
+                return true;
+            }
+            if (command == UI::Editor::EditorInputCommand::MoveDown)
+            {
+                m_completion_popup.select_next();
+                return true;
+            }
+            if (command == UI::Editor::EditorInputCommand::Escape ||
+                command == UI::Editor::EditorInputCommand::MoveLeft ||
+                command == UI::Editor::EditorInputCommand::MoveRight ||
+                command == UI::Editor::EditorInputCommand::MoveHome ||
+                command == UI::Editor::EditorInputCommand::MoveEnd)
+            {
+                m_completion_popup.hide();
+                m_signature_help.hide();
+                if (command == UI::Editor::EditorInputCommand::Escape)
+                {
+                    return true;
+                }
+            }
+            if (command == UI::Editor::EditorInputCommand::InsertTab || command == UI::Editor::EditorInputCommand::InsertNewLine)
+            {
+                if (const auto* item = m_completion_popup.get_selected_item())
+                {
+                    if (auto* doc = m_controller.get_active_document(); doc != nullptr)
+                    {
+                        const std::string_view current_line = doc->get_line(doc->get_caret_line());
+                        const std::size_t caret_col = doc->get_caret_column();
+
+                        // Find how many characters of the current token to replace before caret
+                        std::size_t word_start = std::min(caret_col, current_line.size());
+                        while (word_start > 0)
+                        {
+                            const char c = current_line[word_start - 1];
+                            if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '#' || c == '~')
+                            {
+                                --word_start;
+                            }
+                            else
+                            {
+                                break;
+                            }
+                        }
+
+                        const std::size_t prefix_len = caret_col - word_start;
+                        for (std::size_t k = 0; k < prefix_len; ++k)
+                        {
+                            static_cast<void>(m_controller.execute_input(UI::Editor::EditorInputCommand::DeleteBackward));
+                        }
+
+                        std::string text_to_insert = item->insert_text;
+                        const std::size_t start_line = doc->get_caret_line();
+                        const std::size_t start_col = doc->get_caret_column();
+
+                        std::size_t target_cursor_line = start_line;
+                        std::size_t target_cursor_col = start_col;
+                        bool cursor_targeted = false;
+
+                        // 1. Find all placeholders ${N:default_val} and replace all instances
+                        std::size_t first_placeholder_pos = std::string::npos;
+                        while (true)
+                        {
+                            const std::size_t p_start = text_to_insert.find("${");
+                            if (p_start == std::string::npos) break;
+                            const std::size_t p_end = text_to_insert.find('}', p_start);
+                            if (p_end == std::string::npos) break;
+
+                            const std::string inner = text_to_insert.substr(p_start + 2, p_end - (p_start + 2));
+                            std::string def_val;
+                            const std::string tag = "${" + inner + "}";
+                            const std::size_t colon = inner.find(':');
+                            if (colon != std::string::npos)
+                            {
+                                def_val = inner.substr(colon + 1);
+                            }
+
+                            if (first_placeholder_pos == std::string::npos)
+                            {
+                                first_placeholder_pos = p_start;
+                            }
+
+                            // Replace all occurrences of this exact tag
+                            std::size_t search_pos = 0;
+                            while ((search_pos = text_to_insert.find(tag, search_pos)) != std::string::npos)
+                            {
+                                text_to_insert.replace(search_pos, tag.size(), def_val);
+                                search_pos += def_val.size();
+                            }
+                        }
+
+                        // 2. Handle $0 tabstop
+                        const std::size_t tabstop_pos = text_to_insert.find("$0");
+                        if (tabstop_pos != std::string::npos)
+                        {
+                            std::size_t line_offset = 0;
+                            std::size_t last_nl = 0;
+                            for (std::size_t idx = 0; idx < tabstop_pos; ++idx)
+                            {
+                                if (text_to_insert[idx] == '\n')
+                                {
+                                    ++line_offset;
+                                    last_nl = idx + 1;
+                                }
+                            }
+                            const std::size_t col_offset = tabstop_pos - last_nl;
+                            target_cursor_line = start_line + line_offset;
+                            target_cursor_col = (line_offset == 0) ? start_col + col_offset : col_offset;
+                            cursor_targeted = true;
+
+                            text_to_insert.erase(tabstop_pos, 2);
+                        }
+                        else if (first_placeholder_pos != std::string::npos)
+                        {
+                            std::size_t line_offset = 0;
+                            std::size_t last_nl = 0;
+                            for (std::size_t idx = 0; idx < first_placeholder_pos; ++idx)
+                            {
+                                if (text_to_insert[idx] == '\n')
+                                {
+                                    ++line_offset;
+                                    last_nl = idx + 1;
+                                }
+                            }
+                            const std::size_t col_offset = first_placeholder_pos - last_nl;
+                            target_cursor_line = start_line + line_offset;
+                            target_cursor_col = (line_offset == 0) ? start_col + col_offset : col_offset;
+                            cursor_targeted = true;
+                        }
+
+                        static_cast<void>(m_controller.insert_text(text_to_insert));
+
+                        if (cursor_targeted)
+                        {
+                            const std::size_t max_lines = doc->get_line_count();
+                            if (target_cursor_line < max_lines)
+                            {
+                                const std::size_t line_len = doc->get_line(target_cursor_line).size();
+                                doc->set_caret(target_cursor_line, std::min(target_cursor_col, line_len));
+                            }
+                        }
+
+                        m_completion_popup.hide();
+                        m_reveal_caret_pending = true;
+                        m_caret_blink.reset();
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
     const bool changed = m_focused && m_controller.execute_input(command, extend_selection);
     if (changed)
     {
         m_reveal_caret_pending = true;
         m_caret_blink.reset();
+
+        if (auto* doc = m_controller.get_active_document(); doc != nullptr)
+        {
+            const std::string uri = get_active_document_uri();
+            const std::string fname = get_active_document_filename();
+            std::string content;
+            for (std::size_t i = 0; i < doc->get_line_count(); ++i)
+            {
+                content += doc->get_line(i);
+                content += "\n";
+            }
+            Language::LanguageServerManager::instance().on_document_changed(
+                uri, fname, 1, content);
+
+            // Auto-hide signature help on newline, cursor movement, or outside parens
+            if (command == UI::Editor::EditorInputCommand::InsertNewLine ||
+                command == UI::Editor::EditorInputCommand::MoveUp ||
+                command == UI::Editor::EditorInputCommand::MoveDown ||
+                command == UI::Editor::EditorInputCommand::MoveHome ||
+                command == UI::Editor::EditorInputCommand::MoveEnd ||
+                command == UI::Editor::EditorInputCommand::Escape)
+            {
+                m_signature_help.hide();
+            }
+            else if (m_signature_help.is_visible())
+            {
+                const std::string_view current_line = doc->get_line(doc->get_caret_line());
+                const std::size_t caret_col = doc->get_caret_column();
+                const std::string_view prefix = current_line.substr(0, std::min(caret_col, current_line.size()));
+
+                std::size_t open_count = 0;
+                std::size_t close_count = 0;
+                for (char ch : prefix)
+                {
+                    if (ch == '(') ++open_count;
+                    else if (ch == ')') ++close_count;
+                }
+
+                if (open_count <= close_count)
+                {
+                    m_signature_help.hide();
+                }
+            }
+
+            // If Backspace or Delete occurred while completion popup was open, auto-close or re-filter
+            if (m_completion_popup.is_visible())
+            {
+                const std::string_view current_line = doc->get_line(doc->get_caret_line());
+                const std::size_t caret_col = doc->get_caret_column();
+
+                std::size_t word_start = std::min(caret_col, current_line.size());
+                while (word_start > 0)
+                {
+                    const char c = current_line[word_start - 1];
+                    if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '#' || c == '~')
+                    {
+                        --word_start;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+                const std::string_view current_word = current_line.substr(word_start, caret_col - word_start);
+
+                if (current_word.empty() || current_word == "#" || caret_col == 0)
+                {
+                    m_completion_popup.hide();
+                }
+                else
+                {
+                    m_completion_popup.set_filter(current_word);
+                    if (m_completion_popup.get_item_count() == 0)
+                    {
+                        m_completion_popup.hide();
+                    }
+                }
+            }
+        }
     }
     return changed;
 }
@@ -823,11 +1207,335 @@ std::optional<bool> TextEditor::is_command_enabled(
 
 bool TextEditor::handle_text_input(std::string_view utf8_text)
 {
-    const bool changed = m_focused && m_controller.insert_text(utf8_text);
+    if (!m_focused)
+    {
+        return false;
+    }
+
+    auto* doc = m_controller.get_active_document();
+    if (doc == nullptr)
+    {
+        return false;
+    }
+
+    const std::size_t initial_caret_line = doc->get_caret_line();
+    const std::size_t initial_caret_col = doc->get_caret_column();
+    const std::string_view initial_line = doc->get_line(initial_caret_line);
+
+    // 1. Skip-over existing closing character when typed
+    if ((utf8_text == ")" || utf8_text == "]" || utf8_text == "}" || utf8_text == "\"" || utf8_text == "'") &&
+        initial_caret_col < initial_line.size() && initial_line[initial_caret_col] == utf8_text[0])
+    {
+        doc->set_caret(initial_caret_line, initial_caret_col + 1);
+        m_reveal_caret_pending = true;
+        m_caret_blink.reset();
+        m_completion_popup.hide();
+        m_signature_help.hide();
+        return true;
+    }
+
+    // 2. Smart auto-closing for (, [, ", '
+    if (utf8_text == "(" || utf8_text == "[" || utf8_text == "\"" || utf8_text == "'")
+    {
+        std::string pair_text;
+        if (utf8_text == "(") pair_text = "()";
+        else if (utf8_text == "[") pair_text = "[]";
+        else if (utf8_text == "\"") pair_text = "\"\"";
+        else if (utf8_text == "'") pair_text = "''";
+
+        const bool changed = m_controller.insert_text(pair_text);
+        if (changed)
+        {
+            doc->set_caret(initial_caret_line, initial_caret_col + 1);
+            m_reveal_caret_pending = true;
+            m_caret_blink.reset();
+
+            const std::string uri = get_active_document_uri();
+            const std::string fname = get_active_document_filename();
+            std::string content;
+            for (std::size_t i = 0; i < doc->get_line_count(); ++i)
+            {
+                content += doc->get_line(i);
+                content += "\n";
+            }
+            Language::LanguageServerManager::instance().on_document_changed(
+                uri, fname, 1, content);
+
+            if (utf8_text == "(")
+            {
+                Language::Protocol::Position sig_pos{
+                    .line = doc->get_caret_line(),
+                    .character = doc->get_caret_column()
+                };
+                Language::LanguageServerManager::instance().request_signature_help(
+                    uri, fname, sig_pos, doc->get_line(doc->get_caret_line()),
+                    [this](std::optional<Language::Protocol::SignatureHelp> help) {
+                        std::lock_guard<std::mutex> lock(m_lsp_mutex);
+                        if (help.has_value() && !help->signatures.empty())
+                        {
+                            m_signature_help.show(std::move(*help), 0.0F, 0.0F);
+                        }
+                        else
+                        {
+                            m_signature_help.hide();
+                        }
+                        if (m_window_handle != nullptr)
+                        {
+                            InvalidateRect(m_window_handle, nullptr, FALSE);
+                        }
+                    }
+                );
+            }
+
+            Language::Protocol::Position pos{
+                .line = doc->get_caret_line(),
+                .character = doc->get_caret_column()
+            };
+            Language::LanguageServerManager::instance().request_completion(
+                uri, fname, pos, doc->get_line(doc->get_caret_line()),
+                [this](std::vector<Language::Protocol::CompletionItem> items) {
+                    std::lock_guard<std::mutex> lock(m_lsp_mutex);
+                    if (!items.empty())
+                    {
+                        m_completion_popup.show(std::move(items), 100.0F, 100.0F);
+                    }
+                    if (m_window_handle != nullptr)
+                    {
+                        InvalidateRect(m_window_handle, nullptr, FALSE);
+                    }
+                }
+            );
+            return true;
+        }
+    }
+
+    const bool changed = m_controller.insert_text(utf8_text);
     if (changed)
     {
         m_reveal_caret_pending = true;
         m_caret_blink.reset();
+
+        {
+            const std::string uri = get_active_document_uri();
+            const std::string fname = get_active_document_filename();
+            std::string content;
+            for (std::size_t i = 0; i < doc->get_line_count(); ++i)
+            {
+                content += doc->get_line(i);
+                content += "\n";
+            }
+            Language::LanguageServerManager::instance().on_document_changed(
+                uri, fname, 1, content);
+
+            const std::string_view current_line = doc->get_line(doc->get_caret_line());
+            const std::size_t caret_col = doc->get_caret_column();
+
+            // Extract the active word token before cursor
+            std::size_t word_start = std::min(caret_col, current_line.size());
+            while (word_start > 0)
+            {
+                const char c = current_line[word_start - 1];
+                if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '#' || c == ':' || c == '~')
+                {
+                    --word_start;
+                }
+                else
+                {
+                    break;
+                }
+            }
+            const std::string_view current_word = current_line.substr(word_start, caret_col - word_start);
+
+            const bool is_include_context = current_line.find('#') != std::string_view::npos ||
+                                           utf8_text == "<" || utf8_text == "\"" || utf8_text == "#";
+            const bool is_trigger_char = utf8_text == "." || utf8_text == ">" || utf8_text == ":" ||
+                                         utf8_text == "/" || utf8_text == "\\" || utf8_text == "(" ||
+                                         utf8_text == "," || is_include_context ||
+                                         current_word.size() >= 1;
+
+            if (utf8_text == "{")
+            {
+                std::string_view line_before = current_line.substr(0, caret_col > 0 ? caret_col - 1 : 0);
+                while (!line_before.empty() && std::isspace(static_cast<unsigned char>(line_before.back())))
+                {
+                    line_before.remove_suffix(1);
+                }
+
+                const bool is_type = line_before.find("struct ") != std::string_view::npos ||
+                                     line_before.find("struct\t") != std::string_view::npos ||
+                                     line_before.find("class ") != std::string_view::npos ||
+                                     line_before.find("class\t") != std::string_view::npos ||
+                                     line_before.find("enum ") != std::string_view::npos ||
+                                     line_before.find("union ") != std::string_view::npos ||
+                                     line_before.starts_with("struct") ||
+                                     line_before.starts_with("class");
+                const bool is_namespace = line_before.find("namespace ") != std::string_view::npos ||
+                                         line_before.starts_with("namespace");
+
+                if (is_type)
+                {
+                    static_cast<void>(m_controller.insert_text("\n    \n};"));
+                    const std::size_t cur_line = doc->get_caret_line();
+                    if (cur_line > 0)
+                    {
+                        doc->set_caret(cur_line - 1, 4);
+                    }
+                    std::lock_guard<std::mutex> lock(m_lsp_mutex);
+                    m_completion_popup.hide();
+                    return true;
+                }
+                else if (is_namespace)
+                {
+                    const std::size_t ns_pos = line_before.find("namespace");
+                    std::string ns_name;
+                    if (ns_pos != std::string_view::npos && ns_pos + 9 < line_before.size())
+                    {
+                        ns_name = std::string(line_before.substr(ns_pos + 9));
+                        while (!ns_name.empty() && std::isspace(static_cast<unsigned char>(ns_name.front())))
+                        {
+                            ns_name.erase(0, 1);
+                        }
+                        while (!ns_name.empty() && std::isspace(static_cast<unsigned char>(ns_name.back())))
+                        {
+                            ns_name.pop_back();
+                        }
+                    }
+                    const std::string closing = ns_name.empty() ? "\n\n\n}" : ("\n\n\n} // namespace " + ns_name);
+                    static_cast<void>(m_controller.insert_text(closing));
+                    const std::size_t cur_line = doc->get_caret_line();
+                    if (cur_line >= 2)
+                    {
+                        doc->set_caret(cur_line - 2, 0);
+                    }
+                    std::lock_guard<std::mutex> lock(m_lsp_mutex);
+                    m_completion_popup.hide();
+                    return true;
+                }
+            }
+
+            // Check if caret is inside parentheses '(' ... ')'
+            const std::string_view prefix_before_caret = current_line.substr(0, std::min(caret_col, current_line.size()));
+            std::size_t open_parens = 0;
+            std::size_t close_parens = 0;
+            for (char ch : prefix_before_caret)
+            {
+                if (ch == '(') ++open_parens;
+                else if (ch == ')') ++close_parens;
+            }
+
+            const bool is_inside_parens = (open_parens > close_parens);
+
+            if (is_inside_parens && (utf8_text == "(" || utf8_text == "," || m_signature_help.is_visible() || !current_word.empty()))
+            {
+                Language::Protocol::Position sig_pos{
+                    .line = doc->get_caret_line(),
+                    .character = doc->get_caret_column()
+                };
+                Language::LanguageServerManager::instance().request_signature_help(
+                    uri, fname, sig_pos, current_line,
+                    [this](std::optional<Language::Protocol::SignatureHelp> help) {
+                        std::lock_guard<std::mutex> lock(m_lsp_mutex);
+                        if (const auto* current_doc = m_controller.get_active_document())
+                        {
+                            const std::string_view line = current_doc->get_line(current_doc->get_caret_line());
+                            const std::size_t col = current_doc->get_caret_column();
+                            const std::string_view pfx = line.substr(0, std::min(col, line.size()));
+                            std::size_t op = 0;
+                            std::size_t cp = 0;
+                            for (char ch : pfx)
+                            {
+                                if (ch == '(') ++op;
+                                else if (ch == ')') ++cp;
+                            }
+                            if (op <= cp)
+                            {
+                                m_signature_help.hide();
+                                return;
+                            }
+                        }
+                        if (help.has_value() && !help->signatures.empty())
+                        {
+                            m_signature_help.show(std::move(*help), 0.0F, 0.0F);
+                        }
+                        else
+                        {
+                            m_signature_help.hide();
+                        }
+                        if (m_window_handle != nullptr)
+                        {
+                            InvalidateRect(m_window_handle, nullptr, FALSE);
+                        }
+                    }
+                );
+            }
+            else
+            {
+                std::lock_guard<std::mutex> lock(m_lsp_mutex);
+                m_signature_help.hide();
+            }
+
+            if (utf8_text == " " || utf8_text == ";" || utf8_text == ")" || utf8_text == "}")
+            {
+                std::lock_guard<std::mutex> lock(m_lsp_mutex);
+                m_completion_popup.hide();
+            }
+            else if (is_trigger_char || m_completion_popup.is_visible())
+            {
+                Language::Protocol::Position pos{
+                    .line = doc->get_caret_line(),
+                    .character = doc->get_caret_column()
+                };
+                Language::LanguageServerManager::instance().request_completion(
+                    uri, fname, pos, current_line,
+                    [this](std::vector<Language::Protocol::CompletionItem> items) {
+                        std::lock_guard<std::mutex> lock(m_lsp_mutex);
+                        if (!items.empty())
+                        {
+                            m_completion_popup.show(std::move(items), 100.0F, 100.0F);
+
+                            // Dynamically extract the latest word at caret
+                            if (const auto* current_doc = m_controller.get_active_document())
+                            {
+                                const std::string_view line = current_doc->get_line(current_doc->get_caret_line());
+                                const std::size_t col = current_doc->get_caret_column();
+                                std::size_t start = std::min(col, line.size());
+                                while (start > 0)
+                                {
+                                    const char ch = line[start - 1];
+                                    if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '#' || ch == ':' || ch == '~')
+                                    {
+                                        --start;
+                                    }
+                                    else
+                                    {
+                                        break;
+                                    }
+                                }
+                                const std::string_view latest_word = line.substr(start, col - start);
+                                if (!latest_word.empty())
+                                {
+                                    m_completion_popup.set_filter(latest_word);
+                                }
+                            }
+
+                            if (m_completion_popup.get_item_count() == 0)
+                            {
+                                m_completion_popup.hide();
+                            }
+                        }
+                        else
+                        {
+                            m_completion_popup.hide();
+                        }
+
+                        if (m_window_handle != nullptr)
+                        {
+                            InvalidateRect(m_window_handle, nullptr, FALSE);
+                        }
+                    }
+                );
+            }
+        }
     }
     return changed;
 }
@@ -930,6 +1638,42 @@ void TextEditor::render(
             visible_count);
     }
     m_scrollbar.render(surface, device_context, layout);
+
+    // Render Scrollbar Error / Warning Stripes (JetBrains Overview Ruler)
+    if (const UI::Editor::TextDocumentModel* document = m_controller.get_active_document())
+    {
+        const std::size_t total_lines = document->get_line_count();
+        if (total_lines > 0)
+        {
+            const float track_x = layout.scrollbar_bounds.x;
+            const float track_y = layout.scrollbar_bounds.y;
+            const float track_w = layout.scrollbar_bounds.width;
+            const float track_h = layout.scrollbar_bounds.height;
+
+            for (std::size_t line_idx = 0; line_idx < total_lines; ++line_idx)
+            {
+                const auto diags = document->get_diagnostics_for_line(line_idx);
+                if (diags.empty()) continue;
+
+                bool has_err = false;
+                bool has_warn = false;
+                for (const auto& d : diags)
+                {
+                    if (d.severity == Language::Protocol::DiagnosticSeverity::Error) has_err = true;
+                    else if (d.severity == Language::Protocol::DiagnosticSeverity::Warning) has_warn = true;
+                }
+
+                const float stripe_y = track_y + (static_cast<float>(line_idx) / static_cast<float>(total_lines)) * track_h;
+                const UI::Theme::Color stripe_color = has_err
+                    ? UI::Theme::Color{247, 84, 100, 255}
+                    : (has_warn ? UI::Theme::Color{240, 167, 50, 255} : UI::Theme::Color{86, 182, 194, 255});
+
+                surface.fill_rectangle(device_context,
+                    UI::Rect{track_x + 1.0F, stripe_y, track_w - 2.0F, std::max(2.5F * surface.m_dpi_scale, 2.0F)},
+                    stripe_color);
+            }
+        }
+    }
 }
 
 void TextEditor::draw_tab_strip(
@@ -1352,6 +2096,28 @@ void TextEditor::draw_document(
             number_x,
             center_y,
             active_line ? surface.m_palette.text_primary : surface.m_palette.text_muted);
+
+        const auto gutter_diags = document->get_diagnostics_for_line(line_index);
+        if (!gutter_diags.empty())
+        {
+            bool has_error = false;
+            bool has_warn = false;
+            for (const auto& gd : gutter_diags)
+            {
+                if (gd.severity == Language::Protocol::DiagnosticSeverity::Error) has_error = true;
+                else if (gd.severity == Language::Protocol::DiagnosticSeverity::Warning) has_warn = true;
+            }
+
+            const float dot_x = layout.gutter_bounds.x + 4.0F * surface.m_dpi_scale;
+            const float dot_r = 3.0F * surface.m_dpi_scale;
+            const UI::Theme::Color dot_color = has_error
+                ? UI::Theme::Color{247, 84, 100, 255}
+                : (has_warn ? UI::Theme::Color{240, 167, 50, 255} : UI::Theme::Color{86, 182, 194, 255});
+            surface.fill_rounded_rectangle(device_context,
+                UI::Rect{dot_x, center_y - dot_r, dot_r * 2.0F, dot_r * 2.0F},
+                dot_color, dot_r);
+        }
+
         if (has_gutter_marker(line))
         {
             const int marker_x = round_to_int(
@@ -1547,7 +2313,6 @@ void TextEditor::draw_document(
         const std::string_view line = document->get_line(line_index);
         const float center_y = first_center_y + static_cast<float>(row_pass2) * line_height;
         ++row_pass2;
-        const bool active_line = line_index == document->get_caret_line();
         
         const float current_line_width = static_cast<float>(surface.get_text_width(
             device_context, *surface.m_editor_font, line));
@@ -1559,7 +2324,7 @@ void TextEditor::draw_document(
             float token_x = code_x;
             std::size_t rendered_bytes = 0;
             std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
-            const std::size_t token_count = UI::Editor::tokenize_editor_line(line, tokens);
+            const std::size_t token_count = UI::Editor::tokenize_editor_line(line, tokens, document->get_file_name());
             for (std::size_t token_index = 0; token_index < token_count; ++token_index)
             {
                 const UI::Editor::EditorToken& token = tokens[token_index];
@@ -1659,6 +2424,98 @@ void TextEditor::draw_document(
                 center_y,
                 surface.m_palette.text_primary);
         }
+
+        // Render diagnostics squiggles under erroneous tokens
+        const auto line_diags = document->get_diagnostics_for_line(line_index);
+        for (const auto& diag : line_diags)
+        {
+            std::size_t start_col = diag.range.start.line == line_index ? diag.range.start.character : 0;
+            std::size_t end_col = diag.range.end.line == line_index ? diag.range.end.character : line.size();
+            if (end_col > line.size()) end_col = line.size();
+            if (start_col >= end_col) end_col = std::min(start_col + 1, line.size());
+
+            float diag_start_x = code_x;
+            if (start_col > 0 && start_col <= line.size())
+            {
+                diag_start_x += static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, line.substr(0, start_col)));
+            }
+            float diag_width = 8.0F;
+            if (end_col > start_col && start_col < line.size())
+            {
+                diag_width = static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, line.substr(start_col, end_col - start_col)));
+            }
+
+            UI::Theme::Color squiggle_color = diag.severity == Language::Protocol::DiagnosticSeverity::Error
+                ? UI::Theme::Color{247, 84, 100, 255}
+                : (diag.severity == Language::Protocol::DiagnosticSeverity::Warning
+                    ? UI::Theme::Color{240, 167, 50, 255}
+                    : UI::Theme::Color{86, 182, 194, 255});
+
+            // Draw crisp sinusoidal wavy squiggle
+            float wave_x = diag_start_x;
+            const float wave_end_x = diag_start_x + std::max(diag_width, 6.0F);
+            const float wave_y = center_y + line_height * 0.42F;
+            const float wave_step = 3.0F * surface.m_dpi_scale;
+            const float wave_amp = 1.5F * surface.m_dpi_scale;
+            bool wave_up = true;
+            while (wave_x < wave_end_x)
+            {
+                const float next_x = std::min(wave_x + wave_step, wave_end_x);
+                const float y1 = wave_up ? (wave_y - wave_amp) : (wave_y + wave_amp);
+                const float y2 = wave_up ? (wave_y + wave_amp) : (wave_y - wave_amp);
+                surface.draw_line(device_context,
+                    round_to_int(wave_x), round_to_int(y1),
+                    round_to_int(next_x), round_to_int(y2),
+                    squiggle_color);
+                wave_x = next_x;
+                wave_up = !wave_up;
+            }
+        }
+
+        // Render JetBrains-style Inline Error Lens (Inspection hint at end of line)
+        if (!line_diags.empty())
+        {
+            const auto* top_diag = &line_diags[0];
+            for (const auto& d : line_diags)
+            {
+                if (d.severity < top_diag->severity)
+                {
+                    top_diag = &d;
+                }
+            }
+
+            std::string badge_prefix = "   x  ";
+            UI::Theme::Color badge_fg{247, 84, 100, 220};
+            UI::Theme::Color badge_bg{48, 20, 24, 180};
+            if (top_diag->severity == Language::Protocol::DiagnosticSeverity::Warning)
+            {
+                badge_prefix = "   !  ";
+                badge_fg = UI::Theme::Color{240, 167, 50, 220};
+                badge_bg = UI::Theme::Color{48, 38, 20, 180};
+            }
+            else if (top_diag->severity >= Language::Protocol::DiagnosticSeverity::Information)
+            {
+                badge_prefix = "   i  ";
+                badge_fg = UI::Theme::Color{86, 182, 194, 220};
+                badge_bg = UI::Theme::Color{20, 36, 48, 180};
+            }
+
+            std::string hint_text = badge_prefix + top_diag->message;
+            if (hint_text.size() > 90)
+            {
+                hint_text = hint_text.substr(0, 87) + "...";
+            }
+
+            const float hint_x = code_x + current_line_width + 20.0F * surface.m_dpi_scale;
+            const int hint_w = surface.get_text_width(device_context, *surface.m_ui_font, hint_text);
+            const float badge_h = 16.0F * surface.m_dpi_scale;
+
+            surface.fill_rounded_rectangle(device_context,
+                UI::Rect{hint_x - 4.0F * surface.m_dpi_scale, center_y - badge_h * 0.5F, static_cast<float>(hint_w) + 8.0F * surface.m_dpi_scale, badge_h},
+                badge_bg, 3.0F * surface.m_dpi_scale);
+
+            surface.draw_text(device_context, *surface.m_ui_font, hint_text, hint_x, center_y, badge_fg);
+        }
         if (m_focused && m_caret_blink.is_visible())
         {
             for (const auto& cur : document->get_all_cursors())
@@ -1715,6 +2572,409 @@ void TextEditor::draw_document(
             thumb_height 
         };
         surface.fill_rectangle(device_context, thumb_bounds, surface.m_palette.text_muted);
+    }
+
+    // Render completion popup overlay if active (VS Code Style)
+    std::lock_guard<std::mutex> lsp_lock(m_lsp_mutex);
+    if (m_completion_popup.is_visible() && m_completion_popup.get_item_count() > 0 && document != nullptr)
+    {
+        const std::string_view current_line = document->get_line(document->get_caret_line());
+        const std::string_view prefix = current_line.substr(0, std::min(document->get_caret_column(), current_line.size()));
+        const float caret_screen_x = code_x + static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, prefix));
+        const float caret_line_y = layout.editor_bounds.y + static_cast<float>(physical_line_to_visual_row(m_folding, document->get_caret_line(), document->get_line_count()) - m_scrollbar.get_first_visible_line() + 1) * (20.0F * surface.m_dpi_scale);
+
+        const float item_h = 20.0F * surface.m_dpi_scale;
+        const std::size_t count = m_completion_popup.get_item_count();
+        const std::size_t scroll_offset = m_completion_popup.get_scroll_offset();
+        const std::size_t max_visible = m_completion_popup.get_max_visible_items();
+        const std::size_t visible_count = std::min<std::size_t>(count, max_visible);
+        const float popup_h = static_cast<float>(visible_count) * item_h + 4.0F * surface.m_dpi_scale; // Compact, no footer
+
+        // Calculate dynamic popup width
+        float max_label_w = 220.0F * surface.m_dpi_scale;
+        for (std::size_t i = 0; i < max_visible && (scroll_offset + i) < count; ++i)
+        {
+            if (const auto* it = m_completion_popup.get_item(scroll_offset + i))
+            {
+                const int w = surface.get_text_width(device_context, *surface.m_ui_font, it->label);
+                max_label_w = std::max(max_label_w, static_cast<float>(w) + 64.0F * surface.m_dpi_scale);
+            }
+        }
+        const float popup_w = std::clamp(max_label_w, 220.0F * surface.m_dpi_scale, 380.0F * surface.m_dpi_scale);
+
+        const float popup_x = std::clamp(caret_screen_x, layout.editor_bounds.x + 10.0F, std::max(layout.editor_bounds.x + 10.0F, layout.editor_bounds.right() - (popup_w + 20.0F)));
+        const float popup_y = std::clamp(caret_line_y, layout.editor_bounds.y + 10.0F, std::max(layout.editor_bounds.y + 10.0F, layout.editor_bounds.bottom() - (popup_h + 20.0F)));
+
+        const UI::Rect actual_bounds{popup_x, popup_y, popup_w, popup_h};
+
+        // VS Code dark minimalist widget background & border
+        const UI::Theme::Color vscode_bg{24, 24, 28, 255};
+        const UI::Theme::Color vscode_border{55, 55, 62, 255};
+        const UI::Theme::Color vscode_selection{0, 95, 184, 255};     // VS Code Accent Blue Highlight
+        const UI::Theme::Color vscode_text_muted{133, 133, 133, 255};
+
+        surface.fill_rounded_rectangle(device_context, actual_bounds, vscode_bg, 3.0F * surface.m_dpi_scale);
+        surface.draw_rectangle(device_context, actual_bounds, vscode_border);
+
+        const std::size_t selected = m_completion_popup.get_selected_index();
+
+        for (std::size_t i = 0; i < max_visible && (scroll_offset + i) < count; ++i)
+        {
+            const std::size_t item_idx = scroll_offset + i;
+            const auto* item = m_completion_popup.get_item(item_idx);
+            if (item == nullptr) continue;
+
+            const float row_y = actual_bounds.y + 2.0F + static_cast<float>(i) * item_h;
+            const float item_w = actual_bounds.width - (count > max_visible ? 10.0F : 4.0F) * surface.m_dpi_scale;
+            const UI::Rect item_rect{actual_bounds.x + 2.0F, row_y, item_w, item_h};
+
+            if (item_idx == selected)
+            {
+                surface.fill_rounded_rectangle(device_context, item_rect, vscode_selection, 2.0F * surface.m_dpi_scale);
+            }
+
+            // VS Code Minimalist Kind Icon Badges & Colors
+            std::string kind_badge = " ";
+            UI::Theme::Color badge_color = surface.m_palette.accent;
+            bool is_snippet = false;
+
+            switch (item->kind)
+            {
+            case Language::Protocol::CompletionItemKind::Snippet:
+                kind_badge = "[]";
+                badge_color = UI::Theme::Color{79, 193, 255, 255}; // Cyan Snippet Outline
+                is_snippet = true;
+                break;
+            case Language::Protocol::CompletionItemKind::Keyword:
+                kind_badge = "{}";
+                badge_color = UI::Theme::Color{197, 134, 192, 255}; // Purple Keyword
+                break;
+            case Language::Protocol::CompletionItemKind::Function:
+            case Language::Protocol::CompletionItemKind::Method:
+                kind_badge = "f";
+                badge_color = UI::Theme::Color{177, 128, 215, 255}; // Lavender Function
+                break;
+            case Language::Protocol::CompletionItemKind::Variable:
+            case Language::Protocol::CompletionItemKind::Field:
+                kind_badge = "v";
+                badge_color = UI::Theme::Color{156, 220, 254, 255}; // Light Blue Variable
+                break;
+            case Language::Protocol::CompletionItemKind::Property:
+                kind_badge = "p";
+                badge_color = UI::Theme::Color{79, 193, 255, 255}; // Cyan Property
+                break;
+            case Language::Protocol::CompletionItemKind::Class:
+            case Language::Protocol::CompletionItemKind::Struct:
+            case Language::Protocol::CompletionItemKind::Interface:
+                kind_badge = "c";
+                badge_color = UI::Theme::Color{78, 201, 176, 255}; // Teal Class
+                break;
+            case Language::Protocol::CompletionItemKind::File:
+                kind_badge = "h";
+                badge_color = UI::Theme::Color{156, 220, 254, 255}; // Light Blue File Glyph
+                break;
+            case Language::Protocol::CompletionItemKind::Module:
+                kind_badge = "m";
+                badge_color = UI::Theme::Color{220, 220, 170, 255}; // Yellow Module
+                break;
+            default:
+                kind_badge = "abc";
+                badge_color = surface.m_palette.text_muted;
+                break;
+            }
+
+            // Draw Icon Badge
+            surface.draw_text(device_context, *surface.m_ui_font, kind_badge, item_rect.x + 6.0F * surface.m_dpi_scale, row_y + item_h * 0.5F, badge_color);
+
+            // Draw Item Label
+            UI::Theme::Color label_color = surface.m_palette.text_primary;
+            if (item_idx == selected)
+            {
+                label_color = UI::Theme::Color{255, 255, 255, 255};
+            }
+            else if (is_snippet)
+            {
+                label_color = UI::Theme::Color{79, 193, 255, 255}; // Cyan snippet text
+            }
+            surface.draw_text(device_context, *surface.m_ui_font, item->label, item_rect.x + 28.0F * surface.m_dpi_scale, row_y + item_h * 0.5F, label_color);
+
+            // Draw Right-aligned Snippet Enter Icon (Image 1: ↵)
+            if (is_snippet)
+            {
+                surface.draw_text(device_context, *surface.m_ui_font, "<-", item_rect.right() - 18.0F * surface.m_dpi_scale, row_y + item_h * 0.5F, (item_idx == selected) ? UI::Theme::Color{255, 255, 255, 255} : vscode_text_muted);
+            }
+            else if (!item->detail.empty())
+            {
+                const int detail_w = surface.get_text_width(device_context, *surface.m_ui_font, item->detail);
+                const float detail_x = std::max(item_rect.x + 180.0F * surface.m_dpi_scale, item_rect.right() - static_cast<float>(detail_w) - 6.0F * surface.m_dpi_scale);
+                surface.draw_text(device_context, *surface.m_ui_font, item->detail, detail_x, row_y + item_h * 0.5F, vscode_text_muted);
+            }
+        }
+
+        // Draw Minimal Vertical Scrollbar Thumb if popup is scrollable (Image 2)
+        if (count > max_visible)
+        {
+            const float track_x = actual_bounds.right() - 4.0F * surface.m_dpi_scale;
+            const float track_y = actual_bounds.y + 2.0F;
+            const float track_h = static_cast<float>(visible_count) * item_h;
+            const float thumb_h = std::max(12.0F * surface.m_dpi_scale, track_h * (static_cast<float>(max_visible) / static_cast<float>(count)));
+            const float max_scroll = static_cast<float>(count - max_visible);
+            const float thumb_y = track_y + (static_cast<float>(scroll_offset) / max_scroll) * (track_h - thumb_h);
+
+            const UI::Rect thumb_rect{track_x, thumb_y, 3.0F * surface.m_dpi_scale, thumb_h};
+            surface.fill_rounded_rectangle(device_context, thumb_rect, UI::Theme::Color{90, 90, 96, 255}, 1.5F * surface.m_dpi_scale);
+        }
+
+        // Render Detail / Documentation Info Popup (VS Code Style Flyout Card)
+        const auto* selected_item = m_completion_popup.get_selected_item();
+        if (selected_item != nullptr && (!selected_item->detail.empty() || !selected_item->documentation.empty() || selected_item->kind != Language::Protocol::CompletionItemKind::Text))
+        {
+            const float detail_pad = 8.0F * surface.m_dpi_scale;
+            const float detail_w = 340.0F * surface.m_dpi_scale;
+
+            // Check if there is enough space on the right, otherwise place on the left
+            float detail_x = actual_bounds.right() + 4.0F * surface.m_dpi_scale;
+            if (detail_x + detail_w > layout.editor_bounds.right() - 8.0F)
+            {
+                detail_x = actual_bounds.x - detail_w - 4.0F * surface.m_dpi_scale;
+                if (detail_x < layout.editor_bounds.x + 8.0F)
+                {
+                    detail_x = std::max(layout.editor_bounds.x + 8.0F, layout.editor_bounds.right() - detail_w - 8.0F);
+                }
+            }
+
+            // Word wrap documentation lines
+            std::vector<std::string> doc_lines;
+            if (!selected_item->documentation.empty())
+            {
+                std::stringstream ss(selected_item->documentation);
+                std::string line;
+                while (std::getline(ss, line))
+                {
+                    if (line.empty())
+                    {
+                        doc_lines.push_back("");
+                        continue;
+                    }
+                    std::stringstream words_ss(line);
+                    std::string word;
+                    std::string current_wrapped;
+                    while (words_ss >> word)
+                    {
+                        std::string test = current_wrapped.empty() ? word : current_wrapped + " " + word;
+                        int text_w = surface.get_text_width(device_context, *surface.m_ui_font, test);
+                        if (static_cast<float>(text_w) > (detail_w - detail_pad * 2.0F - 4.0F) && !current_wrapped.empty())
+                        {
+                            doc_lines.push_back(current_wrapped);
+                            current_wrapped = word;
+                        }
+                        else
+                        {
+                            current_wrapped = test;
+                        }
+                    }
+                    if (!current_wrapped.empty())
+                    {
+                        doc_lines.push_back(current_wrapped);
+                    }
+                }
+            }
+
+            const float header_h = 24.0F * surface.m_dpi_scale;
+            const float line_spacing = 16.0F * surface.m_dpi_scale;
+            const float content_h = header_h + (doc_lines.empty() ? 6.0F * surface.m_dpi_scale : (6.0F * surface.m_dpi_scale + static_cast<float>(doc_lines.size()) * line_spacing + detail_pad));
+            const float detail_h = std::clamp(std::max(actual_bounds.height, content_h), 48.0F * surface.m_dpi_scale, 300.0F * surface.m_dpi_scale);
+            const float detail_y = actual_bounds.y;
+
+            const UI::Rect detail_bounds{detail_x, detail_y, detail_w, detail_h};
+
+            // Background & Border
+            surface.fill_rounded_rectangle(device_context, detail_bounds, UI::Theme::Color{22, 22, 26, 255}, 3.0F * surface.m_dpi_scale);
+            surface.draw_rectangle(device_context, detail_bounds, vscode_border);
+
+            // Top Header: Kind Badge + Label + Signature/Detail
+            float cursor_x = detail_bounds.x + detail_pad;
+            const float cursor_y = detail_bounds.y + header_h * 0.5F;
+
+            // Header Kind Badge
+            std::string kind_badge = " ";
+            UI::Theme::Color badge_color = surface.m_palette.accent;
+            std::string kind_name;
+
+            switch (selected_item->kind)
+            {
+            case Language::Protocol::CompletionItemKind::Snippet:
+                kind_badge = "[]";
+                badge_color = UI::Theme::Color{79, 193, 255, 255};
+                kind_name = "(snippet)";
+                break;
+            case Language::Protocol::CompletionItemKind::Keyword:
+                kind_badge = "{}";
+                badge_color = UI::Theme::Color{197, 134, 192, 255};
+                kind_name = "(keyword)";
+                break;
+            case Language::Protocol::CompletionItemKind::Function:
+            case Language::Protocol::CompletionItemKind::Method:
+                kind_badge = "f";
+                badge_color = UI::Theme::Color{177, 128, 215, 255};
+                kind_name = "(function)";
+                break;
+            case Language::Protocol::CompletionItemKind::Variable:
+            case Language::Protocol::CompletionItemKind::Field:
+                kind_badge = "v";
+                badge_color = UI::Theme::Color{156, 220, 254, 255};
+                kind_name = "(variable)";
+                break;
+            case Language::Protocol::CompletionItemKind::Property:
+                kind_badge = "p";
+                badge_color = UI::Theme::Color{79, 193, 255, 255};
+                kind_name = "(property)";
+                break;
+            case Language::Protocol::CompletionItemKind::Class:
+            case Language::Protocol::CompletionItemKind::Struct:
+            case Language::Protocol::CompletionItemKind::Interface:
+                kind_badge = "c";
+                badge_color = UI::Theme::Color{78, 201, 176, 255};
+                kind_name = "(type)";
+                break;
+            case Language::Protocol::CompletionItemKind::File:
+                kind_badge = "h";
+                badge_color = UI::Theme::Color{156, 220, 254, 255};
+                kind_name = "(header)";
+                break;
+            case Language::Protocol::CompletionItemKind::Module:
+                kind_badge = "m";
+                badge_color = UI::Theme::Color{220, 220, 170, 255};
+                kind_name = "(module)";
+                break;
+            default:
+                kind_badge = "abc";
+                badge_color = surface.m_palette.text_muted;
+                kind_name = "";
+                break;
+            }
+
+            surface.draw_text(device_context, *surface.m_ui_font, kind_badge, cursor_x, cursor_y, badge_color);
+            cursor_x += 20.0F * surface.m_dpi_scale;
+
+            std::string header_text = selected_item->detail.empty() ? (kind_name + " " + selected_item->label) : selected_item->detail;
+            surface.draw_text(device_context, *surface.m_editor_font, header_text, cursor_x, cursor_y, UI::Theme::Color{230, 230, 235, 255});
+
+            // Divider line
+            const float sep_y = detail_bounds.y + header_h;
+            surface.draw_line(device_context, round_to_int(detail_bounds.x), round_to_int(sep_y), round_to_int(detail_bounds.right()), round_to_int(sep_y), vscode_border);
+
+            // Documentation text lines
+            float doc_y = sep_y + 10.0F * surface.m_dpi_scale;
+            bool inside_code_block = false;
+            for (const auto& doc_line : doc_lines)
+            {
+                if (doc_y + line_spacing * 0.5F > detail_bounds.bottom() - 4.0F) break;
+                if (doc_line.starts_with("```"))
+                {
+                    inside_code_block = !inside_code_block;
+                    continue;
+                }
+                if (!doc_line.empty())
+                {
+                    if (doc_line.starts_with("### "))
+                    {
+                        surface.draw_text(device_context, *surface.m_ui_font, doc_line.substr(4), detail_bounds.x + detail_pad, doc_y, UI::Theme::Color{156, 220, 254, 255});
+                    }
+                    else if (inside_code_block)
+                    {
+                        surface.draw_text(device_context, *surface.m_editor_font, doc_line, detail_bounds.x + detail_pad + 6.0F * surface.m_dpi_scale, doc_y, UI::Theme::Color{230, 230, 240, 255});
+                    }
+                    else if (doc_line.starts_with("- "))
+                    {
+                        surface.draw_text(device_context, *surface.m_ui_font, "• " + doc_line.substr(2), detail_bounds.x + detail_pad + 4.0F * surface.m_dpi_scale, doc_y, UI::Theme::Color{210, 210, 215, 255});
+                    }
+                    else
+                    {
+                        surface.draw_text(device_context, *surface.m_ui_font, doc_line, detail_bounds.x + detail_pad, doc_y, UI::Theme::Color{204, 204, 204, 255});
+                    }
+                }
+                doc_y += line_spacing;
+            }
+        }
+    }
+
+    // Render Parameter Hint / Signature Help tooltip (e.g. add_compile_options(<option> ..))
+    if (m_signature_help.is_visible() && !m_signature_help.get_help().signatures.empty() && document != nullptr)
+    {
+        const std::string_view current_line = document->get_line(document->get_caret_line());
+        const std::size_t caret_col = document->get_caret_column();
+        const std::string_view prefix = current_line.substr(0, std::min(caret_col, current_line.size()));
+
+        std::size_t open_count = 0;
+        std::size_t close_count = 0;
+        for (char ch : prefix)
+        {
+            if (ch == '(') ++open_count;
+            else if (ch == ')') ++close_count;
+        }
+
+        if (open_count <= close_count)
+        {
+            m_signature_help.hide();
+        }
+        else
+        {
+            const auto& sig = m_signature_help.get_help().signatures[0];
+            const float line_h = 20.0F * surface.m_dpi_scale;
+            const float caret_screen_x = code_x + static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, prefix));
+            const float line_top_y = layout.editor_bounds.y + static_cast<float>(physical_line_to_visual_row(m_folding, document->get_caret_line(), document->get_line_count()) - m_scrollbar.get_first_visible_line()) * line_h;
+
+            const int text_w = surface.get_text_width(device_context, *surface.m_editor_font, sig.label);
+            const float hint_w = static_cast<float>(text_w) + 16.0F * surface.m_dpi_scale;
+            const float hint_h = 22.0F * surface.m_dpi_scale;
+            const float hint_x = std::clamp(caret_screen_x, layout.editor_bounds.x + 10.0F, std::max(layout.editor_bounds.x + 10.0F, layout.editor_bounds.right() - (hint_w + 20.0F)));
+
+            const bool popup_visible = (m_completion_popup.is_visible() && m_completion_popup.get_item_count() > 0);
+            float hint_y = line_top_y - hint_h - 3.0F * surface.m_dpi_scale;
+
+            if (hint_y < layout.editor_bounds.y + 2.0F)
+            {
+                if (popup_visible)
+                {
+                    // If completion popup is visible below the line, never overlap it!
+                    // Place signature help either right at the top edge above line or below the whole completion popup
+                    const std::size_t count = m_completion_popup.get_item_count();
+                    const std::size_t max_visible = m_completion_popup.get_max_visible_items();
+                    const std::size_t visible_count = std::min<std::size_t>(count, max_visible);
+                    const float popup_h = static_cast<float>(visible_count) * line_h + 4.0F * surface.m_dpi_scale;
+                    const float popup_bottom = line_top_y + line_h + popup_h + 4.0F * surface.m_dpi_scale;
+
+                    if (line_top_y >= layout.editor_bounds.y + 12.0F)
+                    {
+                        hint_y = std::max(layout.editor_bounds.y + 2.0F, line_top_y - hint_h - 1.0F);
+                    }
+                    else if (popup_bottom + hint_h < layout.editor_bounds.bottom() - 10.0F)
+                    {
+                        hint_y = popup_bottom;
+                    }
+                    else
+                    {
+                        hint_y = layout.editor_bounds.y + 2.0F;
+                    }
+                }
+                else
+                {
+                    hint_y = line_top_y + line_h + 2.0F * surface.m_dpi_scale;
+                }
+            }
+
+            const UI::Rect hint_bounds{hint_x, hint_y, hint_w, hint_h};
+
+            // Dark background with subtle border
+            const UI::Theme::Color hint_bg{24, 24, 30, 255};
+            const UI::Theme::Color hint_border{55, 55, 68, 255};
+            surface.fill_rounded_rectangle(device_context, hint_bounds, hint_bg, 3.0F * surface.m_dpi_scale);
+            surface.draw_rectangle(device_context, hint_bounds, hint_border);
+
+            // Parameter hint text in teal/cyan editor font
+            surface.draw_text(device_context, *surface.m_editor_font, sig.label, hint_bounds.x + 8.0F * surface.m_dpi_scale, hint_bounds.y + hint_h * 0.5F, UI::Theme::Color{78, 201, 176, 255});
+        }
     }
 }
 

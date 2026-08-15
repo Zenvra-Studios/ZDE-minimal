@@ -130,24 +130,29 @@ bool ExplorerHeader::handle_pointer_press(
     float point_x,
     float point_y,
     UI::Editor::ActivityPanelModel& model,
-    std::optional<std::filesystem::path>& file_to_open)
+    HeaderAction& action_out)
 {
-    (void)file_to_open;
     ActionIcon pressed = get_icon_at_point(layout, point_x, point_y);
     switch (pressed) {
         case ActionIcon::NewFile:
+            action_out = HeaderAction::NewFile;
             return true;
         case ActionIcon::NewFolder:
+            action_out = HeaderAction::NewFolder;
             return true;
         case ActionIcon::Refresh:
             static_cast<void>(model.refresh());
+            action_out = HeaderAction::Refresh;
             return true;
         case ActionIcon::CollapseAll:
             model.collapse_all();
+            action_out = HeaderAction::CollapseAll;
             return true;
         case ActionIcon::More:
+            action_out = HeaderAction::More;
             return true;
         default:
+            action_out = HeaderAction::None;
             return false;
     }
 }

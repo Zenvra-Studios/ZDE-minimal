@@ -94,8 +94,28 @@ private:
         std::size_t item_index) const;
     void update_hovered_control(UI::Chrome::WindowControl control);
     void draw_about_modal(HDC device_context, int client_width, int client_height);
+    void show_explorer_context_menu(const std::filesystem::path& target_path, int client_x, int client_y);
+    void close_explorer_context_menu();
+    void draw_explorer_context_menu(HDC device_context) const;
+    void execute_explorer_context_menu_item(std::size_t item_index);
     void copy_to_clipboard(const std::string& text);
     static std::wstring utf8_to_wide(std::string_view text);
+
+    struct ExplorerContextMenuItem {
+        std::string label;
+        std::string shortcut;
+        bool separator = false;
+        uint32_t command_id = 0;
+    };
+
+    struct ExplorerContextMenuState {
+        bool visible = false;
+        std::filesystem::path target_path;
+        std::vector<ExplorerContextMenuItem> items;
+        std::optional<std::size_t> hovered_index;
+        UI::Rect bounds{};
+        std::vector<UI::Rect> item_bounds;
+    };
 
     HWND m_window_handle = nullptr;
     HINSTANCE m_instance_handle = nullptr;
@@ -119,6 +139,7 @@ private:
     std::optional<std::size_t> m_open_menu_index;
     std::optional<std::size_t> m_hovered_popup_item_index;
     bool m_menu_overlay_open = false;
+    ExplorerContextMenuState m_explorer_context_menu;
     bool m_overflow_menu_hovered = false;
     bool m_menu_pointer_tracking = false;
     bool m_workspace_pointer_captured = false;

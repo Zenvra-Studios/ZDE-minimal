@@ -13,6 +13,15 @@ namespace Zenvra::Platform::Win32::Components
 
 class StudioWorkspaceRenderer;
 
+enum class HeaderAction {
+    None,
+    NewFile,
+    NewFolder,
+    Refresh,
+    CollapseAll,
+    More
+};
+
 class ExplorerHeader
 {
 public:
@@ -29,7 +38,7 @@ public:
         float point_x,
         float point_y,
         UI::Editor::ActivityPanelModel& model,
-        std::optional<std::filesystem::path>& file_to_open);
+        HeaderAction& action_out);
 
     bool handle_pointer_move(
         const UI::Editor::StudioEditorLayoutResult& layout,

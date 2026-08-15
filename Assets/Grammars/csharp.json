@@ -1,0 +1,35 @@
+{
+  "name": "C#",
+  "extensions": [".cs", ".csx"],
+  "line_comment": "//",
+  "block_comment_start": "/*",
+  "block_comment_end": "*/",
+  "supports_preprocessor": true,
+  "keywords": [
+    "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char",
+    "checked", "class", "const", "continue", "decimal", "default", "delegate", "do",
+    "double", "else", "enum", "event", "explicit", "extern", "false", "finally",
+    "fixed", "float", "for", "foreach", "goto", "if", "implicit", "in", "int",
+    "interface", "internal", "is", "lock", "long", "namespace", "new", "null",
+    "object", "operator", "out", "override", "params", "private", "protected",
+    "public", "readonly", "record", "ref", "return", "sbyte", "sealed", "short",
+    "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw",
+    "true", "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort",
+    "using", "virtual", "void", "volatile", "while", "yield", "var", "dynamic",
+    "async", "await", "get", "set", "init", "value", "when",
+    "[HttpGet]", "[HttpPost]", "[HttpPut]", "[HttpDelete]", "[ApiController]",
+    "[Route]", "[FromBody]", "[FromQuery]", "[FromRoute]", "[Authorize]",
+    "[AllowAnonymous]", "[Required]", "[Key]", "[Table]", "[Column]", "[ForeignKey]"
+  ],
+  "types": [
+    "bool", "byte", "sbyte", "char", "decimal", "double", "float", "int", "uint",
+    "nint", "nuint", "long", "ulong", "short", "ushort", "object", "string", "dynamic",
+    "Task", "ValueTask", "List", "Dictionary", "HashSet", "IEnumerable", "ICollection",
+    "IList", "IDictionary", "IQueryable", "Action", "Func", "Predicate", "Span",
+    "ReadOnlySpan", "Memory", "ReadOnlyMemory", "Guid", "DateTime", "DateTimeOffset",
+    "TimeSpan", "Nullable", "IActionResult", "ActionResult", "ControllerBase",
+    "DbContext", "DbSet", "ILogger", "IServiceCollection", "IConfiguration"
+  ],
+  "operators": ["+", "-", "*", "/", "%", "=", "+=", "-=", "*=", "/=", "%=", "==", "!=", "<", ">", "<=", ">=", "&&", "||", "!", "?", "??", "??=", "?.", "=>", "::"],
+  "string_delimiters": ["\"", "'", "$\"", "@\""]
+}

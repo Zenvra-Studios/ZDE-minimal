@@ -78,13 +78,15 @@ CPMAddPackage(
         "INSTALL_GTEST OFF"
 )
 
-# gtest 1.14.0 enables /WX (warnings as errors) under MSVC, which clang-cl turns
-# into -Werror. Newer clang warns about the char8_t -> char32_t conversion in
-# gtest-printers.h (-Wcharacter-conversion), so suppress it for the gtest targets.
-if(MSVC AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    foreach(gtest_target IN ITEMS gtest gtest_main gmock gmock_main)
-        if(TARGET ${gtest_target})
+foreach(gtest_target IN ITEMS gtest gtest_main gmock gmock_main)
+    if(TARGET ${gtest_target})
+        set_target_properties(${gtest_target} PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>"
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>"
+            ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib/$<CONFIG>"
+        )
+        if(MSVC AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
             target_compile_options(${gtest_target} PRIVATE -Wno-character-conversion)
         endif()
-    endforeach()
-endif()
+    endif()
+endforeach()

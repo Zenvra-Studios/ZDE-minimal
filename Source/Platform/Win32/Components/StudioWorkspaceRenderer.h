@@ -2,10 +2,13 @@
 
 #include "Platform/Win32/Components/ActivitySidebar.h"
 #include "Platform/Win32/Components/FooterToolbar.h"
+#include "Platform/Win32/Components/ShaderSandboxPanel.h"
 #include "Platform/Win32/Components/TerminalPanel.h"
 #include "Platform/Win32/Components/TextEditor.h"
 #include "Platform/Win32/Components/ToolSidebar.h"
 #include "Platform/Win32/Event/ScrollEvent.h"
+#include "UI/Components/PromptModal.h"
+#include "UI/Components/AddNewItemDialog.h"
 #include "UI/Editor/StudioEditorModel.h"
 
 #include <windows.h>
@@ -169,6 +172,25 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_sidebar_resizing() const noexcept;
+    [[nodiscard]] bool is_shader_sandbox_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_shader_sandbox_resize_handle(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_shader_sandbox_resizing() const noexcept;
+    [[nodiscard]] bool toggle_shader_sandbox() noexcept;
+    [[nodiscard]] bool is_shader_sandbox_visible() const noexcept;
+    [[nodiscard]] UI::Editor::StudioEditorLayoutResult calculate_layout(
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
     [[nodiscard]] bool tick_animations() noexcept;
     void shutdown();
     void render(
@@ -199,6 +221,7 @@ private:
     friend class EditorScrollbar;
     friend class ExplorerHeader;
     friend class FooterToolbar;
+    friend class ShaderSandboxPanel;
     friend class TerminalPanel;
     friend class TextEditor;
     friend class ToolSidebar;
@@ -234,6 +257,25 @@ private:
         AntialiasedFont& font,
         std::string_view text) const;
 
+    [[nodiscard]] std::optional<std::filesystem::path> handle_right_click(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top);
+    [[nodiscard]] bool is_prompt_modal_visible() const noexcept;
+    [[nodiscard]] UI::Components::PromptModal& get_prompt_modal() const noexcept { return m_prompt_modal; }
+    void render_prompt_modal(HDC device_context, int client_width, int client_height) const;
+
+    void set_window_handle(HWND handle) noexcept { m_window_handle = handle; }
+    [[nodiscard]] HWND get_window_handle() const noexcept { return m_window_handle; }
+
+    [[nodiscard]] bool is_add_item_dialog_visible() const noexcept { return m_add_item_dialog.is_visible(); }
+    [[nodiscard]] UI::Components::AddNewItemDialog& get_add_item_dialog() const noexcept { return m_add_item_dialog; }
+    void render_add_item_dialog(HDC device_context, int client_width, int client_height, const UI::Theme::StudioTheme& theme) const;
+
+    HWND m_window_handle = nullptr;
+
     UINT m_dpi = 96;
     float m_dpi_scale = 1.0F;
     std::unique_ptr<AntialiasedFont> m_ui_font;
@@ -249,6 +291,9 @@ private:
     ToolSidebar m_tool_sidebar;
     TextEditor m_text_editor;
     mutable TerminalPanel m_terminal_panel;
+    mutable ShaderSandboxPanel m_shader_sandbox_panel;
+    mutable UI::Components::PromptModal m_prompt_modal;
+    mutable UI::Components::AddNewItemDialog m_add_item_dialog;
     mutable std::unordered_map<std::string, std::vector<std::uint32_t>> m_svg_cache;
 };
 

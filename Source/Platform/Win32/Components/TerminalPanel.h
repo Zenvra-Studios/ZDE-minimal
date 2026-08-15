@@ -83,6 +83,8 @@ private:
   std::size_t m_last_total_rows = 0;
   std::size_t m_last_visible_rows = 0;
   bool m_selecting_text = false;
+  float m_cached_line_height = 16.0F;
+  float m_cached_char_width = 8.0F;
   mutable std::unordered_map<std::size_t, float> m_tab_animated_x;
   mutable std::unordered_map<std::size_t, float> m_tab_target_x;
 };

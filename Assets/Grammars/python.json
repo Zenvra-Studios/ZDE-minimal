@@ -1,0 +1,21 @@
+{
+  "name": "Python",
+  "extensions": [".py", ".pyw", ".pyi"],
+  "line_comment": "#",
+  "block_comment_start": "\"\"\"",
+  "block_comment_end": "\"\"\"",
+  "supports_preprocessor": false,
+  "keywords": [
+    "False", "None", "True", "and", "as", "assert", "async", "await", "break",
+    "class", "continue", "def", "del", "elif", "else", "except", "finally",
+    "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal",
+    "not", "or", "pass", "raise", "return", "try", "while", "with", "yield", "self", "cls"
+  ],
+  "types": [
+    "int", "float", "complex", "list", "tuple", "range", "str", "bytes",
+    "bytearray", "memoryview", "set", "frozenset", "dict", "bool", "type", "object",
+    "Any", "Optional", "Union", "List", "Dict", "Set", "Tuple", "Callable"
+  ],
+  "operators": ["+", "-", "*", "/", "//", "%", "**", "=", "==", "!=", "<", ">", "<=", ">=", "and", "or", "not", "is", "in", "->"],
+  "string_delimiters": ["\"", "'"]
+}

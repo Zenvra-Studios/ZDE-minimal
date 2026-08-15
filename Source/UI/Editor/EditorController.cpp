@@ -208,6 +208,11 @@ const TextDocumentModel* EditorController::get_active_document() const noexcept
     return m_session.get_active_document();
 }
 
+const std::filesystem::path* EditorController::get_active_path() const noexcept
+{
+    return m_session.get_active_path();
+}
+
 std::span<const EditorSessionDocument> EditorController::get_documents() const noexcept
 {
     return m_session.get_documents();

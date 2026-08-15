@@ -1,0 +1,32 @@
+{
+  "name": "Kotlin",
+  "extensions": [".kt", ".kts"],
+  "line_comment": "//",
+  "block_comment_start": "/*",
+  "block_comment_end": "*/",
+  "supports_preprocessor": false,
+  "keywords": [
+    "as", "as?", "break", "class", "continue", "do", "else", "false", "for", "fun",
+    "if", "in", "!in", "is", "!is", "null", "object", "package", "return", "super",
+    "this", "throw", "true", "try", "typealias", "val", "var", "when", "while",
+    "by", "catch", "constructor", "delegate", "dynamic", "field", "file", "finally",
+    "get", "import", "init", "param", "property", "receiver", "set", "setparam",
+    "where", "actual", "abstract", "annotation", "companion", "const", "crossinline",
+    "data", "enum", "expect", "external", "final", "infix", "inline", "inner",
+    "internal", "lateinit", "noinline", "open", "operator", "out", "override",
+    "private", "protected", "public", "reified", "sealed", "suspend", "tailrec",
+    "vararg", "value",
+    "@Composable", "@Preview", "@OptIn", "@JvmStatic", "@JvmField", "@JvmOverloads",
+    "@Serializable", "@Inject", "@Singleton", "@Provides", "@Binds", "@HiltAndroidApp",
+    "@AndroidEntryPoint", "@ViewModelScoped", "@Test"
+  ],
+  "types": [
+    "Byte", "Short", "Int", "Long", "Float", "Double", "Boolean", "Char", "String",
+    "Array", "List", "MutableList", "ArrayList", "Set", "MutableSet", "HashSet",
+    "Map", "MutableMap", "HashMap", "Pair", "Triple", "Sequence", "Any", "Unit",
+    "Nothing", "CoroutineScope", "Job", "Deferred", "Flow", "StateFlow", "SharedFlow",
+    "Modifier", "State", "MutableState", "ViewModel", "LiveData", "MutableLiveData"
+  ],
+  "operators": ["+", "-", "*", "/", "%", "=", "+=", "-=", "*=", "/=", "%=", "==", "===", "!=", "!==", "<", ">", "<=", ">=", "&&", "||", "!", "?:", "!!", "?.", "->", "::", "..", "..<"],
+  "string_delimiters": ["\"", "\"\"\"", "'"]
+}

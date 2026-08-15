@@ -1,0 +1,31 @@
+{
+  "name": "CMake",
+  "extensions": [".cmake", "cmakelists.txt"],
+  "line_comment": "#",
+  "block_comment_start": "#[[",
+  "block_comment_end": "]]",
+  "supports_preprocessor": false,
+  "keywords": [
+    "cmake_minimum_required", "project", "add_executable", "add_library",
+    "add_subdirectory", "add_custom_command", "add_custom_target", "add_definitions",
+    "add_dependencies", "find_package", "find_path", "find_library", "find_program",
+    "find_file", "target_link_libraries", "target_include_directories",
+    "target_compile_definitions", "target_compile_features", "target_compile_options",
+    "target_sources", "set", "unset", "set_target_properties", "get_target_property",
+    "set_property", "get_property", "if", "else", "elseif", "endif",
+    "foreach", "endforeach", "while", "endwhile", "function", "endfunction",
+    "macro", "endmacro", "return", "break", "continue", "option", "message",
+    "include", "include_directories", "link_directories", "enable_testing",
+    "add_test", "configure_file", "file", "list", "string", "math"
+  ],
+  "types": [
+    "PUBLIC", "PRIVATE", "INTERFACE", "REQUIRED", "COMPONENTS", "CONFIG",
+    "STATIC", "SHARED", "MODULE", "OBJECT", "ALIAS", "IMPORTED",
+    "STATUS", "WARNING", "AUTHOR_WARNING", "FATAL_ERROR", "SEND_ERROR",
+    "TRUE", "FALSE", "ON", "OFF", "STREQUAL", "STRLESS", "STRGREATER",
+    "VERSION_LESS", "VERSION_GREATER", "VERSION_EQUAL", "EXISTS", "IS_DIRECTORY",
+    "DEFINED", "NOT", "AND", "OR", "MATCHES"
+  ],
+  "operators": ["(", ")", "$", "{", "}", "\"", "'"],
+  "string_delimiters": ["\""]
+}

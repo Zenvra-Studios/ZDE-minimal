@@ -23,6 +23,29 @@ current_terminal_directory(const std::filesystem::path &workspace_root) {
   return error ? std::filesystem::path{} : current;
 }
 
+std::size_t utf8_column_count(std::string_view s) {
+  if (s.empty())
+    return 0;
+  std::size_t count = 0;
+  for (std::size_t i = 0; i < s.size();) {
+    unsigned char c = static_cast<unsigned char>(s[i]);
+    std::size_t len = 1;
+    if ((c & 0x80) == 0)
+      len = 1;
+    else if ((c & 0xE0) == 0xC0)
+      len = 2;
+    else if ((c & 0xF0) == 0xE0)
+      len = 3;
+    else if ((c & 0xF8) == 0xF0)
+      len = 4;
+
+    len = std::min(len, s.size() - i);
+    i += len;
+    ++count;
+  }
+  return count;
+}
+
 std::string utf8_substr_columns(std::string_view s, std::size_t start_col,
                                 std::size_t count_col) {
   if (s.empty())
@@ -126,8 +149,12 @@ bool TerminalPanel::handle_pointer_press(
     }
   }
   if (layout.terminal_content_bounds.contains(point_x, point_y)) {
-    const float line_height =
-        std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+    const float line_height = m_cached_line_height > 0.0F
+                                  ? m_cached_line_height
+                                  : std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+    const float char_width = m_cached_char_width > 0.0F
+                                 ? m_cached_char_width
+                                 : std::max(8.0F * layout.dpi_scale, 1.0F);
     const float padding_x = 10.0F * layout.dpi_scale;
     const float content_top_padding = 5.0F * layout.dpi_scale;
     const float local_y =
@@ -147,9 +174,8 @@ bool TerminalPanel::handle_pointer_press(
 
     const float local_x =
         point_x - (layout.terminal_content_bounds.x + padding_x);
-    const float glyph_w = std::max(8.0F * layout.dpi_scale, 1.0F);
-    const int col = static_cast<int>(std::round(local_x / glyph_w));
-    const std::size_t col_idx = std::max(0, col);
+    const int col = static_cast<int>(std::floor(std::max(local_x, 0.0F) / char_width));
+    const std::size_t col_idx = static_cast<std::size_t>(std::max(0, col));
 
     m_model.start_selection(line_idx, col_idx);
     m_selecting_text = true;
@@ -166,8 +192,12 @@ bool TerminalPanel::handle_double_click(
     return m_resize_model.toggle_maximized();
   }
   if (layout.terminal_content_bounds.contains(point_x, point_y)) {
-    const float line_height =
-        std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+    const float line_height = m_cached_line_height > 0.0F
+                                  ? m_cached_line_height
+                                  : std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+    const float char_width = m_cached_char_width > 0.0F
+                                 ? m_cached_char_width
+                                 : std::max(8.0F * layout.dpi_scale, 1.0F);
     const float padding_x = 10.0F * layout.dpi_scale;
     const float content_top_padding = 5.0F * layout.dpi_scale;
     const float local_y =
@@ -187,9 +217,8 @@ bool TerminalPanel::handle_double_click(
 
     const float local_x =
         point_x - (layout.terminal_content_bounds.x + padding_x);
-    const float glyph_w = std::max(8.0F * layout.dpi_scale, 1.0F);
-    const int col = static_cast<int>(std::round(local_x / glyph_w));
-    const std::size_t col_idx = std::max(0, col);
+    const int col = static_cast<int>(std::floor(std::max(local_x, 0.0F) / char_width));
+    const std::size_t col_idx = static_cast<std::size_t>(std::max(0, col));
 
     m_model.select_word(line_idx, col_idx);
     return true;
@@ -208,8 +237,12 @@ bool TerminalPanel::handle_pointer_drag(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) noexcept {
   if (m_selecting_text) {
-    const float line_height =
-        std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+    const float line_height = m_cached_line_height > 0.0F
+                                  ? m_cached_line_height
+                                  : std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+    const float char_width = m_cached_char_width > 0.0F
+                                 ? m_cached_char_width
+                                 : std::max(8.0F * layout.dpi_scale, 1.0F);
     const float padding_x = 10.0F * layout.dpi_scale;
     const float content_top_padding = 5.0F * layout.dpi_scale;
     const float local_y =
@@ -227,11 +260,9 @@ bool TerminalPanel::handle_pointer_drag(
                                                 ? m_last_visible_rows - 1
                                                 : 0));
 
-    const float local_x =
-        point_x - (layout.terminal_content_bounds.x + padding_x);
-    const float glyph_w = std::max(8.0F * layout.dpi_scale, 1.0F);
-    const int col = static_cast<int>(std::round(local_x / glyph_w));
-    const std::size_t col_idx = std::max(0, col);
+    const float local_x = point_x - (layout.terminal_content_bounds.x + padding_x);
+    const int col = static_cast<int>(std::floor(std::max(local_x, 0.0F) / char_width));
+    const std::size_t col_idx = static_cast<std::size_t>(std::max(0, col));
 
     m_model.update_selection(line_idx, col_idx);
     return true;
@@ -519,6 +550,9 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
           : 0;
   const int glyph_width = std::max(
       surface.get_text_width(device_context, *surface.m_editor_font, "M"), 1);
+  m_cached_line_height = line_height;
+  m_cached_char_width = static_cast<float>(glyph_width);
+
   const std::size_t visible_columns = static_cast<std::size_t>(std::max(
       (layout.terminal_content_bounds.width - 22.0F * surface.m_dpi_scale) /
           static_cast<float>(glyph_width),
@@ -553,19 +587,18 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
 
   for (std::size_t index = start; index < end; ++index) {
     const std::string &line = lines[index];
-    const std::size_t len = line.size();
+    const std::size_t col_len = utf8_column_count(line);
 
     if (has_selection && selection.intersects_line(index)) {
-      const auto [col_start, col_end] = selection.get_line_range(index, len);
+      const auto [col_start, col_end] = selection.get_line_range(index, col_len);
       if (col_end > col_start) {
         const std::string pre_sel =
-            utf8_substr_columns(line, 0, col_start);
+            col_start > 0 ? utf8_substr_columns(line, 0, col_start) : "";
         const std::string sel_str = utf8_substr_columns(
             line, col_start, col_end - col_start);
+        const int pre_w = pre_sel.empty() ? 0 : surface.get_text_width(device_context, *surface.m_editor_font, pre_sel);
         const int sel_x =
-            round_to_int(layout.terminal_content_bounds.x + padding_x) +
-            surface.get_text_width(device_context, *surface.m_editor_font,
-                                   pre_sel);
+            round_to_int(layout.terminal_content_bounds.x + padding_x) + pre_w;
         const int sel_w =
             std::max(surface.get_text_width(device_context,
                                             *surface.m_editor_font, sel_str),

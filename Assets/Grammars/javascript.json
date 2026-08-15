@@ -1,0 +1,42 @@
+{
+  "name": "JavaScript/TypeScript",
+  "extensions": [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".vue", ".svelte"],
+  "line_comment": "//",
+  "block_comment_start": "/*",
+  "block_comment_end": "*/",
+  "supports_preprocessor": false,
+  "keywords": [
+    "abstract", "arguments", "as", "async", "await", "break", "case", "catch",
+    "class", "const", "continue", "debugger", "default", "delete", "do", "else",
+    "enum", "export", "extends", "false", "finally", "for", "from", "function",
+    "get", "if", "implements", "import", "in", "instanceof", "interface", "is",
+    "keyof", "let", "module", "namespace", "never", "new", "null", "of", "package",
+    "private", "protected", "public", "readonly", "require", "return", "set",
+    "static", "super", "switch", "symbol", "this", "throw", "true", "try", "type",
+    "typeof", "undefined", "unique", "unknown", "var", "void", "while", "with", "yield",
+    "useState", "useEffect", "useContext", "useReducer", "useCallback", "useMemo",
+    "useRef", "useImperativeHandle", "useLayoutEffect", "useDebugValue", "useId",
+    "useTransition", "useDeferredValue", "createContext", "forwardRef", "memo", "lazy", "Suspense",
+    "ref", "reactive", "computed", "watch", "watchEffect", "onMounted", "onUnmounted",
+    "onUpdated", "defineComponent", "defineProps", "defineEmits", "defineExpose",
+    "definePageMeta", "useRoute", "useRouter", "useHead", "useAsyncData", "useFetch",
+    "@Component", "@Directive", "@Pipe", "@Injectable", "@NgModule", "@Input",
+    "@Output", "@ViewChild", "@ContentChild", "@HostListener", "@HostBinding",
+    "@Controller", "@Get", "@Post", "@Put", "@Delete", "@Patch", "@Param",
+    "@Body", "@Query", "@Req", "@Res", "@Next", "@Module", "@Inject",
+    "console", "process", "global", "globalThis", "window", "document", "fetch",
+    "setTimeout", "clearTimeout", "setInterval", "clearInterval"
+  ],
+  "types": [
+    "string", "number", "boolean", "symbol", "bigint", "any", "unknown", "never",
+    "void", "null", "undefined", "object", "Array", "Record", "Partial", "Required",
+    "Readonly", "Pick", "Omit", "Exclude", "Extract", "NonNullable", "Parameters",
+    "ReturnType", "InstanceType", "Promise", "Map", "Set", "WeakMap", "WeakSet",
+    "FC", "ReactNode", "ReactElement", "Component", "Fragment", "NextPage",
+    "GetServerSideProps", "GetStaticProps", "Metadata", "AppProps", "Observable",
+    "BehaviorSubject", "Subject", "Subscription", "Request", "Response",
+    "NextFunction", "Router", "Express", "Buffer", "URL", "URLSearchParams"
+  ],
+  "operators": ["+", "-", "*", "/", "%", "**", "++", "--", "=", "+=", "-=", "*=", "/=", "%=", "**=", "==", "===", "!=", "!==", ">", "<", ">=", "<=", "?", ":", "&&", "||", "??", "!", "&", "|", "^", "~", "<<", ">>", ">>>", "=>", "..."],
+  "string_delimiters": ["\"", "'", "`"]
+}

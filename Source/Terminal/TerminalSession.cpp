@@ -122,6 +122,10 @@ std::wstring windows_shell_arguments(const std::filesystem::path& shell_path)
 #define PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE 0x00020016
 #endif
 
+#ifndef HPCON
+DECLARE_HANDLE(HPCON);
+#endif
+
 using PFN_CreatePseudoConsole = HRESULT(WINAPI*)(COORD, HANDLE, HANDLE, DWORD, HPCON*);
 using PFN_ResizePseudoConsole = HRESULT(WINAPI*)(HPCON, COORD);
 using PFN_ClosePseudoConsole = VOID(WINAPI*)(HPCON);

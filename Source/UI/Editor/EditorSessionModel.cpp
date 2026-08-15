@@ -284,6 +284,10 @@ bool EditorSessionModel::save_file(std::size_t index)
 
 void EditorSessionModel::remove_from_session(std::size_t index)
 {
+    if (index >= m_documents.size())
+    {
+        return;
+    }
     m_documents.erase(m_documents.begin() + static_cast<std::ptrdiff_t>(index));
     if (m_documents.empty())
     {

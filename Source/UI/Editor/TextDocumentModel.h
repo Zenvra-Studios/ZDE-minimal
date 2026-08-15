@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Language/Protocol/LspTypes.h"
 #include "UI/Editor/StudioEditorModel.h"
 
 #include <cstddef>
@@ -124,6 +125,10 @@ public:
     bool clear_secondary_cursors() noexcept;
     void mark_saved() noexcept;
 
+    void set_diagnostics(std::vector<Language::Protocol::Diagnostic> diagnostics);
+    [[nodiscard]] const std::vector<Language::Protocol::Diagnostic>& get_diagnostics() const noexcept { return m_diagnostics; }
+    [[nodiscard]] std::vector<Language::Protocol::Diagnostic> get_diagnostics_for_line(std::size_t line) const;
+
 private:
     void insert_new_line();
     void delete_backward();
@@ -141,6 +146,7 @@ private:
     std::size_t m_preferred_column = 0;
     TextPosition m_selection_anchor;
     std::vector<TextCursor> m_secondary_cursors;
+    std::vector<Language::Protocol::Diagnostic> m_diagnostics;
     bool m_dirty = false;
     bool m_read_only = false;
 };

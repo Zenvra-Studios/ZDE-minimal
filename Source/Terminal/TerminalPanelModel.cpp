@@ -1,8 +1,7 @@
 /**
  * 
  * 
- */
-
+ **/
 #include "Terminal/TerminalPanelModel.h"
 
 #include <algorithm>
@@ -14,7 +13,7 @@ namespace Zenvra::Terminal
 /**
  * 
  * 
- */
+ **/
 bool TerminalPanelModel::toggle(const std::filesystem::path& working_directory)
 {
     m_visible = !m_visible;
@@ -63,7 +62,7 @@ bool TerminalPanelModel::create_session(const std::filesystem::path& working_dir
 /**
  * 
  * 
- */
+ **/
 bool TerminalPanelModel::close_active_session()
 {
     if (!m_active_index || *m_active_index >= m_sessions.size())

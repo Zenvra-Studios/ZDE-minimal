@@ -57,26 +57,40 @@ bool ToolSidebar::activate(UI::Editor::SidebarIcon icon) noexcept {
   return m_model.activate(icon);
 }
 
-bool ToolSidebar::handle_pointer_press(
+SidebarPressResult ToolSidebar::handle_pointer_press(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
-    float point_y, std::optional<std::filesystem::path> &file_to_open) {
+    float point_y) {
   if (is_resize_handle_point(layout, point_x, point_y)) {
     m_resizing = true;
     m_drag_start_x = point_x;
     m_drag_start_width = m_width;
-    return true;
+    return SidebarPressResult{.handled = true};
   }
   if (!contains(layout, point_x, point_y)) {
-    return false;
+    return SidebarPressResult{.handled = false};
   }
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project &&
       m_model.get_project_items().size() > viewport_row_count(layout) &&
       scrollbar_bounds(layout).contains(point_x, point_y)) {
-    return true;
+    return SidebarPressResult{.handled = true};
   }
-  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project &&
-      m_explorer_header.handle_pointer_press(layout, point_x, point_y, m_model, file_to_open)) {
-    return true;
+  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
+    HeaderAction header_act = HeaderAction::None;
+    if (m_explorer_header.handle_pointer_press(layout, point_x, point_y, m_model, header_act)) {
+      if (header_act == HeaderAction::NewFile) {
+        return SidebarPressResult{.handled = true, .action = SidebarActionKind::NewFile, .path = m_model.get_target_directory_for_creation()};
+      }
+      if (header_act == HeaderAction::NewFolder) {
+        return SidebarPressResult{.handled = true, .action = SidebarActionKind::NewFolder, .path = m_model.get_target_directory_for_creation()};
+      }
+      if (header_act == HeaderAction::Refresh) {
+        return SidebarPressResult{.handled = true, .action = SidebarActionKind::Refresh};
+      }
+      if (header_act == HeaderAction::CollapseAll) {
+        return SidebarPressResult{.handled = true, .action = SidebarActionKind::CollapseAll};
+      }
+      return SidebarPressResult{.handled = true};
+    }
   }
   const float scale = layout.dpi_scale;
   const float tree_top = layout.tool_sidebar_bounds.y + header_height * scale;
@@ -88,7 +102,7 @@ bool ToolSidebar::handle_pointer_press(
       std::size_t sticky_index = static_cast<std::size_t>((point_y - tree_top) / (row_height * scale));
       if (sticky_index < sticky.size()) {
           m_model.set_scroll_offset(sticky[sticky_index]);
-          return true;
+          return SidebarPressResult{.handled = true};
       }
   }
 
@@ -96,10 +110,31 @@ bool ToolSidebar::handle_pointer_press(
   if (row && m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
     const UI::Editor::ActivityPanelAction action =
         m_model.activate_project_row(*row);
-    file_to_open = action.file_to_open;
-    return action.handled;
+    if (action.file_to_open) {
+      return SidebarPressResult{.handled = true, .action = SidebarActionKind::OpenFile, .path = action.file_to_open};
+    }
+    return SidebarPressResult{.handled = action.handled};
   }
-  return true;
+  return SidebarPressResult{.handled = true};
+}
+
+std::optional<std::filesystem::path> ToolSidebar::handle_right_click(
+    const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
+    float point_y) {
+  if (!contains(layout, point_x, point_y) || m_model.get_active_icon() != UI::Editor::SidebarIcon::Project) {
+    return std::nullopt;
+  }
+  const std::optional<std::size_t> row = row_from_point(layout, point_y);
+  if (row) {
+    const std::size_t item_index = m_model.get_scroll_offset() + *row;
+    const auto items = m_model.get_project_items();
+    if (item_index < items.size()) {
+      m_model.set_selected_path(items[item_index].path);
+      return items[item_index].path;
+    }
+  }
+  m_model.set_selected_path(m_model.get_workspace_root());
+  return m_model.get_workspace_root();
 }
 
 bool ToolSidebar::handle_pointer_move(
@@ -332,7 +367,12 @@ void ToolSidebar::render(
         panel.width,
         row_height * scale,
     };
-    if (m_hovered_row && *m_hovered_row == visible_row) {
+    const bool is_selected = m_model.is_selected(item.path);
+    const bool is_hovered = (m_hovered_row && *m_hovered_row == visible_row);
+    if (is_selected) {
+      surface.fill_rectangle(device_context, row_bounds,
+                             UI::Theme::Color{4, 57, 94, 255}); // VS Code Explorer Selection Blue
+    } else if (is_hovered) {
       surface.fill_rectangle(device_context, row_bounds,
                              surface.m_palette.tab_active_background);
     }

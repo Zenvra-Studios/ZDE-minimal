@@ -1,6 +1,7 @@
 #include "Platform/Win32/Win32Window.h"
 #include "Commands/CommandIds.h"
 #include "Config/resource.h"
+#include "Language/LanguageServerManager.h"
 #include "Platform/PlatformDialogs.h"
 #include "Platform/Win32/Components/FileDropTarget.h"
 #include "Platform/Win32/Event/ScrollEvent.h"
@@ -18,8 +19,10 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <fstream>
 #include <utility>
 #include <vector>
 
@@ -324,9 +327,15 @@ bool Win32Window::initialize() {
                  "initialized.\n";
     return false;
   }
+  m_workspace_renderer.set_window_handle(m_window_handle);
+  m_workspace_renderer.m_text_editor.set_window_handle(m_window_handle);
+  Language::LanguageServerManager::instance().set_diagnostics_callback(
+      [this](const std::string& uri, const std::vector<Language::Protocol::Diagnostic>& diags) {
+          m_workspace_renderer.m_text_editor.on_diagnostics_updated(uri, diags);
+      });
   Components::FileDropTarget::set_enabled(m_window_handle, true);
   static_cast<void>(
-      SetTimer(m_window_handle, editor_caret_timer_id, 100, nullptr));
+      SetTimer(m_window_handle, editor_caret_timer_id, 16, nullptr));
   refresh_chrome_layout();
   set_custom_chrome_enabled(m_specification.custom_chrome_enabled);
   enforce_sharp_corners();
@@ -484,6 +493,8 @@ bool Win32Window::open_project_folder() {
     return true;
   }
 
+  Language::LanguageServerManager::instance().set_workspace_root(*selected);
+
   std::error_code path_error;
   const std::filesystem::path canonical =
       std::filesystem::weakly_canonical(*selected, path_error);
@@ -628,6 +639,19 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     return 0;
 
   case WM_MOUSEMOVE:
+    if (m_custom_chrome_enabled && m_workspace_renderer.is_prompt_modal_visible()) {
+      const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
+      const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
+      RECT client_bounds{};
+      GetClientRect(window_handle, &client_bounds);
+      const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(client_bounds.right - client_bounds.left),
+                              static_cast<float>(client_bounds.bottom - client_bounds.top)};
+      const auto layout = m_workspace_renderer.get_prompt_modal().calculate_layout(viewport, static_cast<float>(m_dpi) / 96.0F);
+      if (m_workspace_renderer.get_prompt_modal().handle_pointer_move(point_x, point_y, layout)) {
+        InvalidateRect(window_handle, nullptr, FALSE);
+      }
+      return 0;
+    }
     if (m_custom_chrome_enabled && m_about_modal.is_visible()) {
       const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
       const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
@@ -662,6 +686,25 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         }
         return 0;
       }
+      if (m_explorer_context_menu.visible) {
+        std::optional<std::size_t> new_hover;
+        for (std::size_t i = 0; i < m_explorer_context_menu.item_bounds.size(); ++i) {
+          if (!m_explorer_context_menu.items[i].separator &&
+              m_explorer_context_menu.item_bounds[i].contains(point_x, point_y)) {
+            new_hover = i;
+            break;
+          }
+        }
+        if (new_hover != m_explorer_context_menu.hovered_index) {
+          m_explorer_context_menu.hovered_index = new_hover;
+          InvalidateRect(window_handle, nullptr, FALSE);
+        }
+        m_workspace_renderer.handle_pointer_move(
+            -10000.0F, -10000.0F, client_bounds.right - client_bounds.left,
+            client_bounds.bottom - client_bounds.top,
+            m_chrome_layout.titlebar_bounds.bottom());
+        return 0;
+      }
       const std::optional<std::size_t> root_menu_index =
           m_menu_overlay_open ? get_menu_overlay_index(point_x, point_y)
                               : std::nullopt;
@@ -692,6 +735,7 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           m_chrome_layout.is_gear_button(point_x, point_y);
       const bool menu_open = m_menu_overlay_open ||
                              m_open_menu_index.has_value() ||
+                             m_explorer_context_menu.visible ||
                              m_menu_pointer_tracking;
       const float ws_point_x = menu_open ? -10000.0F : point_x;
       const float ws_point_y = menu_open ? -10000.0F : point_y;
@@ -931,6 +975,18 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     return 0;
 
   case WM_LBUTTONDOWN:
+    if (m_custom_chrome_enabled && m_workspace_renderer.is_prompt_modal_visible()) {
+      const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
+      const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
+      RECT client_bounds{};
+      GetClientRect(window_handle, &client_bounds);
+      const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(client_bounds.right - client_bounds.left),
+                              static_cast<float>(client_bounds.bottom - client_bounds.top)};
+      const auto layout = m_workspace_renderer.get_prompt_modal().calculate_layout(viewport, static_cast<float>(m_dpi) / 96.0F);
+      static_cast<void>(m_workspace_renderer.get_prompt_modal().handle_pointer_press(point_x, point_y, layout));
+      InvalidateRect(window_handle, nullptr, FALSE);
+      return 0;
+    }
     if (m_custom_chrome_enabled && m_about_modal.is_visible()) {
       const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
       const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
@@ -940,6 +996,22 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
                               static_cast<float>(client_bounds.bottom - client_bounds.top)};
       const auto layout = m_about_modal.calculate_layout(viewport, static_cast<float>(m_dpi) / 96.0F);
       static_cast<void>(m_about_modal.handle_pointer_press(point_x, point_y, layout));
+      InvalidateRect(window_handle, nullptr, FALSE);
+      return 0;
+    }
+    if (m_custom_chrome_enabled && m_explorer_context_menu.visible) {
+      const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
+      const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
+      for (std::size_t i = 0; i < m_explorer_context_menu.item_bounds.size(); ++i) {
+        if (!m_explorer_context_menu.items[i].separator &&
+            m_explorer_context_menu.item_bounds[i].contains(point_x, point_y)) {
+          execute_explorer_context_menu_item(i);
+          close_explorer_context_menu();
+          InvalidateRect(window_handle, nullptr, FALSE);
+          return 0;
+        }
+      }
+      close_explorer_context_menu();
       InvalidateRect(window_handle, nullptr, FALSE);
       return 0;
     }
@@ -1114,6 +1186,18 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     break;
 
   case WM_LBUTTONUP:
+    if (m_custom_chrome_enabled && m_workspace_renderer.is_prompt_modal_visible()) {
+      const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
+      const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
+      RECT client_bounds{};
+      GetClientRect(window_handle, &client_bounds);
+      const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(client_bounds.right - client_bounds.left),
+                              static_cast<float>(client_bounds.bottom - client_bounds.top)};
+      const auto layout = m_workspace_renderer.get_prompt_modal().calculate_layout(viewport, static_cast<float>(m_dpi) / 96.0F);
+      static_cast<void>(m_workspace_renderer.get_prompt_modal().handle_pointer_release(point_x, point_y, layout));
+      InvalidateRect(window_handle, nullptr, FALSE);
+      return 0;
+    }
     if (m_custom_chrome_enabled && m_about_modal.is_visible()) {
       const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
       const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
@@ -1162,6 +1246,31 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     }
     break;
 
+  case WM_RBUTTONDOWN:
+  case WM_RBUTTONUP:
+    if (m_custom_chrome_enabled) {
+      const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
+      const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
+      RECT client_bounds{};
+      GetClientRect(window_handle, &client_bounds);
+      const int client_width = client_bounds.right - client_bounds.left;
+      const int client_height = client_bounds.bottom - client_bounds.top;
+      const float content_top = m_chrome_layout.titlebar_bounds.bottom();
+
+      if (m_workspace_renderer.is_tool_sidebar_point(point_x, point_y, client_width, client_height, content_top)) {
+        if (message == WM_RBUTTONUP) {
+          const auto opt_target = m_workspace_renderer.handle_right_click(
+              point_x, point_y, client_width, client_height, content_top);
+          if (opt_target) {
+            show_explorer_context_menu(*opt_target, static_cast<int>(point_x), static_cast<int>(point_y));
+          }
+        }
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
+    }
+    break;
+
   case WM_CANCELMODE:
   case WM_CAPTURECHANGED:
     if (m_workspace_pointer_captured) {
@@ -1201,25 +1310,46 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         return TRUE;
       }
 
+      if (m_explorer_context_menu.visible) {
+        if (m_explorer_context_menu.bounds.contains(cur_x, cur_y)) {
+          bool over_item = false;
+          for (std::size_t i = 0; i < m_explorer_context_menu.item_bounds.size(); ++i) {
+            if (!m_explorer_context_menu.items[i].separator &&
+                m_explorer_context_menu.item_bounds[i].contains(cur_x, cur_y)) {
+              over_item = true;
+              break;
+            }
+          }
+          if (over_item) {
+            SetCursor(LoadCursorW(nullptr, IDC_HAND));
+            return TRUE;
+          }
+        }
+        SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+        return TRUE;
+      }
+
       if (m_menu_overlay_open || m_open_menu_index) {
-        bool over_menu = false;
+        bool over_menu_item = false;
         if (m_menu_overlay_open) {
           const MenuOverlayGeometry root_geom = calculate_menu_overlay_geometry();
           if (root_geom.bounds.contains(cur_x, cur_y)) {
-            over_menu = true;
+            over_menu_item = true;
           }
         }
-        if (!over_menu && m_open_menu_index) {
-          const PopupMenuGeometry popup_geom =
-              calculate_popup_menu_geometry(*m_open_menu_index);
-          if (popup_geom.bounds.contains(cur_x, cur_y)) {
-            over_menu = true;
+        if (!over_menu_item && m_open_menu_index) {
+          if (const auto item_idx = get_popup_menu_item_index(cur_x, cur_y)) {
+            if (is_popup_menu_item_enabled(*m_open_menu_index, *item_idx)) {
+              over_menu_item = true;
+            }
           }
         }
-        if (over_menu) {
-          SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+        if (over_menu_item) {
+          SetCursor(LoadCursorW(nullptr, IDC_HAND));
           return TRUE;
         }
+        SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+        return TRUE;
       }
 
       const bool interactive =
@@ -1290,7 +1420,14 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
               static_cast<float>(cursor_position.y),
               client_bounds.right - client_bounds.left,
               client_bounds.bottom - client_bounds.top,
-              m_chrome_layout.titlebar_bounds.bottom())) {
+              m_chrome_layout.titlebar_bounds.bottom()) ||
+          m_workspace_renderer.is_shader_sandbox_resize_handle(
+              static_cast<float>(cursor_position.x),
+              static_cast<float>(cursor_position.y),
+              client_bounds.right - client_bounds.left,
+              client_bounds.bottom - client_bounds.top,
+              m_chrome_layout.titlebar_bounds.bottom()) ||
+          m_workspace_renderer.is_shader_sandbox_resizing()) {
         SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
         return TRUE;
       }
@@ -1313,6 +1450,24 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     break;
 
   case WM_KEYDOWN:
+    if (m_custom_chrome_enabled && m_workspace_renderer.is_prompt_modal_visible()) {
+      if (w_param == VK_ESCAPE) {
+        static_cast<void>(m_workspace_renderer.get_prompt_modal().handle_escape());
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
+      if (w_param == VK_RETURN) {
+        static_cast<void>(m_workspace_renderer.get_prompt_modal().handle_enter());
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
+      if (w_param == VK_BACK) {
+        static_cast<void>(m_workspace_renderer.get_prompt_modal().handle_backspace());
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
+      return 0;
+    }
     if (m_custom_chrome_enabled && m_about_modal.is_visible()) {
       if (w_param == VK_ESCAPE) {
         static_cast<void>(m_about_modal.handle_escape());
@@ -1326,9 +1481,10 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       }
       return 0;
     }
-    if (m_custom_chrome_enabled && (m_menu_overlay_open || m_open_menu_index) &&
+    if (m_custom_chrome_enabled && (m_menu_overlay_open || m_open_menu_index || m_explorer_context_menu.visible) &&
         w_param == VK_ESCAPE) {
       close_menu_overlay();
+      close_explorer_context_menu();
       InvalidateRect(window_handle, nullptr, FALSE);
       return 0;
     }
@@ -1426,6 +1582,12 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           const int ct = round_to_int(m_chrome_layout.titlebar_bounds.bottom());
           RECT cr{0, ct, 32767, 32767};
           InvalidateRect(window_handle, &cr, FALSE);
+        }
+        return 0;
+      }
+      if (control_pressed && shift_pressed && w_param == 'N') {
+        if (m_command_invoked_callback) {
+          m_command_invoked_callback(Commands::CommandIds::window_new);
         }
         return 0;
       }
@@ -1535,6 +1697,13 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     break;
 
   case WM_CHAR:
+    if (m_custom_chrome_enabled && m_workspace_renderer.is_prompt_modal_visible()) {
+      if (w_param >= 32) {
+        static_cast<void>(m_workspace_renderer.get_prompt_modal().handle_char(static_cast<char32_t>(w_param)));
+        InvalidateRect(window_handle, nullptr, FALSE);
+      }
+      return 0;
+    }
     if (m_custom_chrome_enabled && m_workspace_renderer.is_terminal_focused()) {
       bool changed = false;
       const wchar_t character = static_cast<wchar_t>(w_param);
@@ -1626,6 +1795,9 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
 
   case WM_TIMER:
     if (w_param == editor_caret_timer_id) {
+      if (!is_minimized() && m_workspace_renderer.tick_animations()) {
+        InvalidateRect(window_handle, nullptr, FALSE);
+      }
       return 0;
     }
     break;
@@ -1762,7 +1934,6 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     Components::FileDropTarget::set_enabled(window_handle, false);
     KillTimer(window_handle, editor_caret_timer_id);
     m_should_close = true;
-    PostQuitMessage(0);
     return 0;
 
   case WM_NCDESTROY:
@@ -2200,7 +2371,10 @@ void Win32Window::paint_custom_chrome() {
   }
 
   draw_menu_overlay(buffer_context);
+  draw_explorer_context_menu(buffer_context);
   draw_about_modal(buffer_context, client_width, client_height);
+  m_workspace_renderer.render_prompt_modal(buffer_context, client_width, client_height);
+  m_workspace_renderer.render_add_item_dialog(buffer_context, client_width, client_height, m_theme);
 
   SelectObject(buffer_context, previous_font);
 
@@ -2915,6 +3089,315 @@ void Win32Window::update_hovered_control(UI::Chrome::WindowControl control) {
 
 std::wstring Win32Window::utf8_to_wide(std::string_view text) {
   return Utility::utf8_to_wide(text).value_or(std::wstring{});
+}
+
+void Win32Window::close_explorer_context_menu() {
+  if (m_explorer_context_menu.visible) {
+    m_explorer_context_menu.visible = false;
+    m_explorer_context_menu.hovered_index.reset();
+  }
+}
+
+void Win32Window::show_explorer_context_menu(const std::filesystem::path& target_path, int client_x, int client_y) {
+  close_menu_overlay();
+  m_explorer_context_menu.visible = true;
+  m_explorer_context_menu.target_path = target_path;
+  m_explorer_context_menu.hovered_index.reset();
+
+  enum ContextCmd : uint32_t {
+    CmdNewFile = 50001,
+    CmdNewFolder = 50002,
+    CmdOpenToSide = 50003,
+    CmdReveal = 50004,
+    CmdOpenTerminal = 50005,
+    CmdCut = 50006,
+    CmdCopy = 50007,
+    CmdPaste = 50008,
+    CmdCopyPath = 50009,
+    CmdCopyRelativePath = 50010,
+    CmdRename = 50011,
+    CmdDelete = 50012,
+  };
+
+  m_explorer_context_menu.items = {
+    {"New File...", "", false, CmdNewFile},
+    {"New Folder...", "", false, CmdNewFolder},
+    {"", "", true, 0},
+    {"Open to the Side", "Ctrl+Enter", false, CmdOpenToSide},
+    {"Reveal in File Explorer", "Shift+Alt+R", false, CmdReveal},
+    {"Open in Integrated Terminal", "", false, CmdOpenTerminal},
+    {"", "", true, 0},
+    {"Cut", "Ctrl+X", false, CmdCut},
+    {"Copy", "Ctrl+C", false, CmdCopy},
+    {"Paste", "Ctrl+V", false, CmdPaste},
+    {"", "", true, 0},
+    {"Copy Path", "Shift+Alt+C", false, CmdCopyPath},
+    {"Copy Relative Path", "Ctrl+K Ctrl+Shift+C", false, CmdCopyRelativePath},
+    {"", "", true, 0},
+    {"Rename...", "F2", false, CmdRename},
+    {"Delete", "Delete", false, CmdDelete}
+  };
+
+  const float scale = m_chrome_layout.dpi_scale;
+  const float row_height = 28.0F * scale;
+  const float sep_height = 9.0F * scale;
+  float total_h = 0.0F;
+  float popup_width = 240.0F * scale;
+
+  for (const auto& item : m_explorer_context_menu.items) {
+    if (item.separator) {
+      total_h += sep_height;
+      continue;
+    }
+    total_h += row_height;
+    float item_width = static_cast<float>(item.label.size()) * 7.5F * scale + 48.0F * scale;
+    if (!item.shortcut.empty()) {
+      item_width += static_cast<float>(item.shortcut.size()) * 7.5F * scale + 36.0F * scale;
+    }
+    popup_width = std::max(popup_width, item_width);
+  }
+  popup_width = std::min(popup_width, 420.0F * scale);
+
+  RECT client_rect{};
+  GetClientRect(m_window_handle, &client_rect);
+  const float client_w = static_cast<float>(client_rect.right - client_rect.left);
+  const float client_h = static_cast<float>(client_rect.bottom - client_rect.top);
+
+  float menu_x = static_cast<float>(client_x);
+  float menu_y = static_cast<float>(client_y);
+
+  if (menu_x + popup_width > client_w - 8.0F) {
+    menu_x = std::max(8.0F, client_w - popup_width - 8.0F);
+  }
+  if (menu_y + total_h > client_h - 8.0F) {
+    menu_y = std::max(8.0F, client_h - total_h - 8.0F);
+  }
+
+  m_explorer_context_menu.bounds = {menu_x, menu_y, popup_width, total_h};
+  m_explorer_context_menu.item_bounds.clear();
+
+  float curr_y = menu_y;
+  for (const auto& item : m_explorer_context_menu.items) {
+    if (item.separator) {
+      m_explorer_context_menu.item_bounds.push_back({menu_x, curr_y, popup_width, sep_height});
+      curr_y += sep_height;
+    } else {
+      m_explorer_context_menu.item_bounds.push_back({menu_x, curr_y, popup_width, row_height});
+      curr_y += row_height;
+    }
+  }
+
+  InvalidateRect(m_window_handle, nullptr, FALSE);
+}
+
+void Win32Window::draw_explorer_context_menu(HDC device_context) const {
+  if (!m_explorer_context_menu.visible) return;
+
+  const float scale = m_chrome_layout.dpi_scale;
+  const auto& bounds = m_explorer_context_menu.bounds;
+  const int radius = std::max(round_to_int(7.0F * scale), 5);
+
+  // 1. Draw panel background and border exactly matching draw_menu_overlay
+  const RECT native_bounds = to_native_rect(bounds);
+  HBRUSH background_brush = CreateSolidBrush(to_color_ref(m_theme.panel_background));
+  HPEN border_pen = CreatePen(PS_SOLID, 1, to_color_ref(m_theme.titlebar_border));
+  HGDIOBJ previous_brush = SelectObject(device_context, background_brush);
+  HGDIOBJ previous_pen = SelectObject(device_context, border_pen);
+  RoundRect(device_context, native_bounds.left, native_bounds.top,
+            native_bounds.right, native_bounds.bottom, radius * 2, radius * 2);
+  SelectObject(device_context, previous_pen);
+  SelectObject(device_context, previous_brush);
+  DeleteObject(border_pen);
+  DeleteObject(background_brush);
+
+  // 2. Draw items exactly matching draw_menu_overlay
+  for (std::size_t i = 0; i < m_explorer_context_menu.items.size() && i < m_explorer_context_menu.item_bounds.size(); ++i) {
+    const auto& item = m_explorer_context_menu.items[i];
+    const auto& item_bounds = m_explorer_context_menu.item_bounds[i];
+
+    if (item.separator) {
+      fill_rectangle(device_context,
+                     UI::Rect{
+                         item_bounds.x + 8.0F * scale,
+                         item_bounds.y + item_bounds.height * 0.5F,
+                         item_bounds.width - 16.0F * scale,
+                         1.0F,
+                     },
+                     m_theme.titlebar_border);
+      continue;
+    }
+
+    const bool hovered = (m_explorer_context_menu.hovered_index && *m_explorer_context_menu.hovered_index == i);
+    if (hovered) {
+      UI::Rect hover_bounds = item_bounds;
+      hover_bounds.x += 4.0F * scale;
+      hover_bounds.width -= 8.0F * scale;
+      hover_bounds.y += 2.0F * scale;
+      hover_bounds.height -= 4.0F * scale;
+      fill_rounded_rectangle(device_context, hover_bounds, m_theme.accent,
+                             std::max(round_to_int(4.0F * scale), 3));
+    }
+
+    RECT text_bounds = to_native_rect(item_bounds);
+    text_bounds.left += round_to_int(26.0F * scale);
+    if (!item.shortcut.empty()) {
+      text_bounds.right -= round_to_int(static_cast<float>(item.shortcut.size()) * 7.5F * scale + 28.0F * scale);
+    }
+    SetTextColor(device_context,
+                 to_color_ref(hovered ? UI::Theme::Color{255, 255, 255, 255}
+                                      : m_theme.text_primary));
+    DrawTextW(
+        device_context, utf8_to_wide(item.label).c_str(), -1, &text_bounds,
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+
+    if (!item.shortcut.empty()) {
+      RECT shortcut_bounds = to_native_rect(item_bounds);
+      shortcut_bounds.right -= round_to_int(16.0F * scale);
+      SetTextColor(
+          device_context,
+          to_color_ref(hovered ? UI::Theme::Color{255, 255, 255, 220}
+                               : m_theme.text_secondary));
+      DrawTextW(device_context, utf8_to_wide(item.shortcut).c_str(), -1,
+                &shortcut_bounds,
+                DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    }
+  }
+}
+
+void Win32Window::execute_explorer_context_menu_item(std::size_t item_index) {
+  if (item_index >= m_explorer_context_menu.items.size()) return;
+  const auto& item = m_explorer_context_menu.items[item_index];
+  if (item.separator) return;
+
+  const auto target_path = m_explorer_context_menu.target_path;
+
+  enum ContextCmd : uint32_t {
+    CmdNewFile = 50001,
+    CmdNewFolder = 50002,
+    CmdOpenToSide = 50003,
+    CmdReveal = 50004,
+    CmdOpenTerminal = 50005,
+    CmdCut = 50006,
+    CmdCopy = 50007,
+    CmdPaste = 50008,
+    CmdCopyPath = 50009,
+    CmdCopyRelativePath = 50010,
+    CmdRename = 50011,
+    CmdDelete = 50012,
+  };
+
+  switch (item.command_id) {
+  case CmdNewFile: {
+    const auto root = m_workspace_renderer.m_tool_sidebar.get_model().get_workspace_root();
+    const std::string proj_name = root.filename().string();
+    m_workspace_renderer.get_add_item_dialog().open(m_window_handle, target_path, proj_name, [this](const std::string& name, const std::string& initial_content) {
+      std::filesystem::path created_p;
+      if (m_workspace_renderer.m_tool_sidebar.get_model().create_file(name, created_p)) {
+        if (!initial_content.empty()) {
+          std::ofstream out(created_p, std::ios::binary);
+          if (out.is_open()) {
+            out.write(initial_content.data(), initial_content.size());
+            out.close();
+          }
+        }
+        static_cast<void>(m_workspace_renderer.m_text_editor.open_file(created_p));
+      }
+      InvalidateRect(m_window_handle, nullptr, FALSE);
+    });
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+    break;
+  }
+  case CmdNewFolder: {
+    m_workspace_renderer.get_prompt_modal().open_new_folder(target_path, [this](const std::string& name) {
+      std::filesystem::path created_p;
+      static_cast<void>(m_workspace_renderer.m_tool_sidebar.get_model().create_directory(name, created_p));
+      InvalidateRect(m_window_handle, nullptr, FALSE);
+    });
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+    break;
+  }
+  case CmdOpenToSide: {
+    std::error_code ec;
+    if (!std::filesystem::is_directory(target_path, ec)) {
+      static_cast<void>(m_workspace_renderer.m_text_editor.open_file(target_path));
+    }
+    break;
+  }
+  case CmdReveal: {
+    const std::wstring full_w = target_path.wstring();
+    const std::wstring params = L"/select,\"" + full_w + L"\"";
+    ShellExecuteW(nullptr, L"open", L"explorer.exe", params.c_str(), nullptr, SW_SHOWNORMAL);
+    break;
+  }
+  case CmdOpenTerminal: {
+    std::error_code ec;
+    std::filesystem::path term_dir = std::filesystem::is_directory(target_path, ec) ? target_path : target_path.parent_path();
+    if (!m_workspace_renderer.m_terminal_panel.is_visible()) {
+      static_cast<void>(m_workspace_renderer.m_terminal_panel.toggle());
+    }
+    std::string cd_cmd = "cd \"" + term_dir.string() + "\"\r";
+    static_cast<void>(m_workspace_renderer.m_terminal_panel.handle_text_input(cd_cmd));
+    break;
+  }
+  case CmdCut:
+  case CmdCopy:
+  case CmdCopyPath: {
+    const std::wstring path_w = target_path.wstring();
+    if (OpenClipboard(m_window_handle)) {
+      EmptyClipboard();
+      const size_t bytes = (path_w.length() + 1) * sizeof(wchar_t);
+      HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+      if (hMem) {
+        memcpy(GlobalLock(hMem), path_w.c_str(), bytes);
+        GlobalUnlock(hMem);
+        SetClipboardData(CF_UNICODETEXT, hMem);
+      }
+      CloseClipboard();
+    }
+    break;
+  }
+  case CmdCopyRelativePath: {
+    const auto root = m_workspace_renderer.m_tool_sidebar.get_model().get_workspace_root();
+    std::error_code ec;
+    const auto rel = std::filesystem::relative(target_path, root, ec);
+    const std::wstring path_w = ec ? target_path.wstring() : rel.wstring();
+    if (OpenClipboard(m_window_handle)) {
+      EmptyClipboard();
+      const size_t bytes = (path_w.length() + 1) * sizeof(wchar_t);
+      HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+      if (hMem) {
+        memcpy(GlobalLock(hMem), path_w.c_str(), bytes);
+        GlobalUnlock(hMem);
+        SetClipboardData(CF_UNICODETEXT, hMem);
+      }
+      CloseClipboard();
+    }
+    break;
+  }
+  case CmdRename: {
+    m_workspace_renderer.get_prompt_modal().open_rename(target_path, [this, target_path](const std::string& new_name) {
+      std::filesystem::path new_p;
+      if (m_workspace_renderer.m_tool_sidebar.get_model().rename_item(target_path, new_name, new_p)) {
+        static_cast<void>(m_workspace_renderer.m_text_editor.close_file(target_path));
+        static_cast<void>(m_workspace_renderer.m_text_editor.open_file(new_p));
+      }
+      InvalidateRect(m_window_handle, nullptr, FALSE);
+    });
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+    break;
+  }
+  case CmdDelete: {
+    m_workspace_renderer.get_prompt_modal().open_delete(target_path, [this, target_path]() {
+      static_cast<void>(m_workspace_renderer.m_text_editor.close_file(target_path));
+      static_cast<void>(m_workspace_renderer.m_tool_sidebar.get_model().delete_item(target_path));
+      InvalidateRect(m_window_handle, nullptr, FALSE);
+    });
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+    break;
+  }
+  default:
+    break;
+  }
 }
 
 } // namespace Zenvra::Platform::Win32

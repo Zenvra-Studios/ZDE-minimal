@@ -1,0 +1,12 @@
+{
+  "name": "JSON",
+  "extensions": [".json", ".jsonc", ".geojson"],
+  "line_comment": "//",
+  "block_comment_start": "/*",
+  "block_comment_end": "*/",
+  "supports_preprocessor": false,
+  "keywords": ["true", "false", "null"],
+  "types": [],
+  "operators": [":", ","],
+  "string_delimiters": ["\""]
+}

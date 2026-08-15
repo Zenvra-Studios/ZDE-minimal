@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <fstream>
 
 namespace Zenvra::UI::Editor
 {
@@ -148,6 +149,7 @@ ActivityPanelAction ActivityPanelModel::activate_project_item(std::size_t item_i
     }
 
     const ProjectTreeItem& item = m_project_items[item_index];
+    m_selected_path = item.path;
     if (!item.directory)
     {
         return ActivityPanelAction{.handled = true, .file_to_open = item.path};
@@ -203,22 +205,22 @@ bool ActivityPanelModel::is_active(SidebarIcon icon) const noexcept
 {
     return m_visible && m_active_icon == icon;
 }
-SidebarIcon ActivityPanelModel::get_active_icon() const noexcept { return m_active_icon; }
 
 std::string_view ActivityPanelModel::get_title() const noexcept
 {
     switch (m_active_icon)
     {
     case SidebarIcon::Project: return "Explorer";
-    case SidebarIcon::VersionControl: return "Source Control";
     case SidebarIcon::Search: return "Search";
-    case SidebarIcon::Services: return "Services";
-    case SidebarIcon::More: return "Tool Windows";
-    case SidebarIcon::Run: return "Run and Debug";
-    case SidebarIcon::Problems: return "Problems";
+    case SidebarIcon::VersionControl: return "Source Control";
+    case SidebarIcon::Run: return "Run & Debug";
     case SidebarIcon::Terminal: return "Terminal";
+    case SidebarIcon::Services: return "Services";
+    case SidebarIcon::Problems: return "Problems";
+    case SidebarIcon::Shader: return "Shader Sandbox";
+    case SidebarIcon::More: return "More";
+    default: return "Activity";
     }
-    return "Tool Window";
 }
 
 std::string_view ActivityPanelModel::get_content_heading() const noexcept
@@ -233,8 +235,9 @@ std::string_view ActivityPanelModel::get_content_heading() const noexcept
     case SidebarIcon::Problems: return "No problems detected";
     case SidebarIcon::Project: return "Workspace files";
     case SidebarIcon::Terminal: return "Local terminal";
+    case SidebarIcon::Shader: return "Shader sandbox";
+    default: return {};
     }
-    return {};
 }
 
 std::string_view ActivityPanelModel::get_content_detail() const noexcept
@@ -249,8 +252,9 @@ std::string_view ActivityPanelModel::get_content_detail() const noexcept
     case SidebarIcon::Problems: return "Diagnostics from opened buffers appear here.";
     case SidebarIcon::Project: return "Browse and open files from the project tree.";
     case SidebarIcon::Terminal: return "Terminal sessions use the bottom panel.";
+    case SidebarIcon::Shader: return "Realtime GLSL shader preview and editor.";
+    default: return {};
     }
-    return {};
 }
 
 const std::filesystem::path& ActivityPanelModel::get_workspace_root() const noexcept
@@ -366,6 +370,211 @@ void ActivityPanelModel::rebuild_tree()
     m_scroll_offset = std::min(m_scroll_offset, m_project_items.empty()
         ? 0U
         : m_project_items.size() - 1);
+}
+
+SidebarIcon ActivityPanelModel::get_active_icon() const noexcept
+{
+    return m_active_icon;
+}
+
+void ActivityPanelModel::set_selected_path(std::optional<std::filesystem::path> path) noexcept
+{
+    m_selected_path = std::move(path);
+}
+
+const std::optional<std::filesystem::path>& ActivityPanelModel::get_selected_path() const noexcept
+{
+    return m_selected_path;
+}
+
+bool ActivityPanelModel::is_selected(const std::filesystem::path& path) const noexcept
+{
+    if (!m_selected_path.has_value())
+    {
+        return false;
+    }
+    return *m_selected_path == path;
+}
+
+std::filesystem::path ActivityPanelModel::get_target_directory_for_creation() const
+{
+    if (m_selected_path.has_value())
+    {
+        std::error_code ec;
+        if (std::filesystem::is_directory(*m_selected_path, ec))
+        {
+            return *m_selected_path;
+        }
+        if (m_selected_path->has_parent_path())
+        {
+            return m_selected_path->parent_path();
+        }
+    }
+    return m_workspace_root;
+}
+
+bool ActivityPanelModel::create_file(std::string_view relative_name, std::filesystem::path& out_path)
+{
+    if (relative_name.empty())
+    {
+        return false;
+    }
+    const std::filesystem::path target_dir = get_target_directory_for_creation();
+    if (target_dir.empty())
+    {
+        return false;
+    }
+
+    std::filesystem::path full_path = target_dir / std::filesystem::path(relative_name);
+    full_path = full_path.lexically_normal();
+
+    std::error_code ec;
+    if (full_path.has_parent_path())
+    {
+        std::filesystem::create_directories(full_path.parent_path(), ec);
+    }
+
+    if (!std::filesystem::exists(full_path, ec))
+    {
+        std::ofstream ofs(full_path, std::ios::out | std::ios::binary);
+        if (!ofs.is_open())
+        {
+            return false;
+        }
+        ofs.close();
+    }
+
+    out_path = full_path;
+    m_selected_path = full_path;
+
+    // Ensure parent directories are in m_expanded_paths
+    std::filesystem::path cur = full_path.parent_path();
+    while (!cur.empty() && cur != m_workspace_root && cur != cur.parent_path())
+    {
+        if (std::find(m_expanded_paths.begin(), m_expanded_paths.end(), cur) == m_expanded_paths.end())
+        {
+            m_expanded_paths.push_back(cur);
+        }
+        cur = cur.parent_path();
+    }
+
+    rebuild_tree();
+    return true;
+}
+
+bool ActivityPanelModel::create_directory(std::string_view relative_name, std::filesystem::path& out_path)
+{
+    if (relative_name.empty())
+    {
+        return false;
+    }
+    const std::filesystem::path target_dir = get_target_directory_for_creation();
+    if (target_dir.empty())
+    {
+        return false;
+    }
+
+    std::filesystem::path full_path = target_dir / std::filesystem::path(relative_name);
+    full_path = full_path.lexically_normal();
+
+    std::error_code ec;
+    if (!std::filesystem::create_directories(full_path, ec) && !std::filesystem::exists(full_path, ec))
+    {
+        return false;
+    }
+
+    out_path = full_path;
+    m_selected_path = full_path;
+
+    if (std::find(m_expanded_paths.begin(), m_expanded_paths.end(), full_path) == m_expanded_paths.end())
+    {
+        m_expanded_paths.push_back(full_path);
+    }
+    std::filesystem::path cur = full_path.parent_path();
+    while (!cur.empty() && cur != m_workspace_root && cur != cur.parent_path())
+    {
+        if (std::find(m_expanded_paths.begin(), m_expanded_paths.end(), cur) == m_expanded_paths.end())
+        {
+            m_expanded_paths.push_back(cur);
+        }
+        cur = cur.parent_path();
+    }
+
+    rebuild_tree();
+    return true;
+}
+
+bool ActivityPanelModel::rename_item(const std::filesystem::path& old_path, std::string_view new_name, std::filesystem::path& out_path)
+{
+    if (old_path.empty() || new_name.empty() || !old_path.has_parent_path())
+    {
+        return false;
+    }
+
+    const std::filesystem::path new_path = (old_path.parent_path() / std::filesystem::path(new_name)).lexically_normal();
+    if (old_path == new_path)
+    {
+        out_path = new_path;
+        return true;
+    }
+
+    std::error_code ec;
+    std::filesystem::rename(old_path, new_path, ec);
+    if (ec)
+    {
+        return false;
+    }
+
+    out_path = new_path;
+    if (m_selected_path && *m_selected_path == old_path)
+    {
+        m_selected_path = new_path;
+    }
+
+    // Update expanded paths if it was a directory
+    for (auto& exp : m_expanded_paths)
+    {
+        if (exp == old_path)
+        {
+            exp = new_path;
+        }
+        else if (exp.string().starts_with(old_path.string()))
+        {
+            const std::string suffix = exp.string().substr(old_path.string().length());
+            exp = std::filesystem::path(new_path.string() + suffix);
+        }
+    }
+
+    rebuild_tree();
+    return true;
+}
+
+bool ActivityPanelModel::delete_item(const std::filesystem::path& target_path)
+{
+    if (target_path.empty() || target_path == m_workspace_root)
+    {
+        return false;
+    }
+
+    std::error_code ec;
+    std::filesystem::remove_all(target_path, ec);
+    if (ec)
+    {
+        return false;
+    }
+
+    if (m_selected_path && *m_selected_path == target_path)
+    {
+        m_selected_path.reset();
+    }
+
+    // Remove from expanded paths
+    std::erase_if(m_expanded_paths, [&](const std::filesystem::path& p) {
+        return p == target_path || p.string().starts_with(target_path.string());
+    });
+
+    rebuild_tree();
+    return true;
 }
 
 } // namespace Zenvra::UI::Editor

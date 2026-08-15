@@ -1,0 +1,21 @@
+{
+  "name": "HTML/CSS",
+  "extensions": [".html", ".htm", ".xhtml", ".css", ".scss", ".less"],
+  "line_comment": "//",
+  "block_comment_start": "/*",
+  "block_comment_end": "*/",
+  "supports_preprocessor": false,
+  "keywords": [
+    "html", "head", "body", "div", "span", "p", "a", "button", "input",
+    "form", "table", "tr", "td", "th", "ul", "ol", "li", "header", "footer",
+    "main", "section", "article", "aside", "nav", "canvas", "svg", "script",
+    "style", "link", "meta", "title", "import", "media", "keyframes", "charset"
+  ],
+  "types": [
+    "display", "position", "flex", "grid", "color", "background", "margin",
+    "padding", "border", "font", "width", "height", "top", "left", "right", "bottom",
+    "z-index", "opacity", "transform", "transition", "animation", "overflow"
+  ],
+  "operators": [":", ";", "{", "}", "<", ">", "</", "/>", ".", "#", "!"],
+  "string_delimiters": ["\"", "'"]
+}

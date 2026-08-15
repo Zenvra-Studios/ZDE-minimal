@@ -1,0 +1,21 @@
+{
+  "name": "Go",
+  "extensions": [".go"],
+  "line_comment": "//",
+  "block_comment_start": "/*",
+  "block_comment_end": "*/",
+  "supports_preprocessor": false,
+  "keywords": [
+    "break", "case", "chan", "const", "continue", "default", "defer", "else",
+    "fallthrough", "for", "func", "go", "goto", "if", "import", "interface",
+    "map", "package", "range", "return", "select", "struct", "switch", "type",
+    "var", "true", "false", "iota", "nil"
+  ],
+  "types": [
+    "bool", "byte", "complex64", "complex128", "error", "float32", "float64",
+    "int", "int8", "int16", "int32", "int64", "rune", "string",
+    "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "any"
+  ],
+  "operators": ["+", "-", "*", "/", "%", "&", "|", "^", "<<", ">>", "&^", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>=", "&^=", "&&", "||", "<-", "++", "--", "==", "<", ">", "=", "!=", "<=", ">=", ":=", "...", "(", ")", "[", "]", "{", "}", ",", ";", ".", ":"],
+  "string_delimiters": ["\"", "'", "`"]
+}

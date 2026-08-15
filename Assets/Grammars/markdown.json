@@ -1,0 +1,12 @@
+{
+  "name": "Markdown",
+  "extensions": [".md", ".markdown", ".mdown", ".mkd"],
+  "line_comment": "",
+  "block_comment_start": "<!--",
+  "block_comment_end": "-->",
+  "supports_preprocessor": false,
+  "keywords": ["TODO", "FIXME", "NOTE", "IMPORTANT", "WARNING", "TIP", "CAUTION"],
+  "types": [],
+  "operators": ["#", "##", "###", "####", "#####", "######", "*", "-", "+", ">", "|"],
+  "string_delimiters": ["`"]
+}

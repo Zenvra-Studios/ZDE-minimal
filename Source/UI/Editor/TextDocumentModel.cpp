@@ -459,7 +459,11 @@ bool TextDocumentModel::insert_text(std::string_view utf8_text)
         }
         if (at_line_break)
         {
-            insert_new_line();
+            std::string remainder = m_lines[m_caret_line].substr(m_caret_column);
+            m_lines[m_caret_line].erase(m_caret_column);
+            m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 1), remainder);
+            ++m_caret_line;
+            m_caret_column = 0;
             changed = true;
             if (text_to_insert[index] == '\r' && index + 1 < text_to_insert.size() &&
                 text_to_insert[index + 1] == '\n')
@@ -829,24 +833,37 @@ bool TextDocumentModel::execute(EditorInputCommand command, bool extend_selectio
 
 bool TextDocumentModel::delete_selection()
 {
-    if (m_read_only || !has_selection())
+    if (m_read_only || !has_selection() || m_lines.empty())
     {
         return false;
     }
     const TextSelection selection = get_selection();
+    if (selection.start.line >= m_lines.size() || selection.end.line >= m_lines.size())
+    {
+        return false;
+    }
     if (selection.start.line == selection.end.line)
     {
-        m_lines[selection.start.line].erase(
-            selection.start.column,
-            selection.end.column - selection.start.column);
+        const std::size_t col_start = std::min(selection.start.column, m_lines[selection.start.line].size());
+        const std::size_t col_end = std::min(selection.end.column, m_lines[selection.start.line].size());
+        if (col_start < col_end)
+        {
+            m_lines[selection.start.line].erase(col_start, col_end - col_start);
+        }
     }
     else
     {
-        m_lines[selection.start.line].erase(selection.start.column);
-        m_lines[selection.start.line] += m_lines[selection.end.line].substr(selection.end.column);
-        m_lines.erase(
-            m_lines.begin() + static_cast<std::ptrdiff_t>(selection.start.line + 1),
-            m_lines.begin() + static_cast<std::ptrdiff_t>(selection.end.line + 1));
+        const std::size_t col_start = std::min(selection.start.column, m_lines[selection.start.line].size());
+        m_lines[selection.start.line].erase(col_start);
+        const std::size_t col_end = std::min(selection.end.column, m_lines[selection.end.line].size());
+        m_lines[selection.start.line] += m_lines[selection.end.line].substr(col_end);
+        
+        const auto erase_first = m_lines.begin() + static_cast<std::ptrdiff_t>(selection.start.line + 1);
+        const auto erase_last = m_lines.begin() + static_cast<std::ptrdiff_t>(selection.end.line + 1);
+        if (erase_first < erase_last && erase_last <= m_lines.end())
+        {
+            m_lines.erase(erase_first, erase_last);
+        }
     }
     m_caret_line = selection.start.line;
     m_caret_column = selection.start.column;
@@ -937,15 +954,18 @@ bool TextDocumentModel::move_line_up()
             : selection.end.line;
     }
 
-    if (start_line == 0)
+    if (start_line == 0 || end_line >= m_lines.size() || start_line > end_line)
     {
         return false;
     }
 
-    std::rotate(
-        m_lines.begin() + static_cast<std::ptrdiff_t>(start_line - 1),
-        m_lines.begin() + static_cast<std::ptrdiff_t>(start_line),
-        m_lines.begin() + static_cast<std::ptrdiff_t>(end_line + 1));
+    const auto first = m_lines.begin() + static_cast<std::ptrdiff_t>(start_line - 1);
+    const auto middle = m_lines.begin() + static_cast<std::ptrdiff_t>(start_line);
+    const auto last = m_lines.begin() + static_cast<std::ptrdiff_t>(end_line + 1);
+    if (first < middle && middle < last && last <= m_lines.end())
+    {
+        std::rotate(first, middle, last);
+    }
 
     --m_caret_line;
     if (has_selection())
@@ -983,15 +1003,18 @@ bool TextDocumentModel::move_line_down()
             : selection.end.line;
     }
 
-    if (end_line + 1 >= m_lines.size())
+    if (end_line + 1 >= m_lines.size() || start_line > end_line)
     {
         return false;
     }
 
-    std::rotate(
-        m_lines.begin() + static_cast<std::ptrdiff_t>(start_line),
-        m_lines.begin() + static_cast<std::ptrdiff_t>(end_line + 1),
-        m_lines.begin() + static_cast<std::ptrdiff_t>(end_line + 2));
+    const auto first = m_lines.begin() + static_cast<std::ptrdiff_t>(start_line);
+    const auto middle = m_lines.begin() + static_cast<std::ptrdiff_t>(end_line + 1);
+    const auto last = m_lines.begin() + static_cast<std::ptrdiff_t>(end_line + 2);
+    if (first < middle && middle < last && last <= m_lines.end())
+    {
+        std::rotate(first, middle, last);
+    }
 
     ++m_caret_line;
     if (has_selection())
@@ -1202,7 +1225,7 @@ void TextDocumentModel::insert_new_line()
     else if (is_open_brace)
     {
         std::string extra_indent = "    ";
-        if (remainder == "}")
+        if (remainder.starts_with("}") || remainder == "}" || remainder.find('}') != std::string::npos)
         {
             m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 1), auto_indent + extra_indent);
             m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 2), auto_indent + remainder);
@@ -1226,9 +1249,31 @@ void TextDocumentModel::insert_new_line()
 
 void TextDocumentModel::delete_backward()
 {
+    if (m_lines.empty() || m_caret_line >= m_lines.size())
+    {
+        return;
+    }
     if (m_caret_column > 0)
     {
         const std::string& line = m_lines[m_caret_line];
+
+        // Check if caret is between auto-closing pairs: (), [], {}, "", ''
+        if (m_caret_column < line.size())
+        {
+            const char prev_char = line[m_caret_column - 1];
+            const char next_char = line[m_caret_column];
+            if ((prev_char == '(' && next_char == ')') ||
+                (prev_char == '[' && next_char == ']') ||
+                (prev_char == '{' && next_char == '}') ||
+                (prev_char == '"' && next_char == '"') ||
+                (prev_char == '\'' && next_char == '\''))
+            {
+                m_lines[m_caret_line].erase(m_caret_column - 1, 2);
+                --m_caret_column;
+                return;
+            }
+        }
+
         constexpr std::size_t kIndentWidth = 4;
         std::size_t erase_start = previous_character_column(line, m_caret_column);
         if (line.find_first_not_of(' ') >= m_caret_column)
@@ -1240,20 +1285,29 @@ void TextDocumentModel::delete_backward()
             }
             erase_start = m_caret_column - width;
         }
-        m_lines[m_caret_line].erase(erase_start, m_caret_column - erase_start);
+        erase_start = std::min(erase_start, line.size());
+        const std::size_t erase_len = (m_caret_column > erase_start) ? (m_caret_column - erase_start) : 0;
+        m_lines[m_caret_line].erase(erase_start, erase_len);
         m_caret_column = erase_start;
         return;
     }
-    const std::size_t previous_line = m_caret_line - 1;
-    const std::size_t previous_length = m_lines[previous_line].size();
-    m_lines[previous_line] += m_lines[m_caret_line];
-    m_lines.erase(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line));
-    m_caret_line = previous_line;
-    m_caret_column = previous_length;
+    if (m_caret_line > 0 && m_caret_line < m_lines.size())
+    {
+        const std::size_t previous_line = m_caret_line - 1;
+        const std::size_t previous_length = m_lines[previous_line].size();
+        m_lines[previous_line] += m_lines[m_caret_line];
+        m_lines.erase(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line));
+        m_caret_line = previous_line;
+        m_caret_column = previous_length;
+    }
 }
 
 void TextDocumentModel::delete_forward()
 {
+    if (m_lines.empty() || m_caret_line >= m_lines.size())
+    {
+        return;
+    }
     if (m_caret_column < m_lines[m_caret_line].size())
     {
         const std::size_t next_column = next_character_column(
@@ -1261,8 +1315,11 @@ void TextDocumentModel::delete_forward()
         m_lines[m_caret_line].erase(m_caret_column, next_column - m_caret_column);
         return;
     }
-    m_lines[m_caret_line] += m_lines[m_caret_line + 1];
-    m_lines.erase(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 1));
+    if (m_caret_line + 1 < m_lines.size())
+    {
+        m_lines[m_caret_line] += m_lines[m_caret_line + 1];
+        m_lines.erase(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 1));
+    }
 }
 
 void TextDocumentModel::update_preferred_column() noexcept
@@ -1287,6 +1344,24 @@ void TextDocumentModel::begin_or_clear_selection(
         return;
     }
     m_selection_anchor = {m_caret_line, m_caret_column};
+}
+
+void TextDocumentModel::set_diagnostics(std::vector<Language::Protocol::Diagnostic> diagnostics)
+{
+    m_diagnostics = std::move(diagnostics);
+}
+
+std::vector<Language::Protocol::Diagnostic> TextDocumentModel::get_diagnostics_for_line(std::size_t line) const
+{
+    std::vector<Language::Protocol::Diagnostic> line_diags;
+    for (const auto& diag : m_diagnostics)
+    {
+        if (diag.range.start.line <= line && line <= diag.range.end.line)
+        {
+            line_diags.push_back(diag);
+        }
+    }
+    return line_diags;
 }
 
 } // namespace Zenvra::UI::Editor

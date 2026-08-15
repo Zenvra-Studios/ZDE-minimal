@@ -31,6 +31,7 @@ public:
 
     [[nodiscard]] TextDocumentModel* get_active_document() noexcept;
     [[nodiscard]] const TextDocumentModel* get_active_document() const noexcept;
+    [[nodiscard]] const std::filesystem::path* get_active_path() const noexcept;
     [[nodiscard]] std::span<const EditorSessionDocument> get_documents() const noexcept;
     [[nodiscard]] std::optional<std::size_t> get_active_index() const noexcept;
 

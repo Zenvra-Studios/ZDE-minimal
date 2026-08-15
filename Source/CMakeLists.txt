@@ -60,6 +60,58 @@ endif()
 
 if(WIN32)
     target_sources(ZDE PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Win32/Config/Win32Resources.rc")
+
+    # Deploy clangd binary strictly inside plugins/lsp/ folder only (no root duplicates)
+    set(CLANGD_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/clangd-windows-22.1.6/clangd.exe")
+    if(EXISTS "${CLANGD_SRC}")
+        add_custom_command(TARGET ZDE POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ZDE>/plugins/lsp"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CLANGD_SRC}" "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/clangd.exe"
+            COMMAND ${CMAKE_COMMAND} -E remove -f "$<TARGET_FILE_DIR:ZDE>/clangd.exe"
+            COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:ZDE>/plugin"
+            COMMENT "Deploying clangd binary cleanly into plugins/lsp/..."
+        )
+    endif()
+
+    # Deploy cmake-ls binary strictly inside plugins/lsp/ folder
+    set(CMAKELS_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/cmake-ls/cmakels-win64.exe")
+    if(EXISTS "${CMAKELS_SRC}")
+        add_custom_command(TARGET ZDE POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ZDE>/plugins/lsp"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKELS_SRC}" "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/cmakels-win64.exe"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKELS_SRC}" "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/cmakels.exe"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKELS_SRC}" "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/cmake-language-server.exe"
+            COMMENT "Deploying cmake-ls binary cleanly into plugins/lsp/..."
+        )
+    endif()
+
+    # Deploy rust-analyzer binary strictly inside plugins/lsp/ folder
+    set(RUST_ANALYZER_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/rust-analyzer-x86_64-pc-windows-msvc/rust-analyzer.exe")
+    if(EXISTS "${RUST_ANALYZER_SRC}")
+        add_custom_command(TARGET ZDE POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ZDE>/plugins/lsp"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${RUST_ANALYZER_SRC}" "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/rust-analyzer.exe"
+            COMMENT "Deploying rust-analyzer binary cleanly into plugins/lsp/..."
+        )
+    endif()
+
+    if(EXISTS "${CMAKE_SOURCE_DIR}/Assets/Grammars")
+        add_custom_command(TARGET ZDE POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_SOURCE_DIR}/Assets/Grammars"
+                "$<TARGET_FILE_DIR:ZDE>/Assets/Grammars"
+            COMMENT "Deploying TextMate Grammars..."
+        )
+    endif()
+endif()
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/Assets/Grammars" AND NOT WIN32)
+    add_custom_command(TARGET ZDE POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/Assets/Grammars"
+            "$<TARGET_FILE_DIR:ZDE>/Assets/Grammars"
+        COMMENT "Deploying TextMate Grammars..."
+    )
 endif()
 
 # These folders are reserved module boundaries from the product roadmap.

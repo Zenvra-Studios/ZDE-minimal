@@ -191,7 +191,8 @@ public:
     float dpi_scale) noexcept;
 [[nodiscard]] std::size_t tokenize_editor_line(
     std::string_view line,
-    std::array<EditorToken, maximum_editor_tokens>& output) noexcept;
+    std::array<EditorToken, maximum_editor_tokens>& output,
+    std::string_view file_name = {}) noexcept;
 [[nodiscard]] bool supports_editor_syntax_highlighting(
     std::string_view file_name) noexcept;
 

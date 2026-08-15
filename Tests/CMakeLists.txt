@@ -4,9 +4,19 @@ endif()
 
 add_executable(ZDEUnitTests
     CommandRegistryTests.cpp
+    LanguageServerTests.cpp
 )
 
-target_link_libraries(ZDEUnitTests PRIVATE Zenvra::Application Zenvra::UI Zenvra::Terminal Zenvra::Services Zenvra::Graphics)
+target_link_libraries(ZDEUnitTests PRIVATE
+    GTest::gtest_main
+    GTest::gtest
+    Zenvra::Application
+    Zenvra::UI
+    Zenvra::Language
+    Zenvra::Terminal
+    Zenvra::Services
+    Zenvra::Graphics
+)
 target_include_directories(ZDEUnitTests PRIVATE "${PROJECT_SOURCE_DIR}/Source" "${PROJECT_SOURCE_DIR}")
 zde_enable_warnings(ZDEUnitTests)
 

@@ -1,0 +1,29 @@
+{
+  "name": "Meson",
+  "extensions": [".build", ".meson", "meson.build", "meson_options.txt"],
+  "line_comment": "#",
+  "block_comment_start": "",
+  "block_comment_end": "",
+  "supports_preprocessor": false,
+  "keywords": [
+    "project", "executable", "library", "shared_library", "static_library",
+    "both_libraries", "shared_module", "dependency", "find_program", "subproject",
+    "include_directories", "files", "declare_dependency", "custom_target",
+    "run_target", "generator", "test", "benchmark", "install_headers",
+    "install_man", "install_data", "install_subdir", "subdir", "configure_file",
+    "set_variable", "get_variable", "is_variable", "import", "message",
+    "warning", "error", "summary", "assert", "if", "elif", "else", "endif",
+    "foreach", "endforeach", "continue", "break", "and", "or", "not", "in"
+  ],
+  "types": [
+    "pkgconfig", "gnome", "qt5", "qt6", "python", "cmake", "cuda", "dlang",
+    "hotdoc", "i18n", "java", "keyval", "simd", "sourceset", "windows",
+    "compiler", "build_machine", "host_machine", "target_machine", "meson",
+    "default_options", "version", "license", "meson_version", "language",
+    "languages", "sources", "dependencies", "link_with", "link_whole",
+    "include_directories", "c_args", "cpp_args", "link_args", "install",
+    "install_dir", "override_options", "true", "false"
+  ],
+  "operators": ["+", "-", "*", "/", "%", "=", "+=", "==", "!=", "<", ">", "<=", ">=", "(", ")", "[", "]", "{", "}", ":", ",", "."],
+  "string_delimiters": ["'", "\""]
+}

@@ -3,6 +3,9 @@
 #include "Utility/Column.h"
 #include "Utility/Row.h"
 
+#include "Language/Syntax/GenericGrammarEngine.h"
+#include "Language/Syntax/GrammarRegistry.h"
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -408,147 +411,38 @@ float calculate_editor_tab_width(float text_width, float dpi_scale) noexcept {
 
 std::size_t tokenize_editor_line(
     std::string_view line,
-    std::array<EditorToken, maximum_editor_tokens> &output) noexcept {
-  std::size_t token_count = 0;
-  std::size_t cursor = 0;
-
-  std::size_t first_non_ws = line.find_first_not_of(" \t");
-  if (first_non_ws != std::string_view::npos) {
-    std::string_view trimmed = line.substr(first_non_ws);
-    if (trimmed.starts_with("/**") || trimmed.starts_with("/*") ||
-        trimmed.starts_with("*/") || trimmed.starts_with("* ") ||
-        trimmed == "*" || trimmed.starts_with("**/")) {
-      if (!output.empty()) {
-        output[0] = EditorToken{line, EditorTokenKind::Comment};
-        return 1;
-      }
-    }
+    std::array<EditorToken, maximum_editor_tokens> &output,
+    std::string_view file_name) noexcept {
+  const auto* grammar = file_name.empty()
+      ? Language::Syntax::GrammarRegistry::instance().get_grammar_for_extension(".cpp")
+      : Language::Syntax::GrammarRegistry::instance().get_grammar_for_filename(file_name);
+  if (grammar != nullptr) {
+    return Language::Syntax::GenericGrammarEngine::tokenize_line(line, *grammar, output);
   }
-  const auto append = [&output, &token_count](std::string_view text,
-                                              EditorTokenKind kind) {
-    if (!text.empty() && token_count < output.size()) {
-      output[token_count++] = EditorToken{text, kind};
-    }
-  };
-
-  while (cursor < line.size() && token_count < output.size()) {
-    const std::size_t token_start = cursor;
-    const char character = line[cursor];
-    if (character == '#') {
-      append(line.substr(cursor), EditorTokenKind::Keyword);
-      break;
-    }
-    if (std::isspace(static_cast<unsigned char>(character)) != 0) {
-      while (cursor < line.size() &&
-             std::isspace(static_cast<unsigned char>(line[cursor])) != 0) {
-        ++cursor;
-      }
-      append(line.substr(token_start, cursor - token_start),
-             EditorTokenKind::Plain);
-      continue;
-    }
-    if (character == '/' && cursor + 1 < line.size() &&
-        line[cursor + 1] == '/') {
-      append(line.substr(cursor), EditorTokenKind::Comment);
-      break;
-    }
-    if (character == '/' && cursor + 1 < line.size() &&
-        line[cursor + 1] == '*') {
-      cursor += 2;
-      while (cursor + 1 < line.size() &&
-             !(line[cursor] == '*' && line[cursor + 1] == '/')) {
-        ++cursor;
-      }
-      cursor = std::min(cursor + 2, line.size());
-      append(line.substr(token_start, cursor - token_start),
-             EditorTokenKind::Comment);
-      continue;
-    }
-    if (character == '"' || character == '\'') {
-      const char quote = character;
-      ++cursor;
-      while (cursor < line.size()) {
-        if (line[cursor] == '\\' && cursor + 1 < line.size()) {
-          cursor += 2;
-          continue;
-        }
-        if (line[cursor] == quote) {
-          ++cursor;
-          break;
-        }
-        ++cursor;
-      }
-      append(line.substr(token_start, cursor - token_start),
-             EditorTokenKind::String);
-      continue;
-    }
-    if (std::isdigit(static_cast<unsigned char>(character)) != 0 ||
-        (character == '-' && cursor + 1 < line.size() &&
-         std::isdigit(static_cast<unsigned char>(line[cursor + 1])) != 0)) {
-      ++cursor;
-      while (cursor < line.size() &&
-             std::isdigit(static_cast<unsigned char>(line[cursor])) != 0) {
-        ++cursor;
-      }
-      append(line.substr(token_start, cursor - token_start),
-             EditorTokenKind::Number);
-      continue;
-    }
-    if (is_identifier_start(character)) {
-      ++cursor;
-      while (cursor < line.size() && is_identifier_character(line[cursor])) {
-        ++cursor;
-      }
-      const std::string_view identifier =
-          line.substr(token_start, cursor - token_start);
-      EditorTokenKind kind = EditorTokenKind::Plain;
-      if (cursor < line.size() && line[cursor] == ':') {
-        ++cursor;
-        append(line.substr(token_start, cursor - token_start),
-               EditorTokenKind::Label);
-        continue;
-      }
-      if (contains(keywords, identifier)) {
-        kind = EditorTokenKind::Keyword;
-      } else if (contains(types, identifier)) {
-        kind = EditorTokenKind::Type;
-      } else if ((identifier.front() == 'd' || identifier.front() == 'r') &&
-                 identifier.size() > 1 &&
-                 std::isdigit(static_cast<unsigned char>(identifier[1])) != 0) {
-        kind = EditorTokenKind::Number;
-      }
-      append(identifier, kind);
-      continue;
-    }
-
-    ++cursor;
-    append(line.substr(token_start, 1), EditorTokenKind::Plain);
+  if (!line.empty() && !output.empty()) {
+    output[0] = EditorToken{line, EditorTokenKind::Plain};
+    return 1;
   }
-  return token_count;
+  return 0;
 }
 
 bool supports_editor_syntax_highlighting(std::string_view file_name) noexcept {
+  const auto* grammar = Language::Syntax::GrammarRegistry::instance().get_grammar_for_filename(file_name);
+  if (grammar != nullptr) {
+    return true;
+  }
+
   std::string normalized_name{file_name};
   std::transform(normalized_name.begin(), normalized_name.end(),
                  normalized_name.begin(), [](unsigned char character) {
                    return static_cast<char>(std::tolower(character));
                  });
 
-  if (normalized_name == "cmakelists.txt") {
+  if (normalized_name.ends_with(".log") || normalized_name.ends_with(".txt")) {
     return false;
   }
 
-  const std::size_t dot = normalized_name.find_last_of('.');
-  if (dot == std::string::npos) {
-    return false;
-  }
-  const std::string_view extension{normalized_name.data() + dot,
-                                   normalized_name.size() - dot};
-  constexpr std::array<std::string_view, 14> highlighted_extensions{
-      ".c",   ".cc",  ".cpp", ".cxx", ".h",    ".hh",   ".hpp",
-      ".hxx", ".inl", ".m",   ".mm",  ".vert", ".frag", ".glsl",
-  };
-  return contains(highlighted_extensions, extension);
+  return false;
 }
 
 } // namespace Zenvra::UI::Editor

@@ -1,9 +1,13 @@
 #pragma once
 
+#include "Language/Protocol/LspTypes.h"
 #include "Platform/Win32/Components/EditorMinimap.h"
 #include "Platform/Win32/Components/EditorScrollbar.h"
 #include "Platform/Win32/Event/ScrollEvent.h"
+#include "UI/Components/CompletionPopup.h"
 #include "UI/Components/EditorFolding.h"
+#include "UI/Components/HoverTooltip.h"
+#include "UI/Components/SignatureHelpWidget.h"
 #include "UI/Editor/BraceAnimationModel.h"
 #include "UI/Editor/CaretBlinkModel.h"
 #include "UI/Editor/EditorController.h"
@@ -16,6 +20,7 @@
 
 #include <array>
 #include <filesystem>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -31,6 +36,7 @@ class TextEditor
 {
 public:
     [[nodiscard]] bool open_file(const std::filesystem::path& path);
+    [[nodiscard]] bool close_file(const std::filesystem::path& path);
     [[nodiscard]] std::size_t open_dropped_paths(
         std::span<const std::filesystem::path> dropped_paths);
     [[nodiscard]] bool create_buffer();
@@ -90,12 +96,17 @@ public:
     [[nodiscard]] bool tick_animations() noexcept;
     [[nodiscard]] const UI::Editor::TextDocumentModel* get_document() const noexcept;
 
+    void set_window_handle(HWND hwnd) noexcept { m_window_handle = hwnd; }
+    [[nodiscard]] HWND get_window_handle() const noexcept { return m_window_handle; }
+    void on_diagnostics_updated(const std::string& uri, std::vector<Language::Protocol::Diagnostic> diags);
+
     void render(
         const StudioWorkspaceRenderer& surface,
         HDC device_context,
         const UI::Editor::StudioEditorLayoutResult& layout) const;
 
 private:
+    HWND m_window_handle = nullptr;
     static constexpr std::size_t max_visible_tabs = 128;
 
     void draw_tab_strip(
@@ -112,6 +123,8 @@ private:
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y) const;
+    [[nodiscard]] std::string get_active_document_uri() const;
+    [[nodiscard]] std::string get_active_document_filename() const;
 
     UI::Editor::EditorController m_controller;
     mutable UI::Components::EditorFoldingModel m_folding;
@@ -143,6 +156,10 @@ private:
     mutable UI::Components::Button m_empty_state_open_btn;
     mutable UI::Components::Button m_empty_state_clone_btn;
     mutable UI::Editor::TextPosition m_last_brace_caret;
+    mutable UI::Components::CompletionPopup m_completion_popup;
+    mutable UI::Components::HoverTooltip m_hover_tooltip;
+    mutable UI::Components::SignatureHelpWidget m_signature_help;
+    mutable std::mutex m_lsp_mutex;
 };
 
 } // namespace Zenvra::Platform::Win32::Components
