@@ -1058,7 +1058,7 @@ void TextEditor::draw_document(
             float token_x = code_x;
             std::size_t rendered_bytes = 0;
             std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
-            const std::size_t token_count = UI::Editor::tokenize_editor_line(line, tokens);
+            const std::size_t token_count = UI::Editor::tokenize_editor_line(line, tokens, document->get_file_name());
             for (std::size_t token_index = 0; token_index < token_count; ++token_index)
             {
                 const UI::Editor::EditorToken& token = tokens[token_index];

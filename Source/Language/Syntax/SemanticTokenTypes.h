@@ -9,29 +9,30 @@ namespace Zenvra::Language::Syntax
 
 enum class SemanticTokenType : uint32_t
 {
-    Type = 0,
-    Class = 1,
-    Enum = 2,
-    Interface = 3,
-    Struct = 4,
-    TypeParameter = 5,
-    Parameter = 6,
-    Variable = 7,
-    Property = 8,
-    EnumMember = 9,
-    Event = 10,
-    Function = 11,
-    Method = 12,
-    Macro = 13,
-    Keyword = 14,
-    Modifier = 15,
-    Comment = 16,
-    String = 17,
-    Number = 18,
-    Regexp = 19,
-    Operator = 20,
-    Custom = 21,
-    Count = 22
+    Namespace = 0,
+    Type = 1,
+    Class = 2,
+    Enum = 3,
+    Interface = 4,
+    Struct = 5,
+    TypeParameter = 6,
+    Parameter = 7,
+    Variable = 8,
+    Property = 9,
+    EnumMember = 10,
+    Event = 11,
+    Function = 12,
+    Method = 13,
+    Macro = 14,
+    Keyword = 15,
+    Modifier = 16,
+    Comment = 17,
+    String = 18,
+    Number = 19,
+    Regexp = 20,
+    Operator = 21,
+    Custom = 22,
+    Count = 23
 };
 
 #ifdef None
@@ -58,7 +59,7 @@ namespace SemanticTokenModifier
 [[nodiscard]] inline std::string_view semantic_token_type_to_string(SemanticTokenType type) noexcept
 {
     constexpr std::array<std::string_view, static_cast<std::size_t>(SemanticTokenType::Count)> names = {
-        "type", "class", "enum", "interface", "struct", "typeParameter",
+        "namespace", "type", "class", "enum", "interface", "struct", "typeParameter",
         "parameter", "variable", "property", "enumMember", "event",
         "function", "method", "macro", "keyword", "modifier",
         "comment", "string", "number", "regexp", "operator", "custom"
@@ -69,6 +70,7 @@ namespace SemanticTokenModifier
 
 [[nodiscard]] inline SemanticTokenType string_to_semantic_token_type(std::string_view name) noexcept
 {
+    if (name == "namespace") return SemanticTokenType::Namespace;
     if (name == "type") return SemanticTokenType::Type;
     if (name == "class") return SemanticTokenType::Class;
     if (name == "enum") return SemanticTokenType::Enum;

@@ -38,6 +38,15 @@ std::size_t GenericGrammarEngine::tokenize_line(
         }
     }
 
+    enum class DeclContext
+    {
+        None,
+        Namespace,
+        Class,
+        Function
+    };
+    DeclContext decl_context = DeclContext::None;
+
     while (cursor < line.size() && token_count < output.size())
     {
         const std::size_t token_start = cursor;
@@ -156,7 +165,7 @@ std::size_t GenericGrammarEngine::tokenize_line(
             continue;
         }
 
-        // 8. Identifiers (Keywords, Types, Plain)
+        // 8. Identifiers (Keywords, Types, Functions, Classes, Namespaces, Plain)
         if (std::isalpha(static_cast<unsigned char>(character)) != 0 || character == '_')
         {
             while (cursor < line.size() &&
@@ -166,22 +175,90 @@ std::size_t GenericGrammarEngine::tokenize_line(
                 ++cursor;
             }
             const std::string_view identifier = line.substr(token_start, cursor - token_start);
+
+            // Lookahead after this identifier (ignoring whitespace)
+            std::size_t next_idx = cursor;
+            while (next_idx < line.size() && std::isspace(static_cast<unsigned char>(line[next_idx])) != 0)
+            {
+                ++next_idx;
+            }
+
+            const bool followed_by_scope = (next_idx + 1 < line.size() && line[next_idx] == ':' && line[next_idx + 1] == ':');
+            const bool followed_by_paren = (next_idx < line.size() && line[next_idx] == '(');
+
             if (grammar.is_keyword(identifier))
             {
                 append(identifier, UI::Editor::EditorTokenKind::Keyword);
+                if (identifier == "namespace" || identifier == "package" || identifier == "import" ||
+                    identifier == "mod" || identifier == "use")
+                {
+                    decl_context = DeclContext::Namespace;
+                }
+                else if (identifier == "class" || identifier == "struct" || identifier == "interface" ||
+                         identifier == "enum" || identifier == "trait" || identifier == "record" || identifier == "union")
+                {
+                    decl_context = DeclContext::Class;
+                }
+                else if (identifier == "fn" || identifier == "def" || identifier == "function" || identifier == "func")
+                {
+                    decl_context = DeclContext::Function;
+                }
             }
             else if (grammar.is_type(identifier))
             {
                 append(identifier, UI::Editor::EditorTokenKind::Type);
+                if (decl_context != DeclContext::Namespace)
+                {
+                    decl_context = DeclContext::None;
+                }
             }
             else
             {
-                append(identifier, UI::Editor::EditorTokenKind::Plain);
+                bool is_label = false;
+
+                if (decl_context == DeclContext::Namespace ||
+                    decl_context == DeclContext::Class ||
+                    decl_context == DeclContext::Function)
+                {
+                    is_label = true;
+                    if (decl_context != DeclContext::Namespace)
+                    {
+                        decl_context = DeclContext::None;
+                    }
+                }
+                else if (followed_by_paren || followed_by_scope)
+                {
+                    is_label = true;
+                }
+                else if (std::isupper(static_cast<unsigned char>(identifier.front())) != 0)
+                {
+                    is_label = true;
+                }
+
+                if (is_label)
+                {
+                    append(identifier, UI::Editor::EditorTokenKind::Label);
+                }
+                else
+                {
+                    append(identifier, UI::Editor::EditorTokenKind::Plain);
+                }
             }
             continue;
         }
 
         // 9. Operators and punctuation symbols
+        const char punct = line[cursor];
+        if (punct == ';' || punct == '{' || punct == '}' || punct == '(' || punct == ')')
+        {
+            decl_context = DeclContext::None;
+        }
+        else if (punct == ':' && cursor + 1 < line.size() && line[cursor + 1] == ':')
+        {
+            append(line.substr(cursor, 2), UI::Editor::EditorTokenKind::Plain);
+            cursor += 2;
+            continue;
+        }
         ++cursor;
         append(line.substr(token_start, 1), UI::Editor::EditorTokenKind::Plain);
     }

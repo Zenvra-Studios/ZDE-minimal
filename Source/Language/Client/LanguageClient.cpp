@@ -86,7 +86,7 @@ bool LanguageClient::start()
                     {"dynamicRegistration", true},
                     {"requests", {{"full", true}, {"range", true}}},
                     {"tokenTypes", nlohmann::json::array({
-                        "type", "class", "enum", "interface", "struct", "typeParameter",
+                        "namespace", "type", "class", "enum", "interface", "struct", "typeParameter",
                         "parameter", "variable", "property", "enumMember", "event",
                         "function", "method", "macro", "keyword", "modifier",
                         "comment", "string", "number", "regexp", "operator", "custom"

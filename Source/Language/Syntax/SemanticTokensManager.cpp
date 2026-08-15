@@ -123,13 +123,14 @@ UI::Theme::Color SemanticTokensManager::get_token_color(
             return palette.keyword;
 
         case SemanticTokenType::Type:
-        case SemanticTokenType::Class:
         case SemanticTokenType::Enum:
-        case SemanticTokenType::Interface:
-        case SemanticTokenType::Struct:
         case SemanticTokenType::TypeParameter:
             return palette.type;
 
+        case SemanticTokenType::Namespace:
+        case SemanticTokenType::Class:
+        case SemanticTokenType::Struct:
+        case SemanticTokenType::Interface:
         case SemanticTokenType::Function:
         case SemanticTokenType::Method:
         case SemanticTokenType::Macro:

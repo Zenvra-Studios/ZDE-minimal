@@ -190,13 +190,13 @@ void GrammarRegistry::initialize_default_grammars()
         java_rule.block_comment_start = "/*";
         java_rule.block_comment_end = "*/";
         java_rule.keywords = {
-            "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char",
-            "class", "const", "continue", "default", "do", "double", "else", "enum",
-            "extends", "final", "finally", "float", "for", "goto", "if", "implements",
-            "import", "instanceof", "int", "interface", "long", "native", "new",
-            "package", "private", "protected", "public", "return", "short", "static",
+            "abstract", "assert", "break", "case", "catch",
+            "class", "const", "continue", "default", "do", "else", "enum",
+            "extends", "final", "finally", "for", "goto", "if", "implements",
+            "import", "instanceof", "interface", "native", "new",
+            "package", "private", "protected", "public", "return", "static",
             "strictfp", "super", "switch", "synchronized", "this", "throw", "throws",
-            "transient", "try", "void", "volatile", "while", "yield", "record",
+            "transient", "try", "volatile", "while", "yield", "record",
             "sealed", "non-sealed", "permits", "var", "true", "false", "null",
             // Spring Boot & Enterprise Annotations
             "@SpringBootApplication", "@RestController", "@Controller", "@Service",
@@ -223,6 +223,7 @@ void GrammarRegistry::initialize_default_grammars()
             "@Nullable", "@NonNull", "@NotNull"
         };
         java_rule.types = {
+            "boolean", "byte", "char", "short", "int", "long", "float", "double", "void",
             "String", "Object", "Integer", "Long", "Double", "Float", "Boolean",
             "Character", "Byte", "Short", "Void", "CharSequence", "StringBuilder", "StringBuffer",
             "List", "ArrayList", "LinkedList", "Map", "HashMap", "TreeMap", "LinkedHashMap",
@@ -328,20 +329,21 @@ void GrammarRegistry::initialize_default_grammars()
         cpp_rule.supports_preprocessor = true;
         cpp_rule.keywords = {
             "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor",
-            "bool", "break", "case", "catch", "char", "char8_t", "char16_t", "char32_t",
-            "class", "compl", "concept", "const", "consteval", "constexpr", "constinit",
+            "break", "case", "catch", "class", "compl", "concept", "const", "consteval", "constexpr", "constinit",
             "const_cast", "continue", "co_await", "co_return", "co_yield", "decltype",
-            "default", "delete", "do", "double", "dynamic_cast", "else", "enum",
-            "explicit", "export", "extern", "false", "float", "for", "friend", "goto",
-            "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept",
+            "default", "delete", "do", "dynamic_cast", "else", "enum",
+            "explicit", "export", "extern", "false", "for", "friend", "goto",
+            "if", "inline", "mutable", "namespace", "new", "noexcept",
             "not", "not_eq", "nullptr", "operator", "or", "or_eq", "private", "protected",
-            "public", "register", "reinterpret_cast", "requires", "return", "short",
-            "signed", "sizeof", "static", "static_assert", "static_cast", "struct",
+            "public", "register", "reinterpret_cast", "requires", "return",
+            "sizeof", "static", "static_assert", "static_cast", "struct",
             "switch", "template", "this", "thread_local", "throw", "true", "try",
-            "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual",
-            "void", "volatile", "wchar_t", "while", "xor", "xor_eq"
+            "typedef", "typeid", "typename", "union", "using", "virtual",
+            "volatile", "while", "xor", "xor_eq"
         };
         cpp_rule.types = {
+            "bool", "char", "char8_t", "char16_t", "char32_t", "double", "float", "int", "long", "short",
+            "signed", "unsigned", "void", "wchar_t",
             "size_t", "int8_t", "int16_t", "int32_t", "int64_t",
             "uint8_t", "uint16_t", "uint32_t", "uint64_t",
             "intptr_t", "uintptr_t", "ptrdiff_t", "string", "string_view",
