@@ -51,6 +51,10 @@ public:
   [[nodiscard]] float get_height() const noexcept;
   void set_focused(bool focused) noexcept;
   void set_working_directory(const std::filesystem::path &directory) noexcept;
+
+  enum class PanelChannel { Terminal, Output };
+  [[nodiscard]] PanelChannel get_active_channel() const noexcept { return m_active_channel; }
+  void set_active_channel(PanelChannel channel) noexcept { m_active_channel = channel; }
   [[nodiscard]] bool
   contains(const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
            float point_y) const noexcept;
@@ -69,8 +73,15 @@ private:
   [[nodiscard]] UI::Rect
   session_tab_bounds(const UI::Editor::StudioEditorLayoutResult &layout,
                      std::size_t index) const noexcept;
-  [[nodiscard]] UI::Rect add_button_bounds(
-      const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
+  [[nodiscard]] UI::Rect
+  terminal_channel_tab_bounds(const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
+  [[nodiscard]] UI::Rect
+  output_channel_tab_bounds(const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
+  [[nodiscard]] UI::Rect
+  clear_output_button_bounds(const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
+  [[nodiscard]] UI::Rect
+  add_button_bounds(const UI::Editor::StudioEditorLayoutResult &layout) const
+      noexcept;
   [[nodiscard]] UI::Rect close_button_bounds(
       const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
   [[nodiscard]] UI::Rect resize_handle_bounds(
@@ -80,11 +91,16 @@ private:
   Terminal::TerminalResizeModel m_resize_model;
   UI::Editor::CaretBlinkModel m_caret_blink;
   std::filesystem::path m_working_directory;
+  float m_cached_line_height = 0.0F;
+  float m_cached_char_width = 0.0F;
   std::size_t m_last_total_rows = 0;
   std::size_t m_last_visible_rows = 0;
   bool m_selecting_text = false;
-  float m_cached_line_height = 16.0F;
-  float m_cached_char_width = 8.0F;
+  std::unordered_map<std::size_t, float> m_tab_animated_x;
+  mutable std::unordered_map<std::size_t, float> m_tab_target_x;
+  std::size_t m_horizontal_scroll_offset = 0;
+  bool m_force_horizontal_scroll_to_cursor = false;
+  PanelChannel m_active_channel = PanelChannel::Terminal;
 };
 
 } // namespace Zenvra::Platform::Win32::Components

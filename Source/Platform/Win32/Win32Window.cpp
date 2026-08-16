@@ -2,6 +2,7 @@
 #include "Commands/CommandIds.h"
 #include "Config/resource.h"
 #include "Language/LanguageServerManager.h"
+#include "Platform/HostSystem.h"
 #include "Platform/PlatformDialogs.h"
 #include "Platform/Win32/Components/FileDropTarget.h"
 #include "Platform/Win32/Event/ScrollEvent.h"
@@ -94,14 +95,17 @@ void fill_rounded_rectangle(HDC device_context, const UI::Rect &rectangle,
     const uint32_t col_r = color.red;
     const uint32_t col_g = color.green;
     const uint32_t col_b = color.blue;
+    const uint32_t col_a = color.alpha;
     const int ri = static_cast<int>(r);
     const float w_minus_r = static_cast<float>(w) - r;
     const float h_minus_r = static_cast<float>(h) - r;
 
     // Fill fully opaque interior rows first (memset is very fast)
     std::memset(pixels, 0, static_cast<size_t>(w) * h * sizeof(uint32_t));
-    const uint32_t opaque_pixel =
-        (255u << 24) | (col_r << 16) | (col_g << 8) | col_b;
+    const uint32_t base_pr = (col_r * col_a) / 255;
+    const uint32_t base_pg = (col_g * col_a) / 255;
+    const uint32_t base_pb = (col_b * col_a) / 255;
+    const uint32_t opaque_pixel = (col_a << 24) | (base_pr << 16) | (base_pg << 8) | base_pb;
 
     // Only compute alpha for corner rows; interior rows are fully opaque
     for (int y = 0; y < h; ++y) {
@@ -129,7 +133,7 @@ void fill_rounded_rectangle(HDC device_context, const UI::Rect &rectangle,
         float alpha_f = std::clamp(0.5f - (dist - r), 0.0f, 1.0f);
 
         if (alpha_f > 0.0f) {
-          uint32_t a = static_cast<uint32_t>(alpha_f * 255.0f);
+          uint32_t a = static_cast<uint32_t>(alpha_f * static_cast<float>(col_a));
           uint32_t pr = (col_r * a) / 255;
           uint32_t pg = (col_g * a) / 255;
           uint32_t pb = (col_b * a) / 255;
@@ -260,6 +264,14 @@ Win32Window::Win32Window(const WindowSpecification &specification)
   m_capabilities.native_resize = true;
   m_capabilities.native_snap = true;
   m_capabilities.per_monitor_dpi = true;
+
+  const auto arch = HostSystem::get_native_architecture();
+  if (arch == HostSystem::Architecture::Arm64) {
+    m_run_config_state.active_architecture = UI::Toolbar::TargetArchitecture::Arm64;
+  } else if (arch == HostSystem::Architecture::X86_64) {
+    m_run_config_state.active_architecture = UI::Toolbar::TargetArchitecture::X86_64;
+  }
+  m_run_config_state.active_preset_name = HostSystem::get_system_info().default_preset_debug;
 }
 
 Win32Window::~Win32Window() {
@@ -306,12 +318,6 @@ bool Win32Window::initialize() {
   DwmSetWindowAttribute(m_window_handle, dwm_immersive_dark_mode_attribute,
                         &dark_mode_enabled, sizeof(dark_mode_enabled));
 
-  // Strictly enforce 100% sharp rectangular lancip corners (no rounded clipping)
-  constexpr DWORD dwm_window_corner_preference_attribute = 33; // DWMWA_WINDOW_CORNER_PREFERENCE
-  const DWORD corner_preference = 1;                           // DWMWCP_DONOTROUND (forces sharp 90-degree rectangle)
-  DwmSetWindowAttribute(m_window_handle, dwm_window_corner_preference_attribute,
-                        &corner_preference, sizeof(corner_preference));
-
   const MARGINS frame_margins{0, 0, 0, 0};
   DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
 
@@ -338,7 +344,7 @@ bool Win32Window::initialize() {
       SetTimer(m_window_handle, editor_caret_timer_id, 16, nullptr));
   refresh_chrome_layout();
   set_custom_chrome_enabled(m_specification.custom_chrome_enabled);
-  enforce_sharp_corners();
+  apply_system_corner_preference();
   return true;
 }
 
@@ -347,9 +353,9 @@ void Win32Window::show() {
     return;
   }
 
-  enforce_sharp_corners();
+  apply_system_corner_preference();
   ShowWindow(m_window_handle, SW_SHOWDEFAULT);
-  enforce_sharp_corners();
+  apply_system_corner_preference();
 
   refresh_chrome_layout();
   InvalidateRect(m_window_handle, nullptr, TRUE);
@@ -379,7 +385,7 @@ void Win32Window::minimize() { ShowWindow(m_window_handle, SW_MINIMIZE); }
 
 void Win32Window::maximize() {
   ShowWindow(m_window_handle, SW_MAXIMIZE);
-  enforce_sharp_corners();
+  apply_system_corner_preference();
   refresh_chrome_layout();
   InvalidateRect(m_window_handle, nullptr, TRUE);
   UpdateWindow(m_window_handle);
@@ -387,7 +393,7 @@ void Win32Window::maximize() {
 
 void Win32Window::restore() {
   ShowWindow(m_window_handle, SW_RESTORE);
-  enforce_sharp_corners();
+  apply_system_corner_preference();
   refresh_chrome_layout();
   InvalidateRect(m_window_handle, nullptr, TRUE);
   UpdateWindow(m_window_handle);
@@ -429,7 +435,7 @@ void Win32Window::set_custom_chrome_enabled(bool enabled) {
     static_cast<void>(m_menubar.detach());
     const MARGINS frame_margins{0, 0, 0, 0};
     DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
-    enforce_sharp_corners();
+    apply_system_corner_preference();
   } else {
     close_menu_overlay();
     static_cast<void>(m_menubar.attach(m_window_handle));
@@ -440,7 +446,7 @@ void Win32Window::set_custom_chrome_enabled(bool enabled) {
   SetWindowPos(m_window_handle, nullptr, 0, 0, 0, 0,
                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
                    SWP_FRAMECHANGED);
-  enforce_sharp_corners();
+  apply_system_corner_preference();
   refresh_chrome_layout();
   InvalidateRect(m_window_handle, nullptr, FALSE);
 }
@@ -511,6 +517,33 @@ bool Win32Window::open_project_folder() {
     InvalidateRect(m_window_handle, nullptr, FALSE);
   }
   return true;
+}
+
+bool Win32Window::close_project() {
+  static_cast<void>(m_workspace_renderer.close_project());
+  Language::LanguageServerManager::instance().set_workspace_root({});
+  m_window_title = utf8_to_wide(m_specification.title);
+  if (m_window_handle != nullptr) {
+    SetWindowTextW(m_window_handle, m_window_title.c_str());
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+  }
+  return true;
+}
+
+void Win32Window::toggle_terminal() {
+  static_cast<void>(m_workspace_renderer.toggle_terminal());
+  refresh_chrome_layout();
+  if (m_window_handle != nullptr) {
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+  }
+}
+
+void Win32Window::toggle_shader_sandbox() {
+  static_cast<void>(m_workspace_renderer.toggle_shader_sandbox());
+  refresh_chrome_layout();
+  if (m_window_handle != nullptr) {
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+  }
 }
 
 LRESULT CALLBACK Win32Window::window_proc(HWND window_handle, UINT message,
@@ -702,10 +735,10 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           m_explorer_context_menu.hovered_index = new_hover;
           InvalidateRect(window_handle, nullptr, FALSE);
         }
-        m_workspace_renderer.handle_pointer_move(
+        static_cast<void>(m_workspace_renderer.handle_pointer_move(
             -10000.0F, -10000.0F, client_bounds.right - client_bounds.left,
             client_bounds.bottom - client_bounds.top,
-            m_chrome_layout.titlebar_bounds.bottom());
+            m_chrome_layout.titlebar_bounds.bottom()));
         return 0;
       }
       const std::optional<std::size_t> root_menu_index =
@@ -1155,8 +1188,19 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           }
         }
         if (editor_point || scrollbar_point || minimap_point || tab_bar_point ||
+            m_workspace_renderer.is_editor_split_resizing() ||
             m_workspace_renderer.is_terminal_resizing() ||
-            m_workspace_renderer.is_sidebar_resizing()) {
+            m_workspace_renderer.is_sidebar_resizing() ||
+            m_workspace_renderer.is_sidebar_dragging_item() ||
+            m_workspace_renderer.is_shader_sandbox_resizing() ||
+            m_workspace_renderer.is_shader_sandbox_point(
+                point_x, point_y, client_bounds.right - client_bounds.left,
+                client_bounds.bottom - client_bounds.top,
+                m_chrome_layout.titlebar_bounds.bottom()) ||
+            m_workspace_renderer.is_tool_sidebar_point(
+                point_x, point_y, client_bounds.right - client_bounds.left,
+                client_bounds.bottom - client_bounds.top,
+                m_chrome_layout.titlebar_bounds.bottom())) {
           m_workspace_pointer_captured = true;
           SetCapture(window_handle);
         }
@@ -1427,7 +1471,14 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
               client_bounds.right - client_bounds.left,
               client_bounds.bottom - client_bounds.top,
               m_chrome_layout.titlebar_bounds.bottom()) ||
-          m_workspace_renderer.is_shader_sandbox_resizing()) {
+          m_workspace_renderer.is_shader_sandbox_resizing() ||
+          m_workspace_renderer.is_editor_split_resize_handle(
+              static_cast<float>(cursor_position.x),
+              static_cast<float>(cursor_position.y),
+              client_bounds.right - client_bounds.left,
+              client_bounds.bottom - client_bounds.top,
+              m_chrome_layout.titlebar_bounds.bottom()) ||
+          m_workspace_renderer.is_editor_split_resizing()) {
         SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
         return TRUE;
       }
@@ -1888,10 +1939,16 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
   case WM_ACTIVATE:
     if (LOWORD(w_param) != WA_INACTIVE) {
       refresh_chrome_layout();
+      static_cast<void>(m_workspace_renderer.m_text_editor.check_external_file_changes());
       if (m_custom_chrome_enabled) {
         InvalidateRect(window_handle, nullptr, FALSE);
       }
     }
+    break;
+
+  case WM_SETFOCUS:
+    static_cast<void>(m_workspace_renderer.m_text_editor.check_external_file_changes());
+    InvalidateRect(window_handle, nullptr, FALSE);
     break;
 
   case WM_WINDOWPOSCHANGED: {
@@ -1899,7 +1956,7 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     if ((window_pos->flags & SWP_NOSIZE) == 0 ||
         (window_pos->flags & SWP_SHOWWINDOW) != 0) {
       if (!is_minimized()) {
-        enforce_sharp_corners();
+        apply_system_corner_preference();
         refresh_chrome_layout();
         if (m_custom_chrome_enabled) {
           InvalidateRect(window_handle, nullptr, FALSE);
@@ -1911,7 +1968,7 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
 
   case WM_SIZE:
     if (w_param != SIZE_MINIMIZED) {
-      enforce_sharp_corners();
+      apply_system_corner_preference();
       refresh_chrome_layout();
       if (m_custom_chrome_enabled) {
         InvalidateRect(window_handle, nullptr, FALSE);
@@ -1941,7 +1998,7 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
 
   case WM_DWMCOMPOSITIONCHANGED:
   case WM_SETTINGCHANGE: {
-    enforce_sharp_corners();
+    apply_system_corner_preference();
     break;
   }
 
@@ -2054,18 +2111,23 @@ LRESULT Win32Window::hit_test_resize_border(POINT client_position) const {
   return HTNOWHERE;
 }
 
-void Win32Window::enforce_sharp_corners() {
+void Win32Window::apply_system_corner_preference() {
   if (m_window_handle == nullptr) {
     return;
   }
 
-  // Let the native OS system manage window corners (DWMWCP_DEFAULT = 0 on Windows 11+, native square on Win10)
+  // Let the OS decide window corner rounding, adapting to the Windows
+  // version the app is running on:
+  // - Windows 10: corners are naturally square (attribute is ignored).
+  // - Windows 11: follows the system's own corner preference.
+  // No corner policy is forced here; the app stays consistent with the
+  // platform default while keeping the native frame and drop shadow.
   constexpr DWORD dwm_window_corner_preference_attribute = 33;
   const DWORD corner_preference = 0; // DWMWCP_DEFAULT
   DwmSetWindowAttribute(m_window_handle, dwm_window_corner_preference_attribute,
                         &corner_preference, sizeof(corner_preference));
 
-  // Clear custom clipping region so DWM hardware-accelerated rounded corners and drop shadows are rendered natively by the OS
+  // Clear any custom clipping region so DWM renders the native frame
   SetWindowRgn(m_window_handle, nullptr, TRUE);
 }
 
@@ -2304,20 +2366,22 @@ void Win32Window::paint_custom_chrome() {
       draw_toolbar_hover(m_chrome_layout.compiler_bounds);
     }
     RECT text_rect = {
-        static_cast<LONG>(m_chrome_layout.compiler_bounds.x + 12.0F * scale),
+        static_cast<LONG>(m_chrome_layout.compiler_bounds.x + 10.0F * scale),
         static_cast<LONG>(m_chrome_layout.compiler_bounds.y),
-        static_cast<LONG>(m_chrome_layout.compiler_bounds.right() - 16.0F * scale),
+        static_cast<LONG>(m_chrome_layout.compiler_bounds.right() - 22.0F * scale),
         static_cast<LONG>(m_chrome_layout.compiler_bounds.bottom())};
-    draw_centered_text(buffer_context, L"Debug", text_rect,
+    std::string mode_str(UI::Toolbar::to_string(m_run_config_state.active_mode));
+    std::wstring mode_wstr(mode_str.begin(), mode_str.end());
+    draw_centered_text(buffer_context, mode_wstr.c_str(), text_rect,
                        m_theme.text_primary);
     const int chevron_x = static_cast<int>(
-        m_chrome_layout.compiler_bounds.right() - 14.0F * scale);
+        m_chrome_layout.compiler_bounds.right() - 10.0F * scale);
     const int chevron_y =
         static_cast<int>(m_chrome_layout.compiler_bounds.y +
                          m_chrome_layout.compiler_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(
         buffer_context, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
-        std::max(static_cast<int>(12.0F * scale), 10),
+        std::max(static_cast<int>(10.0F * scale), 8),
         m_workspace_renderer.m_palette.text_muted, m_theme.titlebar_background);
   }
 
@@ -2326,20 +2390,22 @@ void Win32Window::paint_custom_chrome() {
       draw_toolbar_hover(m_chrome_layout.platform_bounds);
     }
     RECT text_rect = {
-        static_cast<LONG>(m_chrome_layout.platform_bounds.x + 12.0F * scale),
+        static_cast<LONG>(m_chrome_layout.platform_bounds.x + 10.0F * scale),
         static_cast<LONG>(m_chrome_layout.platform_bounds.y),
         static_cast<LONG>(m_chrome_layout.platform_bounds.right() -
-                          16.0F * scale),
+                          22.0F * scale),
         static_cast<LONG>(m_chrome_layout.platform_bounds.bottom())};
-    draw_centered_text(buffer_context, L"x64", text_rect, m_theme.text_primary);
+    std::string arch_str(UI::Toolbar::to_string(m_run_config_state.active_architecture));
+    std::wstring arch_wstr(arch_str.begin(), arch_str.end());
+    draw_centered_text(buffer_context, arch_wstr.c_str(), text_rect, m_theme.text_primary);
     const int chevron_x = static_cast<int>(
-        m_chrome_layout.platform_bounds.right() - 14.0F * scale);
+        m_chrome_layout.platform_bounds.right() - 10.0F * scale);
     const int chevron_y =
         static_cast<int>(m_chrome_layout.platform_bounds.y +
                          m_chrome_layout.platform_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(
         buffer_context, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
-        std::max(static_cast<int>(12.0F * scale), 10),
+        std::max(static_cast<int>(10.0F * scale), 8),
         m_workspace_renderer.m_palette.text_muted,
         m_platform_button_hovered ? m_theme.hover
                                   : m_theme.titlebar_background);
@@ -2355,7 +2421,7 @@ void Win32Window::paint_custom_chrome() {
         static_cast<int>(m_chrome_layout.binary_bounds.x + 16.0F * scale),
         static_cast<int>(m_chrome_layout.binary_bounds.y +
                          m_chrome_layout.binary_bounds.height * 0.5F),
-        binary_icon_size, m_workspace_renderer.m_palette.text_primary,
+        binary_icon_size, m_theme.text_primary,
         m_binary_button_hovered ? m_theme.hover : m_theme.titlebar_background);
     RECT text_rect = {
         static_cast<LONG>(m_chrome_layout.binary_bounds.x + 36.0F * scale),
@@ -2363,7 +2429,8 @@ void Win32Window::paint_custom_chrome() {
         static_cast<LONG>(m_chrome_layout.binary_bounds.right() -
                           16.0F * scale),
         static_cast<LONG>(m_chrome_layout.binary_bounds.bottom())};
-    draw_centered_text(buffer_context, L"untitled", text_rect,
+    std::wstring bin_wstr(m_run_config_state.active_target_name.begin(), m_run_config_state.active_target_name.end());
+    draw_centered_text(buffer_context, bin_wstr.c_str(), text_rect,
                        m_theme.text_primary);
     const int chevron_x =
         static_cast<int>(m_chrome_layout.binary_bounds.right() - 14.0F * scale);
@@ -2488,6 +2555,22 @@ void Win32Window::execute_menu_item(std::size_t menu_index,
     show_about_dialog();
     return;
   }
+  if (command_id == Commands::CommandIds::build_debug) {
+    m_run_config_state.active_mode = UI::Toolbar::BuildConfigurationMode::Debug;
+  } else if (command_id == Commands::CommandIds::build_release) {
+    m_run_config_state.active_mode = UI::Toolbar::BuildConfigurationMode::Release;
+  } else if (command_id == Commands::CommandIds::platform_arm64 ||
+             command_id == Commands::CommandIds::platform_aarch64 ||
+             command_id == Commands::CommandIds::platform_apple_arm) {
+    m_run_config_state.active_architecture = UI::Toolbar::TargetArchitecture::Arm64;
+  } else if (command_id == Commands::CommandIds::platform_x64) {
+    m_run_config_state.active_architecture = UI::Toolbar::TargetArchitecture::X86_64;
+  } else if (command_id == Commands::CommandIds::run_zde) {
+    m_run_config_state.active_target_name = "ZDE";
+  } else if (command_id == Commands::CommandIds::run_tests) {
+    m_run_config_state.active_target_name = "ZDEUnitTests";
+  }
+
   if (!command_id.empty()) {
     const std::optional<bool> editor_result =
         m_workspace_renderer.handle_editor_command(command_id);
@@ -2507,13 +2590,14 @@ Win32Window::calculate_menu_overlay_geometry() const noexcept {
 
   const std::span<const UI::Components::Menu> menus =
       UI::Components::get_window_menus();
-  const float row_height = 28.0F * m_chrome_layout.dpi_scale;
+  const float row_height = 24.0F * m_chrome_layout.dpi_scale;
+  const float vertical_padding = 4.0F * m_chrome_layout.dpi_scale;
   const std::size_t first_menu_index =
       m_chrome_layout.first_overflow_menu_index;
   if (first_menu_index >= menus.size()) {
     return geometry;
   }
-  float popup_width = 168.0F * m_chrome_layout.dpi_scale;
+  float popup_width = 160.0F * m_chrome_layout.dpi_scale;
   for (std::size_t menu_index = first_menu_index; menu_index < menus.size();
        ++menu_index) {
     const UI::Components::Menu &menu = menus[menu_index];
@@ -2524,16 +2608,26 @@ Win32Window::calculate_menu_overlay_geometry() const noexcept {
   }
   geometry.item_count =
       std::min(menus.size() - first_menu_index, geometry.item_bounds.size());
+  const float floating_gap = 4.0F * m_chrome_layout.dpi_scale;
+  const float window_right = m_chrome_layout.titlebar_bounds.right();
+  float popup_x = m_chrome_layout.overflow_menu_bounds.x;
+  if (popup_x + popup_width > window_right - 8.0F * m_chrome_layout.dpi_scale) {
+    popup_x = window_right - popup_width - 8.0F * m_chrome_layout.dpi_scale;
+  }
+  if (popup_x < 8.0F * m_chrome_layout.dpi_scale) {
+    popup_x = 8.0F * m_chrome_layout.dpi_scale;
+  }
+
   geometry.bounds = {
-      m_chrome_layout.overflow_menu_bounds.x,
-      m_chrome_layout.titlebar_bounds.bottom(),
+      popup_x,
+      m_chrome_layout.titlebar_bounds.bottom() + floating_gap,
       popup_width,
-      row_height * static_cast<float>(geometry.item_count),
+      row_height * static_cast<float>(geometry.item_count) + vertical_padding * 2.0F,
   };
   for (std::size_t index = 0; index < geometry.item_count; ++index) {
     geometry.item_bounds[index] = {
         geometry.bounds.x,
-        geometry.bounds.y + row_height * static_cast<float>(index),
+        geometry.bounds.y + vertical_padding + row_height * static_cast<float>(index),
         geometry.bounds.width,
         row_height,
     };
@@ -2551,24 +2645,28 @@ Win32Window::PopupMenuGeometry Win32Window::calculate_popup_menu_geometry(
   }
 
   const UI::Components::Menu &menu = menus[menu_index];
-  const float row_height = 28.0F * m_chrome_layout.dpi_scale;
-  const float separator_height = 9.0F * m_chrome_layout.dpi_scale;
-  float popup_width = 240.0F * m_chrome_layout.dpi_scale;
+  const float row_height = 24.0F * m_chrome_layout.dpi_scale;
+  const float separator_height = 7.0F * m_chrome_layout.dpi_scale;
+  const float vertical_padding = 4.0F * m_chrome_layout.dpi_scale;
+  float popup_width = 220.0F * m_chrome_layout.dpi_scale;
   for (const UI::Components::MenuItem &item : menu.items) {
     if (item.separator) {
       continue;
     }
-    float item_width = static_cast<float>(item.label.size()) * 7.5F *
+    float item_width = static_cast<float>(item.label.size()) * 7.0F *
                            m_chrome_layout.dpi_scale +
-                       48.0F * m_chrome_layout.dpi_scale;
+                       42.0F * m_chrome_layout.dpi_scale;
     if (!item.shortcut.empty()) {
-      item_width += static_cast<float>(item.shortcut.size()) * 7.5F *
+      item_width += static_cast<float>(item.shortcut.size()) * 7.0F *
                         m_chrome_layout.dpi_scale +
-                    36.0F * m_chrome_layout.dpi_scale;
+                    30.0F * m_chrome_layout.dpi_scale;
     }
     popup_width = std::max(popup_width, item_width);
   }
-  popup_width = std::min(popup_width, 480.0F * m_chrome_layout.dpi_scale);
+  popup_width = std::min(popup_width, 460.0F * m_chrome_layout.dpi_scale);
+
+  const float window_right = m_chrome_layout.titlebar_bounds.right();
+  const float floating_gap = 4.0F * m_chrome_layout.dpi_scale;
 
   if (m_menu_overlay_open) {
     const MenuOverlayGeometry root_geometry = calculate_menu_overlay_geometry();
@@ -2582,7 +2680,7 @@ Win32Window::PopupMenuGeometry Win32Window::calculate_popup_menu_geometry(
     geometry.bounds.y = root_geometry.item_bounds[root_index].y;
   } else {
     geometry.bounds.x = m_chrome_layout.overflow_menu_bounds.x;
-    geometry.bounds.y = m_chrome_layout.titlebar_bounds.bottom();
+    geometry.bounds.y = m_chrome_layout.titlebar_bounds.bottom() + floating_gap;
     for (std::size_t index = 0; index < m_chrome_layout.visible_menu_count;
          ++index) {
       if (m_chrome_layout.menu_regions[index].menu_index == menu_index) {
@@ -2596,15 +2694,24 @@ Win32Window::PopupMenuGeometry Win32Window::calculate_popup_menu_geometry(
       geometry.bounds.x = m_chrome_layout.platform_bounds.x;
     else if (menu_index == 12)
       geometry.bounds.x = m_chrome_layout.binary_bounds.x;
-    else if (menu_index == 13)
-      geometry.bounds.x = m_chrome_layout.gear_bounds.x;
-    else if (menu_index == 14)
-      geometry.bounds.x = m_chrome_layout.ellipsis_bounds.x;
+    else if (menu_index == 13) // Gear menu -> Align to right of button and expand to left
+      geometry.bounds.x = m_chrome_layout.gear_bounds.right() - popup_width;
+    else if (menu_index == 14) // Ellipsis menu -> Align to right of button and expand to left
+      geometry.bounds.x = m_chrome_layout.ellipsis_bounds.right() - popup_width;
   }
+
+  // Prevent right-edge overflow or clipping (facing left away from window border)
+  if (geometry.bounds.x + popup_width > window_right - 8.0F * m_chrome_layout.dpi_scale) {
+    geometry.bounds.x = window_right - popup_width - 8.0F * m_chrome_layout.dpi_scale;
+  }
+  if (geometry.bounds.x < 8.0F * m_chrome_layout.dpi_scale) {
+    geometry.bounds.x = 8.0F * m_chrome_layout.dpi_scale;
+  }
+
   geometry.bounds.width = popup_width;
   geometry.item_count =
       std::min(menu.items.size(), geometry.item_bounds.size());
-  float current_y = geometry.bounds.y;
+  float current_y = geometry.bounds.y + vertical_padding;
   for (std::size_t index = 0; index < geometry.item_count; ++index) {
     const float item_height =
         menu.items[index].separator ? separator_height : row_height;
@@ -2616,7 +2723,7 @@ Win32Window::PopupMenuGeometry Win32Window::calculate_popup_menu_geometry(
     };
     current_y += item_height;
   }
-  geometry.bounds.height = current_y - geometry.bounds.y;
+  geometry.bounds.height = (current_y + vertical_padding) - geometry.bounds.y;
   return geometry;
 }
 
@@ -2684,17 +2791,46 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
   }
 
   const float scale = m_chrome_layout.dpi_scale;
-  const int radius = std::max(round_to_int(7.0F * scale), 5);
+  const int radius = std::max(round_to_int(6.0F * scale), 5);
   const auto draw_panel = [&](const UI::Rect &panel_bounds) {
     if (panel_bounds.is_empty()) {
       return;
     }
+    // macOS ultra-thin, soft diffuse ambient shadow
+    struct ShadowLayer {
+      float dx;
+      float dy;
+      float spread;
+      uint8_t alpha;
+    };
+    const ShadowLayer shadow_layers[] = {
+      {0.0F, 8.0F, 16.0F,  8}, // Ambient ultra-soft atmospheric haze
+      {0.0F, 5.0F,  9.0F, 14}, // Soft outer glow
+      {0.0F, 3.0F,  4.5F, 22}, // Soft mid-shadow
+      {0.0F, 1.5F,  2.0F, 32}, // Soft near-shadow
+      {0.0F, 0.5F,  0.8F, 42}, // Ultra-thin contact shadow
+    };
+    for (const auto &layer : shadow_layers) {
+      const float spread = layer.spread * scale;
+      const UI::Rect layer_rect{
+          panel_bounds.x - spread + layer.dx * scale,
+          panel_bounds.y - spread + layer.dy * scale,
+          panel_bounds.width + spread * 2.0F,
+          panel_bounds.height + spread * 2.0F,
+      };
+      fill_rounded_rectangle(device_context, layer_rect,
+                             UI::Theme::Color{0, 0, 0, layer.alpha},
+                             static_cast<int>(static_cast<float>(radius) + spread));
+    }
+
+    // macOS Dark Acrylic Card
+    fill_rounded_rectangle(device_context, panel_bounds, m_theme.panel_background, radius);
+
+    // macOS Hairline Border (subtle translucent border)
     const RECT native_bounds = to_native_rect(panel_bounds);
-    HBRUSH background_brush =
-        CreateSolidBrush(to_color_ref(m_theme.panel_background));
     HPEN border_pen =
-        CreatePen(PS_SOLID, 1, to_color_ref(m_theme.titlebar_border));
-    HGDIOBJ previous_brush = SelectObject(device_context, background_brush);
+        CreatePen(PS_SOLID, 1, RGB(70, 72, 80));
+    HGDIOBJ previous_brush = SelectObject(device_context, GetStockObject(NULL_BRUSH));
     HGDIOBJ previous_pen = SelectObject(device_context, border_pen);
     RoundRect(device_context, native_bounds.left, native_bounds.top,
               native_bounds.right, native_bounds.bottom, radius * 2,
@@ -2702,7 +2838,6 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
     SelectObject(device_context, previous_pen);
     SelectObject(device_context, previous_brush);
     DeleteObject(border_pen);
-    DeleteObject(background_brush);
   };
 
   if (drawing_root) {
@@ -2724,11 +2859,11 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
       UI::Rect item_bounds = geometry.item_bounds[index];
       if (hovered) {
         UI::Rect hover_bounds = item_bounds;
-        hover_bounds.x += 4.0F * scale;
-        hover_bounds.width -= 8.0F * scale;
-        hover_bounds.y += 2.0F * scale;
-        hover_bounds.height -= 4.0F * scale;
-        fill_rounded_rectangle(device_context, hover_bounds, m_theme.accent,
+        hover_bounds.x += 5.0F * scale;
+        hover_bounds.width -= 10.0F * scale;
+        hover_bounds.y += 1.0F * scale;
+        hover_bounds.height -= 2.0F * scale;
+        fill_rounded_rectangle(device_context, hover_bounds, UI::Theme::Color{53, 132, 228, 240},
                                std::max(round_to_int(4.0F * scale), 3));
       }
       RECT text_bounds = to_native_rect(item_bounds);
@@ -2746,8 +2881,8 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
           round_to_int(item_bounds.y + item_bounds.height * 0.5F);
       m_workspace_renderer.draw_svg_icon(
           device_context, "Assets/icons/chevron-right.svg", chevron_x,
-          chevron_y, std::max(round_to_int(12.0F * scale), 10),
-          m_workspace_renderer.m_palette.text_muted,
+          chevron_y, std::max(round_to_int(11.0F * scale), 9),
+          hovered ? UI::Theme::Color{255, 255, 255, 255} : m_workspace_renderer.m_palette.text_muted,
           hovered ? m_theme.accent : m_theme.panel_background);
     }
   }
@@ -2767,9 +2902,9 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
     if (item.separator) {
       fill_rectangle(device_context,
                      UI::Rect{
-                         item_bounds.x + 8.0F * scale,
+                         item_bounds.x + 10.0F * scale,
                          item_bounds.y + item_bounds.height * 0.5F,
-                         item_bounds.width - 16.0F * scale,
+                         item_bounds.width - 20.0F * scale,
                          1.0F,
                      },
                      m_theme.titlebar_border);
@@ -2780,18 +2915,18 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
     const bool hovered = enabled && m_hovered_popup_item_index == index;
     if (hovered) {
       UI::Rect hover_bounds = item_bounds;
-      hover_bounds.x += 4.0F * scale;
-      hover_bounds.width -= 8.0F * scale;
-      hover_bounds.y += 2.0F * scale;
-      hover_bounds.height -= 4.0F * scale;
-      fill_rounded_rectangle(device_context, hover_bounds, m_theme.accent,
+      hover_bounds.x += 5.0F * scale;
+      hover_bounds.width -= 10.0F * scale;
+      hover_bounds.y += 1.0F * scale;
+      hover_bounds.height -= 2.0F * scale;
+      fill_rounded_rectangle(device_context, hover_bounds, UI::Theme::Color{53, 132, 228, 240},
                              std::max(round_to_int(4.0F * scale), 3));
     }
 
     RECT text_bounds = to_native_rect(item_bounds);
-    text_bounds.left += round_to_int(26.0F * scale);
+    text_bounds.left += round_to_int(24.0F * scale);
     if (!item.shortcut.empty()) {
-      text_bounds.right -= round_to_int(static_cast<float>(item.shortcut.size()) * 7.5F * scale + 28.0F * scale);
+      text_bounds.right -= round_to_int(static_cast<float>(item.shortcut.size()) * 7.0F * scale + 24.0F * scale);
     }
     SetTextColor(device_context,
                  to_color_ref(!enabled  ? m_theme.text_secondary
@@ -2803,7 +2938,7 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
 
     if (!item.shortcut.empty()) {
       RECT shortcut_bounds = to_native_rect(item_bounds);
-      shortcut_bounds.right -= round_to_int(16.0F * scale);
+      shortcut_bounds.right -= round_to_int(14.0F * scale);
       SetTextColor(
           device_context,
           to_color_ref(!enabled  ? m_theme.text_secondary
@@ -2868,8 +3003,9 @@ void Win32Window::copy_to_clipboard(const std::string& text) {
 void apply_backdrop_blur(HDC device_context, int width, int height, float scale) {
   if (width <= 0 || height <= 0 || device_context == nullptr) return;
 
-  const int down_w = std::max(width / 2, 1);
-  const int down_h = std::max(height / 2, 1);
+  // 4x downscale gives an immediate smooth area-average pre-filter and huge speedup
+  const int down_w = std::max(width / 4, 1);
+  const int down_h = std::max(height / 4, 1);
 
   BITMAPINFO bmi{};
   bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -2895,47 +3031,95 @@ void apply_backdrop_blur(HDC device_context, int width, int height, float scale)
   auto* pixels = static_cast<uint32_t*>(bits);
   const int total_pixels = down_w * down_h;
 
-  const int radius = std::max(static_cast<int>(8.0f * scale), 4);
+  const int radius = std::max(static_cast<int>(14.0f * scale), 8);
   std::vector<uint32_t> temp(total_pixels);
 
-  // Horizontal blur pass
-  for (int y = 0; y < down_h; ++y) {
-    const int row_offset = y * down_w;
-    for (int x = 0; x < down_w; ++x) {
-      int r = 0, g = 0, b = 0, count = 0;
-      const int start_x = std::max(0, x - radius);
-      const int end_x = std::min(down_w - 1, x + radius);
-      for (int kx = start_x; kx <= end_x; ++kx) {
-        uint32_t px = pixels[row_offset + kx];
-        r += (px >> 16) & 0xFF;
-        g += (px >> 8) & 0xFF;
-        b += px & 0xFF;
-        ++count;
-      }
-      temp[row_offset + x] = ((r / count) << 16) | ((g / count) << 8) | (b / count);
-    }
-  }
-
-  // Vertical blur pass + saturation + acrylic dark tint + grain (matching Drivers/Graphics/shaders/BackdropBlur.h)
-  const float tint_r = 16.0f, tint_g = 18.0f, tint_b = 22.0f;
-  const float tint_a = 0.72f;
-  const float saturation = 1.25f;
-
-  for (int x = 0; x < down_w; ++x) {
+  // Fast O(1) sliding-window box blur passes (3 passes mathematically converge to true Gaussian Blur)
+  auto blur_horizontal = [&](const uint32_t* src, uint32_t* dst, int r) {
+    const float inv_w = 1.0f / static_cast<float>(2 * r + 1);
     for (int y = 0; y < down_h; ++y) {
-      int r = 0, g = 0, b = 0, count = 0;
-      const int start_y = std::max(0, y - radius);
-      const int end_y = std::min(down_h - 1, y + radius);
-      for (int ky = start_y; ky <= end_y; ++ky) {
-        uint32_t px = temp[ky * down_w + x];
-        r += (px >> 16) & 0xFF;
-        g += (px >> 8) & 0xFF;
-        b += px & 0xFF;
-        ++count;
+      const int row = y * down_w;
+      int sum_r = 0, sum_g = 0, sum_b = 0;
+
+      for (int x = -r; x <= r; ++x) {
+        const int clamped_x = std::clamp(x, 0, down_w - 1);
+        const uint32_t px = src[row + clamped_x];
+        sum_r += (px >> 16) & 0xFF;
+        sum_g += (px >> 8) & 0xFF;
+        sum_b += px & 0xFF;
       }
-      float br = static_cast<float>(r / count);
-      float bg = static_cast<float>(g / count);
-      float bb = static_cast<float>(b / count);
+
+      for (int x = 0; x < down_w; ++x) {
+        dst[row + x] = (static_cast<uint32_t>(sum_r * inv_w) << 16) |
+                       (static_cast<uint32_t>(sum_g * inv_w) << 8) |
+                       static_cast<uint32_t>(sum_b * inv_w);
+
+        const int remove_x = std::clamp(x - r, 0, down_w - 1);
+        const int add_x = std::clamp(x + r + 1, 0, down_w - 1);
+        const uint32_t p_remove = src[row + remove_x];
+        const uint32_t p_add = src[row + add_x];
+
+        sum_r += ((p_add >> 16) & 0xFF) - ((p_remove >> 16) & 0xFF);
+        sum_g += ((p_add >> 8) & 0xFF) - ((p_remove >> 8) & 0xFF);
+        sum_b += (p_add & 0xFF) - (p_remove & 0xFF);
+      }
+    }
+  };
+
+  auto blur_vertical = [&](const uint32_t* src, uint32_t* dst, int r) {
+    const float inv_h = 1.0f / static_cast<float>(2 * r + 1);
+    for (int x = 0; x < down_w; ++x) {
+      int sum_r = 0, sum_g = 0, sum_b = 0;
+
+      for (int y = -r; y <= r; ++y) {
+        const int clamped_y = std::clamp(y, 0, down_h - 1);
+        const uint32_t px = src[clamped_y * down_w + x];
+        sum_r += (px >> 16) & 0xFF;
+        sum_g += (px >> 8) & 0xFF;
+        sum_b += px & 0xFF;
+      }
+
+      for (int y = 0; y < down_h; ++y) {
+        dst[y * down_w + x] = (static_cast<uint32_t>(sum_r * inv_h) << 16) |
+                              (static_cast<uint32_t>(sum_g * inv_h) << 8) |
+                              static_cast<uint32_t>(sum_b * inv_h);
+
+        const int remove_y = std::clamp(y - r, 0, down_h - 1);
+        const int add_y = std::clamp(y + r + 1, 0, down_h - 1);
+        const uint32_t p_remove = src[remove_y * down_w + x];
+        const uint32_t p_add = src[add_y * down_w + x];
+
+        sum_r += ((p_add >> 16) & 0xFF) - ((p_remove >> 16) & 0xFF);
+        sum_g += ((p_add >> 8) & 0xFF) - ((p_remove >> 8) & 0xFF);
+        sum_b += (p_add & 0xFF) - (p_remove & 0xFF);
+      }
+    }
+  };
+
+  // Pass 1
+  blur_horizontal(pixels, temp.data(), radius);
+  blur_vertical(temp.data(), pixels, radius);
+
+  // Pass 2
+  blur_horizontal(pixels, temp.data(), radius);
+  blur_vertical(temp.data(), pixels, radius);
+
+  // Pass 3 (Gaussian convergence for Windows 10 Acrylic)
+  blur_horizontal(pixels, temp.data(), radius);
+  blur_vertical(temp.data(), pixels, radius);
+
+  // Windows 10 Taskbar / Start Menu Acrylic Compositing: Saturation Boost + Deep Acrylic Tint + Frosted Glass Noise
+  const float tint_r = 16.0f, tint_g = 18.0f, tint_b = 24.0f;
+  const float tint_a = 0.35f;
+  const float saturation = 1.40f;
+
+  for (int y = 0; y < down_h; ++y) {
+    const int row = y * down_w;
+    for (int x = 0; x < down_w; ++x) {
+      const uint32_t px = pixels[row + x];
+      float br = static_cast<float>((px >> 16) & 0xFF);
+      float bg = static_cast<float>((px >> 8) & 0xFF);
+      float bb = static_cast<float>(px & 0xFF);
 
       float lum = br * 0.2126f + bg * 0.7152f + bb * 0.0722f;
       float sr = lum + (br - lum) * saturation;
@@ -2947,13 +3131,13 @@ void apply_backdrop_blur(HDC device_context, int width, int height, float scale)
       float mb = sb * (1.0f - tint_a) + tint_b * tint_a;
 
       float noise = std::fmod(52.9829189f * std::fmod(static_cast<float>(x) * 0.06711056f + static_cast<float>(y) * 0.00583715f, 1.0f), 1.0f) - 0.5f;
-      float grain = noise * 6.0f;
+      float grain = noise * 3.5f;
 
       uint32_t fr = static_cast<uint32_t>(std::clamp(mr + grain, 0.0f, 255.0f));
       uint32_t fg = static_cast<uint32_t>(std::clamp(mg + grain, 0.0f, 255.0f));
       uint32_t fb = static_cast<uint32_t>(std::clamp(mb + grain, 0.0f, 255.0f));
 
-      pixels[y * down_w + x] = (fr << 16) | (fg << 8) | fb;
+      pixels[row + x] = (fr << 16) | (fg << 8) | fb;
     }
   }
 
@@ -2974,14 +3158,40 @@ void Win32Window::draw_about_modal(HDC device_context, int client_width, int cli
   const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(client_width), static_cast<float>(client_height)};
   const auto layout = m_about_modal.calculate_layout(viewport, scale);
 
-  // 1. Draw blurred acrylic backdrop overlay matching BackdropBlur.h shader
+  // 1. Draw heavy Windows 10 Acrylic Taskbar frosted glass backdrop overlay
   apply_backdrop_blur(device_context, client_width, client_height, scale);
 
-  // 2. Dialog Container (VS Code style clean dark card)
-  const UI::Theme::Color dialog_bg{30, 30, 34, 255};
-  const UI::Theme::Color border_col{60, 64, 75, 255};
+  // 2. Dialog Container (Fluent / Acrylic Dark Card with elevation drop shadow)
+  const UI::Theme::Color dialog_bg{28, 29, 34, 255};
+  const UI::Theme::Color border_col{70, 74, 88, 255};
 
-  fill_rounded_rectangle(device_context, layout.base_layout.dialog_bounds, dialog_bg, static_cast<int>(6.0F * scale));
+  // Floating elevation drop shadow behind modal
+  struct ShadowLayer {
+    float dx;
+    float dy;
+    float spread;
+    uint8_t alpha;
+  };
+  const ShadowLayer shadow_layers[] = {
+    {0.0F, 12.0F, 24.0F, 22},
+    {0.0F,  8.0F, 16.0F, 34},
+    {0.0F,  4.0F,  8.0F, 50},
+    {0.0F,  1.5F,  2.0F, 70},
+  };
+  for (const auto &layer : shadow_layers) {
+    const float spread = layer.spread * scale;
+    const UI::Rect layer_rect{
+        layout.base_layout.dialog_bounds.x - spread + layer.dx * scale,
+        layout.base_layout.dialog_bounds.y - spread + layer.dy * scale,
+        layout.base_layout.dialog_bounds.width + spread * 2.0F,
+        layout.base_layout.dialog_bounds.height + spread * 2.0F,
+    };
+    fill_rounded_rectangle(device_context, layer_rect,
+                           UI::Theme::Color{0, 0, 0, layer.alpha},
+                           static_cast<int>(8.0F * scale + spread));
+  }
+
+  fill_rounded_rectangle(device_context, layout.base_layout.dialog_bounds, dialog_bg, static_cast<int>(8.0F * scale));
 
   // Border outline
   {
@@ -2993,7 +3203,7 @@ void Win32Window::draw_about_modal(HDC device_context, int client_width, int cli
               round_to_int(layout.base_layout.dialog_bounds.y),
               round_to_int(layout.base_layout.dialog_bounds.right()),
               round_to_int(layout.base_layout.dialog_bounds.bottom()),
-              static_cast<int>(12.0F * scale), static_cast<int>(12.0F * scale));
+              static_cast<int>(16.0F * scale), static_cast<int>(16.0F * scale));
     SelectObject(device_context, old_brush);
     SelectObject(device_context, old_pen);
     DeleteObject(border_pen);
@@ -3089,12 +3299,17 @@ void Win32Window::draw_about_modal(HDC device_context, int client_width, int cli
   RECT ok_r = to_native_rect(layout.ok_button_bounds);
   draw_centered_text(device_context, L"OK", ok_r, UI::Theme::Color{255, 255, 255, 255});
 
-  // Top-right Close Button '✕'
+  // Top-right Close Button
   if (m_about_modal.is_close_hovered()) {
     fill_rounded_rectangle(device_context, layout.close_button_bounds, m_theme.close_hover, static_cast<int>(4.0F * scale));
   }
-  RECT close_r = to_native_rect(layout.close_button_bounds);
-  draw_centered_text(device_context, L"\u2715", close_r, UI::Theme::Color{175, 180, 190, 255});
+  const int about_cx = round_to_int(layout.close_button_bounds.x + layout.close_button_bounds.width * 0.5F);
+  const int about_cy = round_to_int(layout.close_button_bounds.y + layout.close_button_bounds.height * 0.5F);
+  const int about_icon_sz = std::max(round_to_int(12.0F * scale), 10);
+  m_workspace_renderer.draw_svg_icon(
+      device_context, "Assets/icons/diagnostic-error.svg", about_cx, about_cy, about_icon_sz,
+      m_about_modal.is_close_hovered() ? UI::Theme::Color{255, 255, 255, 255} : UI::Theme::Color{175, 180, 190, 255},
+      m_about_modal.is_close_hovered() ? m_theme.close_hover : m_theme.panel_background);
 
   SelectObject(device_context, prev_font);
 }
@@ -3158,10 +3373,11 @@ void Win32Window::show_explorer_context_menu(const std::filesystem::path& target
   };
 
   const float scale = m_chrome_layout.dpi_scale;
-  const float row_height = 28.0F * scale;
-  const float sep_height = 9.0F * scale;
-  float total_h = 0.0F;
-  float popup_width = 240.0F * scale;
+  const float row_height = 24.0F * scale;
+  const float sep_height = 7.0F * scale;
+  const float vertical_padding = 4.0F * scale;
+  float total_h = vertical_padding * 2.0F;
+  float popup_width = 210.0F * scale;
 
   for (const auto& item : m_explorer_context_menu.items) {
     if (item.separator) {
@@ -3169,9 +3385,9 @@ void Win32Window::show_explorer_context_menu(const std::filesystem::path& target
       continue;
     }
     total_h += row_height;
-    float item_width = static_cast<float>(item.label.size()) * 7.5F * scale + 48.0F * scale;
+    float item_width = static_cast<float>(item.label.size()) * 7.0F * scale + 42.0F * scale;
     if (!item.shortcut.empty()) {
-      item_width += static_cast<float>(item.shortcut.size()) * 7.5F * scale + 36.0F * scale;
+      item_width += static_cast<float>(item.shortcut.size()) * 7.0F * scale + 30.0F * scale;
     }
     popup_width = std::max(popup_width, item_width);
   }
@@ -3185,17 +3401,17 @@ void Win32Window::show_explorer_context_menu(const std::filesystem::path& target
   float menu_x = static_cast<float>(client_x);
   float menu_y = static_cast<float>(client_y);
 
-  if (menu_x + popup_width > client_w - 8.0F) {
-    menu_x = std::max(8.0F, client_w - popup_width - 8.0F);
+  if (menu_x + popup_width > client_w - 8.0F * scale) {
+    menu_x = std::max(8.0F * scale, client_w - popup_width - 8.0F * scale);
   }
-  if (menu_y + total_h > client_h - 8.0F) {
-    menu_y = std::max(8.0F, client_h - total_h - 8.0F);
+  if (menu_y + total_h > client_h - 8.0F * scale) {
+    menu_y = std::max(8.0F * scale, client_h - total_h - 8.0F * scale);
   }
 
   m_explorer_context_menu.bounds = {menu_x, menu_y, popup_width, total_h};
   m_explorer_context_menu.item_bounds.clear();
 
-  float curr_y = menu_y;
+  float curr_y = menu_y + vertical_padding;
   for (const auto& item : m_explorer_context_menu.items) {
     if (item.separator) {
       m_explorer_context_menu.item_bounds.push_back({menu_x, curr_y, popup_width, sep_height});
@@ -3214,22 +3430,50 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
 
   const float scale = m_chrome_layout.dpi_scale;
   const auto& bounds = m_explorer_context_menu.bounds;
-  const int radius = std::max(round_to_int(7.0F * scale), 5);
+  const int radius = std::max(round_to_int(6.0F * scale), 5);
 
-  // 1. Draw panel background and border exactly matching draw_menu_overlay
+  // 1. macOS ultra-thin, soft diffuse ambient shadow
+  struct ShadowLayer {
+    float dx;
+    float dy;
+    float spread;
+    uint8_t alpha;
+  };
+  const ShadowLayer shadow_layers[] = {
+    {0.0F, 8.0F, 16.0F,  8}, // Ambient ultra-soft atmospheric haze
+    {0.0F, 5.0F,  9.0F, 14}, // Soft outer glow
+    {0.0F, 3.0F,  4.5F, 22}, // Soft mid-shadow
+    {0.0F, 1.5F,  2.0F, 32}, // Soft near-shadow
+    {0.0F, 0.5F,  0.8F, 42}, // Ultra-thin contact shadow
+  };
+  for (const auto &layer : shadow_layers) {
+    const float spread = layer.spread * scale;
+    const UI::Rect layer_rect{
+        bounds.x - spread + layer.dx * scale,
+        bounds.y - spread + layer.dy * scale,
+        bounds.width + spread * 2.0F,
+        bounds.height + spread * 2.0F,
+    };
+    fill_rounded_rectangle(device_context, layer_rect,
+                           UI::Theme::Color{0, 0, 0, layer.alpha},
+                           static_cast<int>(static_cast<float>(radius) + spread));
+  }
+
+  // 2. macOS Dark Acrylic Card
+  fill_rounded_rectangle(device_context, bounds, m_theme.panel_background, radius);
+
+  // 3. macOS Hairline Border (subtle translucent border)
   const RECT native_bounds = to_native_rect(bounds);
-  HBRUSH background_brush = CreateSolidBrush(to_color_ref(m_theme.panel_background));
-  HPEN border_pen = CreatePen(PS_SOLID, 1, to_color_ref(m_theme.titlebar_border));
-  HGDIOBJ previous_brush = SelectObject(device_context, background_brush);
+  HPEN border_pen = CreatePen(PS_SOLID, 1, RGB(70, 72, 80));
+  HGDIOBJ previous_brush = SelectObject(device_context, GetStockObject(NULL_BRUSH));
   HGDIOBJ previous_pen = SelectObject(device_context, border_pen);
   RoundRect(device_context, native_bounds.left, native_bounds.top,
             native_bounds.right, native_bounds.bottom, radius * 2, radius * 2);
   SelectObject(device_context, previous_pen);
   SelectObject(device_context, previous_brush);
   DeleteObject(border_pen);
-  DeleteObject(background_brush);
 
-  // 2. Draw items exactly matching draw_menu_overlay
+  // 4. Draw items exactly matching draw_menu_overlay
   for (std::size_t i = 0; i < m_explorer_context_menu.items.size() && i < m_explorer_context_menu.item_bounds.size(); ++i) {
     const auto& item = m_explorer_context_menu.items[i];
     const auto& item_bounds = m_explorer_context_menu.item_bounds[i];
@@ -3237,9 +3481,9 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
     if (item.separator) {
       fill_rectangle(device_context,
                      UI::Rect{
-                         item_bounds.x + 8.0F * scale,
+                         item_bounds.x + 10.0F * scale,
                          item_bounds.y + item_bounds.height * 0.5F,
-                         item_bounds.width - 16.0F * scale,
+                         item_bounds.width - 20.0F * scale,
                          1.0F,
                      },
                      m_theme.titlebar_border);
@@ -3249,18 +3493,18 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
     const bool hovered = (m_explorer_context_menu.hovered_index && *m_explorer_context_menu.hovered_index == i);
     if (hovered) {
       UI::Rect hover_bounds = item_bounds;
-      hover_bounds.x += 4.0F * scale;
-      hover_bounds.width -= 8.0F * scale;
-      hover_bounds.y += 2.0F * scale;
-      hover_bounds.height -= 4.0F * scale;
-      fill_rounded_rectangle(device_context, hover_bounds, m_theme.accent,
+      hover_bounds.x += 5.0F * scale;
+      hover_bounds.width -= 10.0F * scale;
+      hover_bounds.y += 1.0F * scale;
+      hover_bounds.height -= 2.0F * scale;
+      fill_rounded_rectangle(device_context, hover_bounds, UI::Theme::Color{53, 132, 228, 240},
                              std::max(round_to_int(4.0F * scale), 3));
     }
 
     RECT text_bounds = to_native_rect(item_bounds);
-    text_bounds.left += round_to_int(26.0F * scale);
+    text_bounds.left += round_to_int(24.0F * scale);
     if (!item.shortcut.empty()) {
-      text_bounds.right -= round_to_int(static_cast<float>(item.shortcut.size()) * 7.5F * scale + 28.0F * scale);
+      text_bounds.right -= round_to_int(static_cast<float>(item.shortcut.size()) * 7.0F * scale + 24.0F * scale);
     }
     SetTextColor(device_context,
                  to_color_ref(hovered ? UI::Theme::Color{255, 255, 255, 255}
@@ -3271,7 +3515,7 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
 
     if (!item.shortcut.empty()) {
       RECT shortcut_bounds = to_native_rect(item_bounds);
-      shortcut_bounds.right -= round_to_int(16.0F * scale);
+      shortcut_bounds.right -= round_to_int(14.0F * scale);
       SetTextColor(
           device_context,
           to_color_ref(hovered ? UI::Theme::Color{255, 255, 255, 220}

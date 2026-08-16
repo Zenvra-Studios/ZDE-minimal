@@ -1,3 +1,11 @@
+add_library(ZDEPlatformHost
+    HostSystem.cpp
+)
+add_library(Zenvra::PlatformHost ALIAS ZDEPlatformHost)
+target_include_directories(ZDEPlatformHost PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/.." "${PROJECT_SOURCE_DIR}")
+target_link_libraries(ZDEPlatformHost PUBLIC Zenvra::Core)
+zde_enable_warnings(ZDEPlatformHost)
+
 if(WIN32)
     add_subdirectory(Win32)
 elseif(APPLE)
@@ -12,7 +20,7 @@ add_library(ZDEPlatform
 add_library(Zenvra::Platform ALIAS ZDEPlatform)
 
 target_include_directories(ZDEPlatform PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/.." "${PROJECT_SOURCE_DIR}")
-target_link_libraries(ZDEPlatform PUBLIC Zenvra::Core)
+target_link_libraries(ZDEPlatform PUBLIC Zenvra::Core Zenvra::PlatformHost)
 
 if(WIN32)
     target_link_libraries(ZDEPlatform PRIVATE ZDEPlatformWin32)

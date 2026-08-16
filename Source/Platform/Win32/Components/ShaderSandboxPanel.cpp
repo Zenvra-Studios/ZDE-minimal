@@ -1,6 +1,7 @@
 #include "Platform/Win32/Components/ShaderSandboxPanel.h"
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
 #include "Services/Shader/ShaderCompiler.h"
+#include "Utility/MathUtil.h"
 
 #include <algorithm>
 #include <cmath>
@@ -16,10 +17,7 @@ namespace Zenvra::Platform::Win32::Components
 namespace
 {
 
-int round_to_int(float value)
-{
-    return static_cast<int>(std::lround(value));
-}
+using Zenvra::Utility::round_to_int;
 
 } // namespace
 
@@ -104,32 +102,21 @@ bool ShaderSandboxPanel::handle_pointer_press(
     }
 
     // Header buttons
-    const float scale = layout.dpi_scale;
-    const UI::Rect& header = layout.shader_panel_header_bounds;
-    const UI::Rect close_btn{
-        header.right() - 26.0F * scale,
-        header.y + (header.height - 20.0F * scale) * 0.5F,
-        20.0F * scale,
-        20.0F * scale};
-    if (close_btn.contains(point_x, point_y))
+    if (m_header_close_bounds.contains(point_x, point_y))
     {
         m_visible = false;
         return true;
     }
 
     // Preset selector button in header
-    const UI::Rect preset_btn{
-        header.right() - 110.0F * scale,
-        header.y + (header.height - 20.0F * scale) * 0.5F,
-        80.0F * scale,
-        20.0F * scale};
-    if (preset_btn.contains(point_x, point_y))
+    if (m_header_preset_bounds.contains(point_x, point_y))
     {
         next_preset();
         return true;
     }
 
     // Controls toolbar buttons
+    const float scale = layout.dpi_scale;
     const UI::Rect& ctrl = layout.shader_panel_controls_bounds;
     const float btn_w = 26.0F * scale;
     const float btn_h = 24.0F * scale;
@@ -159,7 +146,7 @@ bool ShaderSandboxPanel::handle_pointer_press(
     const UI::Rect snap_btn{ctrl.right() - 34.0F * scale, btn_y, btn_w, btn_h};
     if (snap_btn.contains(point_x, point_y))
     {
-        m_engine.export_snapshot_bmp("shader_artwork.bmp");
+        static_cast<void>(m_engine.export_snapshot_bmp("shader_artwork.bmp"));
         return true;
     }
 
@@ -177,7 +164,6 @@ bool ShaderSandboxPanel::handle_pointer_move(
     }
 
     const float scale = layout.dpi_scale;
-    const UI::Rect& header = layout.shader_panel_header_bounds;
     const UI::Rect& ctrl = layout.shader_panel_controls_bounds;
 
     const bool prev_close = m_hover_close;
@@ -190,19 +176,8 @@ bool ShaderSandboxPanel::handle_pointer_move(
 
     m_hover_splitter = is_resize_handle_point(layout, point_x, point_y);
 
-    const UI::Rect close_btn{
-        header.right() - 26.0F * scale,
-        header.y + (header.height - 20.0F * scale) * 0.5F,
-        20.0F * scale,
-        20.0F * scale};
-    m_hover_close = close_btn.contains(point_x, point_y);
-
-    const UI::Rect preset_btn{
-        header.right() - 110.0F * scale,
-        header.y + (header.height - 20.0F * scale) * 0.5F,
-        80.0F * scale,
-        20.0F * scale};
-    m_hover_preset = preset_btn.contains(point_x, point_y);
+    m_hover_close = m_header_close_bounds.contains(point_x, point_y);
+    m_hover_preset = m_header_preset_bounds.contains(point_x, point_y);
 
     const float btn_w = 26.0F * scale;
     const float btn_h = 24.0F * scale;
@@ -407,6 +382,28 @@ void ShaderSandboxPanel::render_header(
             surface.m_palette.text_primary);
     }
 
+    // Close button (far right of header)
+    const float close_btn_w = 20.0F * scale;
+    const float close_btn_h = 20.0F * scale;
+    m_header_close_bounds = UI::Rect{
+        header.right() - close_btn_w - 6.0F * scale,
+        header.y + (header.height - close_btn_h) * 0.5F,
+        close_btn_w,
+        close_btn_h};
+
+    if (m_hover_close)
+    {
+        surface.fill_rounded_rectangle(
+            device_context, m_header_close_bounds, UI::Theme::Color{255, 255, 255, 25}, 3.0F * scale);
+    }
+    const UI::Theme::Color close_col = m_hover_close ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted;
+    const int close_cx = round_to_int(m_header_close_bounds.x + m_header_close_bounds.width * 0.5F);
+    const int close_cy = round_to_int(m_header_close_bounds.y + m_header_close_bounds.height * 0.5F);
+    const int close_icon_sz = std::max(round_to_int(12.0F * scale), 10);
+    surface.draw_svg_icon(
+        device_context, "diagnostic-error.svg", close_cx, close_cy, close_icon_sz,
+        close_col, surface.m_palette.tab_background);
+
     // Preset selector dropdown button
     std::string preset_name = "Presets";
     const auto presets = Services::Shader::ShaderCompiler::get_starter_presets();
@@ -414,18 +411,21 @@ void ShaderSandboxPanel::render_header(
     {
         preset_name = presets[m_engine.get_active_preset_index()].name;
     }
-    const UI::Rect preset_btn{
-        header.right() - 120.0F * scale,
+    const int text_w = surface.m_small_font ? surface.get_text_width(device_context, *surface.m_small_font, preset_name) : round_to_int(80.0F * scale);
+    const float preset_w = static_cast<float>(text_w) + 18.0F * scale;
+    const float preset_x = m_header_close_bounds.x - preset_w - 6.0F * scale;
+    m_header_preset_bounds = UI::Rect{
+        preset_x,
         header.y + (header.height - 20.0F * scale) * 0.5F,
-        86.0F * scale,
+        preset_w,
         20.0F * scale};
 
     surface.fill_rounded_rectangle(
         device_context,
-        preset_btn,
+        m_header_preset_bounds,
         m_hover_preset ? surface.m_palette.active_line_background : surface.m_palette.sidebar_background,
         3.0F * scale);
-    surface.draw_rectangle(device_context, preset_btn, surface.m_palette.border);
+    surface.draw_rectangle(device_context, m_header_preset_bounds, surface.m_palette.border);
 
     if (surface.m_small_font)
     {
@@ -433,30 +433,10 @@ void ShaderSandboxPanel::render_header(
             device_context,
             *surface.m_small_font,
             preset_name,
-            preset_btn.x + 6.0F * scale,
+            m_header_preset_bounds.x + 8.0F * scale,
             dot_y,
             m_hover_preset ? surface.m_palette.text_primary : surface.m_palette.text_muted);
     }
-
-    // Close button
-    const UI::Rect close_btn{
-        header.right() - 26.0F * scale,
-        header.y + (header.height - 20.0F * scale) * 0.5F,
-        20.0F * scale,
-        20.0F * scale};
-    if (m_hover_close)
-    {
-        surface.fill_rounded_rectangle(
-            device_context, close_btn, surface.m_palette.active_line_background, 3.0F * scale);
-    }
-    surface.draw_svg_icon(
-        device_context,
-        "Assets/icons/close.svg",
-        round_to_int(close_btn.x + close_btn.width * 0.5F),
-        round_to_int(close_btn.y + close_btn.height * 0.5F),
-        round_to_int(12.0F * scale),
-        m_hover_close ? surface.m_palette.text_primary : surface.m_palette.text_muted,
-        surface.m_palette.tab_background);
 }
 
 void ShaderSandboxPanel::render_viewport(
@@ -575,8 +555,9 @@ void ShaderSandboxPanel::render_controls(
         round_to_int(play_btn.x + play_btn.width * 0.5F),
         round_to_int(play_btn.y + play_btn.height * 0.5F),
         round_to_int(12.0F * scale),
-        m_hover_play ? surface.m_palette.text_primary : surface.m_palette.accent,
-        surface.m_palette.sidebar_background);
+        m_hover_play ? surface.m_palette.accent : UI::Theme::Color{255, 255, 255, 255},
+        surface.m_palette.sidebar_background,
+        false);
 
     // Reset button
     const UI::Rect reset_btn{ctrl.x + 38.0F * scale, btn_y, btn_w, btn_h};
@@ -592,8 +573,9 @@ void ShaderSandboxPanel::render_controls(
         round_to_int(reset_btn.x + reset_btn.width * 0.5F),
         round_to_int(reset_btn.y + reset_btn.height * 0.5F),
         round_to_int(12.0F * scale),
-        m_hover_reset ? surface.m_palette.text_primary : surface.m_palette.text_muted,
-        surface.m_palette.sidebar_background);
+        m_hover_reset ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
+        surface.m_palette.sidebar_background,
+        false);
 
     // Resolution scale badge button (1x / 0.5x / 0.25x)
     const UI::Rect scale_btn{ctrl.x + 68.0F * scale, btn_y, 36.0F * scale, btn_h};
@@ -657,8 +639,9 @@ void ShaderSandboxPanel::render_controls(
         round_to_int(snap_btn.x + snap_btn.width * 0.5F),
         round_to_int(snap_btn.y + snap_btn.height * 0.5F),
         round_to_int(12.0F * scale),
-        m_hover_snapshot ? surface.m_palette.accent : surface.m_palette.text_primary,
-        surface.m_palette.sidebar_background);
+        m_hover_snapshot ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_primary,
+        surface.m_palette.sidebar_background,
+        false);
 }
 
 void ShaderSandboxPanel::render_diagnostics_overlay(

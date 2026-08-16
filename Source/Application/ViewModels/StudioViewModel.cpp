@@ -28,7 +28,7 @@ Commands::Command create_unavailable_command(
         .execute = [id = std::string(command_id)] {
             std::clog << "[ZDE] " << id << " requested (not yet implemented)\n";
         },
-        .is_enabled = [] { return false; },
+        .is_enabled = [] { return true; },
         .is_checked = {},
     };
 }
@@ -104,6 +104,167 @@ bool StudioViewModel::register_available_commands()
                          return static_cast<bool>(m_actions.request_open_project);
                      },
                      .is_checked = {},
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::project_close),
+                     .name = "Close Project",
+                     .description = "Close the active ZDE project and workspace.",
+                     .category = "Project",
+                     .shortcut_binding = {},
+                     .execute = m_actions.request_close_project,
+                     .is_enabled = [this] {
+                         return static_cast<bool>(m_actions.request_close_project);
+                     },
+                     .is_checked = {},
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::build_build_project),
+                     .name = "Build Project",
+                     .description = "Build the active project with CMake.",
+                     .category = "Build",
+                     .shortcut_binding = {},
+                     .execute = m_actions.request_build,
+                     .is_enabled = [this] { return static_cast<bool>(m_actions.request_build); },
+                     .is_checked = {},
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::run_start),
+                     .name = "Start",
+                     .description = "Run the active target executable.",
+                     .category = "Run",
+                     .shortcut_binding = {},
+                     .execute = m_actions.request_run,
+                     .is_enabled = [this] { return static_cast<bool>(m_actions.request_run); },
+                     .is_checked = {},
+                 }) &&
+        registered;
+
+    // Active Build Profiles
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::build_debug),
+                     .name = "Debug Profile",
+                     .description = "Select Debug build profile.",
+                     .category = "Build",
+                     .shortcut_binding = {},
+                     .execute = [this] { m_active_mode = "Debug"; m_active_preset = "macos-debug"; },
+                     .is_enabled = [] { return true; },
+                     .is_checked = [this] { return m_active_mode == "Debug"; },
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::build_release),
+                     .name = "Release Profile",
+                     .description = "Select Release build profile.",
+                     .category = "Build",
+                     .shortcut_binding = {},
+                     .execute = [this] { m_active_mode = "Release"; m_active_preset = "macos-release"; },
+                     .is_enabled = [] { return true; },
+                     .is_checked = [this] { return m_active_mode == "Release"; },
+                 }) &&
+        registered;
+
+    // Active Platforms / Architectures
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::platform_arm64),
+                     .name = "ARM64",
+                     .description = "Target ARM64 platform.",
+                     .category = "Platform",
+                     .shortcut_binding = {},
+                     .execute = [this] { m_active_arch = "arm64"; },
+                     .is_enabled = [] { return true; },
+                     .is_checked = [this] { return m_active_arch == "arm64"; },
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::platform_apple_arm),
+                     .name = "Apple ARM",
+                     .description = "Target Apple ARM platform.",
+                     .category = "Platform",
+                     .shortcut_binding = {},
+                     .execute = [this] { m_active_arch = "arm64"; },
+                     .is_enabled = [] { return true; },
+                     .is_checked = [this] { return m_active_arch == "arm64"; },
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::platform_aarch64),
+                     .name = "AArch64",
+                     .description = "Target AArch64 platform.",
+                     .category = "Platform",
+                     .shortcut_binding = {},
+                     .execute = [this] { m_active_arch = "arm64"; },
+                     .is_enabled = [] { return true; },
+                     .is_checked = [this] { return m_active_arch == "arm64"; },
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::platform_x64),
+                     .name = "x64",
+                     .description = "Target x64 platform.",
+                     .category = "Platform",
+                     .shortcut_binding = {},
+                     .execute = [this] { m_active_arch = "x64"; },
+                     .is_enabled = [] { return true; },
+                     .is_checked = [this] { return m_active_arch == "x64"; },
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::platform_x86),
+                     .name = "x86",
+                     .description = "Target x86 platform.",
+                     .category = "Platform",
+                     .shortcut_binding = {},
+                     .execute = [this] { m_active_arch = "x86"; },
+                     .is_enabled = [] { return true; },
+                     .is_checked = [this] { return m_active_arch == "x86"; },
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::platform_win32),
+                     .name = "Win32",
+                     .description = "Target Win32 platform.",
+                     .category = "Platform",
+                     .shortcut_binding = {},
+                     .execute = [this] { m_active_arch = "x86"; },
+                     .is_enabled = [] { return true; },
+                     .is_checked = [this] { return m_active_arch == "x86"; },
+                 }) &&
+        registered;
+
+    // Active Binary Targets
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::run_zde),
+                     .name = "Run ZDE",
+                     .description = "Launch ZDE target.",
+                     .category = "Run",
+                     .shortcut_binding = {},
+                     .execute = [this] { m_active_target = "ZDE"; },
+                     .is_enabled = [] { return true; },
+                     .is_checked = [this] { return m_active_target == "ZDE"; },
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::run_tests),
+                     .name = "Run Tests",
+                     .description = "Launch test target.",
+                     .category = "Run",
+                     .shortcut_binding = {},
+                     .execute = [this] { m_active_target = "ZDEUnitTests"; },
+                     .is_enabled = [] { return true; },
+                     .is_checked = [this] { return m_active_target == "ZDEUnitTests"; },
                  }) &&
         registered;
 
@@ -274,6 +435,36 @@ bool StudioViewModel::register_future_commands()
         .is_checked = {},
     });
 
+    add_command(Commands::Command{
+        .id = std::string(Commands::CommandIds::window_toggle_fullscreen),
+        .name = "Toggle Fullscreen",
+        .description = "Toggle the main window fullscreen state.",
+        .category = "Window",
+        .shortcut_binding = Shortcut{KeyCode::F11, false, false, false},
+        .execute = [this] {
+            if (m_actions.request_toggle_fullscreen) {
+                m_actions.request_toggle_fullscreen();
+            }
+        },
+        .is_enabled = [this] { return static_cast<bool>(m_actions.request_toggle_fullscreen); },
+        .is_checked = {},
+    });
+
+    add_command(Commands::Command{
+        .id = std::string(Commands::CommandIds::view_shader_panel),
+        .name = "Shader Sandbox",
+        .description = "Toggle the Shader Sandbox panel.",
+        .category = "View",
+        .shortcut_binding = {},
+        .execute = [this] {
+            if (m_actions.request_toggle_shader) {
+                m_actions.request_toggle_shader();
+            }
+        },
+        .is_enabled = [this] { return static_cast<bool>(m_actions.request_toggle_shader); },
+        .is_checked = {},
+    });
+
     add_command(create_unavailable_command(
         Commands::CommandIds::edit_undo,
         "Undo",
@@ -349,26 +540,6 @@ bool StudioViewModel::register_future_commands()
         "Reset Layout",
         "Restore the default Studio panel layout.",
         "Window"));
-    add_command(create_unavailable_command(
-        Commands::CommandIds::window_toggle_fullscreen,
-        "Toggle Fullscreen",
-        "Toggle the main window fullscreen state.",
-        "Window"));
-    add_command(create_unavailable_command(
-        Commands::CommandIds::project_close,
-        "Close Project",
-        "Close the active ZDE project.",
-        "Project"));
-    add_command(create_unavailable_command(
-        Commands::CommandIds::build_build_project,
-        "Build Project",
-        "Build the active project.",
-        "Build"));
-    add_command(create_unavailable_command(
-        Commands::CommandIds::run_start,
-        "Start",
-        "Run the active project.",
-        "Run"));
 
     // Additional Editor & Navigation Commands
     add_command(create_unavailable_command(
@@ -463,30 +634,8 @@ bool StudioViewModel::register_future_commands()
         Commands::CommandIds::open_themes, "Color Theme", "Select color theme.", "Preferences"));
     add_command(create_unavailable_command(
         Commands::CommandIds::open_plugins, "Extensions", "Manage extensions.", "Preferences"));
-
-    // Toolbar Overlay Dropdown Commands
-    add_command(create_unavailable_command(
-        Commands::CommandIds::build_debug, "Debug Profile", "Select Debug build profile.", "Build"));
-    add_command(create_unavailable_command(
-        Commands::CommandIds::build_release, "Release Profile", "Select Release build profile.", "Build"));
     add_command(create_unavailable_command(
         Commands::CommandIds::edit_profiles, "Configuration Manager", "Edit build profiles.", "Build"));
-    add_command(create_unavailable_command(
-        Commands::CommandIds::platform_x64, "x64", "Target x64 platform.", "Platform"));
-    add_command(create_unavailable_command(
-        Commands::CommandIds::platform_x86, "x86", "Target x86 platform.", "Platform"));
-    add_command(create_unavailable_command(
-        Commands::CommandIds::platform_win32, "Win32", "Target Win32 platform.", "Platform"));
-    add_command(create_unavailable_command(
-        Commands::CommandIds::platform_arm64, "ARM64", "Target ARM64 platform.", "Platform"));
-    add_command(create_unavailable_command(
-        Commands::CommandIds::platform_aarch64, "AArch64", "Target AArch64 platform.", "Platform"));
-    add_command(create_unavailable_command(
-        Commands::CommandIds::platform_apple_arm, "Apple ARM", "Target Apple ARM platform.", "Platform"));
-    add_command(create_unavailable_command(
-        Commands::CommandIds::run_zde, "Run ZDE", "Launch ZDE target.", "Run"));
-    add_command(create_unavailable_command(
-        Commands::CommandIds::run_tests, "Run Tests", "Launch test target.", "Run"));
     add_command(create_unavailable_command(
         Commands::CommandIds::more_tools, "More Tools", "Open more developer tools.", "Tools"));
 

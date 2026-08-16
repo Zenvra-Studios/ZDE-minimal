@@ -30,10 +30,12 @@ public:
     void maximize() override;
     void restore() override;
     void request_close() override;
+    void toggle_fullscreen() override;
 
     [[nodiscard]] bool is_maximized() const override;
     [[nodiscard]] bool is_minimized() const override;
     [[nodiscard]] bool is_focused() const override;
+    [[nodiscard]] bool is_fullscreen() const override;
 
     [[nodiscard]] const WindowCapabilities& get_capabilities() const noexcept override;
     [[nodiscard]] void* get_native_handle() const noexcept override;
@@ -45,6 +47,7 @@ public:
 
     [[nodiscard]] bool open_project_folder() override;
     void toggle_terminal() override;
+    void toggle_shader_sandbox() override;
 
     // Workspace & Chrome integration
     [[nodiscard]] Components::CocoaChromeRenderer& get_renderer() { return m_renderer; }

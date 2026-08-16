@@ -133,6 +133,8 @@ void ActivitySidebar::draw_icon(
         svg_path = "Assets/icons/puzzle.svg";
         break;
     case UI::Editor::SidebarIcon::Shader:
+        svg_path = "Assets/icons/material-icon-theme/shader.svg";
+        break;
     case UI::Editor::SidebarIcon::Run:
         svg_path = "Assets/icons/play.svg";
         break;
@@ -155,9 +157,10 @@ void ActivitySidebar::draw_icon(
             center_x,
             center_y,
             size,
-            active ? surface.m_palette.text_primary : surface.m_palette.text_muted,
+            active ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
             active ? surface.m_palette.tab_active_background :
-                     surface.m_palette.sidebar_background);
+                     surface.m_palette.sidebar_background,
+            false);
     }
 }
 

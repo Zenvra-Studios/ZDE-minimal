@@ -1,0 +1,112 @@
+#pragma once
+
+#include "Services/Shader/ShaderRuntimeEngine.h"
+#include "UI/Editor/StudioEditorModel.h"
+
+#include <CoreGraphics/CoreGraphics.h>
+
+#include <cstddef>
+#include <string>
+#include <string_view>
+
+namespace Zenvra::Platform::Cocoa::Components
+{
+
+class StudioWorkspaceRenderer;
+
+class ShaderSandboxPanel
+{
+public:
+    ShaderSandboxPanel();
+    ~ShaderSandboxPanel();
+
+    [[nodiscard]] bool initialize();
+    [[nodiscard]] bool toggle() noexcept;
+    void set_visible(bool visible) noexcept;
+    [[nodiscard]] bool is_visible() const noexcept { return m_visible; }
+    [[nodiscard]] float get_width() const noexcept { return m_width; }
+
+    [[nodiscard]] bool is_resize_handle_point(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) const noexcept;
+
+    [[nodiscard]] bool is_resizing() const noexcept { return m_is_resizing; }
+
+    [[nodiscard]] bool contains(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) const noexcept;
+
+    [[nodiscard]] bool handle_pointer_press(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y);
+
+    [[nodiscard]] bool handle_pointer_move(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) noexcept;
+
+    [[nodiscard]] bool handle_pointer_drag(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) noexcept;
+
+    [[nodiscard]] bool handle_pointer_release() noexcept;
+
+    [[nodiscard]] bool tick_animations() noexcept;
+
+    void set_source_code(std::string_view source_code);
+    void next_preset();
+    void previous_preset();
+
+    [[nodiscard]] Services::Shader::ShaderRuntimeEngine& get_engine() noexcept { return m_engine; }
+    [[nodiscard]] const Services::Shader::ShaderRuntimeEngine& get_engine() const noexcept { return m_engine; }
+
+    void render(
+        const StudioWorkspaceRenderer& surface,
+        CGContextRef context,
+        const UI::Editor::StudioEditorLayoutResult& layout) const;
+
+private:
+    void render_header(
+        const StudioWorkspaceRenderer& surface,
+        CGContextRef context,
+        const UI::Editor::StudioEditorLayoutResult& layout) const;
+
+    void render_viewport(
+        const StudioWorkspaceRenderer& surface,
+        CGContextRef context,
+        const UI::Editor::StudioEditorLayoutResult& layout) const;
+
+    void render_controls(
+        const StudioWorkspaceRenderer& surface,
+        CGContextRef context,
+        const UI::Editor::StudioEditorLayoutResult& layout) const;
+
+    void render_diagnostics_overlay(
+        const StudioWorkspaceRenderer& surface,
+        CGContextRef context,
+        const UI::Rect& viewport_rect) const;
+
+    Services::Shader::ShaderRuntimeEngine m_engine;
+    bool m_visible = false;
+    float m_width = 380.0F;
+    bool m_is_resizing = false;
+    float m_drag_start_x = 0.0F;
+    float m_drag_start_width = 380.0F;
+    Services::Shader::ResolutionScale m_prev_scale = Services::Shader::ResolutionScale::Full;
+
+    // Interactive button hover states
+    bool m_hover_close = false;
+    bool m_hover_preset = false;
+    bool m_hover_play = false;
+    bool m_hover_reset = false;
+    bool m_hover_scale = false;
+    bool m_hover_snapshot = false;
+    bool m_hover_splitter = false;
+    bool m_viewport_mouse_down = false;
+};
+
+} // namespace Zenvra::Platform::Cocoa::Components

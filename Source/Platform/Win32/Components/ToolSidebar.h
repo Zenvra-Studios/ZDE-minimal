@@ -6,6 +6,7 @@
 
 #include <windows.h>
 
+#include <chrono>
 #include <filesystem>
 #include <optional>
 
@@ -34,6 +35,7 @@ class ToolSidebar
 public:
     [[nodiscard]] bool initialize();
     [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root);
+    void clear_workspace() noexcept;
     [[nodiscard]] bool activate(UI::Editor::SidebarIcon icon) noexcept;
     [[nodiscard]] SidebarPressResult handle_pointer_press(
         const UI::Editor::StudioEditorLayoutResult& layout,
@@ -70,8 +72,11 @@ public:
     
     [[nodiscard]] bool handle_pointer_drag(
         const UI::Editor::StudioEditorLayoutResult& layout,
-        float point_x) noexcept;
+        float point_x,
+        float point_y) noexcept;
     [[nodiscard]] bool handle_pointer_release() noexcept;
+    [[nodiscard]] bool is_dragging_item() const noexcept { return m_is_dragging_item; }
+    [[nodiscard]] bool tick_animations() noexcept;
 
     void render(
         const StudioWorkspaceRenderer& surface,
@@ -105,6 +110,16 @@ private:
     bool m_resize_hovered = false;
     float m_drag_start_x = 0.0F;
     float m_drag_start_width = 0.0F;
+
+    // macOS-style Drag & Drop item moving
+    std::optional<std::size_t> m_drag_source_row;
+    std::optional<std::size_t> m_drag_target_row;
+    float m_drag_press_x = 0.0F;
+    float m_drag_press_y = 0.0F;
+    float m_drag_current_x = 0.0F;
+    float m_drag_current_y = 0.0F;
+    bool m_is_dragging_item = false;
+    std::chrono::steady_clock::time_point m_last_refresh_time{};
 };
 
 } // namespace Zenvra::Platform::Win32::Components

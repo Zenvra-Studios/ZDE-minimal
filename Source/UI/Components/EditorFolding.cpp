@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <stack>
+#include <span>
 
 namespace Zenvra::UI::Components
 {
@@ -95,7 +96,7 @@ bool has_closing_brace(std::string_view line)
 
 } // namespace
 
-void EditorFoldingModel::rebuild(const std::vector<std::string>& lines, std::size_t tab_size)
+void EditorFoldingModel::rebuild(std::span<const std::string> lines, std::size_t tab_size)
 {
     m_ranges.clear();
     const std::size_t count = lines.size();
@@ -156,7 +157,17 @@ void EditorFoldingModel::rebuild(const std::vector<std::string>& lines, std::siz
 
         if (has_opening_brace(line))
         {
-            open_stack.push({i, indent});
+            std::size_t fold_start = i;
+            const std::size_t first_non_ws = line.find_first_not_of(" \t\r\n");
+            if (first_non_ws != std::string_view::npos && line[first_non_ws] == '{' && i > 0)
+            {
+                const std::string_view prev_line{lines[i - 1]};
+                if (!is_whitespace_only(prev_line) && !has_opening_brace(prev_line) && !has_closing_brace(prev_line))
+                {
+                    fold_start = i - 1;
+                }
+            }
+            open_stack.push({fold_start, indent});
         }
 
         if (has_closing_brace(line) && !open_stack.empty())
@@ -164,9 +175,7 @@ void EditorFoldingModel::rebuild(const std::vector<std::string>& lines, std::siz
             const auto [start, start_indent] = open_stack.top();
             open_stack.pop();
 
-            // Only create a range if there is at least one line between
-            // the opening and closing braces.
-            if (i > start + 1)
+            if (i > start)
             {
                 m_ranges.push_back(FoldRange{start, i, start_indent});
             }
@@ -221,7 +230,7 @@ bool EditorFoldingModel::is_line_hidden(std::size_t line_index) const noexcept
     for (const std::size_t start : m_collapsed)
     {
         const FoldRange* range = get_range_at(start);
-        if (range && line_index > range->start_line && line_index < range->end_line)
+        if (range && line_index > range->start_line && line_index <= range->end_line)
         {
             return true;
         }

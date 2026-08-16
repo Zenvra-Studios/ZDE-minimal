@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -44,7 +45,7 @@ class EditorFoldingModel
 public:
     /// Re-analyse the document lines and rebuild the fold-range table and indent guides.
     /// Call this whenever the document text changes.
-    void rebuild(const std::vector<std::string>& lines, std::size_t tab_size = 4);
+    void rebuild(std::span<const std::string> lines, std::size_t tab_size = 4);
 
     /// Toggle the collapsed state of the fold that starts at `line_index`.
     /// Returns true if the state actually changed.

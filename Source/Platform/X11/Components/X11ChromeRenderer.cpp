@@ -1,4 +1,5 @@
 #include "Platform/X11/Components/X11ChromeRenderer.h"
+#include "Platform/HostSystem.h"
 
 #include "Utility/Fonts.h"
 #include "Utility/X11Rounded.h"
@@ -69,7 +70,16 @@ std::string interpolate_hex_color(const std::string &bg, const std::string &fg,
 
 } // namespace
 
-X11ChromeRenderer::X11ChromeRenderer() = default;
+X11ChromeRenderer::X11ChromeRenderer()
+{
+  const auto arch = HostSystem::get_native_architecture();
+  if (arch == HostSystem::Architecture::Arm64) {
+    m_run_config_state.active_architecture = UI::Toolbar::TargetArchitecture::Arm64;
+  } else if (arch == HostSystem::Architecture::X86_64) {
+    m_run_config_state.active_architecture = UI::Toolbar::TargetArchitecture::X86_64;
+  }
+  m_run_config_state.active_preset_name = HostSystem::get_system_info().default_preset_debug;
+}
 
 X11ChromeRenderer::~X11ChromeRenderer() { shutdown(); }
 
@@ -672,19 +682,19 @@ void X11ChromeRenderer::render(
       draw_toolbar_hover(chrome_layout.compiler_bounds);
     }
     const UI::Rect text_rect{
-        chrome_layout.compiler_bounds.x + 12.0F * scale,
+        chrome_layout.compiler_bounds.x + 10.0F * scale,
         chrome_layout.compiler_bounds.y,
-        std::max(0.0F, chrome_layout.compiler_bounds.width - 28.0F * scale),
+        std::max(0.0F, chrome_layout.compiler_bounds.width - 22.0F * scale),
         chrome_layout.compiler_bounds.height};
-    draw_centered_text(back_buffer, "Debug", text_rect, m_text_colors.primary);
+    draw_centered_text(back_buffer, UI::Toolbar::to_string(m_run_config_state.active_mode), text_rect, m_text_colors.primary);
     const int chevron_x =
-        round_to_int(chrome_layout.compiler_bounds.right() - 14.0F * scale);
+        round_to_int(chrome_layout.compiler_bounds.right() - 10.0F * scale);
     const int chevron_y =
         round_to_int(chrome_layout.compiler_bounds.y +
                      chrome_layout.compiler_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
-        std::max(static_cast<int>(12.0F * scale), 10),
+        std::max(static_cast<int>(10.0F * scale), 8),
         m_workspace_renderer.m_palette.text_muted,
         interaction_state.compiler_button_hovered
             ? m_hover_color
@@ -696,19 +706,19 @@ void X11ChromeRenderer::render(
       draw_toolbar_hover(chrome_layout.platform_bounds);
     }
     const UI::Rect text_rect{
-        chrome_layout.platform_bounds.x + 12.0F * scale,
+        chrome_layout.platform_bounds.x + 10.0F * scale,
         chrome_layout.platform_bounds.y,
-        std::max(0.0F, chrome_layout.platform_bounds.width - 28.0F * scale),
+        std::max(0.0F, chrome_layout.platform_bounds.width - 22.0F * scale),
         chrome_layout.platform_bounds.height};
-    draw_centered_text(back_buffer, "x64", text_rect, m_text_colors.primary);
+    draw_centered_text(back_buffer, UI::Toolbar::to_string(m_run_config_state.active_architecture), text_rect, m_text_colors.primary);
     const int chevron_x =
-        round_to_int(chrome_layout.platform_bounds.right() - 14.0F * scale);
+        round_to_int(chrome_layout.platform_bounds.right() - 10.0F * scale);
     const int chevron_y =
         round_to_int(chrome_layout.platform_bounds.y +
                      chrome_layout.platform_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
-        std::max(static_cast<int>(12.0F * scale), 10),
+        std::max(static_cast<int>(10.0F * scale), 8),
         m_workspace_renderer.m_palette.text_muted,
         interaction_state.platform_button_hovered
             ? m_hover_color
@@ -733,7 +743,7 @@ void X11ChromeRenderer::render(
         chrome_layout.binary_bounds.y,
         std::max(0.0F, chrome_layout.binary_bounds.width - 52.0F * scale),
         chrome_layout.binary_bounds.height};
-    draw_centered_text(back_buffer, "untitled", text_rect, m_text_colors.primary);
+    draw_centered_text(back_buffer, m_run_config_state.active_target_name, text_rect, m_text_colors.primary);
     const int chevron_x =
         round_to_int(chrome_layout.binary_bounds.right() - 14.0F * scale);
     const int chevron_y =

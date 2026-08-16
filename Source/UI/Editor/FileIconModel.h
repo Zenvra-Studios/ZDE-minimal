@@ -146,7 +146,7 @@ inline std::string material_icon(std::string_view icon_name)
     {
         return Detail::material_icon("jsconfig");
     }
-    if (filename.ends_with(".d.ts"))
+    if (filename.ends_with(".d.ts") || filename.ends_with(".d.mts") || filename.ends_with(".d.cts"))
     {
         return Detail::material_icon("typescript-def");
     }
@@ -194,7 +194,7 @@ inline std::string material_icon(std::string_view icon_name)
     {
         return Detail::material_icon("react");
     }
-    if (extension == ".ts")
+    if (extension == ".ts" || extension == ".mts" || extension == ".cts")
     {
         return Detail::material_icon("typescript");
     }

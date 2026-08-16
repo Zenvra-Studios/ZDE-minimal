@@ -6,6 +6,7 @@
 #include "UI/Chrome/WindowChromeLayout.h"
 #include "UI/Components/AboutModal.h"
 #include "UI/Theme/StudioTheme.h"
+#include "UI/Toolbar/ToolbarTypes.h"
 
 #include <windows.h>
 
@@ -47,6 +48,9 @@ public:
     void set_command_state_query_callback(CommandStateQueryCallback callback) override;
 
     [[nodiscard]] bool open_project_folder() override;
+    [[nodiscard]] bool close_project() override;
+    void toggle_terminal() override;
+    void toggle_shader_sandbox() override;
     void show_about_dialog() override;
     [[nodiscard]] bool is_modal_active() const override;
 
@@ -71,7 +75,7 @@ private:
     LRESULT handle_message(HWND window_handle, UINT message, WPARAM w_param, LPARAM l_param);
     [[nodiscard]] LRESULT hit_test_non_client(LPARAM l_param);
     [[nodiscard]] LRESULT hit_test_resize_border(POINT client_position) const;
-    void enforce_sharp_corners();
+    void apply_system_corner_preference();
     void paint_custom_chrome();
     void refresh_chrome_layout();
     void refresh_ui_font();
@@ -155,6 +159,7 @@ private:
     HFONT m_ui_font = nullptr;
     UINT m_dpi = 96;
     wchar_t m_pending_high_surrogate = 0;
+    UI::Toolbar::RunConfigurationState m_run_config_state;
 
     static constexpr const wchar_t* window_class_name = L"ZenvraPlatformWindow";
 };

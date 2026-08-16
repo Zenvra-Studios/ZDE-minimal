@@ -70,6 +70,8 @@ Client::ILanguageClient* LanguageServerManager::get_or_start_client_for_file(std
             const std::filesystem::path direct_candidates[] = {
                 root / "compile_commands.json",
                 root / "build" / "compile_commands.json",
+                root / "build" / "macos-debug" / "compile_commands.json",
+                root / "build" / "macos-release" / "compile_commands.json",
                 root / "build" / "linux-debug" / "compile_commands.json",
                 root / "build" / "linux-release" / "compile_commands.json",
                 root / "build" / "windows-x64-clang-ninja-debug" / "compile_commands.json",
@@ -146,6 +148,18 @@ Client::ILanguageClient* LanguageServerManager::get_or_start_client_for_file(std
     return nullptr;
 }
 
+static std::string determine_lsp_language_id(std::string_view filename, const std::string& default_lang_id)
+{
+    const std::filesystem::path p(filename);
+    const std::string ext = p.extension().string();
+    if (ext == ".tsx") return "typescriptreact";
+    if (ext == ".jsx") return "javascriptreact";
+    if (ext == ".ts" || ext == ".mts" || ext == ".cts") return "typescript";
+    if (ext == ".js" || ext == ".mjs" || ext == ".cjs") return "javascript";
+    if (ext == ".html" || ext == ".htm" || ext == ".xhtml") return "html";
+    return default_lang_id;
+}
+
 void LanguageServerManager::on_document_opened(
     const std::string& uri,
     std::string_view filename,
@@ -156,7 +170,8 @@ void LanguageServerManager::on_document_opened(
     if (client != nullptr)
     {
         const auto* profile = Registry::ServerRegistry::instance().find_profile_for_filename(filename);
-        const std::string lang_id = profile != nullptr ? profile->language_id : "plaintext";
+        const std::string base_lang_id = profile != nullptr ? profile->language_id : "plaintext";
+        const std::string lang_id = determine_lsp_language_id(filename, base_lang_id);
 
         client->did_open(uri, lang_id, version, content);
         request_semantic_tokens(uri, filename);
@@ -674,6 +689,571 @@ std::vector<Protocol::CompletionItem> get_jetbrains_rust_templates()
     };
 }
 
+std::vector<Protocol::CompletionItem> get_jetbrains_typescript_templates(bool is_jsx)
+{
+    std::vector<Protocol::CompletionItem> items = {
+        Protocol::CompletionItem{
+            .label = "import",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "import { item } from 'module';",
+            .documentation = "Imports named bindings from a module.",
+            .insert_text = "import { ${1:item} } from '${2:module}';$0",
+            .sort_text = "0_import",
+            .filter_text = "import"
+        },
+        Protocol::CompletionItem{
+            .label = "import default",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "import name from 'module';",
+            .documentation = "Imports the default export from a module.",
+            .insert_text = "import ${1:name} from '${2:module}';$0",
+            .sort_text = "0_import_default",
+            .filter_text = "import default"
+        },
+        Protocol::CompletionItem{
+            .label = "import * as",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "import * as name from 'module';",
+            .documentation = "Imports module namespace object.",
+            .insert_text = "import * as ${1:name} from '${2:module}';$0",
+            .sort_text = "0_import_all",
+            .filter_text = "import * as"
+        },
+        Protocol::CompletionItem{
+            .label = "import type",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "import type { Type } from 'module';",
+            .documentation = "Type-only import statement for TypeScript.",
+            .insert_text = "import type { ${1:Type} } from '${2:module}';$0",
+            .sort_text = "0_import_type",
+            .filter_text = "import type"
+        },
+        Protocol::CompletionItem{
+            .label = "export const",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "export const name = value;",
+            .documentation = "Exports a constant variable.",
+            .insert_text = "export const ${1:name} = ${2:value};$0",
+            .sort_text = "1_export_const",
+            .filter_text = "export const"
+        },
+        Protocol::CompletionItem{
+            .label = "export function",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "export function name(...) { ... }",
+            .documentation = "Exports a named function.",
+            .insert_text = "export function ${1:name}(${2}): ${3:void} {\n    $0\n}",
+            .sort_text = "1_export_function",
+            .filter_text = "export function"
+        },
+        Protocol::CompletionItem{
+            .label = "export default",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "export default ...;",
+            .documentation = "Defines the default export for a module.",
+            .insert_text = "export default ${1:name};$0",
+            .sort_text = "1_export_default",
+            .filter_text = "export default"
+        },
+        Protocol::CompletionItem{
+            .label = "interface",
+            .kind = Protocol::CompletionItemKind::Interface,
+            .detail = "interface Name { ... }",
+            .documentation = "Defines a TypeScript interface shape.",
+            .insert_text = "interface ${1:Name} {\n    ${2:id}: ${3:string};\n    $0\n}",
+            .sort_text = "1_interface",
+            .filter_text = "interface"
+        },
+        Protocol::CompletionItem{
+            .label = "type",
+            .kind = Protocol::CompletionItemKind::Class,
+            .detail = "type Name = ...;",
+            .documentation = "Defines a TypeScript type alias.",
+            .insert_text = "type ${1:Name} = ${2:string};$0",
+            .sort_text = "1_type",
+            .filter_text = "type"
+        },
+        Protocol::CompletionItem{
+            .label = "enum",
+            .kind = Protocol::CompletionItemKind::Enum,
+            .detail = "enum Name { ... }",
+            .documentation = "Defines a TypeScript enum.",
+            .insert_text = "enum ${1:Name} {\n    ${2:First} = \"${3:FIRST}\",\n    $0\n}",
+            .sort_text = "1_enum",
+            .filter_text = "enum"
+        },
+        Protocol::CompletionItem{
+            .label = "class",
+            .kind = Protocol::CompletionItemKind::Class,
+            .detail = "class Name { ... }",
+            .documentation = "Defines an ES6 / TypeScript class.",
+            .insert_text = "class ${1:Name} {\n    constructor(${2}) {\n        $0\n    }\n}",
+            .sort_text = "1_class",
+            .filter_text = "class"
+        },
+        Protocol::CompletionItem{
+            .label = "async function",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "async function name(...): Promise<T> { ... }",
+            .documentation = "Defines an asynchronous function returning a Promise.",
+            .insert_text = "async function ${1:name}(${2}): Promise<${3:void}> {\n    $0\n}",
+            .sort_text = "1_async_function",
+            .filter_text = "async function"
+        },
+        Protocol::CompletionItem{
+            .label = "const fn",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "const name = (...) => { ... }",
+            .documentation = "Defines an arrow function constant.",
+            .insert_text = "const ${1:name} = (${2}): ${3:void} => {\n    $0\n};",
+            .sort_text = "1_const_fn",
+            .filter_text = "const fn"
+        },
+        Protocol::CompletionItem{
+            .label = "async arrow",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "const name = async (...) => { ... }",
+            .documentation = "Defines an asynchronous arrow function.",
+            .insert_text = "const ${1:name} = async (${2}): Promise<${3:void}> => {\n    $0\n};",
+            .sort_text = "1_async_arrow",
+            .filter_text = "async arrow"
+        },
+        Protocol::CompletionItem{
+            .label = "clog",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "console.log(...)",
+            .documentation = "Outputs message to the console.",
+            .insert_text = "console.log(${0});",
+            .sort_text = "0_clog",
+            .filter_text = "clog"
+        },
+        Protocol::CompletionItem{
+            .label = "cerr",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "console.error(...)",
+            .documentation = "Outputs error message to the console.",
+            .insert_text = "console.error(${0});",
+            .sort_text = "0_cerr",
+            .filter_text = "cerr"
+        },
+        Protocol::CompletionItem{
+            .label = "trycatch",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "try { ... } catch (error) { ... }",
+            .documentation = "Try-catch error handling block.",
+            .insert_text = "try {\n    $1\n} catch (error) {\n    console.error(error);\n    $0\n}",
+            .sort_text = "1_trycatch",
+            .filter_text = "trycatch"
+        },
+        Protocol::CompletionItem{
+            .label = "forof",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "for (const item of items) { ... }",
+            .documentation = "Iterates over iterable collections.",
+            .insert_text = "for (const ${1:item} of ${2:items}) {\n    $0\n}",
+            .sort_text = "1_forof",
+            .filter_text = "forof"
+        },
+        Protocol::CompletionItem{
+            .label = "forin",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "for (const key in object) { ... }",
+            .documentation = "Iterates over object property keys.",
+            .insert_text = "for (const ${1:key} in ${2:object}) {\n    $0\n}",
+            .sort_text = "1_forin",
+            .filter_text = "forin"
+        },
+        Protocol::CompletionItem{
+            .label = "map",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "array.map((item) => ...)",
+            .documentation = "Maps array items through a transform function.",
+            .insert_text = "${1:array}.map((${2:item}) => ${0})",
+            .sort_text = "1_map",
+            .filter_text = "map"
+        },
+        Protocol::CompletionItem{
+            .label = "filter",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "array.filter((item) => ...)",
+            .documentation = "Filters array items with a predicate.",
+            .insert_text = "${1:array}.filter((${2:item}) => ${0})",
+            .sort_text = "1_filter",
+            .filter_text = "filter"
+        },
+        Protocol::CompletionItem{
+            .label = "reduce",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "array.reduce((acc, cur) => ..., initial)",
+            .documentation = "Reduces array to a single accumulator value.",
+            .insert_text = "${1:array}.reduce((${2:acc}, ${3:cur}) => ${0}, ${4:initial})",
+            .sort_text = "1_reduce",
+            .filter_text = "reduce"
+        },
+        Protocol::CompletionItem{
+            .label = "promise",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "new Promise<T>((resolve, reject) => { ... })",
+            .documentation = "Creates a new asynchronous Promise.",
+            .insert_text = "new Promise<${1:void}>((resolve, reject) => {\n    $0\n})",
+            .sort_text = "1_promise",
+            .filter_text = "promise"
+        }
+    };
+
+    if (is_jsx)
+    {
+        items.push_back(Protocol::CompletionItem{
+            .label = "rfc",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "React.FC Component Template",
+            .documentation = "Generates a React functional component with props interface.",
+            .insert_text = "import React from 'react';\n\ninterface ${1:Component}Props {\n    ${2:title}?: string;\n}\n\nexport const ${1:Component}: React.FC<${1:Component}Props> = ({\n    ${2:title},\n}) => {\n    return (\n        <div>\n            $0\n        </div>\n    );\n};\n",
+            .sort_text = "0_rfc",
+            .filter_text = "rfc"
+        });
+        items.push_back(Protocol::CompletionItem{
+            .label = "useState",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "const [state, setState] = useState(initial);",
+            .documentation = "React useState state hook declaration.",
+            .insert_text = "const [${1:state}, set${2:State}] = useState<${3:string}>(${4:\"\"});$0",
+            .sort_text = "0_useState",
+            .filter_text = "useState"
+        });
+        items.push_back(Protocol::CompletionItem{
+            .label = "useEffect",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "useEffect(() => { ... }, [deps]);",
+            .documentation = "React useEffect side-effect hook declaration.",
+            .insert_text = "useEffect(() => {\n    $0\n    return () => {\n        // cleanup\n    };\n}, [${1}]);",
+            .sort_text = "0_useEffect",
+            .filter_text = "useEffect"
+        });
+        items.push_back(Protocol::CompletionItem{
+            .label = "useCallback",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "const cb = useCallback((...) => { ... }, [deps]);",
+            .documentation = "React useCallback memoized callback hook.",
+            .insert_text = "const ${1:callback} = useCallback((${2}) => {\n    $0\n}, [${3}]);",
+            .sort_text = "0_useCallback",
+            .filter_text = "useCallback"
+        });
+        items.push_back(Protocol::CompletionItem{
+            .label = "useMemo",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "const value = useMemo(() => { ... }, [deps]);",
+            .documentation = "React useMemo memoized computation hook.",
+            .insert_text = "const ${1:memoized} = useMemo(() => {\n    return $0;\n}, [${2}]);",
+            .sort_text = "0_useMemo",
+            .filter_text = "useMemo"
+        });
+        items.push_back(Protocol::CompletionItem{
+            .label = "useRef",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "const ref = useRef<Element>(null);",
+            .documentation = "React useRef mutable reference hook.",
+            .insert_text = "const ${1:ref} = useRef<${2:HTMLDivElement}>(null);$0",
+            .sort_text = "0_useRef",
+            .filter_text = "useRef"
+        });
+    }
+
+    return items;
+}
+
+std::vector<Protocol::CompletionItem> get_workspace_ts_imports(
+    const std::filesystem::path& workspace_root,
+    std::string_view current_filename)
+{
+    std::vector<Protocol::CompletionItem> results;
+    std::unordered_set<std::string> seen;
+
+    std::filesystem::path base_dir;
+    if (!current_filename.empty())
+    {
+        base_dir = std::filesystem::path(current_filename).parent_path();
+    }
+    if (base_dir.empty() || !std::filesystem::exists(base_dir))
+    {
+        base_dir = workspace_root.empty() ? std::filesystem::current_path() : workspace_root;
+    }
+
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(base_dir, ec))
+    {
+        if (entry.is_regular_file())
+        {
+            const auto ext = entry.path().extension().string();
+            if (ext == ".ts" || ext == ".tsx" || ext == ".js" || ext == ".jsx" || ext == ".json" || ext == ".mts" || ext == ".cts")
+            {
+                std::string stem = entry.path().stem().string();
+                if (stem == "index")
+                {
+                    stem = "./";
+                }
+                else
+                {
+                    stem = "./" + stem;
+                }
+                if (seen.insert(stem).second)
+                {
+                    results.push_back(Protocol::CompletionItem{
+                        .label = stem,
+                        .kind = Protocol::CompletionItemKind::Module,
+                        .detail = "Local module: " + entry.path().filename().string(),
+                        .documentation = "Relative import path: " + stem,
+                        .insert_text = stem,
+                        .sort_text = "0_" + stem,
+                        .filter_text = stem
+                    });
+                }
+            }
+        }
+        else if (entry.is_directory())
+        {
+            const std::string dir_name = "./" + entry.path().filename().string();
+            if (dir_name != "./node_modules" && dir_name != "./.git" && dir_name != "./build" && dir_name != "./dist")
+            {
+                if (seen.insert(dir_name).second)
+                {
+                    results.push_back(Protocol::CompletionItem{
+                        .label = dir_name,
+                        .kind = Protocol::CompletionItemKind::Folder,
+                        .detail = "Folder: " + entry.path().filename().string(),
+                        .documentation = "Relative folder import path: " + dir_name,
+                        .insert_text = dir_name,
+                        .sort_text = "1_" + dir_name,
+                        .filter_text = dir_name
+                    });
+                }
+            }
+        }
+    }
+
+    return results;
+}
+
+std::vector<Protocol::CompletionItem> get_jetbrains_html_templates()
+{
+    return {
+        Protocol::CompletionItem{
+            .label = "!",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "HTML5 Boilerplate Document",
+            .documentation = "Generates a complete modern HTML5 starter boilerplate structure.",
+            .insert_text = "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>${1:Document}</title>\n</head>\n<body>\n    $0\n</body>\n</html>",
+            .sort_text = "0_0_boilerplate",
+            .filter_text = "!"
+        },
+        Protocol::CompletionItem{
+            .label = "html5",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<!DOCTYPE html> ... </html>",
+            .documentation = "Standard HTML5 skeleton with viewport and stylesheet link.",
+            .insert_text = "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>${1:Document}</title>\n    <link rel=\"stylesheet\" href=\"${2:style.css}\">\n</head>\n<body>\n    $0\n    <script src=\"${3:main.js}\"></script>\n</body>\n</html>",
+            .sort_text = "0_0_html5",
+            .filter_text = "html5"
+        },
+        Protocol::CompletionItem{
+            .label = "link:css",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<link rel=\"stylesheet\" href=\"style.css\">",
+            .documentation = "Links an external CSS stylesheet.",
+            .insert_text = "<link rel=\"stylesheet\" href=\"${1:style.css}\">",
+            .sort_text = "0_link_css",
+            .filter_text = "link:css"
+        },
+        Protocol::CompletionItem{
+            .label = "script:src",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<script src=\"app.js\"></script>",
+            .documentation = "Imports an external JavaScript script file.",
+            .insert_text = "<script src=\"${1:app.js}\"></script>",
+            .sort_text = "0_script_src",
+            .filter_text = "script:src"
+        },
+        Protocol::CompletionItem{
+            .label = "div",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<div class=\"...\">...</div>",
+            .documentation = "Standard HTML container division element.",
+            .insert_text = "<div class=\"${1:container}\">\n    $0\n</div>",
+            .sort_text = "1_div",
+            .filter_text = "div"
+        },
+        Protocol::CompletionItem{
+            .label = "a",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<a href=\"...\">...</a>",
+            .documentation = "Hyperlink anchor element.",
+            .insert_text = "<a href=\"${1:#}\"${2: target=\"_blank\"}>${3:Link}</a>$0",
+            .sort_text = "1_a",
+            .filter_text = "a"
+        },
+        Protocol::CompletionItem{
+            .label = "button",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<button type=\"button\">...</button>",
+            .documentation = "Clickable HTML button element.",
+            .insert_text = "<button type=\"${1:button}\" class=\"${2:btn}\">${3:Click me}</button>$0",
+            .sort_text = "1_button",
+            .filter_text = "button"
+        },
+        Protocol::CompletionItem{
+            .label = "form:post",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<form action=\"...\" method=\"POST\">",
+            .documentation = "HTML Form with POST method.",
+            .insert_text = "<form action=\"${1}\" method=\"POST\">\n    $0\n</form>",
+            .sort_text = "1_form_post",
+            .filter_text = "form:post"
+        },
+        Protocol::CompletionItem{
+            .label = "form:get",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<form action=\"...\" method=\"GET\">",
+            .documentation = "HTML Form with GET method.",
+            .insert_text = "<form action=\"${1}\" method=\"GET\">\n    $0\n</form>",
+            .sort_text = "1_form_get",
+            .filter_text = "form:get"
+        },
+        Protocol::CompletionItem{
+            .label = "input:text",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<input type=\"text\" name=\"...\" placeholder=\"...\">",
+            .documentation = "Single-line text input field.",
+            .insert_text = "<input type=\"text\" name=\"${1:name}\" id=\"${1:name}\" placeholder=\"${2:Enter text...}\">",
+            .sort_text = "1_input_text",
+            .filter_text = "input:text"
+        },
+        Protocol::CompletionItem{
+            .label = "input:password",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<input type=\"password\" name=\"...\">",
+            .documentation = "Password input field.",
+            .insert_text = "<input type=\"password\" name=\"${1:password}\" id=\"${1:password}\" placeholder=\"${2:Password}\">",
+            .sort_text = "1_input_password",
+            .filter_text = "input:password"
+        },
+        Protocol::CompletionItem{
+            .label = "input:email",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<input type=\"email\" name=\"...\">",
+            .documentation = "Email input field with built-in validation.",
+            .insert_text = "<input type=\"email\" name=\"${1:email}\" id=\"${1:email}\" placeholder=\"${2:name@example.com}\">",
+            .sort_text = "1_input_email",
+            .filter_text = "input:email"
+        },
+        Protocol::CompletionItem{
+            .label = "input:checkbox",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<input type=\"checkbox\" name=\"...\">",
+            .documentation = "Checkbox selection input.",
+            .insert_text = "<label>\n    <input type=\"checkbox\" name=\"${1:agree}\" id=\"${1:agree}\">\n    ${2:Label}\n</label>",
+            .sort_text = "1_input_checkbox",
+            .filter_text = "input:checkbox"
+        },
+        Protocol::CompletionItem{
+            .label = "input:submit",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<input type=\"submit\" value=\"Submit\">",
+            .documentation = "Form submit button input.",
+            .insert_text = "<input type=\"submit\" value=\"${1:Submit}\">",
+            .sort_text = "1_input_submit",
+            .filter_text = "input:submit"
+        },
+        Protocol::CompletionItem{
+            .label = "img",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<img src=\"...\" alt=\"...\">",
+            .documentation = "Embedded image element.",
+            .insert_text = "<img src=\"${1:image.png}\" alt=\"${2:description}\" width=\"${3:100}\" height=\"${4:100}\">",
+            .sort_text = "1_img",
+            .filter_text = "img"
+        },
+        Protocol::CompletionItem{
+            .label = "table",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<table><thead>...</thead><tbody>...</tbody></table>",
+            .documentation = "Complete HTML table structure with headers and row.",
+            .insert_text = "<table>\n    <thead>\n        <tr>\n            <th>${1:Header 1}</th>\n            <th>${2:Header 2}</th>\n        </tr>\n    </thead>\n    <tbody>\n        <tr>\n            <td>${3:Data 1}</td>\n            <td>${4:Data 2}</td>\n        </tr>\n    </tbody>\n</table>",
+            .sort_text = "1_table",
+            .filter_text = "table"
+        },
+        Protocol::CompletionItem{
+            .label = "ul>li",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<ul><li>...</li></ul>",
+            .documentation = "Unordered list with list items.",
+            .insert_text = "<ul>\n    <li>${1:Item 1}</li>\n    <li>${2:Item 2}</li>\n    <li>${3:Item 3}</li>\n</ul>",
+            .sort_text = "1_ul_li",
+            .filter_text = "ul>li"
+        },
+        Protocol::CompletionItem{
+            .label = "ol>li",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<ol><li>...</li></ol>",
+            .documentation = "Ordered numbered list with list items.",
+            .insert_text = "<ol>\n    <li>${1:Item 1}</li>\n    <li>${2:Item 2}</li>\n    <li>${3:Item 3}</li>\n</ol>",
+            .sort_text = "1_ol_li",
+            .filter_text = "ol>li"
+        },
+        Protocol::CompletionItem{
+            .label = "select",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<select name=\"...\"><option value=\"...\">...</option></select>",
+            .documentation = "Dropdown selection list with option items.",
+            .insert_text = "<select name=\"${1:choice}\" id=\"${1:choice}\">\n    <option value=\"${2:val1}\">${3:Option 1}</option>\n    <option value=\"${4:val2}\">${5:Option 2}</option>\n</select>",
+            .sort_text = "1_select",
+            .filter_text = "select"
+        },
+        Protocol::CompletionItem{
+            .label = "style",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<style>\n    ...\n</style>",
+            .documentation = "Internal CSS stylesheet block.",
+            .insert_text = "<style>\n    ${1:body} {\n        ${2:margin: 0;}\n    }\n</style>",
+            .sort_text = "1_style",
+            .filter_text = "style"
+        },
+        Protocol::CompletionItem{
+            .label = "script",
+            .kind = Protocol::CompletionItemKind::Snippet,
+            .detail = "<script>\n    ...\n</script>",
+            .documentation = "Inline JavaScript script execution block.",
+            .insert_text = "<script>\n    ${0}\n</script>",
+            .sort_text = "1_script",
+            .filter_text = "script"
+        }
+    };
+}
+
+std::vector<Protocol::CompletionItem> get_html_attribute_completions()
+{
+    return {
+        Protocol::CompletionItem{.label = "class", .kind = Protocol::CompletionItemKind::Property, .detail = "class=\"...\"", .documentation = "CSS class list attribute.", .insert_text = "class=\"${1}\"$0", .sort_text = "0_class", .filter_text = "class"},
+        Protocol::CompletionItem{.label = "id", .kind = Protocol::CompletionItemKind::Property, .detail = "id=\"...\"", .documentation = "Unique element identifier attribute.", .insert_text = "id=\"${1}\"$0", .sort_text = "0_id", .filter_text = "id"},
+        Protocol::CompletionItem{.label = "style", .kind = Protocol::CompletionItemKind::Property, .detail = "style=\"...\"", .documentation = "Inline CSS style rules.", .insert_text = "style=\"${1}\"$0", .sort_text = "0_style", .filter_text = "style"},
+        Protocol::CompletionItem{.label = "href", .kind = Protocol::CompletionItemKind::Property, .detail = "href=\"...\"", .documentation = "Hyperlink destination URL.", .insert_text = "href=\"${1:#}\"$0", .sort_text = "0_href", .filter_text = "href"},
+        Protocol::CompletionItem{.label = "src", .kind = Protocol::CompletionItemKind::Property, .detail = "src=\"...\"", .documentation = "External resource image/media/script source path.", .insert_text = "src=\"${1}\"$0", .sort_text = "0_src", .filter_text = "src"},
+        Protocol::CompletionItem{.label = "alt", .kind = Protocol::CompletionItemKind::Property, .detail = "alt=\"...\"", .documentation = "Alternative text description for images.", .insert_text = "alt=\"${1}\"$0", .sort_text = "0_alt", .filter_text = "alt"},
+        Protocol::CompletionItem{.label = "type", .kind = Protocol::CompletionItemKind::Property, .detail = "type=\"...\"", .documentation = "Element behavior/input type.", .insert_text = "type=\"${1:text}\"$0", .sort_text = "0_type", .filter_text = "type"},
+        Protocol::CompletionItem{.label = "value", .kind = Protocol::CompletionItemKind::Property, .detail = "value=\"...\"", .documentation = "Default or current value of the form field.", .insert_text = "value=\"${1}\"$0", .sort_text = "0_value", .filter_text = "value"},
+        Protocol::CompletionItem{.label = "name", .kind = Protocol::CompletionItemKind::Property, .detail = "name=\"...\"", .documentation = "Form submission field name.", .insert_text = "name=\"${1}\"$0", .sort_text = "0_name", .filter_text = "name"},
+        Protocol::CompletionItem{.label = "placeholder", .kind = Protocol::CompletionItemKind::Property, .detail = "placeholder=\"...\"", .documentation = "Hint text displayed inside empty inputs.", .insert_text = "placeholder=\"${1}\"$0", .sort_text = "0_placeholder", .filter_text = "placeholder"},
+        Protocol::CompletionItem{.label = "target", .kind = Protocol::CompletionItemKind::Property, .detail = "target=\"_blank\"", .documentation = "Link browsing context target.", .insert_text = "target=\"${1:_blank}\"$0", .sort_text = "0_target", .filter_text = "target"},
+        Protocol::CompletionItem{.label = "rel", .kind = Protocol::CompletionItemKind::Property, .detail = "rel=\"noopener noreferrer\"", .documentation = "Relationship between linked resource and document.", .insert_text = "rel=\"${1:noopener noreferrer}\"$0", .sort_text = "0_rel", .filter_text = "rel"},
+        Protocol::CompletionItem{.label = "disabled", .kind = Protocol::CompletionItemKind::Property, .detail = "disabled", .documentation = "Disables user interaction with the control.", .insert_text = "disabled", .sort_text = "1_disabled", .filter_text = "disabled"},
+        Protocol::CompletionItem{.label = "required", .kind = Protocol::CompletionItemKind::Property, .detail = "required", .documentation = "Requires the input field before form submission.", .insert_text = "required", .sort_text = "1_required", .filter_text = "required"},
+        Protocol::CompletionItem{.label = "readonly", .kind = Protocol::CompletionItemKind::Property, .detail = "readonly", .documentation = "Prevents user modification of the input value.", .insert_text = "readonly", .sort_text = "1_readonly", .filter_text = "readonly"},
+        Protocol::CompletionItem{.label = "checked", .kind = Protocol::CompletionItemKind::Property, .detail = "checked", .documentation = "Specifies that the checkbox/radio is pre-selected.", .insert_text = "checked", .sort_text = "1_checked", .filter_text = "checked"},
+        Protocol::CompletionItem{.label = "onclick", .kind = Protocol::CompletionItemKind::Event, .detail = "onclick=\"...\"", .documentation = "Mouse click JavaScript event handler.", .insert_text = "onclick=\"${1}\"$0", .sort_text = "2_onclick", .filter_text = "onclick"},
+        Protocol::CompletionItem{.label = "onsubmit", .kind = Protocol::CompletionItemKind::Event, .detail = "onsubmit=\"...\"", .documentation = "Form submission JavaScript event handler.", .insert_text = "onsubmit=\"${1}\"$0", .sort_text = "2_onsubmit", .filter_text = "onsubmit"},
+        Protocol::CompletionItem{.label = "onchange", .kind = Protocol::CompletionItemKind::Event, .detail = "onchange=\"...\"", .documentation = "Input change JavaScript event handler.", .insert_text = "onchange=\"${1}\"$0", .sort_text = "2_onchange", .filter_text = "onchange"}
+    };
+}
+
 std::vector<Protocol::CompletionItem> get_templates_for_file(std::string_view filename)
 {
     const std::filesystem::path p(filename);
@@ -693,9 +1273,21 @@ std::vector<Protocol::CompletionItem> get_templates_for_file(std::string_view fi
         }
     };
 
+    const bool is_html = (ext == ".html" || ext == ".htm" || ext == ".xhtml");
+    const bool is_ts = (ext == ".ts" || ext == ".tsx" || ext == ".mts" || ext == ".cts" ||
+                        ext == ".js" || ext == ".jsx" || ext == ".mjs" || ext == ".cjs");
     if (fname == "CMakeLists.txt" || fname == "cmakelists.txt" || ext == ".cmake")
     {
         add_items(CMake::CMakeLanguageDatabase::instance().get_all_completions());
+    }
+    else if (is_html)
+    {
+        add_items(get_jetbrains_html_templates());
+        add_items(get_html_attribute_completions());
+    }
+    else if (is_ts)
+    {
+        add_items(get_jetbrains_typescript_templates(ext == ".tsx" || ext == ".jsx"));
     }
     else if (ext == ".rs")
     {
@@ -1000,6 +1592,87 @@ void LanguageServerManager::request_completion(
     }
 
     const std::string_view prefix_to_caret = line_text.substr(0, std::min(pos.character, line_text.size()));
+    const bool is_ts = (ext == ".ts" || ext == ".tsx" || ext == ".mts" || ext == ".cts" ||
+                        ext == ".js" || ext == ".jsx" || ext == ".mjs" || ext == ".cjs");
+    if (is_ts)
+    {
+        const bool is_import_or_require = (prefix_to_caret.find("import") != std::string_view::npos ||
+                                           prefix_to_caret.find("require") != std::string_view::npos ||
+                                           prefix_to_caret.find("from") != std::string_view::npos);
+        const bool in_quotes = (std::count(prefix_to_caret.begin(), prefix_to_caret.end(), '\'') % 2 == 1 ||
+                                std::count(prefix_to_caret.begin(), prefix_to_caret.end(), '"') % 2 == 1);
+        if (is_import_or_require && in_quotes)
+        {
+            auto import_items = get_workspace_ts_imports(m_workspace_root, filename);
+            auto* client = get_or_start_client_for_file(filename);
+            if (client != nullptr && client->is_active())
+            {
+                client->request_completion(uri, pos, [callback = std::move(callback), import_items = std::move(import_items)](std::vector<Protocol::CompletionItem> lsp_items) mutable {
+                    std::unordered_set<std::string> seen;
+                    std::vector<Protocol::CompletionItem> merged;
+                    merged.reserve(import_items.size() + lsp_items.size());
+                    for (auto& it : lsp_items)
+                    {
+                        if (seen.insert(it.label).second) merged.push_back(std::move(it));
+                    }
+                    for (auto& ii : import_items)
+                    {
+                        if (seen.insert(ii.label).second) merged.push_back(std::move(ii));
+                    }
+                    if (callback) callback(std::move(merged));
+                });
+                return;
+            }
+            if (callback) callback(std::move(import_items));
+            return;
+        }
+    }
+
+    const bool is_html = (ext == ".html" || ext == ".htm" || ext == ".xhtml");
+    if (is_html)
+    {
+        const std::size_t last_open = prefix_to_caret.rfind('<');
+        const std::size_t last_close = prefix_to_caret.rfind('>');
+        const bool inside_tag = (last_open != std::string_view::npos &&
+                                 (last_close == std::string_view::npos || last_open > last_close));
+
+        auto fallback_items = inside_tag ? get_html_attribute_completions() : get_jetbrains_html_templates();
+        auto* client = get_or_start_client_for_file(filename);
+        if (client != nullptr && client->is_active())
+        {
+            client->request_completion(uri, pos, [callback = std::move(callback), fallback_items = std::move(fallback_items)](std::vector<Protocol::CompletionItem> lsp_items) mutable {
+                std::unordered_set<std::string> seen;
+                std::vector<Protocol::CompletionItem> merged;
+                merged.reserve(lsp_items.size() + fallback_items.size());
+                for (auto& it : lsp_items)
+                {
+                    if (seen.insert(it.label).second)
+                    {
+                        merged.push_back(std::move(it));
+                    }
+                }
+                for (auto& item : fallback_items)
+                {
+                    if (seen.insert(item.label).second)
+                    {
+                        merged.push_back(std::move(item));
+                    }
+                }
+                if (callback)
+                {
+                    callback(std::move(merged));
+                }
+            });
+            return;
+        }
+
+        if (callback)
+        {
+            callback(std::move(fallback_items));
+        }
+        return;
+    }
+
     const std::size_t inc_pos = prefix_to_caret.find("#include");
     const std::size_t imp_pos = prefix_to_caret.find("#import");
     const bool is_include_line = (inc_pos != std::string_view::npos || imp_pos != std::string_view::npos);
@@ -1085,47 +1758,52 @@ void LanguageServerManager::request_completion(
     }
 
     const std::string file_str(filename);
-    auto merge_with_templates = [file_str](std::vector<Protocol::CompletionItem> items) {
-        auto templates = get_templates_for_file(file_str);
-        std::unordered_set<std::string> template_labels;
-        for (const auto& tmpl : templates)
-        {
-            template_labels.insert(tmpl.label);
-        }
-
-        std::vector<Protocol::CompletionItem> merged;
-        merged.reserve(templates.size() + items.size());
-
-        for (auto& tmpl : templates)
-        {
-            merged.push_back(std::move(tmpl));
-        }
-
-        for (auto& it : items)
-        {
-            if (it.kind == Protocol::CompletionItemKind::Keyword && template_labels.contains(it.label))
-            {
-                continue;
-            }
-            merged.push_back(std::move(it));
-        }
-
-        return merged;
-    };
-
     auto* client = get_or_start_client_for_file(filename);
-    if (client != nullptr)
+    if (client != nullptr && client->is_active())
     {
-        client->request_completion(uri, pos, [callback = std::move(callback), merge_with_templates](std::vector<Protocol::CompletionItem> items) {
-            if (callback)
+        client->request_completion(uri, pos, [callback = std::move(callback), file_str](std::vector<Protocol::CompletionItem> lsp_items) {
+            if (!callback) return;
+
+            if (!lsp_items.empty())
             {
-                callback(merge_with_templates(std::move(items)));
+                // Full LSP-driven completion: LSP results take primary precedence
+                std::unordered_set<std::string> lsp_labels;
+                for (const auto& item : lsp_items)
+                {
+                    lsp_labels.insert(item.label);
+                }
+
+                auto templates = get_templates_for_file(file_str);
+                std::vector<Protocol::CompletionItem> merged;
+                merged.reserve(lsp_items.size() + templates.size());
+
+                // 1. LSP items first
+                for (auto& item : lsp_items)
+                {
+                    merged.push_back(std::move(item));
+                }
+
+                // 2. Secondary keyword/template snippets
+                for (auto& tmpl : templates)
+                {
+                    if (!lsp_labels.contains(tmpl.label))
+                    {
+                        merged.push_back(std::move(tmpl));
+                    }
+                }
+
+                callback(std::move(merged));
+            }
+            else
+            {
+                // Fallback to templates if LSP returned no items yet
+                callback(get_templates_for_file(file_str));
             }
         });
     }
     else if (callback)
     {
-        callback(merge_with_templates({}));
+        callback(get_templates_for_file(file_str));
     }
 }
 

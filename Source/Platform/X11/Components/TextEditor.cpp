@@ -1181,6 +1181,11 @@ bool TextEditor::tick_animations() noexcept {
   needs_repaint |= m_selection_animation.tick();
   needs_repaint |= m_brace_animation.tick();
 
+  const auto reloaded = m_controller.reload_externally_modified_files();
+  if (!reloaded.empty()) {
+    needs_repaint = true;
+  }
+
   const std::span<const UI::Editor::EditorSessionDocument> docs =
       m_controller.get_documents();
   for (const auto &doc : docs) {
@@ -2169,16 +2174,16 @@ void TextEditor::draw_document(
 
     const UI::Rect actual_bounds{popup_x, popup_y, popup_w, popup_h};
 
-    const UI::Theme::Color vscode_bg{24, 24, 28, 255};
-    const UI::Theme::Color vscode_border{55, 55, 62, 255};
-    const UI::Theme::Color vscode_selection{0, 95, 184, 255};
-    const UI::Theme::Color vscode_text_muted{133, 133, 133, 255};
+    const UI::Theme::Color completion_bg{24, 24, 28, 255};
+    const UI::Theme::Color completion_border{55, 55, 62, 255};
+    const UI::Theme::Color completion_selection{0, 95, 184, 255};
+    const UI::Theme::Color completion_text_muted{133, 133, 133, 255};
 
     surface.fill_rounded_rectangle(
-        drawable, actual_bounds, surface.allocate_color(vscode_bg),
+        drawable, actual_bounds, surface.allocate_color(completion_bg),
         3.0F * surface.m_dpi_scale, surface.m_pixels.editor_background);
     surface.draw_rectangle(drawable, actual_bounds,
-                           surface.allocate_color(vscode_border));
+                           surface.allocate_color(completion_border));
 
     const std::size_t selected = m_completion_popup.get_selected_index();
 
@@ -2198,8 +2203,8 @@ void TextEditor::draw_document(
 
       if (item_idx == selected) {
         surface.fill_rounded_rectangle(
-            drawable, item_rect, surface.allocate_color(vscode_selection),
-            2.0F * surface.m_dpi_scale, surface.allocate_color(vscode_bg));
+            drawable, item_rect, surface.allocate_color(completion_selection),
+            2.0F * surface.m_dpi_scale, surface.allocate_color(completion_bg));
       }
 
       std::string kind_badge = " ";
@@ -2270,7 +2275,7 @@ void TextEditor::draw_document(
                           row_y + item_h * 0.5F,
                           (item_idx == selected)
                               ? UI::Theme::Color{255, 255, 255, 255}
-                              : vscode_text_muted);
+                              : completion_text_muted);
       } else if (!item->detail.empty()) {
         const int detail_w = surface.m_ui_font->getTextWidth(item->detail);
         const float detail_x =
@@ -2278,7 +2283,7 @@ void TextEditor::draw_document(
                      item_rect.right() - static_cast<float>(detail_w) -
                          6.0F * surface.m_dpi_scale);
         surface.draw_text(drawable, *surface.m_ui_font, item->detail, detail_x,
-                          row_y + item_h * 0.5F, vscode_text_muted);
+                          row_y + item_h * 0.5F, completion_text_muted);
       }
     }
 
@@ -2301,7 +2306,7 @@ void TextEditor::draw_document(
       surface.fill_rounded_rectangle(
           drawable, thumb_rect,
           surface.allocate_color(UI::Theme::Color{90, 90, 96, 255}),
-          1.5F * surface.m_dpi_scale, surface.allocate_color(vscode_bg));
+          1.5F * surface.m_dpi_scale, surface.allocate_color(completion_bg));
     }
 
     // Flyout documentation card
@@ -2374,7 +2379,7 @@ void TextEditor::draw_document(
           surface.allocate_color(UI::Theme::Color{22, 22, 26, 255}),
           3.0F * surface.m_dpi_scale, surface.m_pixels.editor_background);
       surface.draw_rectangle(drawable, detail_bounds,
-                             surface.allocate_color(vscode_border));
+                             surface.allocate_color(completion_border));
 
       float cursor_x = detail_bounds.x + detail_pad;
       const float cursor_y = detail_bounds.y + header_h * 0.5F;
@@ -2449,7 +2454,7 @@ void TextEditor::draw_document(
       surface.draw_line(
           drawable, round_to_int(detail_bounds.x), round_to_int(sep_y),
           round_to_int(detail_bounds.right()), round_to_int(sep_y),
-          surface.allocate_color(vscode_border));
+          surface.allocate_color(completion_border));
 
       float doc_y = sep_y + 10.0F * surface.m_dpi_scale;
       bool inside_code_block = false;

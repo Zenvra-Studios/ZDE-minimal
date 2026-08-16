@@ -84,6 +84,10 @@ public:
         std::vector<BreadcrumbItem> breadcrumbs,
         std::string line_ending,
         bool read_only = false);
+    void reload_contents(
+        std::vector<std::string> lines,
+        std::string line_ending,
+        bool read_only = false);
     void update_file_identity(
         std::string file_name,
         std::vector<BreadcrumbItem> breadcrumbs,

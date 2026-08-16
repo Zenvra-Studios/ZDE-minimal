@@ -50,10 +50,12 @@ public:
     virtual void maximize() = 0;
     virtual void restore() = 0;
     virtual void request_close() = 0;
+    virtual void toggle_fullscreen() {}
 
     [[nodiscard]] virtual bool is_maximized() const = 0;
     [[nodiscard]] virtual bool is_minimized() const = 0;
     [[nodiscard]] virtual bool is_focused() const = 0;
+    [[nodiscard]] virtual bool is_fullscreen() const { return false; }
     [[nodiscard]] virtual const WindowCapabilities& get_capabilities() const noexcept = 0;
     [[nodiscard]] virtual void* get_native_handle() const noexcept = 0;
 
@@ -67,8 +69,14 @@ public:
     /// choice); returns false when the platform cannot show a folder dialog.
     [[nodiscard]] virtual bool open_project_folder() { return false; }
 
+    /// Closes the active project and resets workspace state.
+    [[nodiscard]] virtual bool close_project() { return false; }
+
     /// Toggles the integrated terminal panel visibility.
     virtual void toggle_terminal() {}
+
+    /// Toggles the shader sandbox panel visibility.
+    virtual void toggle_shader_sandbox() {}
 
     /// Shows the About modal dialog with backdrop blur.
     virtual void show_about_dialog() {}

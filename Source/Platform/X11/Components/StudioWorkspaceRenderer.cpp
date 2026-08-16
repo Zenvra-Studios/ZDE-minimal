@@ -686,6 +686,8 @@ void StudioWorkspaceRenderer::render(Drawable drawable, int client_width,
                  m_pixels.sidebar_background);
   fill_rectangle(drawable, layout.tool_sidebar_bounds,
                  m_pixels.sidebar_background);
+  fill_rectangle(drawable, layout.editor_header_bounds,
+                 m_pixels.editor_background);
   fill_rectangle(drawable, layout.gutter_bounds, m_pixels.editor_background);
   fill_rectangle(drawable, layout.editor_bounds, m_pixels.editor_background);
   fill_rectangle(drawable, layout.status_bar_bounds,

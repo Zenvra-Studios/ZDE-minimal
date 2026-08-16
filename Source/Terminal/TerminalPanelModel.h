@@ -93,7 +93,7 @@ private:
   TerminalSelection m_selection;
   std::size_t m_next_identifier = 1;
   std::size_t m_scroll_offset = 0;
-  std::size_t m_columns = 160;
+  std::size_t m_columns = 240;
   std::size_t m_rows = 30;
   bool m_visible = false;
   bool m_focused = false;

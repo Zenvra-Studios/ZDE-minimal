@@ -67,21 +67,33 @@ bool ToolSidebar::is_resize_handle_point(
 }
 
 bool ToolSidebar::handle_pointer_press(
+    StudioWorkspaceRenderer& surface,
     const UI::Editor::StudioEditorLayoutResult& layout,
     float px, float py,
     std::optional<std::filesystem::path>& file_to_open)
 {
     if (!is_visible() || !contains(layout, px, py)) return false;
     // Check explorer header
-    if (m_explorer_header.handle_pointer_press(layout, px, py, m_model, file_to_open)) return true;
+    if (m_explorer_header.handle_pointer_press(surface, layout, px, py, m_model, file_to_open)) return true;
     // Check tree item click
     if (auto row = row_from_point(layout, py)) {
         const auto& items = m_model.get_project_items();
         if (*row < items.size()) {
-            if (items[*row].directory) {
-                m_model.activate_project_row(*row);
+            m_drag_source_row = *row;
+            m_drag_press_x = px;
+            m_drag_press_y = py;
+            m_drag_current_x = px;
+            m_drag_current_y = py;
+            m_is_dragging_item = false;
+            m_drag_target_row.reset();
+
+            const auto item = items[*row];
+            m_model.set_selected_path(item.path);
+
+            if (item.directory) {
+                m_model.activate_project_item(*row);
             } else {
-                file_to_open = items[*row].path;
+                file_to_open = item.path;
             }
             return true;
         }
@@ -139,17 +151,61 @@ bool ToolSidebar::handle_scroll(
 }
 
 bool ToolSidebar::handle_pointer_drag(
-    const UI::Editor::StudioEditorLayoutResult&, float px) noexcept
+    const UI::Editor::StudioEditorLayoutResult& layout, float px, float py) noexcept
 {
-    if (!m_resizing) return false;
-    m_width = std::max(120.0F, m_drag_start_width + (px - m_drag_start_x));
-    return true;
+    if (m_resizing) {
+        m_width = std::max(120.0F, m_drag_start_width + (px - m_drag_start_x));
+        return true;
+    }
+
+    if (m_drag_source_row.has_value()) {
+        const float dist = std::hypot(px - m_drag_press_x, py - m_drag_press_y);
+        if (dist > 5.0F) {
+            m_is_dragging_item = true;
+            m_drag_current_x = px;
+            m_drag_current_y = py;
+            m_drag_target_row = row_from_point(layout, py);
+            return true;
+        }
+    }
+    return false;
 }
 
 bool ToolSidebar::handle_pointer_release() noexcept
 {
     bool was = m_resizing;
     m_resizing = false;
+
+    if (m_is_dragging_item && m_drag_source_row.has_value()) {
+        const auto& items = m_model.get_project_items();
+        if (*m_drag_source_row < items.size()) {
+            const auto source_path = items[*m_drag_source_row].path;
+            std::filesystem::path dest_dir;
+
+            if (m_drag_target_row.has_value() && *m_drag_target_row < items.size()) {
+                const auto& target_item = items[*m_drag_target_row];
+                if (target_item.directory) {
+                    dest_dir = target_item.path;
+                } else {
+                    dest_dir = target_item.path.parent_path();
+                }
+            } else {
+                dest_dir = m_model.get_workspace_root();
+            }
+
+            if (!dest_dir.empty() && dest_dir != source_path && dest_dir != source_path.parent_path()) {
+                std::filesystem::path out_path;
+                if (m_model.move_item(source_path, dest_dir, out_path)) {
+                    m_model.set_selected_path(out_path);
+                    was = true;
+                }
+            }
+        }
+    }
+
+    m_drag_source_row.reset();
+    m_drag_target_row.reset();
+    m_is_dragging_item = false;
     return was;
 }
 
@@ -169,11 +225,23 @@ std::optional<std::size_t> ToolSidebar::row_from_point(
 {
     const float content_top =
         layout.tool_sidebar_bounds.y + header_height * layout.dpi_scale;
-    if (py < content_top) return std::nullopt;
+    if (py < content_top || py > layout.tool_sidebar_bounds.bottom()) return std::nullopt;
     const float relative_y = py - content_top;
     if (relative_y < 0.0F) return std::nullopt;
-    return static_cast<std::size_t>(relative_y /
-                                    (row_height * layout.dpi_scale)) +
+
+    const float row_h = row_height * layout.dpi_scale;
+    if (row_h <= 0.0F) return std::nullopt;
+
+    // Check sticky header rows first so clicking a sticky header toggles that folder
+    const auto sticky = get_sticky_items();
+    if (!sticky.empty() && relative_y < static_cast<float>(sticky.size()) * row_h) {
+        const std::size_t sticky_idx = static_cast<std::size_t>(relative_y / row_h);
+        if (sticky_idx < sticky.size()) {
+            return sticky[sticky_idx];
+        }
+    }
+
+    return static_cast<std::size_t>(relative_y / row_h) +
            m_model.get_scroll_offset();
 }
 
@@ -241,18 +309,42 @@ void ToolSidebar::render(
             layout.tool_sidebar_bounds.width, row_height * scale
         };
         const bool row_hovered = m_hovered_row == item_index;
+        const bool is_selected = m_model.is_selected(item.path);
+        const bool is_drag_source = m_is_dragging_item && m_drag_source_row.has_value() && *m_drag_source_row == item_index;
+        const bool is_drop_target = m_is_dragging_item && m_drag_target_row.has_value() && *m_drag_target_row == item_index;
 
-        // Hover highlight
-        if (row_hovered) {
-            surface.fill_rounded_rectangle(context,
-                UI::Rect{
-                    layout.tool_sidebar_bounds.x + 8.0F * scale,
-                    y + 1.0F * scale,
-                    layout.tool_sidebar_bounds.width - 16.0F * scale,
-                    row_height * scale - 2.0F * scale
-                },
-                surface.m_colors.hover_background,
-                4.0F * scale);
+        const UI::Rect highlight_rect{
+            layout.tool_sidebar_bounds.x + 6.0F * scale,
+            y + 1.0F * scale,
+            layout.tool_sidebar_bounds.width - 12.0F * scale,
+            row_height * scale - 2.0F * scale
+        };
+
+        // macOS Selection & Drag Highlight
+        if (is_drop_target) {
+            // Drop target folder glow
+            const CGFloat drop_bg[4] = {53.0/255.0, 132.0/255.0, 228.0/255.0, 0.90F};
+            const CGFloat drop_border[4] = {112.0/255.0, 176.0/255.0, 255.0/255.0, 1.0F};
+            surface.fill_rounded_rectangle(context, highlight_rect, drop_bg, 4.0F * scale);
+            surface.draw_rectangle(context, highlight_rect, drop_border);
+        } else if (is_drag_source) {
+            // Dragged item source
+            const CGFloat drag_bg[4] = {53.0/255.0, 132.0/255.0, 228.0/255.0, 0.35F};
+            surface.fill_rounded_rectangle(context, highlight_rect, drag_bg, 4.0F * scale);
+        } else if (is_selected) {
+            // macOS Focused Row Selection Blue: #3584e4
+            const CGFloat sel_bg[4] = {53.0/255.0, 132.0/255.0, 228.0/255.0, 0.95F};
+            surface.fill_rounded_rectangle(context, highlight_rect, sel_bg, 4.0F * scale);
+
+            // Left accent bar
+            const UI::Rect left_bar{
+                highlight_rect.x, highlight_rect.y + 2.0F * scale,
+                3.0F * scale, highlight_rect.height - 4.0F * scale
+            };
+            const CGFloat bar_bg[4] = {160.0/255.0, 210.0/255.0, 255.0/255.0, 1.0F};
+            surface.fill_rounded_rectangle(context, left_bar, bar_bg, 1.5F * scale);
+        } else if (row_hovered) {
+            surface.fill_rounded_rectangle(context, highlight_rect, surface.m_colors.hover_background, 4.0F * scale);
         }
 
         // Tree indent guides + connectors (mirrors the X11 explorer visuals)
@@ -291,6 +383,8 @@ void ToolSidebar::render(
                               surface.m_colors.border);
         }
 
+        const bool highlight_text = is_selected || is_drop_target;
+
         // Directory chevron + folder icon
         if (item.directory) {
             const int arrow_x = round_to_int(indent_x + 3.0F * scale);
@@ -302,9 +396,10 @@ void ToolSidebar::render(
                 surface.draw_svg_icon(
                     context, chevron_path, arrow_x, arrow_y,
                     std::max(round_to_int(8.0F * scale), 7),
-                    surface.m_palette.text_muted,
-                    row_hovered ? surface.m_palette.hover_background
-                                : surface.m_palette.sidebar_background);
+                    highlight_text ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
+                    highlight_text ? surface.m_palette.accent
+                                   : (row_hovered ? surface.m_palette.hover_background
+                                                  : surface.m_palette.sidebar_background));
             }
             const int folder_x = round_to_int(indent_x + 19.0F * scale);
             if (folder_x + 16.0F * scale < layout.tool_sidebar_bounds.right()) {
@@ -317,9 +412,10 @@ void ToolSidebar::render(
                 surface.draw_svg_icon(
                     context, folder_path, folder_x, arrow_y,
                     folder_size,
-                    surface.m_palette.text_muted,
-                    row_hovered ? surface.m_palette.hover_background
-                                : surface.m_palette.sidebar_background);
+                    highlight_text ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
+                    highlight_text ? surface.m_palette.accent
+                                   : (row_hovered ? surface.m_palette.hover_background
+                                                  : surface.m_palette.sidebar_background));
             }
         } else {
             const int icon_x = round_to_int(indent_x + 19.0F * scale);
@@ -330,9 +426,10 @@ void ToolSidebar::render(
                 surface.draw_svg_icon(
                     context, "Assets/icons/" + icon_asset, icon_x, icon_y,
                     std::max(round_to_int(14.0F * scale), 11),
-                    surface.m_palette.text_muted,
-                    row_hovered ? surface.m_palette.hover_background
-                                : surface.m_palette.sidebar_background);
+                    highlight_text ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
+                    highlight_text ? surface.m_palette.accent
+                                   : (row_hovered ? surface.m_palette.hover_background
+                                                  : surface.m_palette.sidebar_background));
             }
         }
 
@@ -349,7 +446,7 @@ void ToolSidebar::render(
                 surface.draw_text(context, *surface.m_small_font, label,
                                   label_x,
                                   row_bounds.y + row_bounds.height * 0.5F,
-                                  surface.m_text.primary);
+                                  highlight_text ? "#ffffff" : surface.m_text.primary);
             }
         }
     }
@@ -450,6 +547,45 @@ void ToolSidebar::render(
                 std::max(2.0F * scale, 2.0F),
                 layout.tool_sidebar_bounds.height},
             accent_rgba);
+    }
+
+    // Draw floating ghost badge when dragging a file/folder item (macOS drag animation preview)
+    if (m_is_dragging_item && m_drag_source_row.has_value() && *m_drag_source_row < items.size()) {
+        const auto& dragged = items[*m_drag_source_row];
+        const std::string badge_label = dragged.label;
+        const int text_w = surface.m_small_font->getTextWidth(badge_label);
+        const float badge_w = static_cast<float>(text_w) + 36.0F * scale;
+        const float badge_h = 24.0F * scale;
+        const UI::Rect badge_rect{m_drag_current_x + 12.0F * scale, m_drag_current_y + 12.0F * scale, badge_w, badge_h};
+
+        // Shadow
+        const UI::Rect shadow_rect{badge_rect.x + 2.0F * scale, badge_rect.y + 3.0F * scale, badge_w, badge_h};
+        const CGFloat shadow_col[4] = {0.0, 0.0, 0.0, 0.40};
+        surface.fill_rounded_rectangle(context, shadow_rect, shadow_col, 5.0F * scale);
+
+        // macOS Dark Glassmorphism Badge
+        const CGFloat badge_bg[4] = {24.0/255.0, 25.0/255.0, 28.0/255.0, 0.95};
+        const CGFloat badge_border[4] = {53.0/255.0, 132.0/255.0, 228.0/255.0, 0.90};
+        surface.fill_rounded_rectangle(context, badge_rect, badge_bg, 5.0F * scale);
+        surface.draw_rectangle(context, badge_rect, badge_border);
+
+        const int badge_icon_x = round_to_int(badge_rect.x + 12.0F * scale);
+        const int badge_icon_y = round_to_int(badge_rect.y + badge_h * 0.5F);
+        if (dragged.directory) {
+            surface.draw_svg_icon(context, "Assets/icons/folder.svg", badge_icon_x, badge_icon_y,
+                std::max(round_to_int(12.0F * scale), 10),
+                UI::Theme::Color{255, 255, 255, 255}, UI::Theme::Color{24, 25, 28, 255});
+        } else {
+            const std::string icon_asset = UI::Editor::file_icon_asset_for_path(dragged.path);
+            surface.draw_svg_icon(context, "Assets/icons/" + icon_asset, badge_icon_x, badge_icon_y,
+                std::max(round_to_int(12.0F * scale), 10),
+                UI::Theme::Color{255, 255, 255, 255}, UI::Theme::Color{24, 25, 28, 255});
+        }
+
+        surface.draw_text(context, *surface.m_small_font, badge_label,
+            badge_rect.x + 22.0F * scale,
+            badge_rect.y + badge_rect.height * 0.5F,
+            "#ffffff");
     }
 }
 

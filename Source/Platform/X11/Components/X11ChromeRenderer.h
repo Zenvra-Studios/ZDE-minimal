@@ -5,6 +5,7 @@
 #include "UI/Chrome/WindowChromeLayout.h"
 #include "UI/Components/MenuModel.h"
 #include "UI/Theme/StudioTheme.h"
+#include "UI/Toolbar/ToolbarTypes.h"
 
 #include <X11/Xlib.h>
 
@@ -97,6 +98,15 @@ public:
     [[nodiscard]] std::size_t open_dropped_paths(
         std::span<const std::filesystem::path> dropped_paths);
     [[nodiscard]] bool create_workspace_buffer();
+    [[nodiscard]] bool toggle_terminal();
+    [[nodiscard]] bool toggle_shader_sandbox();
+
+    void set_active_target(std::string_view target) { m_run_config_state.active_target_name = std::string(target); }
+    void set_active_mode(UI::Toolbar::BuildConfigurationMode mode) { m_run_config_state.active_mode = mode; }
+    void set_active_architecture(UI::Toolbar::TargetArchitecture arch) { m_run_config_state.active_architecture = arch; }
+    [[nodiscard]] const UI::Toolbar::RunConfigurationState& get_run_config_state() const noexcept { return m_run_config_state; }
+    [[nodiscard]] UI::Toolbar::RunConfigurationState& get_run_config_state() noexcept { return m_run_config_state; }
+
     [[nodiscard]] bool handle_workspace_pointer_press(
         float point_x,
         float point_y,
@@ -392,6 +402,10 @@ private:
     Pixmap m_back_buffer = 0;
     unsigned int m_back_buffer_w = 0;
     unsigned int m_back_buffer_h = 0;
+    unsigned long m_titlebar_background_color = 0;
+    unsigned long m_titlebar_border_color = 0;
+    unsigned long m_hover_color = 0;
+    UI::Toolbar::RunConfigurationState m_run_config_state;
     Pixmap m_popup_back_buffer = 0;
     unsigned int m_popup_back_buffer_w = 0;
     unsigned int m_popup_back_buffer_h = 0;

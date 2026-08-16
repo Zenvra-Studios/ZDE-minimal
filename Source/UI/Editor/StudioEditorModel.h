@@ -120,6 +120,7 @@ struct StudioEditorLayoutResult
     Rect tab_bar_bounds;
     Rect activity_bar_bounds;
     Rect tool_sidebar_bounds;
+    Rect editor_header_bounds;
     Rect gutter_bounds;
     Rect editor_bounds;
     Rect minimap_bounds;
@@ -142,6 +143,7 @@ struct StudioEditorMetrics final
     static constexpr float activity_width = 38.0F;
     static constexpr float tab_height = 30.0F;
     static constexpr float status_height = 24.0F;
+    static constexpr float editor_header_height = 26.0F;
     static constexpr float gutter_width = 66.0F;
     static constexpr float fold_margin_width = 14.0F;
     static constexpr float sidebar_item_height = 36.0F;
@@ -175,7 +177,8 @@ public:
         bool tool_sidebar_visible = false,
         float tool_sidebar_width = 260.0F,
         bool shader_panel_visible = false,
-        float shader_panel_width = 380.0F) const noexcept;
+        float shader_panel_width = 380.0F,
+        std::optional<float> custom_nav_width = std::nullopt) const noexcept;
 };
 
 [[nodiscard]] std::span<const SidebarItem> get_studio_sidebar_items() noexcept;

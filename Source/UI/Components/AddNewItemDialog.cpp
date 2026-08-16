@@ -85,23 +85,16 @@ void AddNewItemDialog::refresh_fonts() {
 
 static std::filesystem::path resolve_asset_path(const std::string &rel_path) {
   std::error_code ec;
-  // 1. Try current working directory
-  std::filesystem::path p1 = std::filesystem::current_path(ec) / rel_path;
-  if (!ec && std::filesystem::exists(p1, ec))
-    return p1;
-
-  // 2. Try walking up from current working directory
-  std::filesystem::path cur = std::filesystem::current_path(ec);
-  for (int i = 0; i < 6 && !cur.empty(); ++i) {
-    std::filesystem::path candidate = cur / rel_path;
-    if (std::filesystem::exists(candidate, ec))
-      return candidate;
-    if (!cur.has_parent_path() || cur == cur.parent_path())
-      break;
-    cur = cur.parent_path();
+  std::vector<std::string> path_variants = {rel_path};
+  if (rel_path.starts_with("Assets/icons/") || rel_path.starts_with("Assets\\icons\\")) {
+    path_variants.push_back("Resources/icons/" + rel_path.substr(13));
+    path_variants.push_back("Resources/" + rel_path.substr(13));
+    path_variants.push_back("icons/" + rel_path.substr(13));
+  } else if (rel_path.starts_with("Assets/") || rel_path.starts_with("Assets\\")) {
+    path_variants.push_back("Resources/" + rel_path.substr(7));
   }
 
-  // 3. Try executable directory
+  // 1. Try executable directory first (crucial for installed app / Start Menu)
   std::array<wchar_t, 4096> exe_buf{};
   DWORD len = GetModuleFileNameW(nullptr, exe_buf.data(),
                                  static_cast<DWORD>(exe_buf.size()));
@@ -109,13 +102,28 @@ static std::filesystem::path resolve_asset_path(const std::string &rel_path) {
     std::filesystem::path exe_dir =
         std::filesystem::path(exe_buf.data()).parent_path();
     for (int i = 0; i < 6 && !exe_dir.empty(); ++i) {
-      std::filesystem::path candidate = exe_dir / rel_path;
-      if (std::filesystem::exists(candidate, ec))
-        return candidate;
+      for (const auto &var : path_variants) {
+        std::filesystem::path candidate = exe_dir / var;
+        if (std::filesystem::exists(candidate, ec))
+          return candidate;
+      }
       if (!exe_dir.has_parent_path() || exe_dir == exe_dir.parent_path())
         break;
       exe_dir = exe_dir.parent_path();
     }
+  }
+
+  // 2. Try current working directory
+  std::filesystem::path cur = std::filesystem::current_path(ec);
+  for (int i = 0; i < 6 && !cur.empty(); ++i) {
+    for (const auto &var : path_variants) {
+      std::filesystem::path candidate = cur / var;
+      if (std::filesystem::exists(candidate, ec))
+        return candidate;
+    }
+    if (!cur.has_parent_path() || cur == cur.parent_path())
+      break;
+    cur = cur.parent_path();
   }
 
   return std::filesystem::path(rel_path);
@@ -255,7 +263,41 @@ void AddNewItemDialog::init_default_templates() {
         "[package]\nname = \"my_project\"\nversion = \"0.1.0\"\nedition = "
         "\"2021\"\n\n[dependencies]\n"}}};
 
-  // 3. Shaders & Graphics Category
+  // 3. TypeScript & JavaScript Category
+  TemplateCategory ts_cat{
+      "typescript",
+      "TypeScript / JavaScript",
+      "Assets/icons/material-icon-theme/typescript.svg",
+      {{"ts_file", "TypeScript File (.ts)", "index.ts", ".ts", "TypeScript",
+        "Creates a modern TypeScript source file.",
+        "Assets/icons/material-icon-theme/typescript.svg",
+        "export interface AppConfig {\n    title: string;\n    version: string;\n}\n\nexport const config: AppConfig = {\n    title: \"ZDE Application\",\n    version: \"1.0.0\",\n};\n\nexport function bootstrap(): void {\n    console.log(`Starting ${config.title} v${config.version}...`);\n}\n\nbootstrap();\n"},
+       {"js_file", "JavaScript File (.js)", "index.js", ".js", "JavaScript",
+        "Creates a standard JavaScript source file.",
+        "Assets/icons/material-icon-theme/javascript.svg",
+        "// @ts-check\n\nexport function bootstrap() {\n    console.log('Hello from JavaScript in ZDE!');\n}\n\nbootstrap();\n"},
+       {"mjs_file", "ES Module File (.mjs)", "index.mjs", ".mjs", "JavaScript",
+        "Creates a modern ECMAScript module file.",
+        "Assets/icons/material-icon-theme/javascript.svg",
+        "import { promises as fs } from 'node:fs';\n\nexport async function bootstrap() {\n    console.log('Running ES Module in ZDE...');\n}\n\nawait bootstrap();\n"},
+       {"tsx_file", "React Component (.tsx)", "Component.tsx", ".tsx", "TypeScript",
+        "Creates a React functional component with TypeScript props.",
+        "Assets/icons/material-icon-theme/react_ts.svg",
+        "import React, { useState } from 'react';\n\nexport interface ComponentProps {\n    title?: string;\n}\n\nexport const Component: React.FC<ComponentProps> = ({\n    title = \"ZDE Component\",\n}) => {\n    const [count, setCount] = useState<number>(0);\n\n    return (\n        <div className=\"container\">\n            <h2>{title}</h2>\n            <button onClick={() => setCount(count + 1)}>Count: {count}</button>\n        </div>\n    );\n};\n\nexport default Component;\n"},
+       {"jsx_file", "React Component (.jsx)", "Component.jsx", ".jsx", "JavaScript",
+        "Creates a React functional component with JSX syntax.",
+        "Assets/icons/material-icon-theme/react.svg",
+        "import React, { useState } from 'react';\n\nexport const Component = ({ title = 'ZDE Component' }) => {\n    const [count, setCount] = useState(0);\n\n    return (\n        <div className=\"container\">\n            <h2>{title}</h2>\n            <button onClick={() => setCount(count + 1)}>Count: {count}</button>\n        </div>\n    );\n};\n\nexport default Component;\n"},
+       {"dts_file", "TypeScript Declaration (.d.ts)", "types.d.ts", ".d.ts", "TypeScript",
+        "Creates a TypeScript ambient declaration type definitions file.",
+        "Assets/icons/material-icon-theme/typescript-def.svg",
+        "declare namespace ZDE {\n    interface UserSession {\n        id: string;\n        username: string;\n        createdAt: Date;\n    }\n}\n"},
+       {"tsconfig", "TSConfig (tsconfig.json)", "tsconfig.json", ".json", "TypeScript",
+        "Creates a standard TypeScript compiler configuration file.",
+        "Assets/icons/material-icon-theme/tsconfig.svg",
+        "{\n  \"compilerOptions\": {\n    \"target\": \"ESNext\",\n    \"module\": \"ESNext\",\n    \"moduleResolution\": \"bundler\",\n    \"strict\": true,\n    \"jsx\": \"react-jsx\",\n    \"esModuleInterop\": true,\n    \"skipLibCheck\": true,\n    \"forceConsistentCasingInFileNames\": true\n  },\n  \"include\": [\"src/**/*\"]\n}\n"}}};
+
+  // 4. Shaders & Graphics Category
   TemplateCategory shader_cat{
       "shader",
       "Shaders & Graphics",
@@ -268,26 +310,19 @@ void AddNewItemDialog::init_default_templates() {
         "main()\n{\n    frag_color = vec4(v_uv, 0.5, 1.0);\n}\n"},
        {"glsl_vert", "GLSL Vertex Shader (.vert)", "shader.vert", ".vert",
         "Shaders & Graphics",
-        "Creates a GLSL vertex shader with position input.",
+        "Creates a GLSL vertex shader with attribute inputs.",
         "Assets/icons/material-icon-theme/shader.svg",
-        "#version 450 core\n\nlayout(location = 0) in vec3 "
-        "a_pos;\nlayout(location = 1) in vec2 a_uv;\n\nout vec2 v_uv;\n\nvoid "
-        "main()\n{\n    v_uv = a_uv;\n    gl_Position = vec4(a_pos, "
-        "1.0);\n}\n"},
-       {"glsl_comp", "GLSL Compute Shader (.comp)", "compute.comp", ".comp",
-        "Shaders & Graphics", "Creates a GLSL compute shader.",
+        "#version 450 core\n\nlayout (location = 0) in vec3 a_pos;\nlayout "
+        "(location = 1) in vec2 a_uv;\n\nout vec2 v_uv;\n\nvoid main()\n{\n    "
+        "v_uv = a_uv;\n    gl_Position = vec4(a_pos, 1.0);\n}\n"},
+       {"hlsl_file", "HLSL Compute Shader (.hlsl)", "Compute.hlsl", ".hlsl",
+        "Shaders & Graphics",
+        "Creates a Direct3D HLSL compute shader with thread group attributes.",
         "Assets/icons/material-icon-theme/shader.svg",
-        "#version 450 core\n\nlayout(local_size_x = 16, local_size_y = 16) "
-        "in;\n\nvoid main()\n{\n    ivec2 coord = "
-        "ivec2(gl_GlobalInvocationID.xy);\n}\n"},
-       {"hlsl_shader", "HLSL Pixel Shader (.hlsl)", "PixelShader.hlsl", ".hlsl",
-        "Shaders & Graphics", "Creates an HLSL pixel shader.",
-        "Assets/icons/material-icon-theme/shader.svg",
-        "struct PSInput {\n    float4 pos : SV_POSITION;\n    float2 uv  : "
-        "TEXCOORD0;\n};\n\nfloat4 main(PSInput input) : SV_TARGET\n{\n    "
-        "return float4(input.uv, 0.0, 1.0);\n}\n"}}};
+        "[numthreads(8, 8, 1)]\nvoid CSMain(uint3 id : SV_DispatchThreadID)\n{\n "
+        "   // Compute logic\n}\n"}}};
 
-  // 4. Build & Config Category
+  // 5. Build & Config Category
   TemplateCategory build_cat{
       "build",
       "Build & Config",
@@ -307,7 +342,25 @@ void AddNewItemDialog::init_default_templates() {
         "Assets/icons/material-icon-theme/toml.svg",
         "[settings]\ntheme = \"zenvra_dark\"\n"}}};
 
-  // 5. General Category
+  // 6. HTML & Web Category
+  TemplateCategory web_cat{
+      "web",
+      "HTML & Web",
+      "Assets/icons/material-icon-theme/html.svg",
+      {{"html5_page", "HTML5 Page (.html)", "index.html", ".html", "HTML & Web",
+        "Creates a modern HTML5 document structure with viewport and styling.",
+        "Assets/icons/material-icon-theme/html.svg",
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>ZDE App</title>\n    <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n    <div class=\"container\">\n        <h1>Hello from ZDE!</h1>\n        <p>Built with native C++ power.</p>\n    </div>\n    <script src=\"main.js\"></script>\n</body>\n</html>\n"},
+       {"css_style", "CSS Stylesheet (.css)", "style.css", ".css", "HTML & Web",
+        "Creates a CSS stylesheet for HTML layouts.",
+        "Assets/icons/material-icon-theme/css.svg",
+        "* {\n    box-sizing: border-box;\n    margin: 0;\n    padding: 0;\n}\n\nbody {\n    font-family: system-ui, -apple-system, sans-serif;\n    background-color: #1e1e1e;\n    color: #ffffff;\n    padding: 2rem;\n}\n"},
+       {"svg_graphic", "SVG Vector Graphic (.svg)", "graphic.svg", ".svg", "HTML & Web",
+        "Creates an SVG scalable vector graphics XML file.",
+        "Assets/icons/material-icon-theme/svg.svg",
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n    <circle cx=\"12\" cy=\"12\" r=\"10\"></circle>\n</svg>\n"}}};
+
+  // 7. General Category
   TemplateCategory gen_cat{
       "general",
       "General",
@@ -326,6 +379,8 @@ void AddNewItemDialog::init_default_templates() {
 
   m_categories.push_back(cpp_cat);
   m_categories.push_back(rust_cat);
+  m_categories.push_back(ts_cat);
+  m_categories.push_back(web_cat);
   m_categories.push_back(shader_cat);
   m_categories.push_back(build_cat);
   m_categories.push_back(gen_cat);
@@ -441,9 +496,131 @@ void AddNewItemDialog::select_template(std::size_t index) {
     if (index < templates.size()) {
       m_selected_template_index = index;
       m_filename_input = templates[index].default_filename;
-      m_caret_position = m_filename_input.size();
+      select_stem();
     }
   }
+}
+
+std::pair<std::size_t, std::size_t> AddNewItemDialog::get_selection_range() const noexcept {
+  if (!m_selection_anchor.has_value() || *m_selection_anchor == m_caret_position) {
+    return {m_caret_position, m_caret_position};
+  }
+  return {std::min(*m_selection_anchor, m_caret_position),
+          std::max(*m_selection_anchor, m_caret_position)};
+}
+
+void AddNewItemDialog::select_all() noexcept {
+  m_selection_anchor = 0;
+  m_caret_position = m_filename_input.size();
+}
+
+void AddNewItemDialog::select_stem() noexcept {
+  const std::size_t dot_pos = m_filename_input.rfind('.');
+  if (dot_pos != std::string::npos && dot_pos > 0) {
+    m_selection_anchor = 0;
+    m_caret_position = dot_pos;
+  } else {
+    select_all();
+  }
+}
+
+void AddNewItemDialog::delete_selection() {
+  if (!has_selection())
+    return;
+  const auto [start, end] = get_selection_range();
+  if (start < m_filename_input.size() && end <= m_filename_input.size() && start < end) {
+    m_filename_input.erase(start, end - start);
+    m_caret_position = start;
+  }
+  clear_selection();
+}
+
+void AddNewItemDialog::copy_selection_to_clipboard() const {
+  if (!has_selection())
+    return;
+  const auto [start, end] = get_selection_range();
+  if (start < end && end <= m_filename_input.size()) {
+    const std::string selected_text = m_filename_input.substr(start, end - start);
+    const std::wstring wide_text = Utility::utf8_to_wide(selected_text).value_or(L"");
+    if (!wide_text.empty() && OpenClipboard(m_hwnd)) {
+      EmptyClipboard();
+      const std::size_t bytes = (wide_text.size() + 1) * sizeof(wchar_t);
+      HGLOBAL h_glob = GlobalAlloc(GMEM_MOVEABLE, bytes);
+      if (h_glob) {
+        void *locked = GlobalLock(h_glob);
+        if (locked) {
+          memcpy(locked, wide_text.c_str(), bytes);
+          GlobalUnlock(h_glob);
+          SetClipboardData(CF_UNICODETEXT, h_glob);
+        }
+      }
+      CloseClipboard();
+    }
+  }
+}
+
+void AddNewItemDialog::paste_from_clipboard() {
+  if (OpenClipboard(m_hwnd)) {
+    HANDLE h_data = GetClipboardData(CF_UNICODETEXT);
+    if (h_data) {
+      const wchar_t *wide_str = static_cast<const wchar_t *>(GlobalLock(h_data));
+      if (wide_str) {
+        std::string text = Utility::wide_to_utf8(wide_str).value_or("");
+        GlobalUnlock(h_data);
+        if (!text.empty()) {
+          text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
+          text.erase(std::remove(text.begin(), text.end(), '\n'), text.end());
+          if (has_selection()) {
+            delete_selection();
+          }
+          m_filename_input.insert(m_caret_position, text);
+          m_caret_position += text.size();
+          clear_selection();
+        }
+      }
+    }
+    CloseClipboard();
+  }
+}
+
+void AddNewItemDialog::cut_selection_to_clipboard() {
+  if (has_selection()) {
+    copy_selection_to_clipboard();
+    delete_selection();
+  }
+}
+
+std::size_t AddNewItemDialog::get_char_index_from_x(float click_x,
+                                                    const LayoutResult &layout,
+                                                    float dpi_scale) const {
+  const float pad_left = 6.0F * dpi_scale;
+  const float text_x = layout.name_input_bounds.x + pad_left;
+  const float local_x = click_x - text_x;
+  if (local_x <= 0.0F || m_filename_input.empty()) {
+    return 0;
+  }
+
+  HDC dc = GetDC(m_hwnd);
+  HGDIOBJ prev_font = SelectObject(dc, m_regular_font);
+  const std::wstring fn_w = Utility::utf8_to_wide(m_filename_input).value_or(L"");
+  std::size_t best_idx = fn_w.size();
+  int prev_cx = 0;
+  for (std::size_t i = 1; i <= fn_w.size(); ++i) {
+    SIZE sz{};
+    GetTextExtentPoint32W(dc, fn_w.c_str(), static_cast<int>(i), &sz);
+    if (local_x < (prev_cx + sz.cx) / 2.0F) {
+      best_idx = i - 1;
+      break;
+    }
+    if (local_x <= static_cast<float>(sz.cx)) {
+      best_idx = i;
+      break;
+    }
+    prev_cx = sz.cx;
+  }
+  SelectObject(dc, prev_font);
+  ReleaseDC(m_hwnd, dc);
+  return best_idx;
 }
 
 void AddNewItemDialog::submit() {
@@ -613,17 +790,34 @@ void AddNewItemDialog::render(HDC dc, const LayoutResult &layout,
   DrawTextW(dc, title_str.c_str(), -1, &title_text_r,
             DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
 
-  // Close button (✕)
+  // Close button (Native DWM / Custom Chrome style)
   if (m_close_hovered) {
-    HBRUSH close_hover_br = CreateSolidBrush(RGB(196, 43, 28));
+    HBRUSH close_hover_br = CreateSolidBrush(to_color_ref(m_theme.close_hover));
     RECT close_r = to_native_rect(layout.close_button_bounds);
     FillRect(dc, &close_r, close_hover_br);
     DeleteObject(close_hover_br);
   }
-  RECT close_text_r = to_native_rect(layout.close_button_bounds);
-  SetTextColor(dc, m_close_hovered ? RGB(255, 255, 255) : RGB(140, 144, 155));
-  DrawTextW(dc, L"\u2715", -1, &close_text_r,
-            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+
+  const int close_cx = static_cast<int>(
+      layout.close_button_bounds.x + layout.close_button_bounds.width * 0.5F);
+  const int close_cy = static_cast<int>(
+      layout.close_button_bounds.y + layout.close_button_bounds.height * 0.5F);
+  const int icon_size = static_cast<int>(10.0F * dpi_scale);
+  const int half_size = icon_size / 2;
+
+  HPEN close_pen = CreatePen(
+      PS_SOLID, std::max(1, static_cast<int>(dpi_scale)),
+      m_close_hovered ? RGB(255, 255, 255) : to_color_ref(m_theme.text_primary));
+  HGDIOBJ prev_close_pen = SelectObject(dc, close_pen);
+
+  MoveToEx(dc, close_cx - half_size, close_cy - half_size, nullptr);
+  LineTo(dc, close_cx + half_size + 1, close_cy + half_size + 1);
+
+  MoveToEx(dc, close_cx - half_size, close_cy + half_size, nullptr);
+  LineTo(dc, close_cx + half_size + 1, close_cy - half_size - 1);
+
+  SelectObject(dc, prev_close_pen);
+  DeleteObject(close_pen);
 
   // 3. Vertical Separator Lines
   RECT cat_r = to_native_rect(layout.category_pane_bounds);
@@ -804,9 +998,31 @@ void AddNewItemDialog::render(HDC dc, const LayoutResult &layout,
   RECT in_text_r = in_r;
   in_text_r.left += static_cast<LONG>(6.0F * dpi_scale);
   in_text_r.right -= static_cast<LONG>(6.0F * dpi_scale);
-  SetTextColor(dc, RGB(220, 222, 228));
   const std::wstring fn_w =
       Utility::utf8_to_wide(m_filename_input).value_or(L"");
+
+  // Draw Selection highlight behind text
+  if (m_name_input_focused && has_selection()) {
+    const auto [sel_start, sel_end] = get_selection_range();
+    SIZE sz_before{};
+    SIZE sz_sel{};
+    const std::wstring part_before = fn_w.substr(0, std::min(sel_start, fn_w.size()));
+    const std::wstring part_sel = fn_w.substr(sel_start, sel_end - sel_start);
+    GetTextExtentPoint32W(dc, part_before.c_str(), static_cast<int>(part_before.size()), &sz_before);
+    GetTextExtentPoint32W(dc, part_sel.c_str(), static_cast<int>(part_sel.size()), &sz_sel);
+
+    RECT sel_rect{
+        in_text_r.left + sz_before.cx,
+        in_r.top + static_cast<LONG>(2.0F * dpi_scale),
+        in_text_r.left + sz_before.cx + sz_sel.cx,
+        in_r.bottom - static_cast<LONG>(2.0F * dpi_scale)
+    };
+    HBRUSH sel_br = CreateSolidBrush(RGB(38, 79, 120));
+    FillRect(dc, &sel_rect, sel_br);
+    DeleteObject(sel_br);
+  }
+
+  SetTextColor(dc, RGB(220, 222, 228));
   DrawTextW(dc, fn_w.c_str(), -1, &in_text_r,
             DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
 
@@ -992,6 +1208,18 @@ LRESULT AddNewItemDialog::handle_message(HWND hwnd, UINT message,
     return 0;
   }
 
+  case WM_LBUTTONUP: {
+    if (m_is_dragging_text) {
+      m_is_dragging_text = false;
+      ReleaseCapture();
+      if (m_selection_anchor && *m_selection_anchor == m_caret_position) {
+        m_selection_anchor.reset();
+      }
+      InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    return 0;
+  }
+
   case WM_LBUTTONDOWN: {
     const float x = static_cast<float>(GET_X_LPARAM(l_param));
     const float y = static_cast<float>(GET_Y_LPARAM(l_param));
@@ -1068,6 +1296,15 @@ LRESULT AddNewItemDialog::handle_message(HWND hwnd, UINT message,
 
 bool AddNewItemDialog::handle_pointer_move(float x, float y,
                                            const LayoutResult &layout) {
+  if (m_is_dragging_text) {
+    const float dpi_scale = static_cast<float>(m_dpi) / 96.0F;
+    const std::size_t idx = get_char_index_from_x(x, layout, dpi_scale);
+    if (idx != m_caret_position) {
+      m_caret_position = idx;
+      return true;
+    }
+  }
+
   const bool old_close = m_close_hovered;
   const bool old_add = m_add_hovered;
   const bool old_cancel = m_cancel_hovered;
@@ -1115,6 +1352,22 @@ bool AddNewItemDialog::handle_pointer_press(float x, float y,
 
   if (layout.name_input_bounds.contains(x, y)) {
     m_name_input_focused = true;
+    const float dpi_scale = static_cast<float>(m_dpi) / 96.0F;
+    const std::size_t idx = get_char_index_from_x(x, layout, dpi_scale);
+    const bool is_shift_down = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    if (is_shift_down) {
+      if (!m_selection_anchor) {
+        m_selection_anchor = m_caret_position;
+      }
+      m_caret_position = idx;
+    } else {
+      m_caret_position = idx;
+      m_selection_anchor = idx;
+      m_is_dragging_text = true;
+      if (m_hwnd) {
+        SetCapture(m_hwnd);
+      }
+    }
     return true;
   }
 
@@ -1141,6 +1394,12 @@ bool AddNewItemDialog::handle_pointer_press(float x, float y,
 
 bool AddNewItemDialog::handle_double_click(float x, float y,
                                            const LayoutResult &layout) {
+  if (layout.name_input_bounds.contains(x, y)) {
+    m_name_input_focused = true;
+    select_stem();
+    return true;
+  }
+
   // Double click on template immediately submits
   for (std::size_t i = 0; i < layout.template_item_bounds.size(); ++i) {
     if (layout.template_item_bounds[i].contains(x, y)) {
@@ -1165,16 +1424,23 @@ bool AddNewItemDialog::handle_scroll(int delta) {
 bool AddNewItemDialog::handle_text_input(std::string_view text) {
   if (!m_name_input_focused || text.empty())
     return false;
+  if (has_selection()) {
+    delete_selection();
+  }
   for (char ch : text) {
     if (ch >= 32 && ch != 127) {
       m_filename_input.insert(m_caret_position, 1, ch);
       m_caret_position++;
     }
   }
+  clear_selection();
   return true;
 }
 
 bool AddNewItemDialog::handle_key_down(WPARAM w_param) {
+  const bool is_ctrl_down = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+  const bool is_shift_down = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+
   if (w_param == VK_ESCAPE) {
     close();
     return true;
@@ -1185,33 +1451,115 @@ bool AddNewItemDialog::handle_key_down(WPARAM w_param) {
     return true;
   }
 
+  if (is_ctrl_down && (w_param == 'A' || w_param == 'a')) {
+    select_all();
+    return true;
+  }
+
+  if (is_ctrl_down && (w_param == 'C' || w_param == 'c')) {
+    copy_selection_to_clipboard();
+    return true;
+  }
+
+  if (is_ctrl_down && (w_param == 'X' || w_param == 'x')) {
+    cut_selection_to_clipboard();
+    return true;
+  }
+
+  if (is_ctrl_down && (w_param == 'V' || w_param == 'v')) {
+    paste_from_clipboard();
+    return true;
+  }
+
   if (w_param == VK_BACK) {
+    if (has_selection()) {
+      delete_selection();
+      return true;
+    }
     if (!m_filename_input.empty() && m_caret_position > 0) {
       m_filename_input.erase(m_caret_position - 1, 1);
       m_caret_position--;
+      clear_selection();
       return true;
     }
   }
 
   if (w_param == VK_DELETE) {
+    if (has_selection()) {
+      delete_selection();
+      return true;
+    }
     if (m_caret_position < m_filename_input.size()) {
       m_filename_input.erase(m_caret_position, 1);
+      clear_selection();
       return true;
     }
   }
 
   if (w_param == VK_LEFT) {
-    if (m_caret_position > 0) {
-      m_caret_position--;
-      return true;
+    if (is_shift_down) {
+      if (!m_selection_anchor) {
+        m_selection_anchor = m_caret_position;
+      }
+      if (m_caret_position > 0) {
+        m_caret_position--;
+      }
+    } else {
+      if (has_selection()) {
+        const auto [start, end] = get_selection_range();
+        m_caret_position = start;
+        clear_selection();
+      } else if (m_caret_position > 0) {
+        m_caret_position--;
+      }
     }
+    return true;
   }
 
   if (w_param == VK_RIGHT) {
-    if (m_caret_position < m_filename_input.size()) {
-      m_caret_position++;
-      return true;
+    if (is_shift_down) {
+      if (!m_selection_anchor) {
+        m_selection_anchor = m_caret_position;
+      }
+      if (m_caret_position < m_filename_input.size()) {
+        m_caret_position++;
+      }
+    } else {
+      if (has_selection()) {
+        const auto [start, end] = get_selection_range();
+        m_caret_position = end;
+        clear_selection();
+      } else if (m_caret_position < m_filename_input.size()) {
+        m_caret_position++;
+      }
     }
+    return true;
+  }
+
+  if (w_param == VK_HOME) {
+    if (is_shift_down) {
+      if (!m_selection_anchor) {
+        m_selection_anchor = m_caret_position;
+      }
+      m_caret_position = 0;
+    } else {
+      m_caret_position = 0;
+      clear_selection();
+    }
+    return true;
+  }
+
+  if (w_param == VK_END) {
+    if (is_shift_down) {
+      if (!m_selection_anchor) {
+        m_selection_anchor = m_caret_position;
+      }
+      m_caret_position = m_filename_input.size();
+    } else {
+      m_caret_position = m_filename_input.size();
+      clear_selection();
+    }
+    return true;
   }
 
   if (w_param == VK_UP) {
@@ -1223,8 +1571,8 @@ bool AddNewItemDialog::handle_key_down(WPARAM w_param) {
 
   if (w_param == VK_DOWN) {
     if (m_selected_category_index < m_categories.size()) {
-      const auto &tpls = m_categories[m_selected_category_index].templates;
-      if (m_selected_template_index + 1 < tpls.size()) {
+      const auto &templates = m_categories[m_selected_category_index].templates;
+      if (m_selected_template_index + 1 < templates.size()) {
         select_template(m_selected_template_index + 1);
         return true;
       }

@@ -23,6 +23,7 @@ public:
     [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root);
     [[nodiscard]] bool activate(UI::Editor::SidebarIcon icon) noexcept;
     [[nodiscard]] bool handle_pointer_press(
+        StudioWorkspaceRenderer& surface,
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x, float point_y,
         std::optional<std::filesystem::path>& file_to_open);
@@ -47,8 +48,16 @@ public:
 
     [[nodiscard]] bool handle_pointer_drag(
         const UI::Editor::StudioEditorLayoutResult& layout,
-        float point_x) noexcept;
+        float point_x, float point_y) noexcept;
     [[nodiscard]] bool handle_pointer_release() noexcept;
+
+    [[nodiscard]] UI::Editor::ActivityPanelModel& get_model() noexcept { return m_model; }
+    [[nodiscard]] const UI::Editor::ActivityPanelModel& get_model() const noexcept { return m_model; }
+    [[nodiscard]] std::optional<std::size_t> row_at_point(
+        const UI::Editor::StudioEditorLayoutResult& layout, float py) const noexcept
+    {
+        return row_from_point(layout, py);
+    }
 
     void render(
         const StudioWorkspaceRenderer& surface,
@@ -83,6 +92,15 @@ private:
     bool m_resize_hovered = false;
     float m_drag_start_x = 0.0F;
     float m_drag_start_width = 0.0F;
+
+    // Drag & Drop Item Moving
+    std::optional<std::size_t> m_drag_source_row;
+    std::optional<std::size_t> m_drag_target_row;
+    float m_drag_press_x = 0.0F;
+    float m_drag_press_y = 0.0F;
+    float m_drag_current_x = 0.0F;
+    float m_drag_current_y = 0.0F;
+    bool m_is_dragging_item = false;
 };
 
 } // namespace Zenvra::Platform::Cocoa::Components

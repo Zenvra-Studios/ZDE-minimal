@@ -24,6 +24,7 @@ public:
         const std::string& title) const;
 
     bool handle_pointer_press(
+        StudioWorkspaceRenderer& surface,
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x, float point_y,
         UI::Editor::ActivityPanelModel& model,

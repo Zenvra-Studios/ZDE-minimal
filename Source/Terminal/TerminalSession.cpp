@@ -19,6 +19,7 @@
 #else
 #include <pty.h>
 #endif
+#include <pwd.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -222,11 +223,49 @@ std::filesystem::path TerminalSession::resolve_host_shell()
     }
     return find_windows_executable(L"bash.exe");
 #else
-    constexpr std::array<std::string_view, 3> candidates{
-        "/usr/bash",
+    // 1. Check environment variable $SHELL (host's active shell preference)
+    if (const char* env_shell = std::getenv("SHELL"); env_shell != nullptr && env_shell[0] != '\0')
+    {
+        if (::access(env_shell, X_OK) == 0)
+        {
+            return std::filesystem::path{env_shell};
+        }
+    }
+
+    // 2. Check user's default login shell in passwd database
+    const uid_t uid = ::getuid();
+    if (const struct passwd* pw = ::getpwuid(uid); pw != nullptr && pw->pw_shell != nullptr && pw->pw_shell[0] != '\0')
+    {
+        if (::access(pw->pw_shell, X_OK) == 0)
+        {
+            return std::filesystem::path{pw->pw_shell};
+        }
+    }
+
+    // 3. Fallback candidates by platform priority
+#if defined(__APPLE__)
+    constexpr std::array<std::string_view, 8> candidates{
+        "/bin/zsh",
+        "/usr/bin/zsh",
+        "/opt/homebrew/bin/zsh",
+        "/opt/homebrew/bin/fish",
+        "/usr/local/bin/zsh",
+        "/usr/local/bin/fish",
+        "/bin/bash",
+        "/bin/sh",
+    };
+#else
+    constexpr std::array<std::string_view, 8> candidates{
         "/usr/bin/bash",
         "/bin/bash",
+        "/usr/bin/zsh",
+        "/bin/zsh",
+        "/usr/bin/fish",
+        "/bin/fish",
+        "/usr/local/bin/fish",
+        "/bin/sh",
     };
+#endif
     for (const std::string_view candidate : candidates)
     {
         if (::access(std::string{candidate}.c_str(), X_OK) == 0)
@@ -410,9 +449,10 @@ bool TerminalSession::start(const std::filesystem::path& working_directory,
         }
         ::setenv("TERM", "xterm-256color", 1);
         ::setenv("COLORTERM", "truecolor", 1);
-        ::setenv("PS1", "\\u@\\h:\\w\\$ ", 1);
         const std::string executable = m_shell_path.string();
-        ::execl(executable.c_str(), executable.c_str(), "--noprofile", "--norc", "-i", nullptr);
+        ::execl(executable.c_str(), executable.c_str(), "-i", nullptr);
+        ::execl(executable.c_str(), executable.c_str(), "-l", nullptr);
+        ::execl(executable.c_str(), executable.c_str(), nullptr);
         ::_exit(127);
     }
     m_implementation->process_id = process_id;

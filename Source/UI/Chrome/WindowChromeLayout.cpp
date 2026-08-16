@@ -171,14 +171,18 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(
                            control_width, titlebar_height};
   }
 
-  const float button_width = 36.0F * safe_scale;
-  const float binary_width = 120.0F * safe_scale;
-  const float platform_width = 72.0F * safe_scale;
-  const float compiler_width = 80.0F * safe_scale;
-  const float toolbar_gap = 8.0F * safe_scale;
+  // Responsive toolbar element widths & gaps based on monitor/window width
+  const bool is_compact = client_width < (960.0F * safe_scale);
+  const bool is_ultra_compact = client_width < (760.0F * safe_scale);
+
+  const float button_width = is_ultra_compact ? (28.0F * safe_scale) : (is_compact ? (32.0F * safe_scale) : (36.0F * safe_scale));
+  const float binary_width = is_ultra_compact ? (90.0F * safe_scale) : (is_compact ? (108.0F * safe_scale) : (128.0F * safe_scale));
+  const float platform_width = is_ultra_compact ? (68.0F * safe_scale) : (is_compact ? (78.0F * safe_scale) : (88.0F * safe_scale));
+  const float compiler_width = is_ultra_compact ? (68.0F * safe_scale) : (is_compact ? (78.0F * safe_scale) : (88.0F * safe_scale));
+  const float toolbar_gap = is_ultra_compact ? (4.0F * safe_scale) : (is_compact ? (6.0F * safe_scale) : (8.0F * safe_scale));
 
   // The right-side toolbar (ellipsis | gear | debug | run | build | binary |
-  // platform | compiler) has a fixed width. Reserve it up front so the menus
+  // platform | compiler) has a responsive width. Reserve it up front so the menus
   // never extend underneath it and the elements never collide.
   const float right_toolbar_width = 5.0F * button_width + binary_width +
                                     platform_width + compiler_width +

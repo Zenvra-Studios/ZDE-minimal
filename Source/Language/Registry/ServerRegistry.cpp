@@ -127,7 +127,39 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
 
     if (exe_str == "cmake-language-server" || exe_str == "cmake-ls" || exe_str == "cmakels" || exe_str == "cmakels-win64")
     {
-        candidate_names = { "cmake-language-server", "cmakels-win64", "cmakels", "cmake-ls" };
+        candidate_names = { "cmakels", "cmake-language-server", "cmake-ls", "cmakels-win64", "neocmakelsp" };
+    }
+    else if (exe_str == "clangd")
+    {
+        candidate_names = { "clangd", "clangd-19", "clangd-18", "clangd-17", "clangd-16", "clangd-15" };
+    }
+    else if (exe_str == "pyright-langserver" || exe_str == "pyright" || exe_str == "pylsp")
+    {
+        candidate_names = { "pyright-langserver", "pyright", "pylsp", "jedi-language-server" };
+    }
+    else if (exe_str == "typescript-language-server" || exe_str == "tls" || exe_str == "vtsls" || exe_str == "tsserver")
+    {
+        candidate_names = { "typescript-language-server", "tls", "vtsls", "deno", "bun", "tsserver" };
+    }
+    else if (exe_str == "rust-analyzer")
+    {
+        candidate_names = { "rust-analyzer", "rust-analyzer-linux", "rust-analyzer-mac" };
+    }
+    else if (exe_str == "vscode-html-language-server" || exe_str == "html-languageserver" || exe_str == "html")
+    {
+        candidate_names = { "vscode-html-language-server", "html-languageserver", "html" };
+    }
+    else if (exe_str == "vscode-css-language-server")
+    {
+        candidate_names = { "vscode-css-language-server", "css-languageserver" };
+    }
+    else if (exe_str == "vscode-json-language-server")
+    {
+        candidate_names = { "vscode-json-language-server", "json-languageserver" };
+    }
+    else if (exe_str == "csharp-ls" || exe_str == "omnisharp")
+    {
+        candidate_names = { "csharp-ls", "omnisharp" };
     }
 
     for (const auto& cur_name : candidate_names)
@@ -140,7 +172,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
         }
 #endif
 
-        // 0. Absolute Top Priority: Check alongside the running executable directory
+        // 0. Absolute Top Priority: Check alongside the running executable directory & TLS plugin folders
 #if defined(_WIN32)
         std::array<wchar_t, 32768> exe_buffer{};
         const DWORD exe_len = GetModuleFileNameW(nullptr, exe_buffer.data(), static_cast<DWORD>(exe_buffer.size()));
@@ -148,8 +180,19 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
         {
             const std::filesystem::path app_dir = std::filesystem::path(exe_buffer.data()).parent_path();
             const std::filesystem::path app_candidates[] = {
+                app_dir / "plugins" / "lsp" / "tls" / exe_with_ext,
+                app_dir / "plugins" / "lsp" / "html" / exe_with_ext,
+                app_dir / "plugins" / "lsp" / "typescript-language-server" / exe_with_ext,
+                app_dir / "plugins" / "lsp" / "vscode-html-language-server" / exe_with_ext,
                 app_dir / "plugins" / "lsp" / exe_with_ext,
+                app_dir / "plugins" / "html" / exe_with_ext,
+                app_dir / "plugins" / "tls" / exe_with_ext,
                 app_dir / "plugins" / exe_with_ext,
+                app_dir / "lsp" / "html" / exe_with_ext,
+                app_dir / "lsp" / "tls" / exe_with_ext,
+                app_dir / "lsp" / exe_with_ext,
+                app_dir / "html" / exe_with_ext,
+                app_dir / "tls" / exe_with_ext,
                 app_dir / "bin" / exe_with_ext,
                 app_dir / exe_with_ext,
             };
@@ -330,6 +373,8 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
             const std::filesystem::path lad(local_appdata);
             const std::filesystem::path lad_candidates[] = {
                 lad / "Microsoft" / "WinGet" / "Links" / exe_with_ext,
+                lad / "pnpm" / exe_with_ext,
+                lad / "Volta" / "bin" / exe_with_ext,
                 lad / "Programs" / "Python" / "Python313" / "Scripts" / exe_with_ext,
                 lad / "Programs" / "Python" / "Python312" / "Scripts" / exe_with_ext,
                 lad / "Programs" / "Python" / "Python311" / "Scripts" / exe_with_ext,
@@ -522,10 +567,10 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
 
 void ServerRegistry::initialize_default_profiles()
 {
-    // C / C++ (clangd - supports GCC, MSVC, and Clang toolchains via query-driver and compile_commands.json)
+    // C / C++ / Objective-C / Objective-C++ (clangd - supports GCC, MSVC, Apple Clang, and Clang toolchains)
     ServerProfile cpp_profile;
     cpp_profile.language_id = "cpp";
-    cpp_profile.extensions = {".cpp", ".c", ".h", ".hpp", ".cc", ".cxx", ".hh", ".hxx", ".inl"};
+    cpp_profile.extensions = {".cpp", ".c", ".h", ".hpp", ".cc", ".cxx", ".hh", ".hxx", ".inl", ".m", ".mm"};
     cpp_profile.executable_name = "clangd";
     cpp_profile.default_args = {
         "--background-index",
@@ -543,7 +588,7 @@ void ServerRegistry::initialize_default_profiles()
     ServerProfile cmake_profile;
     cmake_profile.language_id = "cmake";
     cmake_profile.extensions = {".cmake", "cmakelists.txt", "CMakeLists.txt"};
-    cmake_profile.executable_name = "cmake-language-server";
+    cmake_profile.executable_name = "cmakels";
     cmake_profile.default_args = {"build"};
     cmake_profile.root_markers = {"CMakeLists.txt", ".git"};
     register_profile(std::move(cmake_profile));
@@ -566,13 +611,13 @@ void ServerRegistry::initialize_default_profiles()
     py_profile.root_markers = {"pyproject.toml", "requirements.txt", "setup.py", ".git"};
     register_profile(std::move(py_profile));
 
-    // JavaScript / TypeScript (typescript-language-server / vtsls)
+    // JavaScript / TypeScript (typescript-language-server / vtsls / deno / bun)
     ServerProfile js_profile;
     js_profile.language_id = "typescript";
-    js_profile.extensions = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"};
+    js_profile.extensions = {".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"};
     js_profile.executable_name = "typescript-language-server";
     js_profile.default_args = {"--stdio"};
-    js_profile.root_markers = {"tsconfig.json", "package.json", ".git"};
+    js_profile.root_markers = {"tsconfig.json", "jsconfig.json", "package.json", "deno.json", "deno.jsonc", "bun.lockb", ".git"};
     register_profile(std::move(js_profile));
 
     // Go (gopls)
@@ -583,6 +628,96 @@ void ServerRegistry::initialize_default_profiles()
     go_profile.default_args = {};
     go_profile.root_markers = {"go.mod", "go.work", ".git"};
     register_profile(std::move(go_profile));
+
+    // Zig (zls)
+    ServerProfile zig_profile;
+    zig_profile.language_id = "zig";
+    zig_profile.extensions = {".zig", ".zon"};
+    zig_profile.executable_name = "zls";
+    zig_profile.default_args = {};
+    zig_profile.root_markers = {"build.zig", "build.zig.zon", ".git"};
+    register_profile(std::move(zig_profile));
+
+    // Lua (lua-language-server)
+    ServerProfile lua_profile;
+    lua_profile.language_id = "lua";
+    lua_profile.extensions = {".lua"};
+    lua_profile.executable_name = "lua-language-server";
+    lua_profile.default_args = {};
+    lua_profile.root_markers = {".luarc.json", ".git"};
+    register_profile(std::move(lua_profile));
+
+    // HTML (vscode-html-language-server)
+    ServerProfile html_profile;
+    html_profile.language_id = "html";
+    html_profile.extensions = {".html", ".htm", ".xhtml"};
+    html_profile.executable_name = "vscode-html-language-server";
+    html_profile.default_args = {"--stdio"};
+    html_profile.root_markers = {"package.json", ".git"};
+    register_profile(std::move(html_profile));
+
+    // CSS / SCSS / LESS (vscode-css-language-server)
+    ServerProfile css_profile;
+    css_profile.language_id = "css";
+    css_profile.extensions = {".css", ".scss", ".less"};
+    css_profile.executable_name = "vscode-css-language-server";
+    css_profile.default_args = {"--stdio"};
+    css_profile.root_markers = {"package.json", ".git"};
+    register_profile(std::move(css_profile));
+
+    // JSON (vscode-json-language-server)
+    ServerProfile json_profile;
+    json_profile.language_id = "json";
+    json_profile.extensions = {".json", ".jsonc"};
+    json_profile.executable_name = "vscode-json-language-server";
+    json_profile.default_args = {"--stdio"};
+    json_profile.root_markers = {"package.json", ".git"};
+    register_profile(std::move(json_profile));
+
+    // YAML (yaml-language-server)
+    ServerProfile yaml_profile;
+    yaml_profile.language_id = "yaml";
+    yaml_profile.extensions = {".yaml", ".yml"};
+    yaml_profile.executable_name = "yaml-language-server";
+    yaml_profile.default_args = {"--stdio"};
+    yaml_profile.root_markers = {".git"};
+    register_profile(std::move(yaml_profile));
+
+    // Bash / Shell (bash-language-server)
+    ServerProfile bash_profile;
+    bash_profile.language_id = "bash";
+    bash_profile.extensions = {".sh", ".bash", ".zsh"};
+    bash_profile.executable_name = "bash-language-server";
+    bash_profile.default_args = {"start"};
+    bash_profile.root_markers = {".git"};
+    register_profile(std::move(bash_profile));
+
+    // Swift (sourcekit-lsp)
+    ServerProfile swift_profile;
+    swift_profile.language_id = "swift";
+    swift_profile.extensions = {".swift"};
+    swift_profile.executable_name = "sourcekit-lsp";
+    swift_profile.default_args = {};
+    swift_profile.root_markers = {"Package.swift", ".git"};
+    register_profile(std::move(swift_profile));
+
+    // C# (csharp-ls)
+    ServerProfile csharp_profile;
+    csharp_profile.language_id = "csharp";
+    csharp_profile.extensions = {".cs"};
+    csharp_profile.executable_name = "csharp-ls";
+    csharp_profile.default_args = {};
+    csharp_profile.root_markers = {".sln", ".csproj", ".git"};
+    register_profile(std::move(csharp_profile));
+
+    // Java (jdtls)
+    ServerProfile java_profile;
+    java_profile.language_id = "java";
+    java_profile.extensions = {".java"};
+    java_profile.executable_name = "jdtls";
+    java_profile.default_args = {};
+    java_profile.root_markers = {"pom.xml", "build.gradle", ".git"};
+    register_profile(std::move(java_profile));
 }
 
 } // namespace Zenvra::Language::Registry

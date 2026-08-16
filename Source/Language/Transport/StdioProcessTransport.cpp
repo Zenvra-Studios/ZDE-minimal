@@ -98,10 +98,27 @@ bool StdioProcessTransport::start()
 
     PROCESS_INFORMATION pi{};
 
-    std::wstring cmd_line = L"\"" + m_executable_path.wstring() + L"\"";
-    for (const auto& arg : m_arguments)
+    std::wstring ext = m_executable_path.extension().wstring();
+    for (auto& c : ext) c = towlower(c);
+    const bool is_batch = (ext == L".cmd" || ext == L".bat");
+
+    std::wstring cmd_line;
+    if (is_batch)
     {
-        cmd_line += L" \"" + std::wstring(arg.begin(), arg.end()) + L"\"";
+        cmd_line = L"cmd.exe /d /c \"\"" + m_executable_path.wstring() + L"\"";
+        for (const auto& arg : m_arguments)
+        {
+            cmd_line += L" \"" + std::wstring(arg.begin(), arg.end()) + L"\"";
+        }
+        cmd_line += L"\"";
+    }
+    else
+    {
+        cmd_line = L"\"" + m_executable_path.wstring() + L"\"";
+        for (const auto& arg : m_arguments)
+        {
+            cmd_line += L" \"" + std::wstring(arg.begin(), arg.end()) + L"\"";
+        }
     }
 
     const wchar_t* work_dir = m_working_directory.empty() ? nullptr : m_working_directory.c_str();

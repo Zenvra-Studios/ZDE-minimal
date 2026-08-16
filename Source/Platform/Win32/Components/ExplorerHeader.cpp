@@ -1,17 +1,18 @@
 #include "Platform/Win32/Components/ExplorerHeader.h"
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
 #include "UI/Editor/ActivityPanelModel.h"
+#include "Utility/MathUtil.h"
 
 #include <cmath>
 
 namespace Zenvra::Platform::Win32::Components
 {
 
+using Zenvra::Utility::round_to_int;
+
 constexpr float header_height = UI::Editor::StudioEditorMetrics::tab_height;
 constexpr float icon_spacing = 22.0F;
 constexpr float right_margin = 16.0F;
-
-static inline int round_to_int(float f) { return static_cast<int>(std::lround(f)); }
 
 ExplorerHeader::ActionIcon ExplorerHeader::get_icon_at_point(
     const UI::Editor::StudioEditorLayoutResult& layout,

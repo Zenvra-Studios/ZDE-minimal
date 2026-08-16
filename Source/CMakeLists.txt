@@ -2,6 +2,7 @@ add_subdirectory(Core)
 add_subdirectory(Commands)
 add_subdirectory(UI)
 add_subdirectory(Terminal)
+add_subdirectory(Tools)
 add_subdirectory(Services)
 add_subdirectory(Platform)
 add_subdirectory(Application)
@@ -39,22 +40,55 @@ add_custom_target(ZDE_Manifest DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/manifest-run
 add_dependencies(ZDE ZDE_Manifest)
 
 if(APPLE)
-    # main.cpp resolves runtime.json relative to the executable directory,
-    # which inside a .app is Contents/MacOS. The stamp-driven rule above also
-    # copies it; this one just guarantees presence after the bundle link.
+    set_target_properties(ZDE PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Cocoa/Info.plist.in"
+        MACOSX_BUNDLE_BUNDLE_NAME "ZDE"
+        MACOSX_BUNDLE_DISPLAY_NAME "ZDE"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.zenvra.zde"
+        MACOSX_BUNDLE_ICON_FILE "AppIcon.icns"
+        MACOSX_BUNDLE_BUNDLE_VERSION "1.0.0"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0.0"
+    )
+
+    # 1. Copy AppIcon.icns into bundle Resources
+    if(EXISTS "${CMAKE_SOURCE_DIR}/Assets/icons/AppIcon.icns")
+        add_custom_command(TARGET ZDE POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_CONTENT_DIR:ZDE>/Resources"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_SOURCE_DIR}/Assets/icons/AppIcon.icns"
+                "$<TARGET_BUNDLE_CONTENT_DIR:ZDE>/Resources/AppIcon.icns"
+            COMMENT "Deploying AppIcon.icns to .app Resources..."
+        )
+    endif()
+
+    # 2. Copy entire Assets tree (fonts, icons, Grammars) to Resources/Assets and MacOS/Assets
+    add_custom_command(TARGET ZDE POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_CONTENT_DIR:ZDE>/Resources/Assets"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/Assets"
+            "$<TARGET_BUNDLE_CONTENT_DIR:ZDE>/Resources/Assets"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/Assets"
+            "$<TARGET_BUNDLE_CONTENT_DIR:ZDE>/MacOS/Assets"
+        COMMENT "Deploying all Assets (icons, fonts, grammars) to macOS bundle..."
+    )
+
+    # 3. Deploy manifest into MacOS/manifest
     add_custom_command(TARGET ZDE POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_SOURCE_DIR}/manifest"
-        "$<TARGET_BUNDLE_CONTENT_DIR:ZDE>/MacOS/manifest"
+            "${CMAKE_SOURCE_DIR}/manifest"
+            "$<TARGET_BUNDLE_CONTENT_DIR:ZDE>/MacOS/manifest"
+        COMMENT "Deploying runtime manifest to macOS bundle..."
     )
-    # Bundle the runtime dylibs themselves. The manifest above validates that
-    # every dependency sits next to the executable (Contents/MacOS), so copy
-    # all *.dylib from the build output dir into the bundle.
+
+    # 4. Bundle the runtime dylibs themselves
     add_custom_command(TARGET ZDE POST_BUILD
         COMMAND ${CMAKE_COMMAND}
             "-DSOURCE_DIR=$<TARGET_FILE_DIR:ZDE>/../../.."
             "-DDEST_DIR=$<TARGET_FILE_DIR:ZDE>"
             -P "${CMAKE_SOURCE_DIR}/Cmake/toolchains/CocoaBundleDylibs.cmake"
+        COMMENT "Bundling runtime dylibs into macOS bundle..."
     )
 endif()
 
@@ -73,15 +107,15 @@ if(WIN32)
         )
     endif()
 
-    # Deploy cmake-ls binary strictly inside plugins/lsp/ folder
+    # Deploy cmake-ls binary strictly inside plugins/lsp/ folder (cmakels.exe only)
     set(CMAKELS_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/cmake-ls/cmakels-win64.exe")
     if(EXISTS "${CMAKELS_SRC}")
         add_custom_command(TARGET ZDE POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ZDE>/plugins/lsp"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKELS_SRC}" "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/cmakels-win64.exe"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKELS_SRC}" "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/cmakels.exe"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKELS_SRC}" "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/cmake-language-server.exe"
-            COMMENT "Deploying cmake-ls binary cleanly into plugins/lsp/..."
+            COMMAND ${CMAKE_COMMAND} -E remove -f "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/cmakels-win64.exe"
+            COMMAND ${CMAKE_COMMAND} -E remove -f "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/cmake-language-server.exe"
+            COMMENT "Deploying cmakels binary cleanly into plugins/lsp/..."
         )
     endif()
 
@@ -95,30 +129,67 @@ if(WIN32)
         )
     endif()
 
+    # Deploy typescript-language-server binary strictly inside plugins/lsp/ folder
+    set(TLS_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/tls/typescript-language-server.exe")
+    if(EXISTS "${TLS_SRC}")
+        add_custom_command(TARGET ZDE POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ZDE>/plugins/lsp"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${TLS_SRC}" "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/typescript-language-server.exe"
+            COMMAND ${CMAKE_COMMAND} -E remove -f "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/tls.exe"
+            COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/tls"
+            COMMENT "Deploying typescript-language-server binary cleanly into plugins/lsp/..."
+        )
+    endif()
+
+    # Deploy Resources directory strictly containing icons and fonts only
+    add_custom_command(TARGET ZDE POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ZDE>/Resources"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/Assets/icons"
+            "$<TARGET_FILE_DIR:ZDE>/Resources/icons"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/Assets/fonts"
+            "$<TARGET_FILE_DIR:ZDE>/Resources/fonts"
+        COMMENT "Deploying Resources folder (icons and fonts only)..."
+    )
+
+    # Deploy TextMate Grammars to Assets/Grammars
     if(EXISTS "${CMAKE_SOURCE_DIR}/Assets/Grammars")
         add_custom_command(TARGET ZDE POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${CMAKE_SOURCE_DIR}/Assets/Grammars"
                 "$<TARGET_FILE_DIR:ZDE>/Assets/Grammars"
-            COMMENT "Deploying TextMate Grammars..."
+            COMMENT "Deploying TextMate Grammars to Assets/Grammars..."
         )
     endif()
 endif()
 
-if(EXISTS "${CMAKE_SOURCE_DIR}/Assets/Grammars" AND NOT WIN32)
+if(NOT WIN32)
     add_custom_command(TARGET ZDE POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ZDE>/Resources"
         COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_SOURCE_DIR}/Assets/Grammars"
-            "$<TARGET_FILE_DIR:ZDE>/Assets/Grammars"
-        COMMENT "Deploying TextMate Grammars..."
+            "${CMAKE_SOURCE_DIR}/Assets/icons"
+            "$<TARGET_FILE_DIR:ZDE>/Resources/icons"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/Assets/fonts"
+            "$<TARGET_FILE_DIR:ZDE>/Resources/fonts"
+        COMMENT "Deploying Resources folder (icons and fonts only)..."
     )
+
+    if(EXISTS "${CMAKE_SOURCE_DIR}/Assets/Grammars")
+        add_custom_command(TARGET ZDE POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_SOURCE_DIR}/Assets/Grammars"
+                "$<TARGET_FILE_DIR:ZDE>/Assets/Grammars"
+            COMMENT "Deploying TextMate Grammars to Assets/Grammars..."
+        )
+    endif()
 endif()
 
 # These folders are reserved module boundaries from the product roadmap.
 # Their current CMake files remain safe no-ops until implementation starts.
 foreach(module_dir IN ITEMS
     AI
-    Debugger
     Editors
     Explorer
     Language

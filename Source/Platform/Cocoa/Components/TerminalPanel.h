@@ -46,6 +46,10 @@ public:
     [[nodiscard]] float get_height() const noexcept;
     void set_focused(bool focused) noexcept;
     void set_working_directory(const std::filesystem::path& directory) noexcept;
+
+    enum class PanelChannel { Terminal, Output };
+    [[nodiscard]] PanelChannel get_active_channel() const noexcept { return m_active_channel; }
+    void set_active_channel(PanelChannel channel) noexcept { m_active_channel = channel; }
     [[nodiscard]] bool contains(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x, float point_y) const noexcept;
@@ -65,6 +69,12 @@ private:
     [[nodiscard]] UI::Rect session_tab_bounds(
         const UI::Editor::StudioEditorLayoutResult& layout,
         std::size_t index) const noexcept;
+    [[nodiscard]] UI::Rect terminal_channel_tab_bounds(
+        const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
+    [[nodiscard]] UI::Rect output_channel_tab_bounds(
+        const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
+    [[nodiscard]] UI::Rect clear_output_button_bounds(
+        const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
     [[nodiscard]] UI::Rect add_button_bounds(
         const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
     [[nodiscard]] UI::Rect close_button_bounds(
@@ -86,6 +96,8 @@ private:
     mutable std::unordered_map<std::size_t, float> m_tab_target_x;
     std::size_t m_horizontal_scroll_offset = 0;
     bool m_force_horizontal_scroll_to_cursor = false;
+    PanelChannel m_active_channel = PanelChannel::Terminal;
+    std::size_t m_output_scroll_offset = 0;
 };
 
 } // namespace Zenvra::Platform::Cocoa::Components

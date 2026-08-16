@@ -1,3 +1,4 @@
+#include "Language/LanguageServerManager.h"
 #include "Platform/Cocoa/Components/TextEditor.h"
 #include "Platform/Cocoa/Components/StudioWorkspaceRenderer.h"
 #include "UI/Editor/FileIconModel.h"
@@ -185,7 +186,67 @@ find_enclosing_braces(const UI::Editor::TextDocumentModel& document)
     return {open_brace, close_brace};
 }
 
+std::string make_lsp_uri(std::string_view filename)
+{
+    if (filename.empty() || filename.starts_with("Untitled") || filename.starts_with("untitled"))
+    {
+        return "file:///untitled.cpp";
+    }
+    std::error_code ec;
+    std::filesystem::path p(filename);
+    if (!p.is_absolute())
+    {
+        p = std::filesystem::current_path() / p;
+    }
+    p = std::filesystem::weakly_canonical(p, ec);
+    std::string generic = p.generic_string();
+    if (!generic.starts_with("/"))
+    {
+        generic = "/" + generic;
+    }
+    return "file://" + generic;
+}
+
 } // namespace
+
+std::string TextEditor::get_active_document_uri() const
+{
+    if (const auto* path_ptr = m_controller.get_active_path())
+    {
+        return make_lsp_uri(path_ptr->string());
+    }
+    if (const auto* doc = m_controller.get_active_document())
+    {
+        return make_lsp_uri(doc->get_file_name());
+    }
+    return "file:///untitled.cpp";
+}
+
+std::string TextEditor::get_active_document_filename() const
+{
+    if (const auto* path_ptr = m_controller.get_active_path())
+    {
+        return path_ptr->string();
+    }
+    if (const auto* doc = m_controller.get_active_document())
+    {
+        return std::string(doc->get_file_name());
+    }
+    return "untitled.cpp";
+}
+
+void TextEditor::on_diagnostics_updated(const std::string& uri, std::vector<Language::Protocol::Diagnostic> diags)
+{
+    std::lock_guard<std::mutex> lock(m_lsp_mutex);
+    const std::string active_uri = get_active_document_uri();
+    if (uri == active_uri || uri.ends_with(get_active_document_filename()))
+    {
+        if (auto* doc = m_controller.get_active_document())
+        {
+            doc->set_diagnostics(std::move(diags));
+        }
+    }
+}
 
 bool TextEditor::open_file(const std::filesystem::path& path)
 {
@@ -198,6 +259,26 @@ bool TextEditor::open_file(const std::filesystem::path& path)
         m_hovered_tab_index.reset();
         m_hovered_tab_close_index.reset();
         m_hovered_fold_line.reset();
+
+        if (const auto* doc = m_controller.get_active_document(); doc != nullptr)
+        {
+            const std::string uri = get_active_document_uri();
+            const std::string fname = get_active_document_filename();
+            std::string content;
+            for (std::size_t i = 0; i < doc->get_line_count(); ++i)
+            {
+                content += doc->get_line(i);
+                content += "\n";
+            }
+            Language::LanguageServerManager::instance().on_document_opened(
+                uri, fname, 1, content);
+
+            auto diags = Language::LanguageServerManager::instance().get_diagnostics_for_document(uri);
+            if (!diags.empty())
+            {
+                const_cast<UI::Editor::TextDocumentModel*>(doc)->set_diagnostics(std::move(diags));
+            }
+        }
     }
     return opened;
 }
@@ -214,6 +295,26 @@ std::size_t TextEditor::open_dropped_paths(std::span<const std::filesystem::path
         m_hovered_tab_index.reset();
         m_hovered_tab_close_index.reset();
         m_hovered_fold_line.reset();
+
+        if (const auto* doc = m_controller.get_active_document(); doc != nullptr)
+        {
+            const std::string uri = get_active_document_uri();
+            const std::string fname = get_active_document_filename();
+            std::string content;
+            for (std::size_t i = 0; i < doc->get_line_count(); ++i)
+            {
+                content += doc->get_line(i);
+                content += "\n";
+            }
+            Language::LanguageServerManager::instance().on_document_opened(
+                uri, fname, 1, content);
+
+            auto diags = Language::LanguageServerManager::instance().get_diagnostics_for_document(uri);
+            if (!diags.empty())
+            {
+                const_cast<UI::Editor::TextDocumentModel*>(doc)->set_diagnostics(std::move(diags));
+            }
+        }
     }
     return opened_count;
 }
@@ -230,6 +331,26 @@ bool TextEditor::create_buffer()
         m_hovered_tab_index.reset();
         m_hovered_tab_close_index.reset();
         m_hovered_fold_line.reset();
+
+        if (const auto* doc = m_controller.get_active_document(); doc != nullptr)
+        {
+            const std::string uri = get_active_document_uri();
+            const std::string fname = get_active_document_filename();
+            std::string content;
+            for (std::size_t i = 0; i < doc->get_line_count(); ++i)
+            {
+                content += doc->get_line(i);
+                content += "\n";
+            }
+            Language::LanguageServerManager::instance().on_document_opened(
+                uri, fname, 1, content);
+
+            auto diags = Language::LanguageServerManager::instance().get_diagnostics_for_document(uri);
+            if (!diags.empty())
+            {
+                const_cast<UI::Editor::TextDocumentModel*>(doc)->set_diagnostics(std::move(diags));
+            }
+        }
     }
     return created;
 }
@@ -516,20 +637,273 @@ bool TextEditor::handle_scroll(
     return false;
 }
 
-bool TextEditor::handle_input(UI::Editor::EditorInputCommand cmd, bool extend) { return m_controller.execute_input(cmd, extend); }
-bool TextEditor::handle_action(UI::Editor::EditorAction action) { return m_controller.execute_action(action); }
+bool TextEditor::handle_input(UI::Editor::EditorInputCommand cmd, bool extend)
+{
+    {
+        std::lock_guard<std::mutex> lock(m_lsp_mutex);
+        if (m_completion_popup.is_visible())
+        {
+            if (cmd == UI::Editor::EditorInputCommand::MoveUp)
+            {
+                m_completion_popup.select_previous();
+                return true;
+            }
+            if (cmd == UI::Editor::EditorInputCommand::MoveDown)
+            {
+                m_completion_popup.select_next();
+                return true;
+            }
+            if (cmd == UI::Editor::EditorInputCommand::Escape ||
+                cmd == UI::Editor::EditorInputCommand::MoveLeft ||
+                cmd == UI::Editor::EditorInputCommand::MoveRight ||
+                cmd == UI::Editor::EditorInputCommand::MoveHome ||
+                cmd == UI::Editor::EditorInputCommand::MoveEnd)
+            {
+                m_completion_popup.hide();
+                m_signature_help.hide();
+                if (cmd == UI::Editor::EditorInputCommand::Escape)
+                {
+                    return true;
+                }
+            }
+            if (cmd == UI::Editor::EditorInputCommand::InsertTab || cmd == UI::Editor::EditorInputCommand::InsertNewLine)
+            {
+                if (const auto* item = m_completion_popup.get_selected_item())
+                {
+                    if (auto* doc = m_controller.get_active_document(); doc != nullptr)
+                    {
+                        const std::string_view current_line = doc->get_line(doc->get_caret_line());
+                        const std::size_t caret_col = doc->get_caret_column();
+
+                        // Find how many characters of the current token to replace before caret
+                        std::size_t word_start = std::min(caret_col, current_line.size());
+                        while (word_start > 0)
+                        {
+                            const char c = current_line[word_start - 1];
+                            if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '#' || c == '~')
+                            {
+                                --word_start;
+                            }
+                            else
+                            {
+                                break;
+                            }
+                        }
+
+                        const std::size_t prefix_len = caret_col - word_start;
+                        for (std::size_t k = 0; k < prefix_len; ++k)
+                        {
+                            static_cast<void>(m_controller.execute_input(UI::Editor::EditorInputCommand::DeleteBackward));
+                        }
+
+                        std::string text_to_insert = item->insert_text.empty() ? item->label : item->insert_text;
+                        std::string clean_text;
+                        for (std::size_t idx = 0; idx < text_to_insert.size(); ++idx)
+                        {
+                            if (text_to_insert[idx] == '$' && idx + 1 < text_to_insert.size() && (text_to_insert[idx+1] == '0' || text_to_insert[idx+1] == '1'))
+                            {
+                                ++idx;
+                                continue;
+                            }
+                            clean_text += text_to_insert[idx];
+                        }
+
+                        static_cast<void>(m_controller.insert_text(clean_text));
+                        m_completion_popup.hide();
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    const bool changed = m_controller.execute_input(cmd, extend);
+    if (changed)
+    {
+        if (auto* doc = m_controller.get_active_document(); doc != nullptr)
+        {
+            const std::string uri = get_active_document_uri();
+            const std::string fname = get_active_document_filename();
+            std::string content;
+            for (std::size_t i = 0; i < doc->get_line_count(); ++i)
+            {
+                content += doc->get_line(i);
+                content += "\n";
+            }
+            Language::LanguageServerManager::instance().on_document_changed(
+                uri, fname, 1, content);
+
+            // Auto-hide signature help on newline or escape
+            if (cmd == UI::Editor::EditorInputCommand::InsertNewLine ||
+                cmd == UI::Editor::EditorInputCommand::Escape)
+            {
+                m_signature_help.hide();
+            }
+
+            // If Backspace or Delete occurred while completion popup was open, auto-close or re-filter
+            if (cmd == UI::Editor::EditorInputCommand::DeleteBackward || cmd == UI::Editor::EditorInputCommand::DeleteForward)
+            {
+                if (m_completion_popup.is_visible())
+                {
+                    const std::string_view current_line = doc->get_line(doc->get_caret_line());
+                    const std::size_t caret_col = doc->get_caret_column();
+                    std::size_t word_start = std::min(caret_col, current_line.size());
+                    while (word_start > 0)
+                    {
+                        const char c = current_line[word_start - 1];
+                        if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '#' || c == '~')
+                        {
+                            --word_start;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                    const std::string_view current_word = current_line.substr(word_start, caret_col - word_start);
+                    if (current_word.empty())
+                    {
+                        m_completion_popup.hide();
+                    }
+                    else
+                    {
+                        m_completion_popup.set_filter(current_word);
+                        if (m_completion_popup.get_item_count() == 0)
+                        {
+                            m_completion_popup.hide();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return changed;
+}
+
+bool TextEditor::handle_action(UI::Editor::EditorAction action)
+{
+    const bool res = m_controller.execute_action(action);
+    if (res && action == UI::Editor::EditorAction::SaveDocument)
+    {
+        if (auto* doc = m_controller.get_active_document(); doc != nullptr)
+        {
+            const std::string uri = get_active_document_uri();
+            const std::string fname = get_active_document_filename();
+            Language::LanguageServerManager::instance().on_document_saved(uri, fname);
+        }
+    }
+    return res;
+}
+
 std::optional<bool> TextEditor::handle_command(std::string_view id) {
     auto action = UI::Editor::EditorController::action_from_command_id(id);
     if (!action) return std::nullopt;
-    return m_controller.execute_action(*action);
+    return handle_action(*action);
 }
+
 std::optional<bool> TextEditor::is_command_enabled(std::string_view id) const noexcept {
     auto action = UI::Editor::EditorController::action_from_command_id(id);
     if (!action) return std::nullopt;
     return m_controller.can_execute_action(*action);
 }
-bool TextEditor::handle_text_input(std::string_view utf8) { return m_controller.insert_text(utf8); }
+
+bool TextEditor::handle_text_input(std::string_view utf8)
+{
+    const bool changed = m_controller.insert_text(utf8);
+    if (changed)
+    {
+        if (auto* doc = m_controller.get_active_document(); doc != nullptr)
+        {
+            const std::string uri = get_active_document_uri();
+            const std::string fname = get_active_document_filename();
+            std::string content;
+            for (std::size_t i = 0; i < doc->get_line_count(); ++i)
+            {
+                content += doc->get_line(i);
+                content += "\n";
+            }
+            Language::LanguageServerManager::instance().on_document_changed(
+                uri, fname, 1, content);
+
+            const std::string_view current_line = doc->get_line(doc->get_caret_line());
+            const std::size_t caret_col = doc->get_caret_column();
+
+            // Extract the active word token before cursor
+            std::size_t word_start = std::min(caret_col, current_line.size());
+            while (word_start > 0)
+            {
+                const char c = current_line[word_start - 1];
+                if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '#' || c == ':' || c == '~')
+                {
+                    --word_start;
+                }
+                else
+                {
+                    break;
+                }
+            }
+            const std::string_view current_word = current_line.substr(word_start, caret_col - word_start);
+
+            const bool is_include_context = current_line.find('#') != std::string_view::npos ||
+                                           utf8 == "<" || utf8 == "\"" || utf8 == "#";
+            const bool is_trigger_char = utf8 == "." || utf8 == ">" || utf8 == ":" ||
+                                         utf8 == "/" || utf8 == "\\" || utf8 == "(" ||
+                                         utf8 == "," || is_include_context ||
+                                         current_word.size() >= 1;
+
+            if (utf8 == "(")
+            {
+                Language::Protocol::Position sig_pos{
+                    .line = doc->get_caret_line(),
+                    .character = doc->get_caret_column()
+                };
+                Language::LanguageServerManager::instance().request_signature_help(
+                    uri, fname, sig_pos, doc->get_line(doc->get_caret_line()),
+                    [this](std::optional<Language::Protocol::SignatureHelp> help) {
+                        std::lock_guard<std::mutex> lock(m_lsp_mutex);
+                        if (help.has_value() && !help->signatures.empty())
+                        {
+                            m_signature_help.show(std::move(*help), 0.0F, 0.0F);
+                        }
+                        else
+                        {
+                            m_signature_help.hide();
+                        }
+                    }
+                );
+            }
+
+            if (is_trigger_char || m_completion_popup.is_visible())
+            {
+                Language::Protocol::Position pos{
+                    .line = doc->get_caret_line(),
+                    .character = doc->get_caret_column()
+                };
+                Language::LanguageServerManager::instance().request_completion(
+                    uri, fname, pos, doc->get_line(doc->get_caret_line()),
+                    [this, current_word = std::string(current_word)](std::vector<Language::Protocol::CompletionItem> items) {
+                        std::lock_guard<std::mutex> lock(m_lsp_mutex);
+                        if (!items.empty())
+                        {
+                            m_completion_popup.show(std::move(items), 100.0F, 100.0F);
+                            if (!current_word.empty())
+                            {
+                                m_completion_popup.set_filter(current_word);
+                            }
+                        }
+                        else
+                        {
+                            m_completion_popup.hide();
+                        }
+                    }
+                );
+            }
+        }
+    }
+    return changed;
+}
 bool TextEditor::is_focused() const noexcept { return m_focused; }
+void TextEditor::set_focused(bool focused) noexcept { m_focused = focused; }
 bool TextEditor::is_empty_state_interactive_point(float px, float py) const noexcept {
     return m_empty_state_open_btn.get_bounds().contains(px, py) ||
            m_empty_state_clone_btn.get_bounds().contains(px, py);
@@ -552,6 +926,12 @@ bool TextEditor::is_fold_margin_point(
 bool TextEditor::tick_animations() noexcept
 {
     bool needs_redraw = m_focused && m_controller.get_active_document() != nullptr && m_caret_blink.tick();
+
+    const auto reloaded = m_controller.reload_externally_modified_files();
+    if (!reloaded.empty())
+    {
+        needs_redraw = true;
+    }
 
     // Lerp animated tab positions (mirrors X11 TextEditor.cpp)
     bool animating = false;
@@ -687,7 +1067,7 @@ void TextEditor::draw_tab_strip(
             std::max(round_to_int(14.0F * surface.m_dpi_scale), 10),
             active ? surface.m_palette.text_primary : surface.m_palette.text_muted,
             active ? surface.m_palette.tab_active_background : surface.m_palette.tab_background,
-            false);
+            true);
 
         const float text_x = bounds.x + UI::Editor::StudioEditorMetrics::editor_tab_label_offset * surface.m_dpi_scale;
         const float center_y = bounds.y + bounds.height * 0.5F;
@@ -881,6 +1261,28 @@ void TextEditor::draw_document(
         surface.draw_text(context, *surface.m_small_font, number, number_x, center_y,
             active_line ? surface.m_text.primary : surface.m_text.muted);
 
+        const auto gutter_diags = document->get_diagnostics_for_line(line_index);
+        if (!gutter_diags.empty())
+        {
+            bool has_error = false;
+            bool has_warn = false;
+            for (const auto& gd : gutter_diags)
+            {
+                if (gd.severity == Language::Protocol::DiagnosticSeverity::Error) has_error = true;
+                else if (gd.severity == Language::Protocol::DiagnosticSeverity::Warning) has_warn = true;
+            }
+
+            const float dot_x = layout.gutter_bounds.x + 4.0F * dpi;
+            const float dot_r = 3.0F * dpi;
+            const CGFloat dot_error[4] = {247.0 / 255.0, 84.0 / 255.0, 100.0 / 255.0, 1.0};
+            const CGFloat dot_warn[4] = {240.0 / 255.0, 167.0 / 255.0, 50.0 / 255.0, 1.0};
+            const CGFloat dot_info[4] = {86.0 / 255.0, 182.0 / 255.0, 194.0 / 255.0, 1.0};
+            const CGFloat* dot_color = has_error ? dot_error : (has_warn ? dot_warn : dot_info);
+            surface.fill_rounded_rectangle(context,
+                UI::Rect{dot_x, center_y - dot_r, dot_r * 2.0F, dot_r * 2.0F},
+                dot_color, dot_r);
+        }
+
         if (has_gutter_marker(line))
         {
             const int marker_x = round_to_int(layout.gutter_bounds.right() - 13.0F * dpi);
@@ -1034,7 +1436,6 @@ void TextEditor::draw_document(
         const std::string_view line = document->get_line(line_index);
         const float center_y = first_center_y + static_cast<float>(row_pass2) * line_height;
         ++row_pass2;
-        const bool active_line = line_index == document->get_caret_line();
 
         const float current_line_width = static_cast<float>(surface.m_editor_font->getTextWidth(std::string{line}));
         max_line_width = std::max(max_line_width, current_line_width);
@@ -1143,6 +1544,105 @@ void TextEditor::draw_document(
             surface.draw_text(context, *surface.m_editor_font, line, code_x, center_y, surface.m_text.primary);
         }
 
+        // Render diagnostics squiggles under erroneous tokens
+        const auto line_diags = document->get_diagnostics_for_line(line_index);
+        for (const auto& diag : line_diags)
+        {
+            std::size_t start_col = diag.range.start.line == line_index ? diag.range.start.character : 0;
+            std::size_t end_col = diag.range.end.line == line_index ? diag.range.end.character : line.size();
+            if (end_col > line.size()) end_col = line.size();
+            if (start_col >= end_col) end_col = std::min(start_col + 1, line.size());
+
+            float diag_start_x = code_x;
+            if (start_col > 0 && start_col <= line.size())
+            {
+                diag_start_x += static_cast<float>(surface.m_editor_font->getTextWidth(std::string{line.substr(0, start_col)}));
+            }
+            float diag_width = 8.0F;
+            if (end_col > start_col && start_col < line.size())
+            {
+                diag_width = static_cast<float>(surface.m_editor_font->getTextWidth(std::string{line.substr(start_col, end_col - start_col)}));
+            }
+
+            const CGFloat squiggle_error[4] = {247.0 / 255.0, 84.0 / 255.0, 100.0 / 255.0, 1.0};
+            const CGFloat squiggle_warn[4] = {240.0 / 255.0, 167.0 / 255.0, 50.0 / 255.0, 1.0};
+            const CGFloat squiggle_info[4] = {86.0 / 255.0, 182.0 / 255.0, 194.0 / 255.0, 1.0};
+            const CGFloat* squiggle_color = diag.severity == Language::Protocol::DiagnosticSeverity::Error
+                ? squiggle_error
+                : (diag.severity == Language::Protocol::DiagnosticSeverity::Warning ? squiggle_warn : squiggle_info);
+
+            // Draw crisp sinusoidal wavy squiggle
+            float wave_x = diag_start_x;
+            const float wave_end_x = diag_start_x + std::max(diag_width, 6.0F);
+            const float wave_y = center_y + line_height * 0.42F;
+            const float wave_step = 3.0F * dpi;
+            const float wave_amp = 1.5F * dpi;
+            bool wave_up = true;
+            while (wave_x < wave_end_x)
+            {
+                const float next_x = std::min(wave_x + wave_step, wave_end_x);
+                const float y1 = wave_up ? (wave_y - wave_amp) : (wave_y + wave_amp);
+                const float y2 = wave_up ? (wave_y + wave_amp) : (wave_y - wave_amp);
+                surface.draw_line(context,
+                    round_to_int(wave_x), round_to_int(y1),
+                    round_to_int(next_x), round_to_int(y2),
+                    squiggle_color);
+                wave_x = next_x;
+                wave_up = !wave_up;
+            }
+        }
+
+        // Render JetBrains-style Inline Error Lens (Inspection hint at end of line)
+        if (!line_diags.empty())
+        {
+            const auto* top_diag = &line_diags[0];
+            for (const auto& d : line_diags)
+            {
+                if (d.severity < top_diag->severity)
+                {
+                    top_diag = &d;
+                }
+            }
+
+            std::string badge_prefix = "   x  ";
+            std::string badge_fg = "#f75464";
+            const CGFloat lens_error_bg[4] = {48.0 / 255.0, 20.0 / 255.0, 24.0 / 255.0, 180.0 / 255.0};
+            const CGFloat lens_warn_bg[4] = {48.0 / 255.0, 38.0 / 255.0, 20.0 / 255.0, 180.0 / 255.0};
+            const CGFloat lens_info_bg[4] = {20.0 / 255.0, 36.0 / 255.0, 48.0 / 255.0, 180.0 / 255.0};
+            const CGFloat* badge_bg = lens_error_bg;
+
+            if (top_diag->severity == Language::Protocol::DiagnosticSeverity::Warning)
+            {
+                badge_prefix = "   !  ";
+                badge_fg = "#f0a732";
+                badge_bg = lens_warn_bg;
+            }
+            else if (top_diag->severity >= Language::Protocol::DiagnosticSeverity::Information)
+            {
+                badge_prefix = "   i  ";
+                badge_fg = "#56b6c2";
+                badge_bg = lens_info_bg;
+            }
+
+            std::string hint_text = badge_prefix + top_diag->message;
+            if (hint_text.size() > 90)
+            {
+                hint_text = hint_text.substr(0, 87) + "...";
+            }
+
+            const float hint_x = code_x + current_line_width + 20.0F * dpi;
+            const int hint_w = surface.m_ui_font->getTextWidth(hint_text);
+            const UI::Rect lens_rect{
+                hint_x - 6.0F * dpi,
+                center_y - line_height * 0.4F,
+                static_cast<float>(hint_w) + 12.0F * dpi,
+                line_height * 0.8F};
+
+            surface.fill_rounded_rectangle(context, lens_rect, badge_bg, 3.0F * dpi);
+            surface.draw_text(context, *surface.m_ui_font, hint_text,
+                hint_x, center_y, badge_fg, &lens_rect);
+        }
+
         // Caret
         if (m_focused && m_caret_blink.is_visible())
         {
@@ -1204,6 +1704,214 @@ void TextEditor::draw_document(
     if (document)
     {
         m_minimap.render(surface, context, layout, *document, first_line, visible_count);
+    }
+
+    // Render signature help overlay
+    std::lock_guard<std::mutex> lsp_lock(m_lsp_mutex);
+    if (m_signature_help.is_visible() && document != nullptr)
+    {
+        const auto& help = m_signature_help.get_help();
+        if (!help.signatures.empty())
+        {
+            const auto& sig = help.signatures[help.active_signature < help.signatures.size() ? help.active_signature : 0];
+            const std::string_view current_line = document->get_line(document->get_caret_line());
+            const std::string_view prefix = current_line.substr(0, std::min(document->get_caret_column(), current_line.size()));
+            const float caret_screen_x = code_x + static_cast<float>(surface.m_editor_font->getTextWidth(std::string{prefix}));
+            const float caret_line_top_y = layout.editor_bounds.y + static_cast<float>(physical_line_to_visual_row(m_folding, document->get_caret_line(), document->get_line_count()) - m_scrollbar.get_first_visible_line()) * (20.0F * dpi);
+
+            const int sig_w = surface.m_ui_font->getTextWidth(sig.label);
+            const float box_w = std::clamp(static_cast<float>(sig_w) + 24.0F * dpi, 200.0F * dpi, 500.0F * dpi);
+            const float box_h = 28.0F * dpi;
+            const float box_x = std::clamp(caret_screen_x, layout.editor_bounds.x + 8.0F, layout.editor_bounds.right() - box_w - 8.0F);
+            const float box_y = caret_line_top_y - box_h - 4.0F * dpi;
+
+            const UI::Rect box_rect{box_x, box_y, box_w, box_h};
+            const CGFloat sig_bg[4] = {28.0 / 255.0, 28.0 / 255.0, 32.0 / 255.0, 0.95};
+            const CGFloat sig_border[4] = {65.0 / 255.0, 65.0 / 255.0, 72.0 / 255.0, 1.0};
+            surface.fill_rounded_rectangle(context, box_rect, sig_bg, 4.0F * dpi);
+            surface.draw_rectangle(context, box_rect, sig_border);
+            surface.draw_text(context, *surface.m_ui_font, sig.label, box_x + 8.0F * dpi, box_y + box_h * 0.5F, surface.m_text.primary, &box_rect);
+        }
+    }
+
+    // Render completion popup overlay if active (VS Code Style)
+    if (m_completion_popup.is_visible() && m_completion_popup.get_item_count() > 0 && document != nullptr)
+    {
+        const std::string_view current_line = document->get_line(document->get_caret_line());
+        const std::string_view prefix = current_line.substr(0, std::min(document->get_caret_column(), current_line.size()));
+        const float caret_screen_x = code_x + static_cast<float>(surface.m_editor_font->getTextWidth(std::string{prefix}));
+        const float caret_line_y = layout.editor_bounds.y + static_cast<float>(physical_line_to_visual_row(m_folding, document->get_caret_line(), document->get_line_count()) - m_scrollbar.get_first_visible_line() + 1) * (20.0F * dpi);
+
+        const float item_h = 22.0F * dpi;
+        const std::size_t count = m_completion_popup.get_item_count();
+        const std::size_t scroll_offset = m_completion_popup.get_scroll_offset();
+        const std::size_t max_visible = m_completion_popup.get_max_visible_items();
+        const std::size_t visible_count = std::min<std::size_t>(count, max_visible);
+        const float popup_h = static_cast<float>(visible_count) * item_h + 4.0F * dpi;
+
+        // Calculate dynamic popup width
+        float max_label_w = 220.0F * dpi;
+        for (std::size_t i = 0; i < max_visible && (scroll_offset + i) < count; ++i)
+        {
+            if (const auto* it = m_completion_popup.get_item(scroll_offset + i))
+            {
+                const int w = surface.m_ui_font->getTextWidth(it->label);
+                max_label_w = std::max(max_label_w, static_cast<float>(w) + 64.0F * dpi);
+            }
+        }
+        const float popup_w = std::clamp(max_label_w, 220.0F * dpi, 380.0F * dpi);
+        const float popup_x = std::clamp(caret_screen_x, layout.editor_bounds.x + 10.0F, std::max(layout.editor_bounds.x + 10.0F, layout.editor_bounds.right() - (popup_w + 20.0F)));
+        const float popup_y = std::clamp(caret_line_y, layout.editor_bounds.y + 10.0F, std::max(layout.editor_bounds.y + 10.0F, layout.editor_bounds.bottom() - (popup_h + 20.0F)));
+
+        const UI::Rect actual_bounds{popup_x, popup_y, popup_w, popup_h};
+
+        const CGFloat popup_bg[4] = {24.0 / 255.0, 24.0 / 255.0, 28.0 / 255.0, 0.98};
+        const CGFloat popup_border[4] = {55.0 / 255.0, 55.0 / 255.0, 62.0 / 255.0, 1.0};
+        const CGFloat popup_sel_bg[4] = {0.0 / 255.0, 95.0 / 255.0, 184.0 / 255.0, 1.0};
+        const CGFloat popup_thumb_bg[4] = {90.0 / 255.0, 90.0 / 255.0, 96.0 / 255.0, 1.0};
+
+        surface.fill_rounded_rectangle(context, actual_bounds, popup_bg, 4.0F * dpi);
+        surface.draw_rectangle(context, actual_bounds, popup_border);
+
+        const std::size_t selected = m_completion_popup.get_selected_index();
+
+        for (std::size_t i = 0; i < max_visible && (scroll_offset + i) < count; ++i)
+        {
+            const std::size_t item_idx = scroll_offset + i;
+            const auto* item = m_completion_popup.get_item(item_idx);
+            if (item == nullptr) continue;
+
+            const float row_y = actual_bounds.y + 2.0F * dpi + static_cast<float>(i) * item_h;
+            const float item_w = actual_bounds.width - (count > max_visible ? 10.0F : 4.0F) * dpi;
+            const UI::Rect item_rect{actual_bounds.x + 2.0F * dpi, row_y, item_w, item_h};
+
+            if (item_idx == selected)
+            {
+                surface.fill_rounded_rectangle(context, item_rect, popup_sel_bg, 2.0F * dpi);
+            }
+
+            std::string kind_badge = " ";
+            std::string badge_color = surface.m_text.accent;
+            bool is_snippet = false;
+
+            switch (item->kind)
+            {
+            case Language::Protocol::CompletionItemKind::Snippet:
+                kind_badge = "[]";
+                badge_color = "#4fc1ff";
+                is_snippet = true;
+                break;
+            case Language::Protocol::CompletionItemKind::Keyword:
+                kind_badge = "{}";
+                badge_color = "#c586c0";
+                break;
+            case Language::Protocol::CompletionItemKind::Function:
+            case Language::Protocol::CompletionItemKind::Method:
+                kind_badge = "f";
+                badge_color = "#b180d7";
+                break;
+            case Language::Protocol::CompletionItemKind::Variable:
+            case Language::Protocol::CompletionItemKind::Field:
+                kind_badge = "v";
+                badge_color = "#9cdcfe";
+                break;
+            case Language::Protocol::CompletionItemKind::Property:
+                kind_badge = "p";
+                badge_color = "#4fc1ff";
+                break;
+            case Language::Protocol::CompletionItemKind::Class:
+            case Language::Protocol::CompletionItemKind::Struct:
+            case Language::Protocol::CompletionItemKind::Interface:
+                kind_badge = "c";
+                badge_color = "#4ec9b0";
+                break;
+            case Language::Protocol::CompletionItemKind::File:
+                kind_badge = "h";
+                badge_color = "#9cdcfe";
+                break;
+            case Language::Protocol::CompletionItemKind::Module:
+                kind_badge = "m";
+                badge_color = "#dcdcaa";
+                break;
+            default:
+                kind_badge = "abc";
+                badge_color = surface.m_text.muted;
+                break;
+            }
+
+            surface.draw_text(context, *surface.m_ui_font, kind_badge, item_rect.x + 6.0F * dpi, row_y + item_h * 0.5F, badge_color);
+
+            std::string label_color = surface.m_text.primary;
+            if (item_idx == selected)
+            {
+                label_color = "#ffffff";
+            }
+            else if (is_snippet)
+            {
+                label_color = "#4fc1ff";
+            }
+            surface.draw_text(context, *surface.m_ui_font, item->label, item_rect.x + 28.0F * dpi, row_y + item_h * 0.5F, label_color, &item_rect);
+
+            if (is_snippet)
+            {
+                surface.draw_text(context, *surface.m_ui_font, "<-", item_rect.right() - 18.0F * dpi, row_y + item_h * 0.5F, (item_idx == selected) ? "#ffffff" : surface.m_text.muted);
+            }
+            else if (!item->detail.empty())
+            {
+                const int detail_w = surface.m_ui_font->getTextWidth(item->detail);
+                const float detail_x = std::max(item_rect.x + 180.0F * dpi, item_rect.right() - static_cast<float>(detail_w) - 6.0F * dpi);
+                surface.draw_text(context, *surface.m_ui_font, item->detail, detail_x, row_y + item_h * 0.5F, surface.m_text.muted, &item_rect);
+            }
+        }
+
+        // Scrollbar thumb for popup
+        if (count > max_visible)
+        {
+            const float track_x = actual_bounds.right() - 4.0F * dpi;
+            const float track_y = actual_bounds.y + 2.0F * dpi;
+            const float track_h = static_cast<float>(visible_count) * item_h;
+            const float thumb_h = std::max(12.0F * dpi, track_h * (static_cast<float>(max_visible) / static_cast<float>(count)));
+            const float max_scroll = static_cast<float>(count - max_visible);
+            const float thumb_y = track_y + (static_cast<float>(scroll_offset) / max_scroll) * (track_h - thumb_h);
+
+            const UI::Rect thumb_rect{track_x, thumb_y, 3.0F * dpi, thumb_h};
+            surface.fill_rounded_rectangle(context, thumb_rect, popup_thumb_bg, 1.5F * dpi);
+        }
+
+        // Detail Flyout Card
+        const auto* selected_item = m_completion_popup.get_selected_item();
+        if (selected_item != nullptr && (!selected_item->detail.empty() || !selected_item->documentation.empty()))
+        {
+            const float detail_w = 320.0F * dpi;
+            float detail_x = actual_bounds.right() + 4.0F * dpi;
+            if (detail_x + detail_w > layout.editor_bounds.right() - 8.0F)
+            {
+                detail_x = actual_bounds.x - detail_w - 4.0F * dpi;
+                if (detail_x < layout.editor_bounds.x + 8.0F)
+                {
+                    detail_x = std::max(layout.editor_bounds.x + 8.0F, layout.editor_bounds.right() - detail_w - 8.0F);
+                }
+            }
+
+            const float detail_h = std::clamp(actual_bounds.height, 60.0F * dpi, 160.0F * dpi);
+            const UI::Rect detail_card{detail_x, actual_bounds.y, detail_w, detail_h};
+
+            surface.fill_rounded_rectangle(context, detail_card, popup_bg, 4.0F * dpi);
+            surface.draw_rectangle(context, detail_card, popup_border);
+
+            float cur_y = detail_card.y + 12.0F * dpi;
+            if (!selected_item->detail.empty())
+            {
+                surface.draw_text(context, *surface.m_ui_font, selected_item->detail, detail_card.x + 8.0F * dpi, cur_y, surface.m_text.accent, &detail_card);
+                cur_y += 18.0F * dpi;
+            }
+            if (!selected_item->documentation.empty())
+            {
+                std::string doc_preview = selected_item->documentation;
+                if (doc_preview.size() > 120) doc_preview = doc_preview.substr(0, 117) + "...";
+                surface.draw_text(context, *surface.m_small_font, doc_preview, detail_card.x + 8.0F * dpi, cur_y, surface.m_text.muted, &detail_card);
+            }
+        }
     }
 }
 

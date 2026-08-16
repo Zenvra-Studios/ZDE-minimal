@@ -16,6 +16,8 @@ namespace Zenvra::Application
 
 Application::Application(ApplicationSpecification specification)
     : m_specification(std::move(specification))
+    , m_build_service(std::make_shared<Services::Build::BuildService>())
+    , m_execution_service(std::make_shared<Services::Execution::ExecutionService>())
 {
 }
 
@@ -118,10 +120,13 @@ Platform::IPlatformWindow* Application::create_new_window(
 
     auto* win_ptr = platform_window.get();
 
+    auto view_model_holder = std::make_shared<ViewModels::StudioViewModel*>(nullptr);
+
     auto view_model = std::make_unique<ViewModels::StudioViewModel>(ViewModels::StudioActions{
         .request_close = [this, win_ptr] { close_window(win_ptr); },
         .show_about = [this, win_ptr] { show_about(win_ptr); },
         .request_open_project = [win_ptr] { return win_ptr->open_project_folder(); },
+        .request_close_project = [win_ptr] { return win_ptr->close_project(); },
         .request_new_window = [this] {
             static_cast<void>(create_new_window());
         },
@@ -145,7 +150,43 @@ Platform::IPlatformWindow* Application::create_new_window(
         },
         .request_close_window = [this, win_ptr] { close_window(win_ptr); },
         .request_toggle_terminal = [win_ptr] { win_ptr->toggle_terminal(); },
+        .request_toggle_fullscreen = [win_ptr] { win_ptr->toggle_fullscreen(); },
+        .request_toggle_shader = [win_ptr] { win_ptr->toggle_shader_sandbox(); },
+        .request_build = [this, view_model_holder] {
+            std::string preset = (*view_model_holder) ? std::string((*view_model_holder)->get_active_preset()) : "macos-debug";
+            std::string target = (*view_model_holder) ? std::string((*view_model_holder)->get_active_target()) : "ZDE";
+            Tools::Builder::CMakeBuildOptions opts{
+                .workspace_root = std::filesystem::current_path(),
+                .preset_name = preset,
+                .target_name = target
+            };
+            std::clog << "[ZDE Build] Executing CMake build for target '" << target << "' with preset '" << preset << "'...\n";
+            m_build_service->build_async(opts, [](std::string_view log) {
+                std::cout << log;
+            }, [](bool success) {
+                std::clog << "[ZDE Build] " << (success ? "SUCCESS: Target built successfully." : "FAILED: Build errors encountered.") << '\n';
+            });
+        },
+        .request_run = [this, view_model_holder] {
+            std::string target = (*view_model_holder) ? std::string((*view_model_holder)->get_active_target()) : "ZDE";
+            std::string exec_path = (target == "ZDEUnitTests") ? "bin/Debug/ZDEUnitTests" : "bin/Debug/ZDE.app/Contents/MacOS/ZDE";
+            Tools::Runner::ProcessExecutionOptions opts{
+                .executable_path = exec_path,
+                .working_directory = std::filesystem::current_path(),
+                .run_in_background = true
+            };
+            std::clog << "[ZDE Run] Launching executable '" << exec_path << "'...\n";
+            m_execution_service->run_target_async(opts);
+        },
+        .request_debug = [] {
+            std::clog << "[ZDE Debug] Debug session requested\n";
+        },
+        .request_stop = [this] {
+            m_execution_service->stop();
+        },
     });
+
+    *view_model_holder = view_model.get();
 
     if (!view_model->initialize())
     {

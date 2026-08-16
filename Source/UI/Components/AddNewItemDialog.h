@@ -119,6 +119,21 @@ private:
 
   std::string m_filename_input;
   std::size_t m_caret_position = 0;
+  std::optional<std::size_t> m_selection_anchor;
+  bool m_is_dragging_text = false;
+
+  [[nodiscard]] bool has_selection() const noexcept {
+    return m_selection_anchor.has_value() && *m_selection_anchor != m_caret_position;
+  }
+  [[nodiscard]] std::pair<std::size_t, std::size_t> get_selection_range() const noexcept;
+  void clear_selection() noexcept { m_selection_anchor.reset(); }
+  void select_all() noexcept;
+  void select_stem() noexcept;
+  void delete_selection();
+  [[nodiscard]] std::size_t get_char_index_from_x(float click_x, const LayoutResult &layout, float dpi_scale) const;
+  void copy_selection_to_clipboard() const;
+  void paste_from_clipboard();
+  void cut_selection_to_clipboard();
 
   // Hover & focus states
   bool m_close_hovered = false;

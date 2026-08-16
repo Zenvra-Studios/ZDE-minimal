@@ -42,6 +42,7 @@ public:
 
     [[nodiscard]] bool is_visible() const noexcept;
     void collapse_all() noexcept;
+    void clear_workspace() noexcept;
 
     void set_visible(bool visible) noexcept;
     [[nodiscard]] bool is_active(SidebarIcon icon) const noexcept;
@@ -63,6 +64,7 @@ public:
     [[nodiscard]] bool create_file(std::string_view relative_name, std::filesystem::path& out_path);
     [[nodiscard]] bool create_directory(std::string_view relative_name, std::filesystem::path& out_path);
     [[nodiscard]] bool rename_item(const std::filesystem::path& old_path, std::string_view new_name, std::filesystem::path& out_path);
+    [[nodiscard]] bool move_item(const std::filesystem::path& source_path, const std::filesystem::path& destination_directory, std::filesystem::path& out_path);
     [[nodiscard]] bool delete_item(const std::filesystem::path& target_path);
 
 private:

@@ -108,6 +108,42 @@ void TextDocumentModel::replace_contents(
     update_preferred_column();
 }
 
+void TextDocumentModel::reload_contents(
+    std::vector<std::string> lines,
+    std::string line_ending,
+    bool read_only)
+{
+    if (lines.empty())
+    {
+        lines.emplace_back();
+    }
+    m_lines = std::move(lines);
+    m_line_ending = std::move(line_ending);
+    m_read_only = read_only;
+    m_dirty = false;
+
+    if (m_caret_line >= m_lines.size())
+    {
+        m_caret_line = m_lines.size() - 1;
+    }
+    if (m_caret_column > m_lines[m_caret_line].size())
+    {
+        m_caret_column = m_lines[m_caret_line].size();
+    }
+
+    if (m_selection_anchor.line >= m_lines.size())
+    {
+        m_selection_anchor.line = m_lines.size() - 1;
+    }
+    if (m_selection_anchor.column > m_lines[m_selection_anchor.line].size())
+    {
+        m_selection_anchor.column = m_lines[m_selection_anchor.line].size();
+    }
+
+    m_secondary_cursors.clear();
+    update_preferred_column();
+}
+
 void TextDocumentModel::update_file_identity(
     std::string file_name,
     std::vector<BreadcrumbItem> breadcrumbs,

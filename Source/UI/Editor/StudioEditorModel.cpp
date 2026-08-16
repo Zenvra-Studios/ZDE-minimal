@@ -169,7 +169,8 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
     float client_width, float client_height, float content_top, float dpi_scale,
     bool terminal_visible, float terminal_height, bool terminal_maximized,
     bool tool_sidebar_visible, float tool_sidebar_width,
-    bool shader_panel_visible, float shader_panel_width) const noexcept {
+    bool shader_panel_visible, float shader_panel_width,
+    std::optional<float> custom_nav_width) const noexcept {
   const float safe_width = std::max(client_width, 0.0F);
   const float safe_height = std::max(client_height, 0.0F);
   const float safe_scale = std::max(dpi_scale, 0.5F);
@@ -236,8 +237,31 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
   const float integrated_tab_y = 0.0F;
   const float integrated_tab_height = effective_tab_height;
   
-  const float nav_width = (safe_top > 0.0F) ? StudioEditorMetrics::titlebar_navigation_width * safe_scale : 0.0F;
-  const float ctrl_width = (safe_top > 0.0F) ? StudioEditorMetrics::titlebar_window_controls_width * safe_scale : 0.0F;
+  const float nav_width = (safe_top > 0.0F)
+      ? (custom_nav_width.has_value()
+             ? std::max(0.0F, *custom_nav_width)
+             : StudioEditorMetrics::titlebar_navigation_width * safe_scale)
+      : 0.0F;
+
+  // Responsive right toolbar controls width calculation:
+  // On macOS: traffic lights are on the LEFT, so the right side only holds the action toolbar (~550px * scale) + padding.
+  // On Win32 / Linux: toolbar (~550px) + standard min/max/close window controls (~138px) = ~688px * scale.
+  const bool is_compact_window = safe_width < (960.0F * safe_scale);
+  const bool is_ultra_compact_window = safe_width < (760.0F * safe_scale);
+
+  // Exact right toolbar width + 20.0F safety gap before Debug dropdown
+  const float base_toolbar_width = is_ultra_compact_window
+      ? (420.0F * safe_scale)
+      : (is_compact_window ? (490.0F * safe_scale) : (576.0F * safe_scale));
+
+  const float platform_controls_width =
+#if defined(__APPLE__)
+      base_toolbar_width;
+#else
+      base_toolbar_width + (138.0F * safe_scale);
+#endif
+
+  const float ctrl_width = (safe_top > 0.0F) ? platform_controls_width : 0.0F;
   
   const float integrated_tab_x = std::min(nav_width, safe_width);
   const float integrated_tab_right = (safe_width > (integrated_tab_x + ctrl_width))
@@ -266,12 +290,23 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
   const UI::Rect editor_row_bounds = body.items[0];
   const UI::Rect terminal_bounds = body.items[1];
 
+  const float editor_header_height =
+      std::min(StudioEditorMetrics::editor_header_height * safe_scale, editor_row_bounds.height);
+  const std::array editor_vertical_items{
+      Utility::FlexItem::fixed(editor_header_height),
+      Utility::FlexItem::flexible(),
+  };
+  const Utility::FlexLayoutResult editor_vertical =
+      Utility::Column::calculate(editor_row_bounds, editor_vertical_items);
+  const UI::Rect editor_header_bounds = editor_vertical.items[0];
+  const UI::Rect editor_code_bounds = editor_vertical.items[1];
+
   const std::array editor_items{
       Utility::FlexItem::fixed(gutter_width),
       Utility::FlexItem::flexible(),
   };
   const Utility::FlexLayoutResult editor =
-      Utility::Row::calculate(editor_row_bounds, editor_items);
+      Utility::Row::calculate(editor_code_bounds, editor_items);
 
   const float terminal_header_height =
       std::min(28.0F * safe_scale, terminal_bounds.height);
@@ -298,6 +333,7 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
   result.tab_bar_bounds = tab_bounds;
   result.activity_bar_bounds = activity_bounds;
   result.tool_sidebar_bounds = sidebar_bounds;
+  result.editor_header_bounds = editor_header_bounds;
   result.gutter_bounds = editor.items[0];
   result.editor_bounds = editor.items[1];
   result.terminal_panel_bounds = terminal_bounds;
@@ -311,22 +347,25 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
   result.shader_splitter_bounds = shader_splitter_bounds;
   result.shader_panel_visible = shader_panel_visible;
 
-  const float minimap_width = std::min(
-      112.0F * safe_scale, std::max(result.editor_bounds.width * 0.17F, 0.0F));
+  const float scroll_top_y = result.editor_bounds.y;
+  const float scroll_total_h = result.editor_bounds.height;
+  const float minimap_width = (result.editor_bounds.width >= 120.0F * safe_scale)
+      ? (112.0F * safe_scale)
+      : 0.0F;
   result.minimap_bounds = {
       std::max(result.editor_bounds.right() - scrollbar_width - minimap_width,
                result.editor_bounds.x),
-      result.editor_bounds.y,
+      scroll_top_y,
       std::min(minimap_width,
                std::max(result.editor_bounds.width - scrollbar_width,
                         0.0F)),
-      result.editor_bounds.height,
+      scroll_total_h,
   };
   result.scrollbar_bounds = {
       std::max(result.editor_bounds.right() - scrollbar_width, result.editor_bounds.x),
-      result.editor_bounds.y,
+      scroll_top_y,
       std::min(scrollbar_width, result.editor_bounds.width),
-      result.editor_bounds.height,
+      scroll_total_h,
   };
 
   return result;

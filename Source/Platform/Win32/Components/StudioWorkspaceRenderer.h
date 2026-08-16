@@ -46,6 +46,7 @@ public:
     [[nodiscard]] bool initialize(UINT dpi);
     [[nodiscard]] bool open_file(const std::filesystem::path& path);
     [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root);
+    [[nodiscard]] bool close_project();
     [[nodiscard]] std::size_t open_dropped_paths(
         std::span<const std::filesystem::path> dropped_paths);
     [[nodiscard]] bool create_buffer();
@@ -172,6 +173,7 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_sidebar_resizing() const noexcept;
+    [[nodiscard]] bool is_sidebar_dragging_item() const noexcept;
     [[nodiscard]] bool is_shader_sandbox_point(
         float point_x,
         float point_y,
@@ -185,8 +187,17 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_shader_sandbox_resizing() const noexcept;
+    [[nodiscard]] bool is_editor_split_resize_handle(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_editor_split_resizing() const noexcept;
     [[nodiscard]] bool toggle_shader_sandbox() noexcept;
     [[nodiscard]] bool is_shader_sandbox_visible() const noexcept;
+    [[nodiscard]] bool toggle_terminal() noexcept;
+    [[nodiscard]] bool is_terminal_visible() const noexcept;
     [[nodiscard]] UI::Editor::StudioEditorLayoutResult calculate_layout(
         int client_width,
         int client_height,

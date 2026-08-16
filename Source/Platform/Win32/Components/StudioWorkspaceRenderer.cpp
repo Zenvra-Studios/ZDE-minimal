@@ -7,11 +7,15 @@
 #include "Utility/Fonts.h"
 #include <lunasvg.h>
 
+#include "Utility/MathUtil.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
-#include <cstring>
+#include <cwchar>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -23,7 +27,7 @@ namespace Zenvra::Platform::Win32::Components {
 
 namespace {
 
-int round_to_int(float value) { return static_cast<int>(std::lround(value)); }
+using Zenvra::Utility::round_to_int;
 
 COLORREF to_color_ref(const UI::Theme::Color &color) {
   return RGB(color.red, color.green, color.blue);
@@ -59,6 +63,15 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
   m_dpi_scale = static_cast<float>(m_dpi) / 96.0F;
 
   std::error_code path_error;
+  std::filesystem::path exe_dir;
+  std::array<wchar_t, 32768> executable_path{};
+  const DWORD length =
+      GetModuleFileNameW(nullptr, executable_path.data(),
+                         static_cast<DWORD>(executable_path.size()));
+  if (length > 0 && length < executable_path.size()) {
+    exe_dir = std::filesystem::path{executable_path.data()}.parent_path();
+  }
+
   const std::filesystem::path current_path =
       std::filesystem::current_path(path_error);
   std::optional<std::filesystem::path> project_root;
@@ -66,31 +79,61 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
     project_root =
         UI::Editor::EditorFileSystem::find_project_root(current_path);
   }
-  if (!project_root) {
-    std::array<wchar_t, 32768> executable_path{};
-    const DWORD length =
-        GetModuleFileNameW(nullptr, executable_path.data(),
-                           static_cast<DWORD>(executable_path.size()));
-    if (length > 0 && length < executable_path.size()) {
-      project_root = UI::Editor::EditorFileSystem::find_project_root(
-          std::filesystem::path{executable_path.data()});
-    }
-  }
-  if (project_root) {
-    m_icon_asset_root = *project_root / "Assets" / "icons";
+  if (!project_root && !exe_dir.empty()) {
+    project_root = UI::Editor::EditorFileSystem::find_project_root(exe_dir);
   }
 
-  // Load bundled fonts from Assets/fonts/. For each font, register the TTF
+  // 1. Resolve Icon Directory (prioritizes Resources/icons then Assets/icons)
+  const std::vector<std::filesystem::path> icon_candidates = {
+      exe_dir / "Resources" / "icons",
+      exe_dir / "Assets" / "icons",
+      exe_dir.parent_path() / "Resources" / "icons",
+      exe_dir.parent_path() / "Assets" / "icons",
+      project_root ? (*project_root / "Resources" / "icons") : std::filesystem::path{},
+      project_root ? (*project_root / "Assets" / "icons") : std::filesystem::path{},
+      current_path / "Resources" / "icons",
+      current_path / "Assets" / "icons",
+  };
+  for (const auto &candidate : icon_candidates) {
+    if (!candidate.empty() && std::filesystem::is_directory(candidate, path_error)) {
+      m_icon_asset_root = candidate;
+      break;
+    }
+  }
+
+  // 2. Resolve Fonts Directory (prioritizes Resources/fonts then Assets/fonts)
+  std::filesystem::path fonts_dir;
+  const std::vector<std::filesystem::path> font_candidates = {
+      exe_dir / "Resources" / "fonts",
+      exe_dir / "Assets" / "fonts",
+      exe_dir.parent_path() / "Resources" / "fonts",
+      exe_dir.parent_path() / "Assets" / "fonts",
+      project_root ? (*project_root / "Resources" / "fonts") : std::filesystem::path{},
+      project_root ? (*project_root / "Assets" / "fonts") : std::filesystem::path{},
+      current_path / "Resources" / "fonts",
+      current_path / "Assets" / "fonts",
+  };
+  for (const auto &candidate : font_candidates) {
+    if (!candidate.empty() && std::filesystem::is_directory(candidate, path_error)) {
+      fonts_dir = candidate;
+      break;
+    }
+  }
+
+  // Load bundled fonts from fonts_dir. For each font, register the TTF
   // file privately using AddFontResourceExA when found (and not a placeholder).
   // If not found or the file is invalid, fall back to the system default.
   bool hack_loaded = false;
   bool opensans_loaded = false;
-  if (project_root) {
-    const std::filesystem::path hack_ttf = *project_root / "Assets" / "fonts" /
-                                           "Hack" / "ttf" / "Hack-Regular.ttf";
-    const std::filesystem::path opensans_ttf = *project_root / "Assets" /
-                                               "fonts" / "OpenSans" /
-                                               "OpenSans-Regular.ttf";
+  if (!fonts_dir.empty()) {
+    const std::filesystem::path hack_ttf =
+        fonts_dir / "Hack" / "ttf" / "Hack-Regular.ttf";
+    const std::filesystem::path opensans_ttf =
+        fonts_dir / "OpenSans" / "OpenSans-Regular.ttf";
+    const std::filesystem::path jb_ttf =
+        fonts_dir / "JetBrainsMono" / "JetBrainsMonoNLNerdFont-Regular.ttf";
+    const std::filesystem::path jb_bold_ttf =
+        fonts_dir / "JetBrainsMono" / "JetBrainsMonoNLNerdFont-Bold.ttf";
     std::error_code size_error;
 
     // Hack – editor / minimap / terminal font
@@ -101,12 +144,6 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
     }
 
     // JetBrains Mono – specs / code / monospace font
-    const std::filesystem::path jb_ttf = *project_root / "Assets" / "fonts" /
-                                         "JetBrainsMono" /
-                                         "JetBrainsMonoNLNerdFont-Regular.ttf";
-    const std::filesystem::path jb_bold_ttf =
-        *project_root / "Assets" / "fonts" / "JetBrainsMono" /
-        "JetBrainsMonoNLNerdFont-Bold.ttf";
     if (std::filesystem::exists(jb_ttf, size_error) &&
         std::filesystem::file_size(jb_ttf, size_error) > 100) {
       AddFontResourceExA(jb_ttf.string().c_str(), FR_PRIVATE, nullptr);
@@ -186,6 +223,13 @@ bool StudioWorkspaceRenderer::set_workspace_root(
     return false;
   }
   m_terminal_panel.set_working_directory(root);
+  return true;
+}
+
+bool StudioWorkspaceRenderer::close_project() {
+  m_text_editor.close_all_files();
+  m_tool_sidebar.clear_workspace();
+  m_terminal_panel.set_working_directory({});
   return true;
 }
 
@@ -326,8 +370,13 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(HDC device_context,
                                                   float content_top) {
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
-  if (m_tool_sidebar.is_resizing()) {
-    return m_tool_sidebar.handle_pointer_drag(layout, point_x);
+  if (m_tool_sidebar.is_resizing() || m_tool_sidebar.is_dragging_item()) {
+    return m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y);
+  }
+  if (m_tool_sidebar.contains(layout, point_x, point_y)) {
+    if (m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y)) {
+      return true;
+    }
   }
   if (m_shader_sandbox_panel.is_resizing() ||
       m_shader_sandbox_panel.contains(layout, point_x, point_y)) {
@@ -488,10 +537,11 @@ bool StudioWorkspaceRenderer::is_editor_point(
     float content_top) const noexcept {
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
-  return (layout.gutter_bounds.contains(point_x, point_y) ||
+  return (layout.editor_header_bounds.contains(point_x, point_y) ||
+          layout.gutter_bounds.contains(point_x, point_y) ||
           layout.editor_bounds.contains(point_x, point_y)) &&
-         !layout.minimap_bounds.contains(point_x, point_y) &&
-         !layout.scrollbar_bounds.contains(point_x, point_y);
+         !m_text_editor.is_minimap_point(layout, point_x, point_y) &&
+         !m_text_editor.is_scrollbar_point(layout, point_x, point_y);
 }
 
 bool StudioWorkspaceRenderer::is_editor_interactive_point(
@@ -572,6 +622,10 @@ bool StudioWorkspaceRenderer::is_sidebar_resizing() const noexcept {
   return m_tool_sidebar.is_resizing();
 }
 
+bool StudioWorkspaceRenderer::is_sidebar_dragging_item() const noexcept {
+  return m_tool_sidebar.is_dragging_item();
+}
+
 bool StudioWorkspaceRenderer::is_shader_sandbox_point(
     float point_x, float point_y, int client_width, int client_height,
     float content_top) const noexcept {
@@ -591,6 +645,18 @@ bool StudioWorkspaceRenderer::is_shader_sandbox_resize_handle(
 
 bool StudioWorkspaceRenderer::is_shader_sandbox_resizing() const noexcept {
   return m_shader_sandbox_panel.is_resizing();
+}
+
+bool StudioWorkspaceRenderer::is_editor_split_resize_handle(
+    float point_x, float point_y, int client_width, int client_height,
+    float content_top) const noexcept {
+  const UI::Editor::StudioEditorLayoutResult layout =
+      calculate_layout(client_width, client_height, content_top);
+  return m_text_editor.is_split_resize_handle_point(layout, point_x, point_y);
+}
+
+bool StudioWorkspaceRenderer::is_editor_split_resizing() const noexcept {
+  return m_text_editor.is_split_resizing();
 }
 
 bool StudioWorkspaceRenderer::toggle_shader_sandbox() noexcept {
@@ -615,13 +681,22 @@ bool StudioWorkspaceRenderer::is_shader_sandbox_visible() const noexcept {
   return m_shader_sandbox_panel.is_visible();
 }
 
+bool StudioWorkspaceRenderer::toggle_terminal() noexcept {
+  return m_terminal_panel.toggle();
+}
+
+bool StudioWorkspaceRenderer::is_terminal_visible() const noexcept {
+  return m_terminal_panel.is_visible();
+}
+
 bool StudioWorkspaceRenderer::tick_animations() noexcept {
   const bool caret_changed = m_text_editor.tick_animations();
+  const bool sidebar_changed = m_tool_sidebar.tick_animations();
   const bool terminal_changed = m_terminal_panel.poll();
   const bool terminal_anim_changed = m_terminal_panel.tick_animations();
   const bool shader_changed = m_shader_sandbox_panel.tick_animations();
-  return caret_changed || terminal_changed || terminal_anim_changed ||
-         shader_changed;
+  return caret_changed || sidebar_changed || terminal_changed ||
+         terminal_anim_changed || shader_changed;
 }
 
 void StudioWorkspaceRenderer::shutdown() {
@@ -653,6 +728,8 @@ void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
                  m_palette.sidebar_background);
   fill_rectangle(device_context, layout.tool_sidebar_bounds,
                  m_palette.sidebar_background);
+  fill_rectangle(device_context, layout.editor_header_bounds,
+                 m_palette.editor_background);
   fill_rectangle(device_context, layout.gutter_bounds,
                  m_palette.editor_background);
   fill_rectangle(device_context, layout.editor_bounds,
@@ -725,13 +802,17 @@ void StudioWorkspaceRenderer::fill_rounded_rectangle(
     const uint32_t col_r = color.red;
     const uint32_t col_g = color.green;
     const uint32_t col_b = color.blue;
+    const uint32_t col_a = color.alpha;
     const int ri = static_cast<int>(r);
     const float w_minus_r = static_cast<float>(w) - r;
     const float h_minus_r = static_cast<float>(h) - r;
 
     std::memset(pixels, 0, static_cast<size_t>(w) * h * sizeof(uint32_t));
+    const uint32_t base_pr = (col_r * col_a) / 255;
+    const uint32_t base_pg = (col_g * col_a) / 255;
+    const uint32_t base_pb = (col_b * col_a) / 255;
     const uint32_t opaque_pixel =
-        (255u << 24) | (col_r << 16) | (col_g << 8) | col_b;
+        (col_a << 24) | (base_pr << 16) | (base_pg << 8) | base_pb;
 
     for (int y = 0; y < h; ++y) {
       const float cy = static_cast<float>(y) + 0.5f;
@@ -757,7 +838,7 @@ void StudioWorkspaceRenderer::fill_rounded_rectangle(
         float alpha_f = std::clamp(0.5f - (dist - r), 0.0f, 1.0f);
 
         if (alpha_f > 0.0f) {
-          uint32_t a = static_cast<uint32_t>(alpha_f * 255.0f);
+          uint32_t a = static_cast<uint32_t>(alpha_f * static_cast<float>(col_a));
           uint32_t pr = (col_r * a) / 255;
           uint32_t pg = (col_g * a) / 255;
           uint32_t pb = (col_b * a) / 255;
@@ -883,6 +964,7 @@ void StudioWorkspaceRenderer::draw_svg_icon(
     HDC device_context, std::string_view asset_name, int center_x, int center_y,
     int size, const UI::Theme::Color &color, const UI::Theme::Color &background,
     bool preserve_source_colors) const {
+  (void)background;
   if (device_context == nullptr || size <= 0 || asset_name.empty()) {
     return;
   }
@@ -890,15 +972,30 @@ void StudioWorkspaceRenderer::draw_svg_icon(
   std::error_code path_error;
   std::filesystem::path resolved_path{asset_name};
   if (resolved_path.is_relative() && !m_icon_asset_root.empty()) {
-    const std::filesystem::path themed_path = m_icon_asset_root / resolved_path;
-    if (std::filesystem::is_regular_file(themed_path, path_error)) {
-      resolved_path = themed_path;
+    std::string rel_str = resolved_path.string();
+    if (rel_str.starts_with("Assets/icons/") || rel_str.starts_with("Assets\\icons\\")) {
+      rel_str = rel_str.substr(13);
+    } else if (rel_str.starts_with("Resources/icons/") || rel_str.starts_with("Resources\\icons\\")) {
+      rel_str = rel_str.substr(16);
+    } else if (rel_str.starts_with("Assets/") || rel_str.starts_with("Assets\\")) {
+      rel_str = rel_str.substr(7);
+    } else if (rel_str.starts_with("Resources/") || rel_str.starts_with("Resources\\")) {
+      rel_str = rel_str.substr(10);
+    }
+
+    const std::filesystem::path direct_path = m_icon_asset_root / rel_str;
+    if (std::filesystem::is_regular_file(direct_path, path_error)) {
+      resolved_path = direct_path;
     } else {
-      // Keep compatibility with callers that pass Assets/icons/foo.svg.
-      const std::filesystem::path legacy_path =
-          m_icon_asset_root / resolved_path.filename();
-      if (std::filesystem::is_regular_file(legacy_path, path_error)) {
-        resolved_path = legacy_path;
+      const std::filesystem::path themed_path = m_icon_asset_root / resolved_path;
+      if (std::filesystem::is_regular_file(themed_path, path_error)) {
+        resolved_path = themed_path;
+      } else {
+        const std::filesystem::path legacy_path =
+            m_icon_asset_root / resolved_path.filename();
+        if (std::filesystem::is_regular_file(legacy_path, path_error)) {
+          resolved_path = legacy_path;
+        }
       }
     }
   }
@@ -911,8 +1008,7 @@ void StudioWorkspaceRenderer::draw_svg_icon(
 
   const std::string resolved_string = resolved_path.string();
   const std::string cache_key = resolved_string + "@" + std::to_string(size) +
-                                "#" + to_font_color(color) + "/" +
-                                to_font_color(background);
+                                "#" + to_font_color(color) + (preserve_source_colors ? "_p" : "");
   auto cached = m_svg_cache.find(cache_key);
   if (cached == m_svg_cache.end()) {
     auto document = lunasvg::Document::loadFromFile(resolved_string);
@@ -930,51 +1026,62 @@ void StudioWorkspaceRenderer::draw_svg_icon(
     const auto *source = reinterpret_cast<const std::uint32_t *>(bitmap.data());
     for (std::size_t index = 0; index < pixels.size(); ++index) {
       const std::uint32_t alpha = (source[index] >> 24U) & 0xFFU;
-      const std::uint32_t inverse_alpha = 255U - alpha;
+      if (alpha == 0) {
+        pixels[index] = 0;
+        continue;
+      }
       const std::uint32_t source_red = (source[index] >> 16U) & 0xFFU;
       const std::uint32_t source_green = (source[index] >> 8U) & 0xFFU;
       const std::uint32_t source_blue = source[index] & 0xFFU;
-      const std::uint32_t red =
-          preserve_source_colors
-              ? source_red + (static_cast<std::uint32_t>(background.red) *
-                              inverse_alpha) /
-                                 255U
-              : (static_cast<std::uint32_t>(color.red) * alpha +
-                 static_cast<std::uint32_t>(background.red) * inverse_alpha) /
-                    255U;
-      const std::uint32_t green =
-          preserve_source_colors
-              ? source_green + (static_cast<std::uint32_t>(background.green) *
-                                inverse_alpha) /
-                                   255U
-              : (static_cast<std::uint32_t>(color.green) * alpha +
-                 static_cast<std::uint32_t>(background.green) * inverse_alpha) /
-                    255U;
-      const std::uint32_t blue =
-          preserve_source_colors
-              ? source_blue + (static_cast<std::uint32_t>(background.blue) *
-                               inverse_alpha) /
-                                  255U
-              : (static_cast<std::uint32_t>(color.blue) * alpha +
-                 static_cast<std::uint32_t>(background.blue) * inverse_alpha) /
-                    255U;
-      pixels[index] = blue | (green << 8U) | (red << 16U);
+
+      const std::uint32_t red = preserve_source_colors
+          ? (source_red * alpha) / 255U
+          : (static_cast<std::uint32_t>(color.red) * alpha) / 255U;
+      const std::uint32_t green = preserve_source_colors
+          ? (source_green * alpha) / 255U
+          : (static_cast<std::uint32_t>(color.green) * alpha) / 255U;
+      const std::uint32_t blue = preserve_source_colors
+          ? (source_blue * alpha) / 255U
+          : (static_cast<std::uint32_t>(color.blue) * alpha) / 255U;
+
+      pixels[index] = (alpha << 24U) | (red << 16U) | (green << 8U) | blue;
     }
     cached = m_svg_cache.emplace(cache_key, std::move(pixels)).first;
+  }
+
+  HDC mem_dc = CreateCompatibleDC(device_context);
+  if (!mem_dc) {
+    return;
   }
 
   BITMAPINFO bitmap_info{};
   bitmap_info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
   bitmap_info.bmiHeader.biWidth = size;
-  bitmap_info.bmiHeader.biHeight = -size;
+  bitmap_info.bmiHeader.biHeight = -size; // top-down
   bitmap_info.bmiHeader.biPlanes = 1;
   bitmap_info.bmiHeader.biBitCount = 32;
   bitmap_info.bmiHeader.biCompression = BI_RGB;
-  const int half = size / 2;
-  SetDIBitsToDevice(device_context, center_x - half, center_y - half,
-                    static_cast<DWORD>(size), static_cast<DWORD>(size), 0, 0, 0,
-                    static_cast<UINT>(size), cached->second.data(),
-                    &bitmap_info, DIB_RGB_COLORS);
+
+  void *dib_bits = nullptr;
+  HBITMAP hbmp = CreateDIBSection(mem_dc, &bitmap_info, DIB_RGB_COLORS, &dib_bits, nullptr, 0);
+  if (hbmp && dib_bits) {
+    std::memcpy(dib_bits, cached->second.data(), static_cast<std::size_t>(size) * static_cast<std::size_t>(size) * sizeof(std::uint32_t));
+    HGDIOBJ old_bmp = SelectObject(mem_dc, hbmp);
+
+    BLENDFUNCTION blend{};
+    blend.BlendOp = AC_SRC_OVER;
+    blend.BlendFlags = 0;
+    blend.SourceConstantAlpha = 255;
+    blend.AlphaFormat = AC_SRC_ALPHA;
+
+    const int half = size / 2;
+    AlphaBlend(device_context, center_x - half, center_y - half, size, size,
+               mem_dc, 0, 0, size, size, blend);
+
+    SelectObject(mem_dc, old_bmp);
+    DeleteObject(hbmp);
+  }
+  DeleteDC(mem_dc);
 }
 
 void StudioWorkspaceRenderer::draw_png_icon(
@@ -1120,7 +1227,7 @@ void StudioWorkspaceRenderer::render_prompt_modal(HDC device_context,
   // 1. Subtle semi-transparent backdrop overlay (No solid pitch-black)
   BLENDFUNCTION blend{};
   blend.BlendOp = AC_SRC_OVER;
-  blend.SourceConstantAlpha = 70;
+  blend.SourceConstantAlpha = 40;
   blend.AlphaFormat = 0;
 
   HDC mem_dc = CreateCompatibleDC(device_context);
@@ -1137,9 +1244,34 @@ void StudioWorkspaceRenderer::render_prompt_modal(HDC device_context,
   DeleteObject(mem_bm);
   DeleteDC(mem_dc);
 
-  // 2. Dialog Container (VS Code sleek dark card)
+  // 2. Dialog Container (VS Code sleek dark card with elevation shadow)
   const UI::Theme::Color dialog_bg{30, 30, 34, 255};
   const UI::Theme::Color border_col{60, 64, 75, 255};
+
+  struct ShadowLayer {
+    float dx;
+    float dy;
+    float spread;
+    uint8_t alpha;
+  };
+  const ShadowLayer shadow_layers[] = {
+    {0.0F, 12.0F, 24.0F, 22},
+    {0.0F,  8.0F, 16.0F, 34},
+    {0.0F,  4.0F,  8.0F, 50},
+    {0.0F,  1.5F,  2.0F, 70},
+  };
+  for (const auto &layer : shadow_layers) {
+    const float spread = layer.spread * m_dpi_scale;
+    const UI::Rect layer_rect{
+        layout.base_layout.dialog_bounds.x - spread + layer.dx * m_dpi_scale,
+        layout.base_layout.dialog_bounds.y - spread + layer.dy * m_dpi_scale,
+        layout.base_layout.dialog_bounds.width + spread * 2.0F,
+        layout.base_layout.dialog_bounds.height + spread * 2.0F,
+    };
+    fill_rounded_rectangle(device_context, layer_rect,
+                           UI::Theme::Color{0, 0, 0, layer.alpha},
+                           static_cast<int>(6.0F * m_dpi_scale + spread));
+  }
 
   fill_rounded_rectangle(device_context, layout.base_layout.dialog_bounds,
                          dialog_bg, 6.0F * m_dpi_scale);
@@ -1163,11 +1295,13 @@ void StudioWorkspaceRenderer::render_prompt_modal(HDC device_context,
     fill_rounded_rectangle(device_context, layout.close_button_bounds, close_bg,
                            3.0F * m_dpi_scale);
   }
-  draw_text(
-      device_context, *m_ui_font, "x",
-      layout.close_button_bounds.x + layout.close_button_bounds.width * 0.3F,
-      layout.close_button_bounds.y + layout.close_button_bounds.height * 0.5F,
-      UI::Theme::Color{200, 200, 200, 255});
+  const int prompt_cx = round_to_int(layout.close_button_bounds.x + layout.close_button_bounds.width * 0.5F);
+  const int prompt_cy = round_to_int(layout.close_button_bounds.y + layout.close_button_bounds.height * 0.5F);
+  const int prompt_icon_sz = std::max(round_to_int(12.0F * m_dpi_scale), 10);
+  draw_svg_icon(
+      device_context, "diagnostic-error.svg", prompt_cx, prompt_cy, prompt_icon_sz,
+      m_prompt_modal.is_close_hovered() ? UI::Theme::Color{255, 255, 255, 255} : UI::Theme::Color{200, 200, 200, 255},
+      close_bg);
 
   // 5. Input field (if not ConfirmDelete)
   if (m_prompt_modal.get_mode() != UI::Components::PromptMode::ConfirmDelete) {

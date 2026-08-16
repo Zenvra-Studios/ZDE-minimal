@@ -60,6 +60,7 @@ inline constexpr std::string_view view_project_panel = "zde.view.projectPanel";
 inline constexpr std::string_view view_outline_panel = "zde.view.outlinePanel";
 inline constexpr std::string_view view_collab_panel = "zde.view.collabPanel";
 inline constexpr std::string_view view_terminal_panel = "zde.view.terminalPanel";
+inline constexpr std::string_view view_shader_panel = "zde.view.shaderPanel";
 inline constexpr std::string_view view_debugger_panel = "zde.view.debuggerPanel";
 inline constexpr std::string_view view_agent_panel = "zde.view.agentPanel";
 inline constexpr std::string_view view_git_panel = "zde.view.gitPanel";

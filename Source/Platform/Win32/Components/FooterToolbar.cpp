@@ -1,7 +1,7 @@
 #include "Platform/Win32/Components/FooterToolbar.h"
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
-
 #include "UI/Editor/FileIconModel.h"
+#include "Utility/MathUtil.h"
 
 #include <cmath>
 #include <string>
@@ -10,7 +10,7 @@ namespace Zenvra::Platform::Win32::Components {
 
 namespace {
 
-int round_to_int(float value) { return static_cast<int>(std::lround(value)); }
+using Zenvra::Utility::round_to_int;
 
 std::string breadcrumb_icon_svg(UI::Editor::BreadcrumbIconKind kind,
                                 const std::string &file_name) {

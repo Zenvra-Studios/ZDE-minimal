@@ -36,6 +36,8 @@ bool EditorSessionModel::open_file(const std::filesystem::path& path)
 
     EditorSessionDocument item;
     item.path = snapshot->absolute_path;
+    std::error_code ec;
+    item.last_write_time = std::filesystem::last_write_time(item.path, ec);
     item.text.replace_contents(
         snapshot->lines,
         snapshot->absolute_path.filename().string(),
@@ -45,6 +47,60 @@ bool EditorSessionModel::open_file(const std::filesystem::path& path)
     m_documents.push_back(std::move(item));
     m_active_index = m_documents.size() - 1;
     return true;
+}
+
+std::vector<std::size_t> EditorSessionModel::reload_externally_modified_files()
+{
+    std::vector<std::size_t> reloaded;
+    for (std::size_t i = 0; i < m_documents.size(); ++i)
+    {
+        auto& doc = m_documents[i];
+        if (doc.temporary)
+        {
+            continue;
+        }
+
+        std::error_code ec;
+        if (!std::filesystem::exists(doc.path, ec))
+        {
+            continue;
+        }
+
+        const auto current_time = std::filesystem::last_write_time(doc.path, ec);
+        if (ec)
+        {
+            continue;
+        }
+
+        if (doc.last_write_time == std::filesystem::file_time_type{})
+        {
+            doc.last_write_time = current_time;
+            continue;
+        }
+
+        if (current_time != doc.last_write_time)
+        {
+            doc.last_write_time = current_time;
+
+            if (!doc.text.is_dirty())
+            {
+                const std::optional<TextFileSnapshot> snapshot = m_crud.read(doc.path);
+                if (snapshot)
+                {
+                    doc.text.reload_contents(
+                        snapshot->lines,
+                        snapshot->line_ending,
+                        snapshot->read_only);
+                    doc.text.update_file_identity(
+                        snapshot->absolute_path.filename().string(),
+                        snapshot->breadcrumbs,
+                        snapshot->line_ending);
+                    reloaded.push_back(i);
+                }
+            }
+        }
+    }
+    return reloaded;
 }
 
 bool EditorSessionModel::create_buffer()
@@ -116,6 +172,14 @@ bool EditorSessionModel::close_file(std::size_t index)
     return true;
 }
 
+bool EditorSessionModel::close_all_files()
+{
+    m_documents.clear();
+    m_active_index.reset();
+    m_untitled_counter = 0;
+    return true;
+}
+
 bool EditorSessionModel::delete_active_file()
 {
     if (!m_active_index)
@@ -152,6 +216,8 @@ bool EditorSessionModel::rename_active_file(const std::filesystem::path& destina
         return false;
     }
     item.path = snapshot->absolute_path;
+    std::error_code ec;
+    item.last_write_time = std::filesystem::last_write_time(item.path, ec);
     item.text.replace_contents(
         snapshot->lines,
         snapshot->absolute_path.filename().string(),
@@ -279,6 +345,8 @@ bool EditorSessionModel::save_file(std::size_t index)
         return false;
     }
     item.text.mark_saved();
+    std::error_code ec;
+    item.last_write_time = std::filesystem::last_write_time(item.path, ec);
     return true;
 }
 

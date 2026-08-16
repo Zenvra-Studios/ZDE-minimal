@@ -27,6 +27,12 @@ add_library(ZDEUI
     Editor/StudioEditorModel.cpp
     Editor/TextDocumentModel.cpp
     Theme/StudioTheme.cpp
+    Toolbar/ToolbarLayout.cpp
+    Toolbar/StudioMainToolbar.cpp
+    Toolbar/Widgets/RunConfigurationWidget.cpp
+    Toolbar/Widgets/ActionButtonGroup.cpp
+    Toolbar/Widgets/ProjectBranchWidget.cpp
+    Toolbar/Widgets/QuickSearchWidget.cpp
 )
 add_library(Zenvra::UI ALIAS ZDEUI)
 

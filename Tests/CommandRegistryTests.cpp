@@ -132,6 +132,7 @@ void test_studio_view_model_routes_actions()
         .request_close = [&close_requested] { close_requested = true; },
         .show_about = [&about_requested] { about_requested = true; },
         .request_open_project = {},
+        .request_close_project = {},
         .request_new_window = {},
         .request_open_folder = {},
         .request_open_recent = {},
@@ -324,6 +325,12 @@ void test_studio_editor_layout_and_tokenization()
             scaled.status_bar_bounds.height == 48.0F &&
             scaled.editor_bounds.x == 728.0F,
         "the shared editor layout must scale all platform-independent design metrics with DPI");
+
+    const StudioEditorLayoutResult fullscreen_layout = layout_engine.calculate(
+        860.0F, 640.0F, 35.0F, 1.0F, false, 218.0F, false, false, 260.0F, false, 380.0F, 0.0F);
+    expect(fullscreen_layout.tab_bar_bounds.x == 0.0F &&
+            fullscreen_layout.tab_bar_bounds.width == 860.0F - 664.0F,
+        "fullscreen buffer bar must align to the far left x=0 edge and expand available width");
 
     ActivityPanelModel activity_panel;
     const std::optional<std::filesystem::path> activity_project_root =

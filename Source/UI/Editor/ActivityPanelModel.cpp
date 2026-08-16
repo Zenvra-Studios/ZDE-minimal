@@ -117,8 +117,24 @@ bool ActivityPanelModel::refresh()
     {
         return false;
     }
+    const auto previous = m_project_items;
     rebuild_tree();
-    return true;
+    if (previous.size() != m_project_items.size())
+    {
+        return true;
+    }
+    for (std::size_t i = 0; i < previous.size(); ++i)
+    {
+        if (previous[i].path != m_project_items[i].path ||
+            previous[i].label != m_project_items[i].label ||
+            previous[i].depth != m_project_items[i].depth ||
+            previous[i].directory != m_project_items[i].directory ||
+            previous[i].expanded != m_project_items[i].expanded)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 void ActivityPanelModel::collapse_all() noexcept
@@ -195,6 +211,15 @@ void ActivityPanelModel::set_scroll_offset(std::size_t offset) noexcept
 }
 
 bool ActivityPanelModel::is_visible() const noexcept { return m_visible; }
+
+void ActivityPanelModel::clear_workspace() noexcept
+{
+    m_workspace_root.clear();
+    m_project_items.clear();
+    m_expanded_paths.clear();
+    m_selected_path.reset();
+    m_scroll_offset = 0;
+}
 
 void ActivityPanelModel::set_visible(bool visible) noexcept
 {
@@ -543,6 +568,68 @@ bool ActivityPanelModel::rename_item(const std::filesystem::path& old_path, std:
             const std::string suffix = exp.string().substr(old_path.string().length());
             exp = std::filesystem::path(new_path.string() + suffix);
         }
+    }
+
+    rebuild_tree();
+    return true;
+}
+
+bool ActivityPanelModel::move_item(const std::filesystem::path& source_path, const std::filesystem::path& destination_directory, std::filesystem::path& out_path)
+{
+    if (source_path.empty() || destination_directory.empty() || source_path == m_workspace_root)
+    {
+        return false;
+    }
+
+    std::error_code ec;
+    if (!std::filesystem::is_directory(destination_directory, ec))
+    {
+        return false;
+    }
+
+    // Do not allow moving a directory into itself or its own subdirectories
+    if (destination_directory.string().starts_with(source_path.string()))
+    {
+        return false;
+    }
+
+    const std::filesystem::path new_path = (destination_directory / source_path.filename()).lexically_normal();
+    if (source_path == new_path)
+    {
+        out_path = new_path;
+        return true;
+    }
+
+    std::filesystem::rename(source_path, new_path, ec);
+    if (ec)
+    {
+        return false;
+    }
+
+    out_path = new_path;
+    if (m_selected_path && *m_selected_path == source_path)
+    {
+        m_selected_path = new_path;
+    }
+
+    // Update expanded paths if it was a directory
+    for (auto& exp : m_expanded_paths)
+    {
+        if (exp == source_path)
+        {
+            exp = new_path;
+        }
+        else if (exp.string().starts_with(source_path.string()))
+        {
+            const std::string suffix = exp.string().substr(source_path.string().length());
+            exp = std::filesystem::path(new_path.string() + suffix);
+        }
+    }
+
+    // Ensure destination directory is expanded
+    if (std::find(m_expanded_paths.begin(), m_expanded_paths.end(), destination_directory) == m_expanded_paths.end())
+    {
+        m_expanded_paths.push_back(destination_directory);
     }
 
     rebuild_tree();

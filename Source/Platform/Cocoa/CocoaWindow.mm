@@ -1,5 +1,6 @@
 #import <Cocoa/Cocoa.h>
 
+#include "Language/LanguageServerManager.h"
 #include "Platform/Cocoa/CocoaWindow.h"
 
 #include "Platform/Cocoa/Runtime/CocoaContext.h"
@@ -15,9 +16,11 @@
 @interface ZenvraWindowDelegate : NSObject <NSWindowDelegate>
 {
     std::function<void()> _onResize;
+    std::function<void(bool)> _onFullscreenChange;
 }
 @property(assign) bool* should_close_pointer;
 - (void)setOnResize:(std::function<void()>)callback;
+- (void)setOnFullscreenChange:(std::function<void(bool)>)callback;
 @end
 
 @implementation ZenvraWindowDelegate
@@ -36,12 +39,53 @@
     _onResize = std::move(callback);
 }
 
+- (void)setOnFullscreenChange:(std::function<void(bool)>)callback
+{
+    _onFullscreenChange = std::move(callback);
+}
+
 - (void)windowDidResize:(NSNotification *)notification
 {
     (void)notification;
     if (_onResize)
     {
         _onResize();
+    }
+}
+
+- (void)windowWillEnterFullScreen:(NSNotification *)notification
+{
+    (void)notification;
+    if (_onFullscreenChange)
+    {
+        _onFullscreenChange(true);
+    }
+}
+
+- (void)windowDidEnterFullScreen:(NSNotification *)notification
+{
+    (void)notification;
+    if (_onFullscreenChange)
+    {
+        _onFullscreenChange(true);
+    }
+}
+
+- (void)windowWillExitFullScreen:(NSNotification *)notification
+{
+    (void)notification;
+    if (_onFullscreenChange)
+    {
+        _onFullscreenChange(false);
+    }
+}
+
+- (void)windowDidExitFullScreen:(NSNotification *)notification
+{
+    (void)notification;
+    if (_onFullscreenChange)
+    {
+        _onFullscreenChange(false);
     }
 }
 @end
@@ -60,20 +104,39 @@ CocoaWindow::CocoaWindow(const WindowSpecification& specification)
 
 CocoaWindow::~CocoaWindow()
 {
+    Language::LanguageServerManager::instance().set_diagnostics_callback(nullptr);
+    Runtime::CocoaMenuBridge::set_command_callback(nullptr);
+    Runtime::CocoaMenuBridge::set_command_state_query_callback(nullptr);
+
     if (m_content_view != nullptr)
     {
-        ZenvraContentView* view = (__bridge_transfer ZenvraContentView*)m_content_view;
-        view = nil;
-    }
-    if (m_window_handle != nullptr)
-    {
-        NSWindow* window = (__bridge_transfer NSWindow*)m_window_handle;
-        [window close];
+        ZenvraContentView* view = (__bridge ZenvraContentView*)m_content_view;
+        [view setRenderer:nullptr];
+        [view setCommandInvokedCallback:nullptr];
+        [view setCommandCallback:nullptr];
+        m_content_view = nullptr;
     }
     if (m_delegate != nullptr)
     {
-        ZenvraWindowDelegate* delegate = (__bridge_transfer ZenvraWindowDelegate*)m_delegate;
-        delegate = nil;
+        ZenvraWindowDelegate* delegate = (__bridge ZenvraWindowDelegate*)m_delegate;
+        delegate.should_close_pointer = nullptr;
+        [delegate setOnResize:nullptr];
+        [delegate setOnFullscreenChange:nullptr];
+    }
+    if (m_window_handle != nullptr)
+    {
+        NSWindow* window = (__bridge NSWindow*)m_window_handle;
+        [window setDelegate:nil];
+        [window setContentView:nil];
+        [window close];
+        [window release];
+        m_window_handle = nullptr;
+    }
+    if (m_delegate != nullptr)
+    {
+        ZenvraWindowDelegate* delegate = (__bridge ZenvraWindowDelegate*)m_delegate;
+        [delegate release];
+        m_delegate = nullptr;
     }
 }
 
@@ -112,6 +175,7 @@ bool CocoaWindow::initialize()
                                                        defer:NO];
     NSString* title = [NSString stringWithUTF8String:m_specification.title.c_str()];
     [window setTitle:title];
+    [window setBackgroundColor:[NSColor colorWithSRGBRed:30.0/255.0 green:31.0/255.0 blue:34.0/255.0 alpha:1.0]];
     [window center];
 
     if (m_custom_chrome_enabled)
@@ -126,6 +190,10 @@ bool CocoaWindow::initialize()
     ZenvraWindowDelegate* delegate = [[ZenvraWindowDelegate alloc] init];
     delegate.should_close_pointer = &m_should_close;
     [delegate setOnResize:[this]() {
+        refresh_chrome_layout();
+    }];
+    [delegate setOnFullscreenChange:[this](bool fs) {
+        m_renderer.set_fullscreen(fs);
         refresh_chrome_layout();
     }];
     [window setDelegate:delegate];
@@ -156,6 +224,16 @@ bool CocoaWindow::initialize()
         return false;
     }
 
+    Language::LanguageServerManager::instance().set_diagnostics_callback(
+        [this](const std::string& uri, const std::vector<Language::Protocol::Diagnostic>& diags) {
+            m_renderer.get_text_editor().on_diagnostics_updated(uri, diags);
+            if (m_content_view != nullptr)
+            {
+                ZenvraContentView* view = (__bridge ZenvraContentView*)m_content_view;
+                [view setNeedsDisplay:YES];
+            }
+        });
+
     set_custom_chrome_enabled(m_specification.custom_chrome_enabled);
     return true;
 }
@@ -180,6 +258,16 @@ void CocoaWindow::poll_events()
         }
         [NSApp updateWindows];
 
+        if (m_window_handle != nullptr)
+        {
+            NSWindow* window = (__bridge NSWindow*)m_window_handle;
+            const bool is_fs = ([window styleMask] & NSWindowStyleMaskFullScreen) != 0;
+            if (m_renderer.is_fullscreen() != is_fs)
+            {
+                m_renderer.set_fullscreen(is_fs);
+            }
+        }
+
         // Poll terminal sessions, editor carets and other animations; redraw
         // when anything changed (mirrors Win32Window.cpp:344).
         if (m_renderer.tick_animations() && m_content_view != nullptr)
@@ -193,6 +281,16 @@ void CocoaWindow::poll_events()
 void CocoaWindow::toggle_terminal()
 {
     if (m_renderer.toggle_terminal() && m_content_view != nullptr)
+    {
+        ZenvraContentView* view = (__bridge ZenvraContentView*)m_content_view;
+        [view updateLayout:m_chrome_layout];
+        [view setNeedsDisplay:YES];
+    }
+}
+
+void CocoaWindow::toggle_shader_sandbox()
+{
+    if (m_renderer.toggle_shader_sandbox() && m_content_view != nullptr)
     {
         ZenvraContentView* view = (__bridge ZenvraContentView*)m_content_view;
         [view updateLayout:m_chrome_layout];
@@ -225,6 +323,7 @@ bool CocoaWindow::open_project_folder()
         return true;
     }
     const std::filesystem::path root = [[url path] UTF8String];
+    Language::LanguageServerManager::instance().set_workspace_root(root);
     if (m_renderer.set_workspace_root(root))
     {
         if (m_content_view != nullptr)
@@ -266,6 +365,20 @@ void CocoaWindow::restore()
 void CocoaWindow::request_close()
 {
     [(__bridge NSWindow*)m_window_handle performClose:nil];
+}
+
+void CocoaWindow::toggle_fullscreen()
+{
+    if (m_window_handle == nullptr) return;
+    NSWindow* window = (__bridge NSWindow*)m_window_handle;
+    [window toggleFullScreen:nil];
+}
+
+bool CocoaWindow::is_fullscreen() const
+{
+    if (m_window_handle == nullptr) return false;
+    NSWindow* window = (__bridge NSWindow*)m_window_handle;
+    return ([window styleMask] & NSWindowStyleMaskFullScreen) != 0;
 }
 
 bool CocoaWindow::is_maximized() const
@@ -325,6 +438,9 @@ void CocoaWindow::refresh_chrome_layout()
     }
     
     NSWindow* window = (__bridge NSWindow*)m_window_handle;
+    const bool is_fs = ([window styleMask] & NSWindowStyleMaskFullScreen) != 0;
+    m_renderer.set_fullscreen(is_fs);
+
     NSRect content_rect = [window contentRectForFrameRect:[window frame]];
     float client_width = static_cast<float>(content_rect.size.width);
     float dpi_scale = static_cast<float>([window backingScaleFactor]);
@@ -338,13 +454,15 @@ void CocoaWindow::refresh_chrome_layout()
         options.titlebar_height = 36.0F; // Taller custom strip; traffic lights are re-centered below
         options.force_all_menus = true; // Keep every menu inline; never show a hamburger icon on macOS
         options.show_menu_labels = false; // The native macOS menu bar owns the menus; no labels in the titlebar
-        center_traffic_lights(window, options.titlebar_height * dpi_scale);
+        if (!is_fs) {
+            center_traffic_lights(window, options.titlebar_height * dpi_scale);
+        }
 
         NSButton* zoom_btn = [window standardWindowButton:NSWindowZoomButton];
-        if (zoom_btn) {
+        if (zoom_btn && !is_fs) {
             options.left_padding = static_cast<float>(NSMaxX([zoom_btn frame]) + 16.0) * dpi_scale;
         } else {
-            options.left_padding = 72.0F * dpi_scale;
+            options.left_padding = is_fs ? 0.0F : 72.0F * dpi_scale;
         }
     }
     m_chrome_layout = m_chrome_layout_engine.calculate(client_width, dpi_scale, options);
@@ -370,7 +488,7 @@ void CocoaWindow::center_traffic_lights(void* window_handle, CGFloat strip_heigh
         NSWindowZoomButton,
     };
     
-    CGFloat base_x = 15.0F; // -1px from the previous offset to match VS Code's traffic light position
+    CGFloat base_x = 12.5F; // Shifted slightly to the left to match VS Code's traffic light position
     for (NSWindowButton button_type : buttons)
     {
         NSButton* button = [window standardWindowButton:button_type];

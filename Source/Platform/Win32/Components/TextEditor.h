@@ -19,6 +19,7 @@
 #include <windows.h>
 
 #include <array>
+#include <chrono>
 #include <filesystem>
 #include <mutex>
 #include <optional>
@@ -37,6 +38,7 @@ class TextEditor
 public:
     [[nodiscard]] bool open_file(const std::filesystem::path& path);
     [[nodiscard]] bool close_file(const std::filesystem::path& path);
+    [[nodiscard]] bool close_all_files();
     [[nodiscard]] std::size_t open_dropped_paths(
         std::span<const std::filesystem::path> dropped_paths);
     [[nodiscard]] bool create_buffer();
@@ -89,11 +91,29 @@ public:
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y) const noexcept;
+    [[nodiscard]] bool is_split_resize_handle_point(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) const noexcept;
+    [[nodiscard]] bool is_split_resizing() const noexcept { return m_is_resizing_split; }
+    [[nodiscard]] bool is_split_active() const noexcept { return m_is_split && m_split_document_index.has_value(); }
     [[nodiscard]] bool is_fold_margin_point(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y) const noexcept;
+    enum class SplitPaneFocus
+    {
+        Left,
+        Right
+    };
+
+    [[nodiscard]] UI::Editor::TextDocumentModel* get_focused_document() noexcept;
+    [[nodiscard]] const UI::Editor::TextDocumentModel* get_focused_document() const noexcept;
+    [[nodiscard]] SplitPaneFocus get_focused_pane() const noexcept { return m_focused_pane; }
+    void set_focused_pane(SplitPaneFocus pane) noexcept { m_focused_pane = pane; }
+
     [[nodiscard]] bool tick_animations() noexcept;
+    [[nodiscard]] bool check_external_file_changes();
     [[nodiscard]] const UI::Editor::TextDocumentModel* get_document() const noexcept;
 
     void set_window_handle(HWND hwnd) noexcept { m_window_handle = hwnd; }
@@ -109,10 +129,63 @@ private:
     HWND m_window_handle = nullptr;
     static constexpr std::size_t max_visible_tabs = 128;
 
+    struct TabActionMenuItem {
+        std::string label;
+        std::string shortcut;
+        bool is_separator = false;
+        bool is_checked = false;
+        bool has_checkbox = false;
+    };
+
+    struct TabActionPopupMenu {
+        bool visible = false;
+        UI::Rect bounds{};
+        std::vector<TabActionMenuItem> items;
+        std::vector<UI::Rect> item_bounds;
+        std::optional<std::size_t> hovered_index;
+    };
+
+    enum class SplitDropZone {
+        None,
+        Left,
+        Right,
+        Top,
+        Bottom,
+        Center
+    };
+
+    struct HoveredDiagnosticInfo {
+        Language::Protocol::Diagnostic diagnostic;
+        std::string line_text;
+        std::string symbol_name;
+        float anchor_x = 0.0F;
+        float anchor_y = 0.0F;
+    };
+
     void draw_tab_strip(
         const StudioWorkspaceRenderer& surface,
         HDC device_context,
         const UI::Editor::StudioEditorLayoutResult& layout) const;
+    void draw_editor_header(
+        const StudioWorkspaceRenderer& surface,
+        HDC device_context,
+        const UI::Editor::StudioEditorLayoutResult& layout) const;
+    void draw_tab_action_menu(
+        const StudioWorkspaceRenderer& surface,
+        HDC device_context,
+        const UI::Editor::StudioEditorLayoutResult& layout) const;
+    void draw_split_drop_overlay(
+        const StudioWorkspaceRenderer& surface,
+        HDC device_context,
+        const UI::Editor::StudioEditorLayoutResult& layout) const;
+    void draw_diagnostic_hover_overlay(
+        const StudioWorkspaceRenderer& surface,
+        HDC device_context,
+        const UI::Editor::StudioEditorLayoutResult& layout) const;
+    void show_tab_action_menu(
+        const UI::Editor::StudioEditorLayoutResult& layout);
+    void close_all_documents();
+    void close_saved_documents();
     void draw_document(
         const StudioWorkspaceRenderer& surface,
         HDC device_context,
@@ -142,6 +215,24 @@ private:
     mutable std::size_t m_tab_count = 0;
     std::optional<std::size_t> m_hovered_tab_index;
     std::optional<std::size_t> m_hovered_tab_close_index;
+    mutable std::array<UI::Rect, 4> m_tab_action_bounds{};
+    mutable std::optional<std::size_t> m_hovered_tab_action;
+    mutable TabActionPopupMenu m_tab_action_menu;
+    bool m_preview_editors_enabled = true;
+    mutable SplitDropZone m_active_drop_zone = SplitDropZone::None;
+    mutable float m_drag_cursor_x = 0.0F;
+    mutable float m_drag_cursor_y = 0.0F;
+    bool m_is_split = false;
+    std::optional<std::size_t> m_split_document_index;
+    SplitPaneFocus m_focused_pane = SplitPaneFocus::Left;
+    mutable EditorMinimap m_split_minimap;
+    mutable EditorScrollbar m_split_scrollbar;
+    mutable UI::Components::EditorFoldingModel m_split_folding;
+    float m_split_ratio = 0.5F;
+    bool m_is_resizing_split = false;
+    mutable bool m_hovered_split_resize = false;
+    mutable UI::Rect m_split_close_btn_bounds{};
+    mutable bool m_hovered_split_close = false;
     mutable std::optional<std::size_t> m_hovered_fold_line;
     bool m_hovered_tab_scrollbar = false;
     bool m_dragging_tab_scrollbar = false;
@@ -152,14 +243,17 @@ private:
     float m_text_scroll_offset = 0.0F;
     mutable float m_max_text_scroll = 0.0F;
     mutable UI::Editor::SelectionAnimationModel m_selection_animation;
+    mutable UI::Editor::SelectionAnimationModel m_split_selection_animation;
     mutable UI::Editor::BraceAnimationModel m_brace_animation;
     mutable UI::Components::Button m_empty_state_open_btn;
     mutable UI::Components::Button m_empty_state_clone_btn;
     mutable UI::Editor::TextPosition m_last_brace_caret;
     mutable UI::Components::CompletionPopup m_completion_popup;
     mutable UI::Components::HoverTooltip m_hover_tooltip;
+    mutable std::optional<HoveredDiagnosticInfo> m_hovered_diagnostic;
     mutable UI::Components::SignatureHelpWidget m_signature_help;
     mutable std::mutex m_lsp_mutex;
+    mutable std::chrono::steady_clock::time_point m_last_file_check_time{};
 };
 
 } // namespace Zenvra::Platform::Win32::Components

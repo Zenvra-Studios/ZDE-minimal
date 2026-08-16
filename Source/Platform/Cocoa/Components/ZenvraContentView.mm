@@ -258,6 +258,23 @@ using namespace Zenvra::Platform::Cocoa::Components;
                         enabled = state.enabled;
                         checked = state.checked;
                     }
+                    if (_renderer) {
+                        const auto& cfg = _renderer->get_run_config_state();
+                        if (item_model.command_id == Zenvra::Commands::CommandIds::build_debug) {
+                            checked = (cfg.active_mode == Zenvra::UI::Toolbar::BuildConfigurationMode::Debug);
+                        } else if (item_model.command_id == Zenvra::Commands::CommandIds::build_release) {
+                            checked = (cfg.active_mode == Zenvra::UI::Toolbar::BuildConfigurationMode::Release);
+                        } else if (item_model.command_id == Zenvra::Commands::CommandIds::platform_arm64 ||
+                                   item_model.command_id == Zenvra::Commands::CommandIds::platform_apple_arm) {
+                            checked = (cfg.active_architecture == Zenvra::UI::Toolbar::TargetArchitecture::Arm64);
+                        } else if (item_model.command_id == Zenvra::Commands::CommandIds::platform_x64) {
+                            checked = (cfg.active_architecture == Zenvra::UI::Toolbar::TargetArchitecture::X86_64);
+                        } else if (item_model.command_id == Zenvra::Commands::CommandIds::run_zde) {
+                            checked = (cfg.active_target_name == "ZDE");
+                        } else if (item_model.command_id == Zenvra::Commands::CommandIds::run_tests) {
+                            checked = (cfg.active_target_name == "ZDEUnitTests" || cfg.active_target_name == "Tests");
+                        }
+                    }
                 }
                 [item setEnabled:enabled ? YES : NO];
                 [item setState:checked ? NSControlStateValueOn : NSControlStateValueOff];
@@ -300,9 +317,27 @@ using namespace Zenvra::Platform::Cocoa::Components;
 - (void)toolbarMenuItemClicked:(NSMenuItem*)sender {
     NSString* command_id = sender.representedObject;
     if (command_id && [command_id length] > 0) {
-        if (_command_invoked_callback) {
-            _command_invoked_callback([command_id UTF8String]);
+        std::string cmd = [command_id UTF8String];
+        if (_renderer) {
+            if (cmd == Zenvra::Commands::CommandIds::build_debug) {
+                _renderer->set_active_mode(Zenvra::UI::Toolbar::BuildConfigurationMode::Debug);
+            } else if (cmd == Zenvra::Commands::CommandIds::build_release) {
+                _renderer->set_active_mode(Zenvra::UI::Toolbar::BuildConfigurationMode::Release);
+            } else if (cmd == Zenvra::Commands::CommandIds::platform_arm64 ||
+                       cmd == Zenvra::Commands::CommandIds::platform_apple_arm) {
+                _renderer->set_active_architecture(Zenvra::UI::Toolbar::TargetArchitecture::Arm64);
+            } else if (cmd == Zenvra::Commands::CommandIds::platform_x64) {
+                _renderer->set_active_architecture(Zenvra::UI::Toolbar::TargetArchitecture::X86_64);
+            } else if (cmd == Zenvra::Commands::CommandIds::run_zde) {
+                _renderer->set_active_target("ZDE");
+            } else if (cmd == Zenvra::Commands::CommandIds::run_tests) {
+                _renderer->set_active_target("ZDEUnitTests");
+            }
         }
+        if (_command_invoked_callback) {
+            _command_invoked_callback(cmd);
+        }
+        [self setNeedsDisplay:YES];
     }
 }
 
@@ -370,6 +405,8 @@ using namespace Zenvra::Platform::Cocoa::Components;
     std::string command;
     bool extend = ([event modifierFlags] & NSEventModifierFlagShift) != 0;
     
+    [[self window] makeFirstResponder:self];
+    
     _is_drag_active = _renderer->handle_workspace_pointer_press(
         px, py, cw, ch, _chrome_layout.titlebar_bounds.bottom(),
         extend, [event clickCount], [event timestamp], command);
@@ -380,8 +417,9 @@ using namespace Zenvra::Platform::Cocoa::Components;
         _command_callback(command);
     }
     
+    [self setNeedsDisplay:YES];
+    
     if (_is_drag_active) {
-        [self setNeedsDisplay:YES];
         return;
     }
     
@@ -393,8 +431,6 @@ using namespace Zenvra::Platform::Cocoa::Components;
         }
         return;
     }
-    
-    [self setNeedsDisplay:YES];
 }
 
 - (void)mouseMoved:(NSEvent *)event {
@@ -454,6 +490,92 @@ using namespace Zenvra::Platform::Cocoa::Components;
     }
     _is_drag_active = false;
 }
+
+- (void)rightMouseDown:(NSEvent *)event {
+    if (!_renderer) return;
+
+    const NSPoint location = [self convertPoint:[event locationInWindow] fromView:nil];
+    const float px = static_cast<float>(location.x);
+    const float py = static_cast<float>(location.y);
+    const int cw = static_cast<int>(self.bounds.size.width);
+    const int ch = static_cast<int>(self.bounds.size.height);
+    const float content_top = _chrome_layout.titlebar_bounds.bottom();
+
+    auto& ws = _renderer->get_workspace_renderer();
+    if (ws.is_tool_sidebar_point(px, py, cw, ch, content_top)) {
+        const auto layout = ws.calculate_layout(cw, ch, content_top);
+        std::filesystem::path target_path = ws.get_tool_sidebar().get_model().get_workspace_root();
+        if (auto row = ws.get_tool_sidebar().row_at_point(layout, py)) {
+            const auto& items = ws.get_tool_sidebar().get_model().get_project_items();
+            if (*row < items.size()) {
+                target_path = items[*row].path;
+                ws.get_tool_sidebar().get_model().activate_project_item(*row);
+            }
+        }
+        [self showNativeExplorerMenuForPath:target_path withEvent:event];
+        [self setNeedsDisplay:YES];
+    }
+}
+
+- (void)showNativeExplorerMenuForPath:(const std::filesystem::path&)target_path withEvent:(NSEvent*)event {
+    NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Explorer"];
+    [menu setAutoenablesItems:NO];
+
+    auto add_item = [&](NSString* title, NSString* key_equiv, NSEventModifierFlags modifiers, std::string_view cmd) {
+        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title
+                                                      action:@selector(onExplorerMenuItemClicked:)
+                                               keyEquivalent:key_equiv ? key_equiv : @""];
+        item.target = self;
+        if (key_equiv && [key_equiv length] > 0) {
+            item.keyEquivalentModifierMask = modifiers;
+        }
+        item.representedObject = [NSDictionary dictionaryWithObjectsAndKeys:
+            [NSString stringWithUTF8String:std::string(cmd).c_str()], @"command",
+            [NSString stringWithUTF8String:target_path.string().c_str()], @"path",
+            nil];
+        [menu addItem:item];
+        [item release];
+    };
+
+    auto add_separator = [&]() {
+        [menu addItem:[NSMenuItem separatorItem]];
+    };
+
+    add_item(@"New File...", @"", 0, "zde.explorer.newFile");
+    add_item(@"New Folder...", @"", 0, "zde.explorer.newFolder");
+    add_separator();
+    add_item(@"Open to the Side", @"\r", NSEventModifierFlagCommand, "zde.explorer.openToSide");
+    add_item(@"Reveal in Finder", @"r", NSEventModifierFlagShift | NSEventModifierFlagOption, "zde.explorer.reveal");
+    add_item(@"Open in Integrated Terminal", @"", 0, "zde.explorer.openTerminal");
+    add_separator();
+    add_item(@"Cut", @"x", NSEventModifierFlagCommand, "zde.explorer.cut");
+    add_item(@"Copy", @"c", NSEventModifierFlagCommand, "zde.explorer.copy");
+    add_item(@"Paste", @"v", NSEventModifierFlagCommand, "zde.explorer.paste");
+    add_separator();
+    add_item(@"Copy Path", @"c", NSEventModifierFlagShift | NSEventModifierFlagOption, "zde.explorer.copyPath");
+    add_item(@"Copy Relative Path", @"", 0, "zde.explorer.copyRelativePath");
+    add_separator();
+    add_item(@"Rename...", @"", 0, "zde.explorer.rename");
+    add_item(@"Delete", [NSString stringWithFormat:@"%C", (unichar)NSBackspaceCharacter], NSEventModifierFlagCommand, "zde.explorer.delete");
+
+    [NSMenu popUpContextMenu:menu withEvent:event forView:self];
+    [menu release];
+}
+
+- (void)onExplorerMenuItemClicked:(NSMenuItem*)sender {
+    NSDictionary* dict = sender.representedObject;
+    if (!dict || !_renderer) return;
+
+    NSString* cmd = [dict objectForKey:@"command"];
+    NSString* pathStr = [dict objectForKey:@"path"];
+    if (cmd && pathStr) {
+        const std::string command = [cmd UTF8String];
+        const std::filesystem::path target_path = [pathStr UTF8String];
+        _renderer->get_workspace_renderer().execute_explorer_command(command, target_path);
+        [self setNeedsDisplay:YES];
+    }
+}
+
 
 - (void)scrollWheel:(NSEvent *)event {
     if (!_renderer) return;
@@ -578,13 +700,14 @@ using namespace Zenvra::Platform::Cocoa::Components;
     
     // When the integrated terminal has focus, route keys straight to it.
     if (_renderer->is_terminal_focused()) {
-        NSString* chars = [event charactersIgnoringModifiers];
         const NSEventModifierFlags modifiers = [event modifierFlags];
         const bool has_cmd = (modifiers & NSEventModifierFlagCommand) != 0;
         const bool has_ctrl = (modifiers & NSEventModifierFlagControl) != 0;
         const bool has_alt = (modifiers & NSEventModifierFlagOption) != 0;
+        const unsigned short keyCode = [event keyCode];
+        NSString* chars = [event charactersIgnoringModifiers];
         
-        // Ctrl+letter → control character (e.g. Ctrl+C).
+        // Ctrl+letter → control character (e.g. Ctrl+C, Ctrl+D, Ctrl+L).
         if (has_ctrl && !has_cmd && !has_alt && [chars length] == 1) {
             const unichar character = [chars characterAtIndex:0];
             if (character >= 'a' && character <= 'z') {
@@ -593,11 +716,65 @@ using namespace Zenvra::Platform::Cocoa::Components;
                 }
                 return;
             }
+            if (character >= 'A' && character <= 'Z') {
+                if (_renderer->handle_terminal_control((char)(character + 32))) {
+                    [self setNeedsDisplay:YES];
+                }
+                return;
+            }
         }
-        
+
+        // Direct macOS KeyCode routing for editing & navigation keys
+        std::optional<Zenvra::Terminal::TerminalInputKey> terminal_key;
+        switch (keyCode) {
+            case 0x24: // Return / Enter
+            case 0x4C: // Keypad Enter
+                terminal_key = Zenvra::Terminal::TerminalInputKey::Enter;
+                break;
+            case 0x33: // Backspace (Delete)
+                terminal_key = Zenvra::Terminal::TerminalInputKey::Backspace;
+                break;
+            case 0x75: // Forward Delete
+                terminal_key = Zenvra::Terminal::TerminalInputKey::DeleteForward;
+                break;
+            case 0x30: // Tab
+                terminal_key = Zenvra::Terminal::TerminalInputKey::Tab;
+                break;
+            case 0x35: // Escape
+                terminal_key = Zenvra::Terminal::TerminalInputKey::Escape;
+                break;
+            case 0x7E: // Up Arrow
+                terminal_key = Zenvra::Terminal::TerminalInputKey::ArrowUp;
+                break;
+            case 0x7D: // Down Arrow
+                terminal_key = Zenvra::Terminal::TerminalInputKey::ArrowDown;
+                break;
+            case 0x7B: // Left Arrow
+                terminal_key = Zenvra::Terminal::TerminalInputKey::ArrowLeft;
+                break;
+            case 0x7C: // Right Arrow
+                terminal_key = Zenvra::Terminal::TerminalInputKey::ArrowRight;
+                break;
+            case 0x73: // Home
+                terminal_key = Zenvra::Terminal::TerminalInputKey::Home;
+                break;
+            case 0x77: // End
+                terminal_key = Zenvra::Terminal::TerminalInputKey::End;
+                break;
+            default:
+                break;
+        }
+
+        if (terminal_key) {
+            if (_renderer->handle_terminal_key(*terminal_key)) {
+                [self setNeedsDisplay:YES];
+            }
+            return;
+        }
+
+        // Secondary fallback via unichar
         if ([chars length] == 1) {
             const unichar character = [chars characterAtIndex:0];
-            std::optional<Zenvra::Terminal::TerminalInputKey> terminal_key;
             switch (character) {
                 case NSEnterCharacter:
                 case NSNewlineCharacter:
@@ -614,27 +791,6 @@ using namespace Zenvra::Platform::Cocoa::Components;
                 case 0x09: // Tab
                     terminal_key = Zenvra::Terminal::TerminalInputKey::Tab;
                     break;
-                case NSUpArrowFunctionKey:
-                    terminal_key = Zenvra::Terminal::TerminalInputKey::ArrowUp;
-                    break;
-                case NSDownArrowFunctionKey:
-                    terminal_key = Zenvra::Terminal::TerminalInputKey::ArrowDown;
-                    break;
-                case NSLeftArrowFunctionKey:
-                    terminal_key = Zenvra::Terminal::TerminalInputKey::ArrowLeft;
-                    break;
-                case NSRightArrowFunctionKey:
-                    terminal_key = Zenvra::Terminal::TerminalInputKey::ArrowRight;
-                    break;
-                case NSHomeFunctionKey:
-                    terminal_key = Zenvra::Terminal::TerminalInputKey::Home;
-                    break;
-                case NSEndFunctionKey:
-                    terminal_key = Zenvra::Terminal::TerminalInputKey::End;
-                    break;
-                case NSDeleteFunctionKey:
-                    terminal_key = Zenvra::Terminal::TerminalInputKey::DeleteForward;
-                    break;
                 default:
                     break;
             }
@@ -646,7 +802,7 @@ using namespace Zenvra::Platform::Cocoa::Components;
             }
         }
         
-        // Printable text → the active terminal session.
+        // Printable text → active terminal session.
         NSString* text = [event characters];
         if (text && [text length] > 0) {
             if (_renderer->handle_text_input([text UTF8String])) {
@@ -662,46 +818,175 @@ using namespace Zenvra::Platform::Cocoa::Components;
         const bool has_ctrl = (modifiers & NSEventModifierFlagControl) != 0;
         const bool has_alt = (modifiers & NSEventModifierFlagOption) != 0;
         const bool has_shift = (modifiers & NSEventModifierFlagShift) != 0;
+        const unsigned short keyCode = [event keyCode];
 
         NSString* chars = [event charactersIgnoringModifiers];
-        if ([chars length] == 1) {
-            const unichar character = [chars characterAtIndex:0];
-            if (character == 0x1B) {
+        const unichar character = [chars length] > 0 ? [chars characterAtIndex:0] : 0;
+
+        // 1. Escape
+        if (character == 0x1B || keyCode == 53) {
+            if (_renderer->handle_editor_input(
+                    Zenvra::UI::Editor::EditorInputCommand::Escape, false)) {
+                [self setNeedsDisplay:YES];
+                return;
+            }
+        }
+
+        // 2. Backspace
+        if (character == NSBackspaceCharacter || character == NSDeleteCharacter || character == 0x7F || keyCode == 51) {
+            if (_renderer->handle_editor_input(
+                    Zenvra::UI::Editor::EditorInputCommand::DeleteBackward, false)) {
+                [self setNeedsDisplay:YES];
+                return;
+            }
+        }
+
+        // 3. Forward Delete (fn + backspace or full keyboard delete)
+        if (character == NSDeleteFunctionKey || keyCode == 117) {
+            if (_renderer->handle_editor_input(
+                    Zenvra::UI::Editor::EditorInputCommand::DeleteForward, false)) {
+                [self setNeedsDisplay:YES];
+                return;
+            }
+        }
+
+        // 4. Return / Enter
+        if (character == NSEnterCharacter || character == NSNewlineCharacter || character == NSCarriageReturnCharacter || keyCode == 36 || keyCode == 76) {
+            if (_renderer->handle_editor_input(
+                    Zenvra::UI::Editor::EditorInputCommand::InsertNewLine, false)) {
+                [self setNeedsDisplay:YES];
+                return;
+            }
+        }
+
+        // 5. Tab
+        if (character == 0x09 || keyCode == 48) {
+            if (_renderer->handle_editor_input(
+                    Zenvra::UI::Editor::EditorInputCommand::InsertTab, false)) {
+                [self setNeedsDisplay:YES];
+                return;
+            }
+        }
+
+        // 6. Multi-cursor and line move shortcuts
+        if ((has_ctrl && has_shift) || (has_ctrl && has_alt) || (has_cmd && has_alt) || (has_alt && has_shift)) {
+            if (character == NSUpArrowFunctionKey || keyCode == 126) {
                 if (_renderer->handle_editor_input(
-                        Zenvra::UI::Editor::EditorInputCommand::Escape, false)) {
+                        Zenvra::UI::Editor::EditorInputCommand::AddCursorAbove, false)) {
                     [self setNeedsDisplay:YES];
-                    return;
                 }
+                return;
+            }
+            if (character == NSDownArrowFunctionKey || keyCode == 125) {
+                if (_renderer->handle_editor_input(
+                        Zenvra::UI::Editor::EditorInputCommand::AddCursorBelow, false)) {
+                    [self setNeedsDisplay:YES];
+                }
+                return;
+            }
+        }
+
+        if (has_alt && !has_cmd && !has_ctrl && !has_shift) {
+            if (character == NSUpArrowFunctionKey || keyCode == 126) {
+                if (_renderer->handle_editor_input(
+                        Zenvra::UI::Editor::EditorInputCommand::MoveLineUp, false)) {
+                    [self setNeedsDisplay:YES];
+                }
+                return;
+            }
+            if (character == NSDownArrowFunctionKey || keyCode == 125) {
+                if (_renderer->handle_editor_input(
+                        Zenvra::UI::Editor::EditorInputCommand::MoveLineDown, false)) {
+                    [self setNeedsDisplay:YES];
+                }
+                return;
+            }
+        }
+
+        // 7. Navigation arrow keys
+        if (character == NSLeftArrowFunctionKey || keyCode == 123) {
+            auto cmd = has_cmd ? Zenvra::UI::Editor::EditorInputCommand::MoveHome
+                               : Zenvra::UI::Editor::EditorInputCommand::MoveLeft;
+            if (_renderer->handle_editor_input(cmd, has_shift)) {
+                [self setNeedsDisplay:YES];
+            }
+            return;
+        }
+        if (character == NSRightArrowFunctionKey || keyCode == 124) {
+            auto cmd = has_cmd ? Zenvra::UI::Editor::EditorInputCommand::MoveEnd
+                               : Zenvra::UI::Editor::EditorInputCommand::MoveRight;
+            if (_renderer->handle_editor_input(cmd, has_shift)) {
+                [self setNeedsDisplay:YES];
+            }
+            return;
+        }
+        if (character == NSUpArrowFunctionKey || keyCode == 126) {
+            auto cmd = has_cmd ? Zenvra::UI::Editor::EditorInputCommand::MoveHome
+                               : Zenvra::UI::Editor::EditorInputCommand::MoveUp;
+            if (_renderer->handle_editor_input(cmd, has_shift)) {
+                [self setNeedsDisplay:YES];
+            }
+            return;
+        }
+        if (character == NSDownArrowFunctionKey || keyCode == 125) {
+            auto cmd = has_cmd ? Zenvra::UI::Editor::EditorInputCommand::MoveEnd
+                               : Zenvra::UI::Editor::EditorInputCommand::MoveDown;
+            if (_renderer->handle_editor_input(cmd, has_shift)) {
+                [self setNeedsDisplay:YES];
+            }
+            return;
+        }
+        if (character == NSHomeFunctionKey || keyCode == 115) {
+            if (_renderer->handle_editor_input(
+                    Zenvra::UI::Editor::EditorInputCommand::MoveHome, has_shift)) {
+                [self setNeedsDisplay:YES];
+            }
+            return;
+        }
+        if (character == NSEndFunctionKey || keyCode == 119) {
+            if (_renderer->handle_editor_input(
+                    Zenvra::UI::Editor::EditorInputCommand::MoveEnd, has_shift)) {
+                [self setNeedsDisplay:YES];
+            }
+            return;
+        }
+
+        // 8. Command shortcuts (Cmd+A, Cmd+C, Cmd+V, Cmd+X, Cmd+S, Cmd+W, Cmd+N, Cmd+/)
+        if (has_cmd || has_ctrl) {
+            std::optional<Zenvra::UI::Editor::EditorAction> action;
+            if (character == 'a' || character == 'A' || keyCode == 0) {
+                action = Zenvra::UI::Editor::EditorAction::SelectAll;
+            } else if (character == 'c' || character == 'C' || keyCode == 8) {
+                action = Zenvra::UI::Editor::EditorAction::Copy;
+            } else if (character == 'x' || character == 'X' || keyCode == 7) {
+                action = Zenvra::UI::Editor::EditorAction::Cut;
+            } else if (character == 'v' || character == 'V' || keyCode == 9) {
+                action = Zenvra::UI::Editor::EditorAction::Paste;
+            } else if (character == 's' || character == 'S' || keyCode == 1) {
+                action = Zenvra::UI::Editor::EditorAction::SaveDocument;
+            } else if (character == 'w' || character == 'W' || keyCode == 13) {
+                action = Zenvra::UI::Editor::EditorAction::CloseDocument;
+            } else if (character == 'n' || character == 'N' || keyCode == 45) {
+                action = Zenvra::UI::Editor::EditorAction::CreateDocument;
+            } else if (character == '/' || keyCode == 44) {
+                action = Zenvra::UI::Editor::EditorAction::ToggleComment;
             }
 
-            if ((has_ctrl && has_shift) || (has_ctrl && has_alt) || (has_cmd && has_alt) || (has_alt && has_shift)) {
-                if (character == NSUpArrowFunctionKey || [event keyCode] == 126) {
-                    if (_renderer->handle_editor_input(
-                            Zenvra::UI::Editor::EditorInputCommand::AddCursorAbove, false)) {
-                        [self setNeedsDisplay:YES];
-                    }
-                    return;
+            if (action) {
+                if (_renderer->handle_editor_action(*action)) {
+                    [self setNeedsDisplay:YES];
                 }
-                if (character == NSDownArrowFunctionKey || [event keyCode] == 125) {
-                    if (_renderer->handle_editor_input(
-                            Zenvra::UI::Editor::EditorInputCommand::AddCursorBelow, false)) {
-                        [self setNeedsDisplay:YES];
-                    }
-                    return;
-                }
+                return;
             }
+        }
 
-            if (has_alt && !has_cmd && !has_ctrl && !has_shift) {
-                if (character == NSUpArrowFunctionKey || [event keyCode] == 126) {
-                    if (_renderer->handle_editor_input(
-                            Zenvra::UI::Editor::EditorInputCommand::MoveLineUp, false)) {
-                        [self setNeedsDisplay:YES];
-                    }
-                    return;
-                }
-                if (character == NSDownArrowFunctionKey || [event keyCode] == 125) {
-                    if (_renderer->handle_editor_input(
-                            Zenvra::UI::Editor::EditorInputCommand::MoveLineDown, false)) {
+        // 9. Standard Text Input (no Cmd modifier, not control key)
+        if (!has_cmd) {
+            NSString* text = [event characters];
+            if (text && [text length] > 0) {
+                unichar first_char = [text characterAtIndex:0];
+                if (first_char >= 0x20 && (first_char < 0xF700 || first_char > 0xF8FF) && first_char != 0x7F) {
+                    if (_renderer->handle_text_input([text UTF8String])) {
                         [self setNeedsDisplay:YES];
                     }
                     return;
@@ -710,11 +995,8 @@ using namespace Zenvra::Platform::Cocoa::Components;
         }
     }
 
-    // Editor path: try to pass to NSTextInputClient for proper IME handling
-    if (![[self inputContext] handleEvent:event]) {
-        // If not handled by IME, it's a raw key (or modifier combo)
-        // ... translate and send to terminal or editor ...
-    }
+    // Pass remaining events to input context (e.g. for IME composition)
+    [self interpretKeyEvents:@[event]];
     [self setNeedsDisplay:YES];
 }
 
@@ -746,10 +1028,9 @@ using namespace Zenvra::Platform::Cocoa::Components;
 }
 
 // --- NSTextInputClient ---
-// Minimal stubs to satisfy the compiler for now.
-// Real implementation needed for proper text input (IME).
 
 - (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
+    (void)replacementRange;
     if (!_renderer) return;
     NSString *text = nil;
     if ([string isKindOfClass:[NSString class]]) {
@@ -757,12 +1038,60 @@ using namespace Zenvra::Platform::Cocoa::Components;
     } else if ([string isKindOfClass:[NSAttributedString class]]) {
         text = [(NSAttributedString *)string string];
     }
-    if (text) {
+    if (text && [text length] > 0) {
         (void)_renderer->handle_text_input([text UTF8String]);
         [self setNeedsDisplay:YES];
     }
 }
-- (void)doCommandBySelector:(SEL)selector {}
+
+- (void)doCommandBySelector:(SEL)selector {
+    if (!_renderer || !_renderer->is_editor_focused()) return;
+    
+    if (selector == @selector(deleteBackward:)) {
+        (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::DeleteBackward, false);
+    } else if (selector == @selector(deleteForward:)) {
+        (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::DeleteForward, false);
+    } else if (selector == @selector(insertNewline:)) {
+        (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::InsertNewLine, false);
+    } else if (selector == @selector(insertTab:)) {
+        (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::InsertTab, false);
+    } else if (selector == @selector(moveLeft:)) {
+        (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::MoveLeft, false);
+    } else if (selector == @selector(moveRight:)) {
+        (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::MoveRight, false);
+    } else if (selector == @selector(moveUp:)) {
+        (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::MoveUp, false);
+    } else if (selector == @selector(moveDown:)) {
+        (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::MoveDown, false);
+    } else if (selector == @selector(moveLeftAndModifySelection:)) {
+        (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::MoveLeft, true);
+    } else if (selector == @selector(moveRightAndModifySelection:)) {
+        (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::MoveRight, true);
+    } else if (selector == @selector(moveUpAndModifySelection:)) {
+        (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::MoveUp, true);
+    } else if (selector == @selector(moveDownAndModifySelection:)) {
+        (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::MoveDown, true);
+    } else if (selector == @selector(moveToBeginningOfLine:) ||
+               selector == @selector(moveToBeginningOfParagraph:) ||
+               selector == @selector(moveToLeftEndOfLine:)) {
+        (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::MoveHome, false);
+    } else if (selector == @selector(moveToEndOfLine:) ||
+               selector == @selector(moveToEndOfParagraph:) ||
+               selector == @selector(moveToRightEndOfLine:)) {
+        (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::MoveEnd, false);
+    } else if (selector == @selector(moveToBeginningOfLineAndModifySelection:) ||
+               selector == @selector(moveToBeginningOfParagraphAndModifySelection:)) {
+        (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::MoveHome, true);
+    } else if (selector == @selector(moveToEndOfLineAndModifySelection:) ||
+               selector == @selector(moveToEndOfParagraphAndModifySelection:)) {
+        (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::MoveEnd, true);
+    } else if (selector == @selector(cancelOperation:)) {
+        (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::Escape, false);
+    } else if (selector == @selector(selectAll:)) {
+        (void)_renderer->handle_editor_action(Zenvra::UI::Editor::EditorAction::SelectAll);
+    }
+    [self setNeedsDisplay:YES];
+}
 - (void)setMarkedText:(id)string selectedRange:(NSRange)selectedRange replacementRange:(NSRange)replacementRange {}
 - (void)unmarkText {}
 - (NSRange)selectedRange { return NSMakeRange(NSNotFound, 0); }

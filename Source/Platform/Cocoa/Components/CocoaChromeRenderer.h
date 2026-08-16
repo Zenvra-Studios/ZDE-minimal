@@ -5,6 +5,7 @@
 #include "UI/Chrome/WindowChromeLayout.h"
 #include "UI/Components/MenuModel.h"
 #include "UI/Theme/StudioTheme.h"
+#include "UI/Toolbar/ToolbarTypes.h"
 
 #include <CoreGraphics/CoreGraphics.h>
 
@@ -97,6 +98,16 @@ public:
         std::span<const std::filesystem::path> dropped_paths);
     [[nodiscard]] bool create_workspace_buffer();
     [[nodiscard]] bool toggle_terminal();
+    [[nodiscard]] bool toggle_shader_sandbox();
+
+    void set_active_target(std::string_view target) { m_run_config_state.active_target_name = std::string(target); }
+    void set_active_mode(UI::Toolbar::BuildConfigurationMode mode) { m_run_config_state.active_mode = mode; }
+    void set_active_architecture(UI::Toolbar::TargetArchitecture arch) { m_run_config_state.active_architecture = arch; }
+    [[nodiscard]] const UI::Toolbar::RunConfigurationState& get_run_config_state() const noexcept { return m_run_config_state; }
+    [[nodiscard]] UI::Toolbar::RunConfigurationState& get_run_config_state() noexcept { return m_run_config_state; }
+    void set_fullscreen(bool fullscreen) noexcept;
+    [[nodiscard]] bool is_fullscreen() const noexcept;
+    [[nodiscard]] TextEditor& get_text_editor() noexcept { return m_workspace_renderer.get_text_editor(); }
 
     // Workspace event forwarding
     [[nodiscard]] bool handle_workspace_pointer_press(
@@ -126,6 +137,10 @@ public:
     [[nodiscard]] std::optional<bool> handle_editor_command(std::string_view command_id);
     [[nodiscard]] std::optional<bool> is_editor_command_enabled(
         std::string_view command_id) const noexcept;
+    [[nodiscard]] StudioWorkspaceRenderer& get_workspace_renderer() noexcept { return m_workspace_renderer; }
+    [[nodiscard]] const StudioWorkspaceRenderer& get_workspace_renderer() const noexcept { return m_workspace_renderer; }
+    [[nodiscard]] CocoaPromptDialog& get_prompt_dialog() noexcept { return m_workspace_renderer.get_prompt_dialog(); }
+    [[nodiscard]] const CocoaPromptDialog& get_prompt_dialog() const noexcept { return m_workspace_renderer.get_prompt_dialog(); }
     [[nodiscard]] bool handle_text_input(std::string_view utf8_text);
     [[nodiscard]] bool handle_terminal_key(Terminal::TerminalInputKey key);
     [[nodiscard]] bool handle_terminal_control(char letter);
@@ -227,6 +242,7 @@ private:
 
     float m_dpi_scale = 1.0F;
     std::unique_ptr<AntialiasedFont> m_font;
+    UI::Toolbar::RunConfigurationState m_run_config_state;
     ThemeColors m_colors;
     ThemeTextColors m_text_colors;
     UI::Theme::Color m_titlebar_background_color{};

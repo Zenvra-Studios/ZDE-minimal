@@ -65,8 +65,12 @@ void ActivitySidebar::render(
         
         const bool active = item.icon == UI::Editor::SidebarIcon::Terminal
             ? surface.m_terminal_panel.is_visible()
-            : surface.m_tool_sidebar.is_active(item.icon);
-        const bool hovered = surface.m_tool_sidebar.is_hovered(item.icon);
+            : (item.icon == UI::Editor::SidebarIcon::Shader
+                ? surface.m_shader_sandbox_panel.is_visible()
+                : surface.m_tool_sidebar.is_active(item.icon));
+        const bool hovered = (item.icon == UI::Editor::SidebarIcon::Shader || item.icon == UI::Editor::SidebarIcon::Terminal)
+            ? false
+            : surface.m_tool_sidebar.is_hovered(item.icon);
         if (active || hovered)
         {
             surface.fill_rectangle(
@@ -124,6 +128,8 @@ void ActivitySidebar::draw_icon(
         svg_path = "Assets/icons/search.svg"; break;
     case UI::Editor::SidebarIcon::Services:
         svg_path = "Assets/icons/puzzle.svg"; break;
+    case UI::Editor::SidebarIcon::Shader:
+        svg_path = "Assets/icons/material-icon-theme/shader.svg"; break;
     case UI::Editor::SidebarIcon::Run:
         svg_path = "Assets/icons/play.svg"; break;
     case UI::Editor::SidebarIcon::Terminal:
@@ -138,9 +144,10 @@ void ActivitySidebar::draw_icon(
     {
         surface.draw_svg_icon(
             context, svg_path, center_x, center_y, size,
-            active ? surface.m_palette.text_primary : surface.m_palette.text_muted,
+            active ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
             active ? surface.m_palette.tab_active_background :
-                     surface.m_palette.sidebar_background);
+                     surface.m_palette.sidebar_background,
+            false);
     }
 }
 

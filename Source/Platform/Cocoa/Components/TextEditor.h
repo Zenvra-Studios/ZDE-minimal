@@ -1,12 +1,16 @@
 #pragma once
 
+#include "Language/Protocol/LspTypes.h"
 #include "Platform/Cocoa/Components/EditorMinimap.h"
 #include "Platform/Cocoa/Components/EditorScrollbar.h"
+#include "UI/Components/Button.h"
+#include "UI/Components/CompletionPopup.h"
 #include "UI/Components/EditorFolding.h"
+#include "UI/Components/HoverTooltip.h"
+#include "UI/Components/SignatureHelpWidget.h"
 #include "UI/Editor/BraceAnimationModel.h"
 #include "UI/Editor/CaretBlinkModel.h"
 #include "UI/Editor/EditorController.h"
-#include "UI/Components/Button.h"
 #include "UI/Editor/SelectionAnimationModel.h"
 #include "UI/Editor/StudioEditorModel.h"
 #include "Utility/DragDropModel.h"
@@ -15,10 +19,12 @@
 
 #include <array>
 #include <filesystem>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace Zenvra::Platform::Cocoa::Components
 {
@@ -64,6 +70,7 @@ public:
         std::string_view command_id) const noexcept;
     [[nodiscard]] bool handle_text_input(std::string_view utf8_text);
     [[nodiscard]] bool is_focused() const noexcept;
+    void set_focused(bool focused) noexcept;
     [[nodiscard]] bool is_empty_state_interactive_point(
         float point_x, float point_y) const noexcept;
     [[nodiscard]] bool is_scrollbar_point(
@@ -81,6 +88,8 @@ public:
     [[nodiscard]] bool is_empty_state_button_hovered() const noexcept {
         return m_empty_state_open_btn.get_state().hovered || m_empty_state_clone_btn.get_state().hovered;
     }
+
+    void on_diagnostics_updated(const std::string& uri, std::vector<Language::Protocol::Diagnostic> diags);
 
     void render(
         const StudioWorkspaceRenderer& surface,
@@ -106,6 +115,8 @@ private:
         const StudioWorkspaceRenderer& surface,
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x, float point_y) const;
+    [[nodiscard]] std::string get_active_document_uri() const;
+    [[nodiscard]] std::string get_active_document_filename() const;
 
     UI::Editor::EditorController m_controller;
     mutable UI::Components::EditorFoldingModel m_folding;
@@ -135,6 +146,10 @@ private:
     mutable UI::Components::Button m_empty_state_open_btn;
     mutable UI::Components::Button m_empty_state_clone_btn;
     mutable UI::Editor::TextPosition m_last_brace_caret;
+    mutable UI::Components::CompletionPopup m_completion_popup;
+    mutable UI::Components::HoverTooltip m_hover_tooltip;
+    mutable UI::Components::SignatureHelpWidget m_signature_help;
+    mutable std::mutex m_lsp_mutex;
 };
 
 } // namespace Zenvra::Platform::Cocoa::Components

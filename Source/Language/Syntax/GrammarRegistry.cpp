@@ -279,14 +279,14 @@ void GrammarRegistry::initialize_default_grammars()
         js_rule.block_comment_end = "*/";
         js_rule.string_delimiters = {"\"", "'", "`"};
         js_rule.keywords = {
-            "abstract", "arguments", "as", "async", "await", "break", "case", "catch",
-            "class", "const", "continue", "debugger", "default", "delete", "do", "else",
+            "abstract", "accessor", "arguments", "as", "asserts", "async", "await", "break", "case", "catch",
+            "class", "const", "continue", "debugger", "declare", "default", "delete", "do", "else",
             "enum", "export", "extends", "false", "finally", "for", "from", "function",
-            "get", "if", "implements", "import", "in", "instanceof", "interface", "is",
-            "keyof", "let", "module", "namespace", "never", "new", "null", "of", "package",
-            "private", "protected", "public", "readonly", "require", "return", "set",
+            "get", "if", "implements", "import", "in", "infer", "instanceof", "interface", "is",
+            "keyof", "let", "module", "namespace", "never", "new", "null", "of", "override", "package",
+            "private", "protected", "public", "readonly", "require", "return", "satisfies", "set",
             "static", "super", "switch", "symbol", "this", "throw", "true", "try", "type",
-            "typeof", "undefined", "unique", "unknown", "var", "void", "while", "with", "yield",
+            "typeof", "undefined", "unique", "unknown", "using", "var", "void", "while", "with", "yield",
             // React & Hooks
             "useState", "useEffect", "useContext", "useReducer", "useCallback", "useMemo",
             "useRef", "useImperativeHandle", "useLayoutEffect", "useDebugValue", "useId",
@@ -308,7 +308,8 @@ void GrammarRegistry::initialize_default_grammars()
             "string", "number", "boolean", "symbol", "bigint", "any", "unknown", "never",
             "void", "null", "undefined", "object", "Array", "Record", "Partial", "Required",
             "Readonly", "Pick", "Omit", "Exclude", "Extract", "NonNullable", "Parameters",
-            "ReturnType", "InstanceType", "Promise", "Map", "Set", "WeakMap", "WeakSet",
+            "ReturnType", "InstanceType", "Awaited", "Capitalize", "Uncapitalize", "Uppercase",
+            "Lowercase", "TemplateStringsArray", "ConstructorParameters", "Promise", "Map", "Set", "WeakMap", "WeakSet",
             // Framework Types
             "FC", "ReactNode", "ReactElement", "Component", "Fragment", "NextPage",
             "GetServerSideProps", "GetStaticProps", "Metadata", "AppProps", "Observable",
@@ -423,6 +424,43 @@ void GrammarRegistry::initialize_default_grammars()
             "DEFINED", "NOT", "AND", "OR", "MATCHES"
         };
         register_grammar(std::move(cmake_rule));
+    }
+
+    // Built-in for HTML / HTML5 / XHTML
+    {
+        GrammarRule html_rule;
+        html_rule.name = "HTML";
+        html_rule.extensions = {".html", ".htm", ".xhtml"};
+        html_rule.line_comment = "";
+        html_rule.block_comment_start = "<!--";
+        html_rule.block_comment_end = "-->";
+        html_rule.string_delimiters = {"\"", "'"};
+        html_rule.keywords = {
+            "!DOCTYPE", "html", "head", "title", "base", "link", "meta", "style", "script",
+            "noscript", "body", "section", "nav", "article", "aside", "h1", "h2", "h3", "h4",
+            "h5", "h6", "header", "footer", "address", "main", "p", "hr", "pre", "blockquote",
+            "ol", "ul", "menu", "li", "dl", "dt", "dd", "figure", "figcaption", "div", "a",
+            "em", "strong", "small", "s", "cite", "q", "dfn", "abbr", "ruby", "rt", "rp",
+            "data", "time", "code", "var", "samp", "kbd", "sub", "sup", "i", "b", "u",
+            "mark", "bdi", "bdo", "span", "br", "wbr", "ins", "del", "picture", "source",
+            "img", "iframe", "embed", "object", "video", "audio", "track", "map", "area",
+            "table", "caption", "colgroup", "col", "tbody", "thead", "tfoot", "tr", "td",
+            "th", "form", "label", "input", "button", "select", "datalist", "optgroup",
+            "option", "textarea", "output", "progress", "meter", "fieldset", "legend",
+            "details", "summary", "dialog", "template", "slot", "canvas", "svg"
+        };
+        html_rule.types = {
+            "class", "id", "style", "title", "lang", "dir", "accesskey", "tabindex", "hidden",
+            "draggable", "spellcheck", "contenteditable", "role", "aria-label", "aria-hidden",
+            "aria-expanded", "aria-checked", "aria-controls", "data-", "href", "src", "alt",
+            "width", "height", "target", "rel", "type", "value", "name", "placeholder",
+            "disabled", "readonly", "required", "checked", "selected", "multiple", "action",
+            "method", "enctype", "autocomplete", "autofocus", "pattern", "min", "max",
+            "step", "rows", "cols", "wrap", "for", "charset", "http-equiv", "content",
+            "onclick", "onload", "onchange", "onsubmit", "onkeydown", "onkeyup", "onfocus",
+            "onblur", "onmouseover", "onmouseout", "onmouseenter", "onmouseleave"
+        };
+        register_grammar(std::move(html_rule));
     }
 }
 

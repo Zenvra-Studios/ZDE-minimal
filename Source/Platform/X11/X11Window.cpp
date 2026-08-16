@@ -2412,6 +2412,22 @@ void X11Window::execute_popup_selection() {
   if (command_id.empty()) {
     return;
   }
+  if (command_id == Commands::CommandIds::build_debug) {
+    m_chrome_renderer.set_active_mode(UI::Toolbar::BuildConfigurationMode::Debug);
+  } else if (command_id == Commands::CommandIds::build_release) {
+    m_chrome_renderer.set_active_mode(UI::Toolbar::BuildConfigurationMode::Release);
+  } else if (command_id == Commands::CommandIds::platform_arm64 ||
+             command_id == Commands::CommandIds::platform_aarch64 ||
+             command_id == Commands::CommandIds::platform_apple_arm) {
+    m_chrome_renderer.set_active_architecture(UI::Toolbar::TargetArchitecture::Arm64);
+  } else if (command_id == Commands::CommandIds::platform_x64) {
+    m_chrome_renderer.set_active_architecture(UI::Toolbar::TargetArchitecture::X86_64);
+  } else if (command_id == Commands::CommandIds::run_zde) {
+    m_chrome_renderer.set_active_target("ZDE");
+  } else if (command_id == Commands::CommandIds::run_tests) {
+    m_chrome_renderer.set_active_target("ZDEUnitTests");
+  }
+
   const std::optional<bool> editor_result =
       m_chrome_renderer.handle_editor_command(command_id);
   if (editor_result) {

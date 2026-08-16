@@ -137,6 +137,16 @@ Diagnostic LspProtocolSerializer::parse_diagnostic(const nlohmann::json& j)
             if (j["code"].is_string()) diag.code = j["code"].get<std::string>();
             else if (j["code"].is_number()) diag.code = std::to_string(j["code"].get<int64_t>());
         }
+        if (j.contains("tags") && j["tags"].is_array())
+        {
+            for (const auto& t : j["tags"])
+            {
+                if (t.is_number())
+                {
+                    diag.tags.push_back(static_cast<DiagnosticTag>(t.get<int>()));
+                }
+            }
+        }
     }
     return diag;
 }

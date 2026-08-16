@@ -1,19 +1,21 @@
 #include "Platform/Win32/Components/ActivitySidebar.h"
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
+#include "Utility/MathUtil.h"
 
 #include <algorithm>
 #include <cmath>
 
+/**
+ * 
+ * 
+ **/
 namespace Zenvra::Platform::Win32::Components
 {
 
 namespace
 {
 
-int round_to_int(float value)
-{
-    return static_cast<int>(std::lround(value));
-}
+using Zenvra::Utility::round_to_int;
 
 } // namespace
 
@@ -129,6 +131,9 @@ void ActivitySidebar::draw_icon(
     case UI::Editor::SidebarIcon::Services:
         asset_name = "puzzle.svg";
         break;
+    case UI::Editor::SidebarIcon::Shader:
+        asset_name = "material-icon-theme/shader.svg";
+        break;
     case UI::Editor::SidebarIcon::Run:
         asset_name = "play.svg";
         break;
@@ -151,9 +156,10 @@ void ActivitySidebar::draw_icon(
             center_x,
             center_y,
             size,
-            active ? surface.m_palette.text_primary : surface.m_palette.text_muted,
+            active ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
             active ? surface.m_palette.tab_active_background
-                   : surface.m_palette.sidebar_background);
+                   : surface.m_palette.sidebar_background,
+            false);
     }
 }
 

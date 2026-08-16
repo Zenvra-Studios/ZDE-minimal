@@ -1,7 +1,9 @@
 #pragma once
 
 #include "Platform/Cocoa/Components/ActivitySidebar.h"
+#include "Platform/Cocoa/Components/CocoaPromptDialog.h"
 #include "Platform/Cocoa/Components/FooterToolbar.h"
+#include "Platform/Cocoa/Components/ShaderSandboxPanel.h"
 #include "Platform/Cocoa/Components/TerminalPanel.h"
 #include "Platform/Cocoa/Components/TextEditor.h"
 #include "Platform/Cocoa/Components/ToolSidebar.h"
@@ -38,6 +40,7 @@ public:
         std::span<const std::filesystem::path> dropped_paths);
     [[nodiscard]] bool create_buffer();
     [[nodiscard]] bool toggle_terminal();
+    [[nodiscard]] bool toggle_shader_sandbox();
     [[nodiscard]] bool handle_pointer_press(
         float point_x, float point_y,
         int client_width, int client_height,
@@ -129,18 +132,56 @@ public:
     [[nodiscard]] bool is_sidebar_resizing() const noexcept;
     [[nodiscard]] bool is_empty_state_button_hovered() const noexcept;
     [[nodiscard]] bool tick_animations() noexcept;
+    void set_fullscreen(bool fullscreen) noexcept;
+    [[nodiscard]] bool is_fullscreen() const noexcept;
+    [[nodiscard]] float get_animated_titlebar_left_offset() const noexcept;
+    [[nodiscard]] UI::Editor::StudioEditorLayoutResult calculate_layout(
+        int client_width, int client_height, float content_top) const noexcept;
     void shutdown();
     void render(CGContextRef context, int client_width, int client_height, float content_top) const;
     [[nodiscard]] const std::filesystem::path& get_icon_asset_root() const noexcept;
     [[nodiscard]] std::string_view get_active_buffer_name() const noexcept;
+    [[nodiscard]] TextEditor& get_text_editor() noexcept { return m_text_editor; }
+    [[nodiscard]] const TextEditor& get_text_editor() const noexcept { return m_text_editor; }
+    [[nodiscard]] ToolSidebar& get_tool_sidebar() noexcept { return m_tool_sidebar; }
+    [[nodiscard]] const ToolSidebar& get_tool_sidebar() const noexcept { return m_tool_sidebar; }
+    [[nodiscard]] CocoaPromptDialog& get_prompt_dialog() noexcept { return m_prompt_dialog; }
+    [[nodiscard]] const CocoaPromptDialog& get_prompt_dialog() const noexcept { return m_prompt_dialog; }
+
+    struct ExplorerContextMenuItem
+    {
+        std::string label;
+        std::string command_id;
+        bool separator = false;
+        std::string shortcut;
+    };
+
+    struct ExplorerContextMenuState
+    {
+        bool visible = false;
+        std::filesystem::path target_path;
+        std::vector<ExplorerContextMenuItem> items;
+        std::optional<std::size_t> hovered_index;
+        UI::Rect bounds{};
+        std::vector<UI::Rect> item_bounds;
+    };
+
+    void show_explorer_context_menu(const std::filesystem::path& target_path, float client_x, float client_y);
+    void close_explorer_context_menu() noexcept;
+    void execute_explorer_context_menu_item(std::size_t item_index);
+    void execute_explorer_command(std::string_view command_id, const std::filesystem::path& target_path);
+    void render_explorer_context_menu(CGContextRef context, const UI::Editor::StudioEditorLayoutResult& layout) const;
+    [[nodiscard]] bool is_explorer_context_menu_open() const noexcept { return m_explorer_context_menu.visible; }
 
 private:
     friend class CocoaChromeRenderer;
+    friend class CocoaPromptDialog;
     friend class ActivitySidebar;
     friend class EditorMinimap;
     friend class EditorScrollbar;
     friend class ExplorerHeader;
     friend class FooterToolbar;
+    friend class ShaderSandboxPanel;
     friend class TerminalPanel;
     friend class TextEditor;
     friend class ToolSidebar;
@@ -219,6 +260,12 @@ private:
     ToolSidebar m_tool_sidebar;
     TextEditor m_text_editor;
     mutable TerminalPanel m_terminal_panel;
+    mutable ShaderSandboxPanel m_shader_sandbox_panel;
+    mutable CocoaPromptDialog m_prompt_dialog;
+    mutable ExplorerContextMenuState m_explorer_context_menu;
+    bool m_is_fullscreen = false;
+    float m_animated_titlebar_left_offset = 80.0F;
+    unsigned long long m_last_titlebar_tick_ms = 0;
     static constexpr std::size_t max_image_cache_size = 64;
     void store_cached_image(const std::string& key, CGImageRef image) const;
     mutable std::unordered_map<std::string, CGImageRef> m_image_cache;

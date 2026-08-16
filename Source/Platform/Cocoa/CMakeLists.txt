@@ -8,11 +8,13 @@ add_library(ZDEPlatformCocoa
     Runtime/CocoaMenuBridge.mm
     Components/ActivitySidebar.mm
     Components/CocoaChromeRenderer.mm
+    Components/CocoaPromptDialog.mm
     Components/EditorMinimap.mm
     Components/EditorScrollbar.mm
     Components/ExplorerHeader.mm
     Components/FileDropTarget.mm
     Components/FooterToolbar.mm
+    Components/ShaderSandboxPanel.mm
     Components/StudioWorkspaceRenderer.mm
     Components/TerminalPanel.mm
     Components/TextEditor.mm
@@ -21,5 +23,5 @@ add_library(ZDEPlatformCocoa
 )
 
 target_include_directories(ZDEPlatformCocoa PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../..")
-target_link_libraries(ZDEPlatformCocoa PUBLIC Zenvra::Core PRIVATE Zenvra::UI Zenvra::Terminal lunasvg ZDEUtility "-framework Cocoa" "-framework CoreGraphics" "-framework CoreText")
+target_link_libraries(ZDEPlatformCocoa PUBLIC Zenvra::Core Zenvra::PlatformHost PRIVATE Zenvra::UI Zenvra::Terminal Zenvra::Services Zenvra::Language lunasvg ZDEUtility "-framework Cocoa" "-framework CoreGraphics" "-framework CoreText")
 zde_enable_warnings(ZDEPlatformCocoa)

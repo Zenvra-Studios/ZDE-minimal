@@ -14,7 +14,9 @@ target_link_libraries(ZDEUnitTests PRIVATE
     Zenvra::UI
     Zenvra::Language
     Zenvra::Terminal
+    Zenvra::Tools
     Zenvra::Services
+    Zenvra::Platform
     Zenvra::Graphics
 )
 target_include_directories(ZDEUnitTests PRIVATE "${PROJECT_SOURCE_DIR}/Source" "${PROJECT_SOURCE_DIR}")

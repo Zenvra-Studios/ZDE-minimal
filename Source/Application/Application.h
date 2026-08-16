@@ -3,6 +3,8 @@
 #include "Application/ApplicationSpecification.h"
 #include "Application/ViewModels/StudioViewModel.h"
 #include "Platform/IPlatformWindow.h"
+#include "Services/Build/BuildService.h"
+#include "Services/Execution/ExecutionService.h"
 #include "Utility/MultiContext.h"
 
 #include <filesystem>
@@ -46,6 +48,8 @@ private:
 
     ApplicationSpecification m_specification;
     std::vector<std::unique_ptr<WindowContext>> m_windows;
+    std::shared_ptr<Services::Build::BuildService> m_build_service;
+    std::shared_ptr<Services::Execution::ExecutionService> m_execution_service;
 };
 
 } // namespace Zenvra::Application

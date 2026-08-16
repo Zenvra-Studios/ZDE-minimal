@@ -1,7 +1,8 @@
 #include "Platform/Win32/Components/TerminalPanel.h"
-
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
+#include "Services/Output/OutputLogManager.h"
 #include "Utility/Fonts.h"
+#include "Utility/MathUtil.h"
 
 #include <algorithm>
 #include <cmath>
@@ -11,7 +12,7 @@ namespace Zenvra::Platform::Win32::Components {
 
 namespace {
 
-int round_to_int(float value) { return static_cast<int>(std::lround(value)); }
+using Zenvra::Utility::round_to_int;
 
 std::filesystem::path
 current_terminal_directory(const std::filesystem::path &workspace_root) {
@@ -133,6 +134,20 @@ bool TerminalPanel::handle_pointer_press(
   }
   m_model.set_focused(true);
   m_caret_blink.reset();
+
+  if (terminal_channel_tab_bounds(layout).contains(point_x, point_y)) {
+    m_active_channel = PanelChannel::Terminal;
+    return true;
+  }
+  if (output_channel_tab_bounds(layout).contains(point_x, point_y)) {
+    m_active_channel = PanelChannel::Output;
+    return true;
+  }
+  if (m_active_channel == PanelChannel::Output && clear_output_button_bounds(layout).contains(point_x, point_y)) {
+    Services::Output::OutputLogManager::instance().clear(Services::Output::OutputCategory::Build);
+    return true;
+  }
+
   if (close_button_bounds(layout).contains(point_x, point_y)) {
     return m_model.close_active_session();
   }
@@ -429,20 +444,45 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
     return;
   }
   const float scale = surface.m_dpi_scale;
-  surface.draw_text(device_context, *surface.m_ui_font, "Terminal",
-                    layout.terminal_header_bounds.x + 12.0F * scale,
-                    layout.terminal_header_bounds.y +
-                        layout.terminal_header_bounds.height * 0.5F,
-                    surface.m_palette.text_primary);
 
-  // Vertical separator between title and tabs
-  const float divider_x = layout.terminal_header_bounds.x + 72.0F * scale;
-  surface.draw_line(
-      device_context, round_to_int(divider_x),
-      round_to_int(layout.terminal_header_bounds.y + 6.0F * scale),
-      round_to_int(divider_x),
-      round_to_int(layout.terminal_header_bounds.bottom() - 6.0F * scale),
-      surface.m_palette.border);
+  // Draw Channel Switcher Tabs: [ Terminal ] [ Output ]
+  const UI::Rect term_tab = terminal_channel_tab_bounds(layout);
+  const UI::Rect out_tab = output_channel_tab_bounds(layout);
+
+  surface.fill_rectangle(device_context, term_tab,
+      (m_active_channel == PanelChannel::Terminal) ? surface.m_palette.tab_active_background : surface.m_palette.tab_background);
+  surface.draw_text(device_context, *surface.m_small_font, "Terminal",
+      term_tab.x + 12.0F * scale,
+      term_tab.y + term_tab.height * 0.5F,
+      (m_active_channel == PanelChannel::Terminal) ? surface.m_palette.text_primary : surface.m_palette.text_muted);
+
+  surface.fill_rectangle(device_context, out_tab,
+      (m_active_channel == PanelChannel::Output) ? surface.m_palette.tab_active_background : surface.m_palette.tab_background);
+  surface.draw_text(device_context, *surface.m_small_font, "Output",
+      out_tab.x + 14.0F * scale,
+      out_tab.y + out_tab.height * 0.5F,
+      (m_active_channel == PanelChannel::Output) ? surface.m_palette.text_primary : surface.m_palette.text_muted);
+
+  if (m_active_channel == PanelChannel::Output) {
+    const UI::Rect clear_btn = clear_output_button_bounds(layout);
+    surface.fill_rectangle(device_context, clear_btn, surface.m_palette.tab_background);
+    surface.draw_text(device_context, *surface.m_small_font, "Clear",
+        clear_btn.x + 10.0F * scale,
+        clear_btn.y + clear_btn.height * 0.5F,
+        surface.m_palette.text_muted);
+
+    const auto output_lines = Services::Output::OutputLogManager::instance().get_lines(Services::Output::OutputCategory::Build);
+    const float line_h = 16.0F * scale;
+    float cur_y = layout.terminal_content_bounds.y + 6.0F * scale + line_h * 0.5F;
+    for (std::size_t i = 0; i < output_lines.size(); ++i) {
+      if (cur_y > layout.terminal_content_bounds.bottom() + line_h) break;
+      const std::string& l = output_lines[i];
+      surface.draw_text(device_context, *surface.m_editor_font, l,
+          layout.terminal_content_bounds.x + 12.0F * scale, cur_y, surface.m_palette.text_primary);
+      cur_y += line_h;
+    }
+    return;
+  }
 
   const std::span<const Terminal::TerminalSessionEntry> sessions =
       m_model.get_sessions();
@@ -496,7 +536,7 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   const UI::Rect close = close_button_bounds(layout);
   if (close.width > 0.0F) {
     surface.draw_svg_icon(
-        device_context, "close-minimal.svg",
+        device_context, "diagnostic-error.svg",
         round_to_int(close.x + close.width * 0.5F),
         round_to_int(close.y + close.height * 0.5F),
         std::max(round_to_int(10.0F * scale), 9),
@@ -669,21 +709,51 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   }
 }
 
+UI::Rect TerminalPanel::terminal_channel_tab_bounds(
+    const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
+  const float scale = layout.dpi_scale;
+  return UI::Rect{
+      layout.terminal_header_bounds.x + 6.0F * scale,
+      layout.terminal_header_bounds.y + 3.0F * scale,
+      70.0F * scale,
+      layout.terminal_header_bounds.height - 6.0F * scale};
+}
+
+UI::Rect TerminalPanel::output_channel_tab_bounds(
+    const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
+  const float scale = layout.dpi_scale;
+  return UI::Rect{
+      layout.terminal_header_bounds.x + 80.0F * scale,
+      layout.terminal_header_bounds.y + 3.0F * scale,
+      64.0F * scale,
+      layout.terminal_header_bounds.height - 6.0F * scale};
+}
+
+UI::Rect TerminalPanel::clear_output_button_bounds(
+    const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
+  const float scale = layout.dpi_scale;
+  return UI::Rect{
+      layout.terminal_header_bounds.right() - 56.0F * scale,
+      layout.terminal_header_bounds.y + 4.0F * scale,
+      48.0F * scale,
+      layout.terminal_header_bounds.height - 8.0F * scale};
+}
+
 UI::Rect TerminalPanel::session_tab_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout,
     std::size_t index) const noexcept {
   const float scale = layout.dpi_scale;
-  const float start_x = layout.terminal_header_bounds.x + 80.0F * scale;
+  const float start_x = layout.terminal_header_bounds.x + 152.0F * scale;
   const float tab_width = 108.0F * scale;
-  return UI::Rect{start_x + static_cast<float>(index) * tab_width,
-                  layout.terminal_header_bounds.y, tab_width,
+  const float x = start_x + static_cast<float>(index) * tab_width;
+  return UI::Rect{x, layout.terminal_header_bounds.y, tab_width,
                   layout.terminal_header_bounds.height};
 }
 
 UI::Rect TerminalPanel::add_button_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
-  const float start_x = layout.terminal_header_bounds.x + 80.0F * scale;
+  const float start_x = layout.terminal_header_bounds.x + 152.0F * scale;
   const float tab_width = 108.0F * scale;
   const float x =
       start_x + static_cast<float>(m_model.get_sessions().size()) * tab_width +

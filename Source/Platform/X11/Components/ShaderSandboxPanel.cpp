@@ -400,9 +400,10 @@ void ShaderSandboxPanel::render_header(
                         round_to_int(close_btn.x + close_btn.width * 0.5F),
                         round_to_int(close_btn.y + close_btn.height * 0.5F),
                         round_to_int(12.0F * scale),
-                        m_hover_close ? surface.m_palette.text_primary
+                        m_hover_close ? UI::Theme::Color{255, 255, 255, 255}
                                       : surface.m_palette.text_muted,
-                        surface.m_palette.tab_background);
+                        surface.m_palette.tab_background,
+                        false);
 }
 
 void ShaderSandboxPanel::render_viewport(
@@ -513,9 +514,10 @@ void ShaderSandboxPanel::render_controls(
                         round_to_int(play_btn.x + play_btn.width * 0.5F),
                         round_to_int(play_btn.y + play_btn.height * 0.5F),
                         round_to_int(12.0F * scale),
-                        m_hover_play ? surface.m_palette.text_primary
-                                     : surface.m_palette.accent,
-                        surface.m_palette.sidebar_background);
+                        m_hover_play ? surface.m_palette.accent
+                                     : UI::Theme::Color{255, 255, 255, 255},
+                        surface.m_palette.sidebar_background,
+                        false);
 
   // Reset button
   const UI::Rect reset_btn{ctrl.x + 38.0F * scale, btn_y, btn_w, btn_h};
@@ -531,9 +533,10 @@ void ShaderSandboxPanel::render_controls(
                         round_to_int(reset_btn.x + reset_btn.width * 0.5F),
                         round_to_int(reset_btn.y + reset_btn.height * 0.5F),
                         round_to_int(12.0F * scale),
-                        m_hover_reset ? surface.m_palette.text_primary
+                        m_hover_reset ? UI::Theme::Color{255, 255, 255, 255}
                                       : surface.m_palette.text_muted,
-                        surface.m_palette.sidebar_background);
+                        surface.m_palette.sidebar_background,
+                        false);
 
   // Resolution scale badge button (1x / 0.5x / 0.25x)
   const UI::Rect scale_btn{ctrl.x + 68.0F * scale, btn_y, 36.0F * scale, btn_h};
@@ -585,9 +588,10 @@ void ShaderSandboxPanel::render_controls(
                         round_to_int(snap_btn.x + snap_btn.width * 0.5F),
                         round_to_int(snap_btn.y + snap_btn.height * 0.5F),
                         round_to_int(12.0F * scale),
-                        m_hover_snapshot ? surface.m_palette.accent
+                        m_hover_snapshot ? UI::Theme::Color{255, 255, 255, 255}
                                          : surface.m_palette.text_primary,
-                        surface.m_palette.sidebar_background);
+                        surface.m_palette.sidebar_background,
+                        false);
 }
 
 void ShaderSandboxPanel::render_diagnostics_overlay(

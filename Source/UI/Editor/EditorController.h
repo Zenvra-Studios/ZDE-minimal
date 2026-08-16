@@ -14,12 +14,14 @@ class EditorController
 {
 public:
     [[nodiscard]] bool open_file(const std::filesystem::path& path);
+    [[nodiscard]] std::vector<std::size_t> reload_externally_modified_files();
     [[nodiscard]] std::size_t open_dropped_paths(
         std::span<const std::filesystem::path> dropped_paths);
     [[nodiscard]] bool create_buffer();
     [[nodiscard]] bool activate_file(std::size_t index) noexcept;
     [[nodiscard]] bool reorder_file(std::size_t from_index, std::size_t to_index) noexcept;
     [[nodiscard]] bool close_file(std::size_t index);
+    [[nodiscard]] bool close_all_files();
     [[nodiscard]] bool execute_action(EditorAction action);
     [[nodiscard]] bool can_execute_action(EditorAction action) const noexcept;
     [[nodiscard]] static std::optional<EditorAction> action_from_command_id(
@@ -31,6 +33,14 @@ public:
 
     [[nodiscard]] TextDocumentModel* get_active_document() noexcept;
     [[nodiscard]] const TextDocumentModel* get_active_document() const noexcept;
+    [[nodiscard]] TextDocumentModel* get_document(std::size_t index) noexcept
+    {
+        return m_session.get_document(index);
+    }
+    [[nodiscard]] const TextDocumentModel* get_document(std::size_t index) const noexcept
+    {
+        return m_session.get_document(index);
+    }
     [[nodiscard]] const std::filesystem::path* get_active_path() const noexcept;
     [[nodiscard]] std::span<const EditorSessionDocument> get_documents() const noexcept;
     [[nodiscard]] std::optional<std::size_t> get_active_index() const noexcept;

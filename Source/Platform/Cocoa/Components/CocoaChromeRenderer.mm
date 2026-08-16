@@ -1,4 +1,5 @@
 #include "Platform/Cocoa/Components/CocoaChromeRenderer.h"
+#include "Platform/HostSystem.h"
 #include "Utility/Fonts.h"
 
 #include <cmath>
@@ -17,7 +18,16 @@ void CocoaChromeRenderer::color_to_rgba(const UI::Theme::Color &color,
   rgba[3] = static_cast<CGFloat>(color.alpha) / 255.0;
 }
 
-CocoaChromeRenderer::CocoaChromeRenderer() = default;
+CocoaChromeRenderer::CocoaChromeRenderer()
+{
+  const auto arch = Platform::HostSystem::get_native_architecture();
+  if (arch == Platform::HostSystem::Architecture::Arm64) {
+    m_run_config_state.active_architecture = UI::Toolbar::TargetArchitecture::Arm64;
+  } else if (arch == Platform::HostSystem::Architecture::X86_64) {
+    m_run_config_state.active_architecture = UI::Toolbar::TargetArchitecture::X86_64;
+  }
+  m_run_config_state.active_preset_name = Platform::HostSystem::get_system_info().default_preset_debug;
+}
 CocoaChromeRenderer::~CocoaChromeRenderer() { shutdown(); }
 
 bool CocoaChromeRenderer::initialize(float dpi_scale,
@@ -96,6 +106,15 @@ bool CocoaChromeRenderer::create_workspace_buffer() {
 }
 bool CocoaChromeRenderer::toggle_terminal() {
   return m_workspace_renderer.toggle_terminal();
+}
+bool CocoaChromeRenderer::toggle_shader_sandbox() {
+  return m_workspace_renderer.toggle_shader_sandbox();
+}
+void CocoaChromeRenderer::set_fullscreen(bool fullscreen) noexcept {
+  m_workspace_renderer.set_fullscreen(fullscreen);
+}
+bool CocoaChromeRenderer::is_fullscreen() const noexcept {
+  return m_workspace_renderer.is_fullscreen();
 }
 
 bool CocoaChromeRenderer::handle_workspace_pointer_press(float px, float py,
@@ -396,26 +415,24 @@ void CocoaChromeRenderer::render(
       if (bounds.is_empty()) return;
       if (hovered) draw_toolbar_hover(bounds);
       
-      float text_left = 12.0F * scale;
+      float text_left = 10.0F * scale;
       if (is_binary) {
           const int binary_icon_size = std::max(round_to_int(16.0F * scale), 14);
           m_workspace_renderer.draw_svg_icon(context, "Assets/icons/terminal.svg",
-              round_to_int(bounds.x + 16.0F * scale),
+              round_to_int(bounds.x + 14.0F * scale),
               round_to_int(bounds.y + bounds.height * 0.5F),
               binary_icon_size, m_theme.text_primary,
               hovered ? m_theme.hover : m_theme.titlebar_background);
-          text_left = 36.0F * scale;
-      } else if (text == "x64" || text == "Debug") {
-          text_left = 12.0F * scale;
+          text_left = 32.0F * scale;
       }
       
       draw_text(context, text, bounds, text_left, m_text_colors.primary);
       
       if (chrome_layout.show_toolbar_chevrons) {
-          const int chevron_x = round_to_int(bounds.right() - 14.0F * scale);
+          const int chevron_x = round_to_int(bounds.right() - 10.0F * scale);
           const int chevron_y = round_to_int(bounds.y + bounds.height * 0.5F);
           m_workspace_renderer.draw_svg_icon(context, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
-              std::max(round_to_int(12.0F * scale), 10),
+              std::max(round_to_int(10.0F * scale), 8),
               m_workspace_renderer.m_palette.text_muted,
               hovered ? m_theme.hover : m_theme.titlebar_background);
       }
@@ -425,9 +442,9 @@ void CocoaChromeRenderer::render(
   const bool platform_hovered = interaction_state.platform_button_hovered || (interaction_state.open_menu_index && *interaction_state.open_menu_index == 11);
   const bool binary_hovered = interaction_state.binary_button_hovered || (interaction_state.open_menu_index && *interaction_state.open_menu_index == 12);
 
-  draw_combo(chrome_layout.compiler_bounds, compiler_hovered, "Debug", false);
-  draw_combo(chrome_layout.platform_bounds, platform_hovered, "x64", false);
-  draw_combo(chrome_layout.binary_bounds, binary_hovered, "untitled", true);
+  draw_combo(chrome_layout.compiler_bounds, compiler_hovered, UI::Toolbar::to_string(m_run_config_state.active_mode), false);
+  draw_combo(chrome_layout.platform_bounds, platform_hovered, UI::Toolbar::to_string(m_run_config_state.active_architecture), false);
+  draw_combo(chrome_layout.binary_bounds, binary_hovered, m_run_config_state.active_target_name, true);
 
   // Command Center / File Buffer: intentionally not drawn on macOS.
   // The integrated tab strip (workspace) fills the titlebar span between the

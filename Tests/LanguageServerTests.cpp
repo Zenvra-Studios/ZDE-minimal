@@ -10,6 +10,11 @@
 #include "Language/CMake/CMakeLanguageDatabase.h"
 #include "UI/Components/CompletionPopup.h"
 #include "UI/Editor/StudioEditorModel.h"
+#include "UI/Toolbar/StudioMainToolbar.h"
+#include "Tools/Builder/CMakeBuilder.h"
+#include "Tools/Runner/ProcessRunner.h"
+#include "UI/Editor/ActivityPanelModel.h"
+#include "Platform/HostSystem.h"
 
 using namespace Zenvra;
 
@@ -392,6 +397,105 @@ TEST(LanguageServerTests, SemanticTokensColorMapping)
     // Keywords map to palette.keyword (Peach)
     EXPECT_EQ(Language::Syntax::SemanticTokensManager::get_token_color(
         Language::Syntax::SemanticTokenType::Keyword, palette), palette.keyword);
+}
+
+TEST(LanguageServerTests, ToolbarRunConfigurationWidgetState)
+{
+    UI::Toolbar::Widgets::RunConfigurationWidget widget;
+    widget.set_active_target("ZDE");
+    widget.set_active_mode(UI::Toolbar::BuildConfigurationMode::Debug);
+    widget.set_active_architecture(UI::Toolbar::TargetArchitecture::Arm64);
+
+    EXPECT_EQ(widget.get_state().active_target_name, "ZDE");
+    EXPECT_EQ(widget.get_state().active_mode, UI::Toolbar::BuildConfigurationMode::Debug);
+    EXPECT_EQ(widget.get_state().active_architecture, UI::Toolbar::TargetArchitecture::Arm64);
+    EXPECT_EQ(widget.get_summary_label(), "ZDE | Debug | arm64");
+
+    widget.set_active_mode(UI::Toolbar::BuildConfigurationMode::Release);
+    widget.set_active_architecture(UI::Toolbar::TargetArchitecture::X86_64);
+    widget.set_active_target("ZDEUnitTests");
+
+    EXPECT_EQ(widget.get_summary_label(), "ZDEUnitTests | Release | x86_64");
+}
+
+TEST(LanguageServerTests, ToolbarLayoutResponsiveComputation)
+{
+    UI::Toolbar::StudioMainToolbar toolbar;
+    toolbar.update_dpi_scale(1.0F);
+
+    const auto layout = toolbar.layout(1280.0F, 0.0F);
+    EXPECT_EQ(layout.toolbar_bounds.width, 1280.0F);
+    EXPECT_GT(layout.left_section_bounds.width, 0.0F);
+    EXPECT_GT(layout.center_section_bounds.width, 0.0F);
+    EXPECT_GT(layout.right_section_bounds.width, 0.0F);
+
+    EXPECT_GT(layout.run_button_bounds.width, 0.0F);
+    EXPECT_GT(layout.debug_button_bounds.width, 0.0F);
+    EXPECT_GT(layout.build_button_bounds.width, 0.0F);
+    EXPECT_GT(layout.stop_button_bounds.width, 0.0F);
+    EXPECT_GT(layout.target_combo_bounds.width, 0.0F);
+}
+
+TEST(LanguageServerTests, ToolsCMakeBuilderAndRunner)
+{
+    Tools::Builder::CMakeBuilder builder;
+    const auto targets = builder.discover_cmake_targets(".");
+    EXPECT_GE(targets.size(), 2u);
+    EXPECT_EQ(targets[0], "ZDE");
+
+    Tools::Runner::ProcessRunner runner;
+    Tools::Runner::ProcessExecutionOptions opts{
+        .executable_path = "non_existent_binary",
+        .arguments = {},
+        .working_directory = ".",
+        .run_in_background = false
+    };
+    EXPECT_FALSE(runner.launch_process(opts));
+}
+
+TEST(LanguageServerTests, HostSystemArchitectureAndOSDetection)
+{
+    const auto os = Platform::HostSystem::get_operating_system();
+    EXPECT_NE(os, Platform::HostSystem::OperatingSystem::Unknown);
+
+    const auto arch = Platform::HostSystem::get_native_architecture();
+    EXPECT_NE(arch, Platform::HostSystem::Architecture::Unknown);
+
+    const auto& info = Platform::HostSystem::get_system_info();
+    EXPECT_FALSE(info.default_preset_debug.empty());
+    EXPECT_FALSE(info.default_preset_release.empty());
+}
+
+TEST(LanguageServerTests, ActivityPanelModelFileFolderManipulationAndMove)
+{
+    UI::Editor::ActivityPanelModel model;
+    EXPECT_TRUE(model.initialize("."));
+
+    const std::filesystem::path temp_dir = std::filesystem::current_path() / "build" / "temp_test_tree";
+    std::filesystem::create_directories(temp_dir);
+
+    UI::Editor::ActivityPanelModel test_model;
+    EXPECT_TRUE(test_model.initialize(temp_dir));
+
+    std::filesystem::path created_folder;
+    EXPECT_TRUE(test_model.create_directory("subfolder", created_folder));
+    EXPECT_TRUE(std::filesystem::is_directory(created_folder));
+
+    test_model.set_selected_path(std::nullopt);
+    std::filesystem::path created_file;
+    EXPECT_TRUE(test_model.create_file("test.txt", created_file));
+    EXPECT_TRUE(std::filesystem::exists(created_file));
+
+    std::filesystem::path moved_path;
+    EXPECT_TRUE(test_model.move_item(created_file, created_folder, moved_path));
+    EXPECT_TRUE(std::filesystem::exists(moved_path));
+    EXPECT_EQ(moved_path, created_folder / "test.txt");
+    EXPECT_FALSE(std::filesystem::exists(created_file));
+
+    EXPECT_TRUE(test_model.delete_item(created_folder));
+    EXPECT_FALSE(std::filesystem::exists(created_folder));
+
+    std::filesystem::remove_all(temp_dir);
 }
 
 

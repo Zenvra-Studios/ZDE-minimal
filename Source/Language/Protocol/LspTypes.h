@@ -30,7 +30,13 @@ struct Location
     std::string uri;
     Range range;
 
-    auto operator<=>(const Location&) const = default;
+    bool operator==(const Location&) const = default;
+    auto operator<=>(const Location& other) const {
+        if (const auto cmp = uri.compare(other.uri); cmp != 0) {
+            return cmp <=> 0;
+        }
+        return range <=> other.range;
+    }
 };
 
 enum class DiagnosticSeverity : int
@@ -41,6 +47,12 @@ enum class DiagnosticSeverity : int
     Hint = 4,
 };
 
+enum class DiagnosticTag : int
+{
+    Unnecessary = 1,
+    Deprecated = 2,
+};
+
 struct Diagnostic
 {
     Range range;
@@ -48,6 +60,29 @@ struct Diagnostic
     std::string message;
     std::string source;
     std::string code;
+    std::vector<DiagnosticTag> tags;
+
+    [[nodiscard]] bool is_unnecessary() const noexcept
+    {
+        for (auto tag : tags)
+        {
+            if (tag == DiagnosticTag::Unnecessary) return true;
+        }
+        if (code == "unused-includes" || code == "unused" || code == "unused-variable" || code == "unused-function")
+        {
+            return true;
+        }
+        if (message.find("not used") != std::string::npos ||
+            message.find("unused") != std::string::npos ||
+            message.find("Unused") != std::string::npos ||
+            message.find("never used") != std::string::npos ||
+            message.find("not referenced") != std::string::npos ||
+            message.find("is not needed") != std::string::npos)
+        {
+            return true;
+        }
+        return false;
+    }
 };
 
 enum class CompletionItemKind : int

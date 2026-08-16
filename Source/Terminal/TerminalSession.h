@@ -110,7 +110,7 @@ private:
     std::size_t m_utf8_expected = 0;
     ParserState m_parser_state = ParserState::Text;
     std::string m_control_sequence;
-    std::size_t m_columns = 100;
+    std::size_t m_columns = 240;
     std::size_t m_rows = 24;
     MouseTracking m_mouse_tracking = MouseTracking::Off;
     bool m_sgr_mouse = false;

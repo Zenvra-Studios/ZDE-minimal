@@ -24,6 +24,7 @@ enum class KeyCode
     Delete,
     Up,
     Down,
+    F11,
 };
 
 struct Shortcut

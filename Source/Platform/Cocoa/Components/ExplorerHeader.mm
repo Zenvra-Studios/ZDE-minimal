@@ -1,8 +1,10 @@
 #include "Platform/Cocoa/Components/ExplorerHeader.h"
+#include "Platform/Cocoa/Components/CocoaPromptDialog.h"
 #include "Platform/Cocoa/Components/StudioWorkspaceRenderer.h"
 #include "Utility/Fonts.h"
 
 #include <cmath>
+#include <fstream>
 
 namespace Zenvra::Platform::Cocoa::Components
 {
@@ -124,6 +126,7 @@ bool ExplorerHeader::handle_pointer_move(
 }
 
 bool ExplorerHeader::handle_pointer_press(
+    StudioWorkspaceRenderer& surface,
     const UI::Editor::StudioEditorLayoutResult& layout,
     float point_x, float point_y,
     UI::Editor::ActivityPanelModel& model,
@@ -131,12 +134,37 @@ bool ExplorerHeader::handle_pointer_press(
 {
     ActionIcon pressed = get_icon_at_point(layout, point_x, point_y);
     switch (pressed) {
-        case ActionIcon::NewFile:
-            // TODO: implement new file action
+        case ActionIcon::NewFile: {
+            const std::filesystem::path target_dir = model.get_target_directory_for_creation();
+            surface.get_prompt_dialog().open_new_file(
+                target_dir,
+                [&model, &file_to_open](const std::string& input, const std::string& content) {
+                    if (input.empty()) return;
+                    std::filesystem::path out_path;
+                    if (model.create_file(input, out_path)) {
+                        if (!content.empty()) {
+                            std::ofstream out(out_path, std::ios::binary);
+                            if (out.is_open()) {
+                                out.write(content.data(), content.size());
+                                out.close();
+                            }
+                        }
+                        file_to_open = out_path;
+                    }
+                });
             return true;
-        case ActionIcon::NewFolder:
-            // TODO: implement new folder action
+        }
+        case ActionIcon::NewFolder: {
+            const std::filesystem::path target_dir = model.get_target_directory_for_creation();
+            surface.get_prompt_dialog().open_new_folder(
+                target_dir,
+                [&model](const std::string& input) {
+                    if (input.empty()) return;
+                    std::filesystem::path out_path;
+                    model.create_directory(input, out_path);
+                });
             return true;
+        }
         case ActionIcon::Refresh:
             model.refresh();
             return true;
