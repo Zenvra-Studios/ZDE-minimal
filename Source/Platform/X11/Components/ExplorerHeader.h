@@ -1,16 +1,27 @@
 #pragma once
 
 #include "UI/Editor/ActivityPanelModel.h"
+#include "UI/Editor/StudioEditorModel.h"
 
 #include <X11/Xlib.h>
-#include <optional>
+
 #include <filesystem>
+#include <optional>
 #include <string>
 
 namespace Zenvra::Platform::X11::Components
 {
 
 class StudioWorkspaceRenderer;
+
+enum class HeaderAction {
+    NoneAction,
+    NewFile,
+    NewFolder,
+    Refresh,
+    CollapseAll,
+    More
+};
 
 class ExplorerHeader
 {
@@ -28,7 +39,7 @@ public:
         float point_x,
         float point_y,
         UI::Editor::ActivityPanelModel& model,
-        std::optional<std::filesystem::path>& file_to_open);
+        HeaderAction& action_out);
 
     bool handle_pointer_move(
         const UI::Editor::StudioEditorLayoutResult& layout,
@@ -45,7 +56,7 @@ private:
         More
     };
     
-    ActionIcon get_icon_at_point(
+    [[nodiscard]] ActionIcon get_icon_at_point(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y) const noexcept;

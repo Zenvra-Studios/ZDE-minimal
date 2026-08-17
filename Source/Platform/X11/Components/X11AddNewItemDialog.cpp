@@ -131,7 +131,41 @@ void X11AddNewItemDialog::init_default_templates() {
         "[package]\nname = \"my_project\"\nversion = \"0.1.0\"\nedition = "
         "\"2021\"\n\n[dependencies]\n"}}};
 
-  // 3. Shaders & Graphics Category
+  // 3. TypeScript & JavaScript Category
+  TemplateCategory ts_cat{
+      "typescript",
+      "TypeScript / JavaScript",
+      "Assets/icons/material-icon-theme/typescript.svg",
+      {{"ts_file", "TypeScript File (.ts)", "index.ts", ".ts", "TypeScript",
+        "Creates a modern TypeScript source file.",
+        "Assets/icons/material-icon-theme/typescript.svg",
+        "export interface AppConfig {\n    title: string;\n    version: string;\n}\n\nexport const config: AppConfig = {\n    title: \"ZDE Application\",\n    version: \"1.0.0\",\n};\n\nexport function bootstrap(): void {\n    console.log(`Starting ${config.title} v${config.version}...`);\n}\n\nbootstrap();\n"},
+       {"js_file", "JavaScript File (.js)", "index.js", ".js", "JavaScript",
+        "Creates a standard JavaScript source file.",
+        "Assets/icons/material-icon-theme/javascript.svg",
+        "// @ts-check\n\nexport function bootstrap() {\n    console.log('Hello from JavaScript in ZDE!');\n}\n\nbootstrap();\n"},
+       {"mjs_file", "ES Module File (.mjs)", "index.mjs", ".mjs", "JavaScript",
+        "Creates a modern ECMAScript module file.",
+        "Assets/icons/material-icon-theme/javascript.svg",
+        "import { promises as fs } from 'node:fs';\n\nexport async function bootstrap() {\n    console.log('Running ES Module in ZDE...');\n}\n\nawait bootstrap();\n"},
+       {"tsx_file", "React Component (.tsx)", "Component.tsx", ".tsx", "TypeScript",
+        "Creates a React functional component with TypeScript props.",
+        "Assets/icons/material-icon-theme/react_ts.svg",
+        "import React, { useState } from 'react';\n\nexport interface ComponentProps {\n    title?: string;\n}\n\nexport const Component: React.FC<ComponentProps> = ({\n    title = \"ZDE Component\",\n}) => {\n    const [count, setCount] = useState<number>(0);\n\n    return (\n        <div className=\"container\">\n            <h2>{title}</h2>\n            <button onClick={() => setCount(count + 1)}>Count: {count}</button>\n        </div>\n    );\n};\n\nexport default Component;\n"},
+       {"jsx_file", "React Component (.jsx)", "Component.jsx", ".jsx", "JavaScript",
+        "Creates a React functional component with JSX syntax.",
+        "Assets/icons/material-icon-theme/react.svg",
+        "import React, { useState } from 'react';\n\nexport const Component = ({ title = 'ZDE Component' }) => {\n    const [count, setCount] = useState(0);\n\n    return (\n        <div className=\"container\">\n            <h2>{title}</h2>\n            <button onClick={() => setCount(count + 1)}>Count: {count}</button>\n        </div>\n    );\n};\n\nexport default Component;\n"},
+       {"dts_file", "TypeScript Declaration (.d.ts)", "types.d.ts", ".d.ts", "TypeScript",
+        "Creates a TypeScript ambient declaration type definitions file.",
+        "Assets/icons/material-icon-theme/typescript-def.svg",
+        "declare namespace ZDE {\n    interface UserSession {\n        id: string;\n        username: string;\n        createdAt: Date;\n    }\n}\n"},
+       {"tsconfig", "TSConfig (tsconfig.json)", "tsconfig.json", ".json", "TypeScript",
+        "Creates a standard TypeScript compiler configuration file.",
+        "Assets/icons/material-icon-theme/tsconfig.svg",
+        "{\n  \"compilerOptions\": {\n    \"target\": \"ESNext\",\n    \"module\": \"ESNext\",\n    \"moduleResolution\": \"bundler\",\n    \"strict\": true,\n    \"jsx\": \"react-jsx\",\n    \"esModuleInterop\": true,\n    \"skipLibCheck\": true,\n    \"forceConsistentCasingInFileNames\": true\n  },\n  \"include\": [\"src/**/*\"]\n}\n"}}};
+
+  // 4. Shaders & Graphics Category
   TemplateCategory shader_cat{
       "shader",
       "Shaders & Graphics",
@@ -163,7 +197,7 @@ void X11AddNewItemDialog::init_default_templates() {
         "TEXCOORD0;\n};\n\nfloat4 main(PSInput input) : SV_TARGET\n{\n    "
         "return float4(input.uv, 0.0, 1.0);\n}\n"}}};
 
-  // 4. Build & Config Category
+  // 5. Build & Config Category
   TemplateCategory build_cat{
       "build",
       "Build & Config",
@@ -183,7 +217,25 @@ void X11AddNewItemDialog::init_default_templates() {
         "Assets/icons/material-icon-theme/toml.svg",
         "[settings]\ntheme = \"zenvra_dark\"\n"}}};
 
-  // 5. General Category
+  // 6. HTML & Web Category
+  TemplateCategory web_cat{
+      "web",
+      "HTML & Web",
+      "Assets/icons/material-icon-theme/html.svg",
+      {{"html5_page", "HTML5 Page (.html)", "index.html", ".html", "HTML & Web",
+        "Creates a modern HTML5 document structure with viewport and styling.",
+        "Assets/icons/material-icon-theme/html.svg",
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>ZDE App</title>\n    <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n    <div class=\"container\">\n        <h1>Hello from ZDE!</h1>\n        <p>Built with native C++ power.</p>\n    </div>\n    <script src=\"main.js\"></script>\n</body>\n</html>\n"},
+       {"css_style", "CSS Stylesheet (.css)", "style.css", ".css", "HTML & Web",
+        "Creates a CSS stylesheet for HTML layouts.",
+        "Assets/icons/material-icon-theme/css.svg",
+        "* {\n    box-sizing: border-box;\n    margin: 0;\n    padding: 0;\n}\n\nbody {\n    font-family: system-ui, -apple-system, sans-serif;\n    background-color: #1e1e1e;\n    color: #ffffff;\n    padding: 2rem;\n}\n"},
+       {"svg_graphic", "SVG Vector Graphic (.svg)", "graphic.svg", ".svg", "HTML & Web",
+        "Creates an SVG scalable vector graphics XML file.",
+        "Assets/icons/material-icon-theme/svg.svg",
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n    <circle cx=\"12\" cy=\"12\" r=\"10\"></circle>\n</svg>\n"}}};
+
+  // 7. General Category
   TemplateCategory gen_cat{
       "general",
       "General",
@@ -202,8 +254,10 @@ void X11AddNewItemDialog::init_default_templates() {
 
   m_categories.push_back(cpp_cat);
   m_categories.push_back(rust_cat);
+  m_categories.push_back(ts_cat);
   m_categories.push_back(shader_cat);
   m_categories.push_back(build_cat);
+  m_categories.push_back(web_cat);
   m_categories.push_back(gen_cat);
 }
 
@@ -237,7 +291,11 @@ void X11AddNewItemDialog::open(Window parent_window,
   close();
 
   m_parent_window = parent_window;
-  m_target_folder = target_folder;
+  m_target_folder = target_folder.empty() ? std::filesystem::current_path() : target_folder;
+  std::error_code ec;
+  if (!std::filesystem::is_directory(m_target_folder, ec)) {
+    m_target_folder = m_target_folder.parent_path();
+  }
   m_project_name = project_name.empty() ? "Project" : project_name;
   m_callback = std::move(callback);
 

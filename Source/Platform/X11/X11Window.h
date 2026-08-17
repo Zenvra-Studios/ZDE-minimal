@@ -6,6 +6,7 @@
 #include "Platform/X11/Components/X11PromptDialog.h"
 #include "Platform/X11/Components/X11AddNewItemDialog.h"
 #include "UI/Chrome/WindowChromeLayout.h"
+#include "UI/Components/AboutModal.h"
 #include "UI/Theme/StudioTheme.h"
 
 #include <X11/Xlib.h>
@@ -47,6 +48,13 @@ public:
     void set_command_state_query_callback(CommandStateQueryCallback callback) override;
 
     [[nodiscard]] bool open_project_folder() override;
+    [[nodiscard]] bool close_project() override;
+    void toggle_terminal() override;
+    void toggle_shader_sandbox() override;
+    void show_about_dialog() override;
+    [[nodiscard]] bool is_modal_active() const override;
+    void toggle_fullscreen() override;
+    [[nodiscard]] bool is_fullscreen() const override;
 
 private:
     struct Atoms
@@ -188,6 +196,10 @@ private:
     std::string m_clipboard_text;
     Components::X11PromptDialog m_prompt_dialog;
     Components::X11AddNewItemDialog m_add_item_dialog;
+    UI::Components::AboutModal m_about_modal;
+    bool m_is_fullscreen = false;
+
+    void draw_about_modal(Drawable drawable, int client_width, int client_height);
 };
 
 } // namespace Zenvra::Platform::X11

@@ -2,6 +2,7 @@
 #include "Platform/X11/Components/StudioWorkspaceRenderer.h"
 #include "Services/Output/OutputLogManager.h"
 #include "Utility/Fonts.h"
+#include "Utility/MathUtil.h"
 
 #include <algorithm>
 #include <cmath>
@@ -13,10 +14,7 @@ namespace Zenvra::Platform::X11::Components
 namespace
 {
 
-int round_to_int(float value)
-{
-    return static_cast<int>(std::lround(value));
-}
+using Zenvra::Utility::round_to_int;
 
 
 std::filesystem::path current_terminal_directory(
@@ -152,7 +150,12 @@ bool TerminalPanel::handle_pointer_press(
     }
     if (layout.terminal_content_bounds.contains(point_x, point_y))
     {
-        const float line_height = std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+        const float line_height = m_cached_line_height > 0.0F
+                                      ? m_cached_line_height
+                                      : std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+        const float char_width = m_cached_char_width > 0.0F
+                                     ? m_cached_char_width
+                                     : std::max(8.0F * layout.dpi_scale, 1.0F);
         const float padding_x = 10.0F * layout.dpi_scale;
         const float content_top_padding = 5.0F * layout.dpi_scale;
         const float local_y = point_y - (layout.terminal_content_bounds.y + content_top_padding);
@@ -163,9 +166,8 @@ bool TerminalPanel::handle_pointer_press(
         const std::size_t line_idx = start + std::clamp(row, 0, static_cast<int>(m_last_visible_rows > 0 ? m_last_visible_rows - 1 : 0));
 
         const float local_x = point_x - (layout.terminal_content_bounds.x + padding_x);
-        const float glyph_w = std::max(8.0F * layout.dpi_scale, 1.0F);
-        const int col = static_cast<int>(std::round(local_x / glyph_w));
-        const std::size_t col_idx = std::max(0, col);
+        const int col = static_cast<int>(std::floor(std::max(local_x, 0.0F) / char_width));
+        const std::size_t col_idx = static_cast<std::size_t>(std::max(0, col));
 
         if (m_model.is_mouse_tracking_active() && !shift_held)
         {
@@ -211,15 +213,19 @@ bool TerminalPanel::handle_pointer_move(
 
     if (m_model.is_mouse_tracking_active() && layout.terminal_content_bounds.contains(point_x, point_y))
     {
-        const float line_height = std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+        const float line_height = m_cached_line_height > 0.0F
+                                      ? m_cached_line_height
+                                      : std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+        const float char_width = m_cached_char_width > 0.0F
+                                     ? m_cached_char_width
+                                     : std::max(8.0F * layout.dpi_scale, 1.0F);
         const float padding_x = 10.0F * layout.dpi_scale;
         const float content_top_padding = 5.0F * layout.dpi_scale;
         const float local_y = point_y - (layout.terminal_content_bounds.y + content_top_padding);
         const int row = static_cast<int>(std::floor(local_y / line_height));
         const float local_x = point_x - (layout.terminal_content_bounds.x + padding_x);
-        const float glyph_w = std::max(8.0F * layout.dpi_scale, 1.0F);
-        const int col = static_cast<int>(std::round(local_x / glyph_w));
-        const std::size_t visual_col = std::max(0, col) + 1;
+        const int col = static_cast<int>(std::floor(std::max(local_x, 0.0F) / char_width));
+        const std::size_t visual_col = static_cast<std::size_t>(std::max(0, col)) + 1;
         const std::size_t visual_row = static_cast<std::size_t>(std::clamp(row, 0, static_cast<int>(m_last_visible_rows > 0 ? m_last_visible_rows - 1 : 0))) + 1;
 
         if (visual_col != m_last_cli_mouse_col || visual_row != m_last_cli_mouse_row)
@@ -243,15 +249,19 @@ bool TerminalPanel::handle_pointer_drag(
 {
     if (m_cli_mouse_down)
     {
-        const float line_height = std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+        const float line_height = m_cached_line_height > 0.0F
+                                      ? m_cached_line_height
+                                      : std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+        const float char_width = m_cached_char_width > 0.0F
+                                     ? m_cached_char_width
+                                     : std::max(8.0F * layout.dpi_scale, 1.0F);
         const float padding_x = 10.0F * layout.dpi_scale;
         const float content_top_padding = 5.0F * layout.dpi_scale;
         const float local_y = point_y - (layout.terminal_content_bounds.y + content_top_padding);
         const int row = static_cast<int>(std::floor(local_y / line_height));
         const float local_x = point_x - (layout.terminal_content_bounds.x + padding_x);
-        const float glyph_w = std::max(8.0F * layout.dpi_scale, 1.0F);
-        const int col = static_cast<int>(std::round(local_x / glyph_w));
-        const std::size_t visual_col = std::max(0, col) + 1;
+        const int col = static_cast<int>(std::floor(std::max(local_x, 0.0F) / char_width));
+        const std::size_t visual_col = static_cast<std::size_t>(std::max(0, col)) + 1;
         const std::size_t visual_row = static_cast<std::size_t>(std::clamp(row, 0, static_cast<int>(m_last_visible_rows > 0 ? m_last_visible_rows - 1 : 0))) + 1;
 
         if (visual_col != m_last_cli_mouse_col || visual_row != m_last_cli_mouse_row)
@@ -265,7 +275,12 @@ bool TerminalPanel::handle_pointer_drag(
 
     if (m_selecting_text)
     {
-        const float line_height = std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+        const float line_height = m_cached_line_height > 0.0F
+                                      ? m_cached_line_height
+                                      : std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+        const float char_width = m_cached_char_width > 0.0F
+                                     ? m_cached_char_width
+                                     : std::max(8.0F * layout.dpi_scale, 1.0F);
         const float padding_x = 10.0F * layout.dpi_scale;
         const float content_top_padding = 5.0F * layout.dpi_scale;
         const float local_y = point_y - (layout.terminal_content_bounds.y + content_top_padding);
@@ -276,9 +291,8 @@ bool TerminalPanel::handle_pointer_drag(
         const std::size_t line_idx = start + std::clamp(row, 0, static_cast<int>(m_last_visible_rows > 0 ? m_last_visible_rows - 1 : 0));
 
         const float local_x = point_x - (layout.terminal_content_bounds.x + padding_x);
-        const float glyph_w = std::max(8.0F * layout.dpi_scale, 1.0F);
-        const int col = static_cast<int>(std::round(local_x / glyph_w));
-        const std::size_t col_idx = std::max(0, col);
+        const int col = static_cast<int>(std::floor(std::max(local_x, 0.0F) / char_width));
+        const std::size_t col_idx = static_cast<std::size_t>(std::max(0, col));
 
         m_model.update_selection(line_idx, col_idx);
         return true;
@@ -313,6 +327,10 @@ bool TerminalPanel::handle_pointer_release() noexcept
             Terminal::TerminalSession::MouseAction::Release,
             m_last_cli_mouse_col, m_last_cli_mouse_row));
     }
+    if (m_selecting_text && m_model.has_selection() && m_copy_callback)
+    {
+        m_copy_callback(m_model.get_selected_text());
+    }
     m_selecting_text = false;
     return m_resize_model.end_resize();
 }
@@ -337,6 +355,9 @@ bool TerminalPanel::handle_key(Terminal::TerminalInputKey key) {
 }
 bool TerminalPanel::handle_control(char letter) {
   if ((letter == 'c' || letter == 'C') && m_model.has_selection()) {
+    if (m_copy_callback) {
+      m_copy_callback(m_model.get_selected_text());
+    }
     m_model.clear_selection();
     return true;
   }
@@ -347,6 +368,7 @@ bool TerminalPanel::handle_control(char letter) {
   }
   return changed;
 }
+
 bool TerminalPanel::handle_scroll(
     const UI::Editor::StudioEditorLayoutResult& layout,
     float point_x,
@@ -626,30 +648,53 @@ void TerminalPanel::render(
     }
 
     const UI::Rect add = add_button_bounds(layout);
-    surface.draw_line(drawable, round_to_int(add.x + add.width * 0.5F), round_to_int(add.y + 7.0F * surface.m_dpi_scale),
-        round_to_int(add.x + add.width * 0.5F), round_to_int(add.bottom() - 7.0F * surface.m_dpi_scale), surface.m_pixels.text_muted);
-    surface.draw_line(drawable, round_to_int(add.x + 7.0F * surface.m_dpi_scale), round_to_int(add.y + add.height * 0.5F),
-        round_to_int(add.right() - 7.0F * surface.m_dpi_scale), round_to_int(add.y + add.height * 0.5F), surface.m_pixels.text_muted);
+    surface.draw_line(drawable, round_to_int(add.x + add.width * 0.5F),
+                      round_to_int(add.y + 8.0F * surface.m_dpi_scale),
+                      round_to_int(add.x + add.width * 0.5F),
+                      round_to_int(add.bottom() - 8.0F * surface.m_dpi_scale),
+                      surface.m_pixels.text_muted);
+    surface.draw_line(
+        drawable, round_to_int(add.x + 6.0F * surface.m_dpi_scale),
+        round_to_int(add.y + add.height * 0.5F),
+        round_to_int(add.right() - 6.0F * surface.m_dpi_scale),
+        round_to_int(add.y + add.height * 0.5F), surface.m_pixels.text_muted);
+
     const UI::Rect close = close_button_bounds(layout);
-    surface.draw_line(drawable, round_to_int(close.x + 8.0F * surface.m_dpi_scale), round_to_int(close.y + 8.0F * surface.m_dpi_scale),
-        round_to_int(close.right() - 8.0F * surface.m_dpi_scale), round_to_int(close.bottom() - 8.0F * surface.m_dpi_scale), surface.m_pixels.text_muted);
-    surface.draw_line(drawable, round_to_int(close.right() - 8.0F * surface.m_dpi_scale), round_to_int(close.y + 8.0F * surface.m_dpi_scale),
-        round_to_int(close.x + 8.0F * surface.m_dpi_scale), round_to_int(close.bottom() - 8.0F * surface.m_dpi_scale), surface.m_pixels.text_muted);
+    if (close.width > 0.0F) {
+      surface.draw_svg_icon(
+          drawable, "Assets/icons/diagnostic-error.svg",
+          round_to_int(close.x + close.width * 0.5F),
+          round_to_int(close.y + close.height * 0.5F),
+          std::max(round_to_int(10.0F * surface.m_dpi_scale), 9),
+          surface.m_palette.text_muted, surface.m_palette.tab_active_background);
+    }
 
     const Terminal::TerminalSession* session = m_model.get_active_session();
-    if (session == nullptr || surface.m_editor_font == nullptr)
+    if (session == nullptr || surface.m_editor_font == nullptr || surface.m_small_font == nullptr)
     {
         return;
     }
-    if (sessions.size() <= 4 &&
-        layout.terminal_header_bounds.width >= 600.0F * surface.m_dpi_scale)
+    const float scale = surface.m_dpi_scale;
+    const float right_space_start = add.right() + 16.0F * scale;
+    const float available_shell_width =
+        layout.terminal_header_bounds.right() - right_space_start - 16.0F * scale;
+
+    if (sessions.size() <= 4 && available_shell_width >= 80.0F * scale)
     {
-        const std::string shell_label = "Local  " + session->get_shell_path().string();
-        const int label_width = surface.m_small_font->getTextWidth(shell_label);
-        surface.draw_text(drawable, *surface.m_small_font, shell_label,
-            close.x - 12.0F * surface.m_dpi_scale - static_cast<float>(label_width),
-            layout.terminal_header_bounds.y + layout.terminal_header_bounds.height * 0.5F,
-            session->is_running() ? surface.m_text.success : surface.m_text.muted);
+        std::string shell_label = "Local  " + session->get_shell_path().string();
+        int label_width = surface.m_small_font->getTextWidth(shell_label);
+        if (static_cast<float>(label_width) > available_shell_width)
+        {
+            shell_label = "Local  " + session->get_shell_path().filename().string();
+            label_width = surface.m_small_font->getTextWidth(shell_label);
+        }
+        if (static_cast<float>(label_width) <= available_shell_width)
+        {
+            surface.draw_text(drawable, *surface.m_small_font, shell_label,
+                layout.terminal_header_bounds.right() - 16.0F * scale - static_cast<float>(label_width),
+                layout.terminal_header_bounds.y + layout.terminal_header_bounds.height * 0.5F,
+                session->is_running() ? surface.m_text.success : surface.m_text.muted);
+        }
     }
     const float padding_x = 10.0F * surface.m_dpi_scale;
     const float line_height = std::max(
@@ -664,6 +709,8 @@ void TerminalPanel::render(
             static_cast<std::size_t>(std::floor(usable_content_height / line_height)), 1)
         : 0;
     const int glyph_width = std::max(surface.m_editor_font->getTextWidth("M"), 1);
+    m_cached_char_width = static_cast<float>(glyph_width);
+    m_cached_line_height = line_height;
     const std::size_t visible_columns = static_cast<std::size_t>(std::max(
         (layout.terminal_content_bounds.width - 22.0F * surface.m_dpi_scale) /
             static_cast<float>(glyph_width),
@@ -850,14 +897,10 @@ UI::Rect TerminalPanel::session_tab_bounds(
 {
     const float scale = layout.dpi_scale;
     const float start_x = layout.terminal_header_bounds.x + 152.0F * scale;
-    const float reserved_width = 56.0F * scale;
-    const float available_width = std::max(
-        layout.terminal_header_bounds.right() - start_x - reserved_width, 0.0F);
-    const float tab_width = std::min(
-        112.0F * scale,
-        available_width / static_cast<float>(std::max<std::size_t>(m_model.get_sessions().size(), 1)));
-    return UI::Rect{start_x + static_cast<float>(index) * tab_width,
-        layout.terminal_header_bounds.y, tab_width, layout.terminal_header_bounds.height};
+    const float tab_width = 108.0F * scale;
+    const float x = start_x + static_cast<float>(index) * tab_width;
+    return UI::Rect{x, layout.terminal_header_bounds.y, tab_width,
+                    layout.terminal_header_bounds.height};
 }
 
 UI::Rect TerminalPanel::add_button_bounds(
@@ -865,21 +908,31 @@ UI::Rect TerminalPanel::add_button_bounds(
 {
     const float scale = layout.dpi_scale;
     const float start_x = layout.terminal_header_bounds.x + 152.0F * scale;
-    const float available_width = std::max(layout.terminal_header_bounds.right() - start_x - 56.0F * scale, 0.0F);
-    const float tab_width = std::min(
-        112.0F * scale,
-        available_width / static_cast<float>(std::max<std::size_t>(m_model.get_sessions().size(), 1)));
-    const float x = start_x + static_cast<float>(m_model.get_sessions().size()) * tab_width;
-    return UI::Rect{x, layout.terminal_header_bounds.y,
-        28.0F * scale, layout.terminal_header_bounds.height};
+    const float tab_width = 108.0F * scale;
+    const float x =
+        start_x + static_cast<float>(m_model.get_sessions().size()) * tab_width +
+        4.0F * scale;
+    return UI::Rect{x, layout.terminal_header_bounds.y, 24.0F * scale,
+                    layout.terminal_header_bounds.height};
 }
 
 UI::Rect TerminalPanel::close_button_bounds(
     const UI::Editor::StudioEditorLayoutResult& layout) const noexcept
 {
-    const float width = 28.0F * layout.dpi_scale;
-    return UI::Rect{layout.terminal_header_bounds.right() - width,
-        layout.terminal_header_bounds.y, width, layout.terminal_header_bounds.height};
+    const std::optional<std::size_t> active_index = m_model.get_active_index();
+    if (!active_index) {
+        return UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
+    }
+    const std::span<const Terminal::TerminalSessionEntry> sessions =
+        m_model.get_sessions();
+    if (*active_index >= sessions.size()) {
+        return UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
+    }
+    const UI::Rect tab = session_tab_bounds(layout, *active_index);
+    const float width = 20.0F * layout.dpi_scale;
+    return UI::Rect{tab.right() - width - 2.0F * layout.dpi_scale,
+                    layout.terminal_header_bounds.y,
+                    width, layout.terminal_header_bounds.height};
 }
 
 UI::Rect TerminalPanel::resize_handle_bounds(

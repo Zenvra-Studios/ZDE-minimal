@@ -1,5 +1,6 @@
 #include "Platform/X11/Components/ActivitySidebar.h"
 #include "Platform/X11/Components/StudioWorkspaceRenderer.h"
+#include "Utility/MathUtil.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,10 +11,7 @@ namespace Zenvra::Platform::X11::Components
 namespace
 {
 
-int round_to_int(float value)
-{
-    return static_cast<int>(std::lround(value));
-}
+using Zenvra::Utility::round_to_int;
 
 } // namespace
 

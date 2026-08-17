@@ -6,6 +6,7 @@
 
 #include "UI/Editor/EditorFileSystem.h"
 #include "Utility/Fonts.h"
+#include "Utility/MathUtil.h"
 #include "Utility/X11Rounded.h"
 #include <lunasvg.h>
 
@@ -18,7 +19,7 @@ namespace Zenvra::Platform::X11::Components {
 
 namespace {
 
-int round_to_int(float value) { return static_cast<int>(std::lround(value)); }
+using Zenvra::Utility::round_to_int;
 
 std::string to_xft_color(const UI::Theme::Color &color) {
   char value[8]{};
@@ -235,6 +236,13 @@ bool StudioWorkspaceRenderer::set_workspace_root(
   return true;
 }
 
+bool StudioWorkspaceRenderer::close_project() {
+  m_text_editor.close_all_files();
+  m_tool_sidebar.clear_workspace();
+  m_terminal_panel.set_working_directory({});
+  return true;
+}
+
 std::size_t StudioWorkspaceRenderer::open_dropped_paths(
     std::span<const std::filesystem::path> dropped_paths) {
   return m_text_editor.open_dropped_paths(dropped_paths);
@@ -279,16 +287,24 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
   if (m_shader_sandbox_panel.handle_pointer_press(layout, point_x, point_y)) {
     return true;
   }
-  std::optional<std::filesystem::path> sidebar_file;
-  if (m_tool_sidebar.handle_pointer_press(layout, point_x, point_y,
-                                          sidebar_file)) {
+  const auto sidebar_result =
+      m_tool_sidebar.handle_pointer_press(layout, point_x, point_y);
+  if (sidebar_result.handled) {
     m_terminal_panel.set_focused(false);
-    if (sidebar_file) {
-      if (sidebar_file->string() == "::OPEN_FOLDER::") {
+    if (sidebar_result.action == SidebarActionKind::OpenFile && sidebar_result.path) {
+      if (sidebar_result.path->string() == "::OPEN_FOLDER::") {
         command_out = "zde.project.open";
       } else {
-        static_cast<void>(open_file(*sidebar_file));
+        static_cast<void>(open_file(*sidebar_result.path));
       }
+    } else if (sidebar_result.action == SidebarActionKind::NewFile) {
+      command_out = "zde.explorer.newFile";
+    } else if (sidebar_result.action == SidebarActionKind::NewFolder) {
+      command_out = "zde.explorer.newFolder";
+    } else if (sidebar_result.action == SidebarActionKind::Refresh) {
+      command_out = "zde.explorer.refresh";
+    } else if (sidebar_result.action == SidebarActionKind::CollapseAll) {
+      command_out = "zde.explorer.collapseAll";
     }
     return true;
   }
@@ -299,14 +315,10 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
   }
   if (m_shader_sandbox_panel.is_visible() &&
       m_shader_sandbox_panel.contains(layout, point_x, point_y)) {
-    m_terminal_panel.set_focused(false);
-    return m_shader_sandbox_panel.handle_pointer_press(layout, point_x,
-                                                       point_y);
+    return true;
   }
-  m_terminal_panel.set_focused(false);
-  return m_text_editor.handle_pointer_press(*this, layout, point_x, point_y,
-                                            extend_selection, click_count,
-                                            command_out);
+  return m_text_editor.handle_pointer_press(
+      *this, layout, point_x, point_y, extend_selection, click_count, command_out);
 }
 
 bool StudioWorkspaceRenderer::handle_pointer_move(float point_x, float point_y,
@@ -317,12 +329,14 @@ bool StudioWorkspaceRenderer::handle_pointer_move(float point_x, float point_y,
       calculate_layout(client_width, client_height, content_top);
   const bool sidebar_changed =
       m_tool_sidebar.handle_pointer_move(layout, point_x, point_y);
+  const bool terminal_changed =
+      m_terminal_panel.handle_pointer_move(layout, point_x, point_y);
   const bool editor_changed =
       m_text_editor.handle_pointer_move(layout, point_x, point_y);
   const bool shader_changed =
       m_shader_sandbox_panel.handle_pointer_move(layout, point_x, point_y);
-  return m_terminal_panel.handle_pointer_move(layout, point_x, point_y) ||
-         sidebar_changed || editor_changed || shader_changed;
+  return sidebar_changed || terminal_changed || editor_changed ||
+         shader_changed;
 }
 
 bool StudioWorkspaceRenderer::handle_pointer_drag(float point_x, float point_y,
@@ -331,8 +345,8 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(float point_x, float point_y,
                                                   float content_top) {
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
-  if (m_tool_sidebar.is_resizing()) {
-    return m_tool_sidebar.handle_pointer_drag(layout, point_x);
+  if (m_tool_sidebar.is_resizing() || m_tool_sidebar.is_dragging_item()) {
+    return m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y);
   }
   if (m_terminal_panel.is_resizing()) {
     return m_terminal_panel.handle_pointer_drag(layout, point_y);
@@ -591,6 +605,22 @@ bool StudioWorkspaceRenderer::is_sidebar_resize_handle_point(
 
 bool StudioWorkspaceRenderer::is_sidebar_resizing() const noexcept {
   return m_tool_sidebar.is_resizing();
+}
+
+bool StudioWorkspaceRenderer::is_sidebar_dragging_item() const noexcept {
+  return m_tool_sidebar.is_dragging_item();
+}
+
+bool StudioWorkspaceRenderer::is_editor_split_resize_handle(
+    float point_x, float point_y, int client_width, int client_height,
+    float content_top) const noexcept {
+  const UI::Editor::StudioEditorLayoutResult layout =
+      calculate_layout(client_width, client_height, content_top);
+  return m_text_editor.is_split_resize_handle_point(layout, point_x, point_y);
+}
+
+bool StudioWorkspaceRenderer::is_editor_split_resizing() const noexcept {
+  return m_text_editor.is_split_resizing();
 }
 
 bool StudioWorkspaceRenderer::is_shader_panel_point(
@@ -1008,15 +1038,30 @@ void StudioWorkspaceRenderer::draw_svg_icon(
   std::error_code path_error;
   std::filesystem::path resolved_path{path};
   if (resolved_path.is_relative() && !m_icon_asset_root.empty()) {
-    const std::filesystem::path themed_path = m_icon_asset_root / resolved_path;
-    if (std::filesystem::is_regular_file(themed_path, path_error)) {
-      resolved_path = themed_path;
+    std::string rel_str = resolved_path.string();
+    if (rel_str.starts_with("Assets/icons/") || rel_str.starts_with("Assets\\icons\\")) {
+      rel_str = rel_str.substr(13);
+    } else if (rel_str.starts_with("Resources/icons/") || rel_str.starts_with("Resources\\icons\\")) {
+      rel_str = rel_str.substr(16);
+    } else if (rel_str.starts_with("Assets/") || rel_str.starts_with("Assets\\")) {
+      rel_str = rel_str.substr(7);
+    } else if (rel_str.starts_with("Resources/") || rel_str.starts_with("Resources\\")) {
+      rel_str = rel_str.substr(10);
+    }
+
+    const std::filesystem::path direct_path = m_icon_asset_root / rel_str;
+    if (std::filesystem::is_regular_file(direct_path, path_error)) {
+      resolved_path = direct_path;
     } else {
-      // Keep compatibility with callers that pass Assets/icons/foo.svg.
-      const std::filesystem::path legacy_path =
-          m_icon_asset_root / resolved_path.filename();
-      if (std::filesystem::is_regular_file(legacy_path, path_error)) {
-        resolved_path = legacy_path;
+      const std::filesystem::path themed_path = m_icon_asset_root / resolved_path;
+      if (std::filesystem::is_regular_file(themed_path, path_error)) {
+        resolved_path = themed_path;
+      } else {
+        const std::filesystem::path legacy_path =
+            m_icon_asset_root / resolved_path.filename();
+        if (std::filesystem::is_regular_file(legacy_path, path_error)) {
+          resolved_path = legacy_path;
+        }
       }
     }
   }
@@ -1034,7 +1079,8 @@ void StudioWorkspaceRenderer::draw_svg_icon(
   const std::string resolved_string = resolved_path.string();
   const std::string cache_key = resolved_string + "@" + std::to_string(size) +
                                 "#" + to_xft_color(color) + "/" +
-                                to_xft_color(background);
+                                to_xft_color(background) +
+                                (preserve_source_colors ? "_p" : "");
   XImage *image = nullptr;
   auto it = m_svg_cache.find(cache_key);
   if (it != m_svg_cache.end()) {
@@ -1075,16 +1121,16 @@ void StudioWorkspaceRenderer::draw_svg_icon(
       const uint32_t source_g = (pixel >> 8) & 0xFF;
       const uint32_t source_b = pixel & 0xFF;
       const uint32_t out_r = preserve_source_colors
-                                 ? source_r + (bg_r * (255 - a)) / 255
+                                 ? (source_r * a + bg_r * (255 - a)) / 255
                                  : (tint_r * a + bg_r * (255 - a)) / 255;
       const uint32_t out_g = preserve_source_colors
-                                 ? source_g + (bg_g * (255 - a)) / 255
+                                 ? (source_g * a + bg_g * (255 - a)) / 255
                                  : (tint_g * a + bg_g * (255 - a)) / 255;
       const uint32_t out_b = preserve_source_colors
-                                 ? source_b + (bg_b * (255 - a)) / 255
+                                 ? (source_b * a + bg_b * (255 - a)) / 255
                                  : (tint_b * a + bg_b * (255 - a)) / 255;
 
-      // X11 ZPixmap expects BGRx for 24-bit depth on little-endian
+      // X11 ZPixmap expects 0x00RRGGBB on Little-Endian 24/32-bit visual
       dst[i] = (out_r << 16) | (out_g << 8) | out_b;
     }
 

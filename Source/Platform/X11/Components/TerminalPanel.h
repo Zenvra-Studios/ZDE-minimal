@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <functional>
 #include <string_view>
 #include <unordered_map>
 
@@ -62,6 +63,10 @@ public:
     void set_focused(bool focused) noexcept;
     void set_working_directory(const std::filesystem::path& directory) noexcept;
 
+    [[nodiscard]] const Terminal::TerminalPanelModel& get_model() const noexcept { return m_model; }
+    [[nodiscard]] Terminal::TerminalPanelModel& get_model() noexcept { return m_model; }
+    void set_copy_callback(std::function<void(const std::string&)> callback) noexcept { m_copy_callback = std::move(callback); }
+
     enum class PanelChannel { Terminal, Output };
     [[nodiscard]] PanelChannel get_active_channel() const noexcept { return m_active_channel; }
     void set_active_channel(PanelChannel channel) noexcept { m_active_channel = channel; }
@@ -112,6 +117,9 @@ private:
     std::size_t m_horizontal_scroll_offset = 0;
     bool m_force_horizontal_scroll_to_cursor = false;
     PanelChannel m_active_channel = PanelChannel::Terminal;
+    float m_cached_char_width = 0.0F;
+    float m_cached_line_height = 0.0F;
+    std::function<void(const std::string&)> m_copy_callback;
 };
 
 } // namespace Zenvra::Platform::X11::Components

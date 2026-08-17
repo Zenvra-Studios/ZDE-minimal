@@ -98,8 +98,9 @@ public:
     [[nodiscard]] std::size_t open_dropped_paths(
         std::span<const std::filesystem::path> dropped_paths);
     [[nodiscard]] bool create_workspace_buffer();
-    [[nodiscard]] bool toggle_terminal();
-    [[nodiscard]] bool toggle_shader_sandbox();
+    [[nodiscard]] bool toggle_terminal() { return m_workspace_renderer.get_terminal_panel().toggle(); }
+    [[nodiscard]] bool toggle_shader_sandbox() { return m_workspace_renderer.toggle_shader_panel(); }
+    [[nodiscard]] bool close_workspace_project() { return m_workspace_renderer.close_project(); }
 
     void set_active_target(std::string_view target) { m_run_config_state.active_target_name = std::string(target); }
     void set_active_mode(UI::Toolbar::BuildConfigurationMode mode) { m_run_config_state.active_mode = mode; }
@@ -256,6 +257,15 @@ public:
     [[nodiscard]] bool is_shader_panel_resizing() const noexcept;
     [[nodiscard]] bool toggle_shader_panel() noexcept;
     [[nodiscard]] bool is_empty_state_button_hovered() const noexcept;
+    [[nodiscard]] bool is_editor_split_resize_handle_point(
+        float point_x, float point_y, int client_width, int client_height,
+        float content_top) const noexcept {
+      return m_workspace_renderer.is_editor_split_resize_handle(
+          point_x, point_y, client_width, client_height, content_top);
+    }
+    [[nodiscard]] bool is_editor_split_resizing() const noexcept {
+      return m_workspace_renderer.is_editor_split_resizing();
+    }
     [[nodiscard]] bool tick_animations() noexcept;
 
     [[nodiscard]] TextEditor& get_text_editor() noexcept { return m_workspace_renderer.m_text_editor; }
@@ -402,9 +412,6 @@ private:
     Pixmap m_back_buffer = 0;
     unsigned int m_back_buffer_w = 0;
     unsigned int m_back_buffer_h = 0;
-    unsigned long m_titlebar_background_color = 0;
-    unsigned long m_titlebar_border_color = 0;
-    unsigned long m_hover_color = 0;
     UI::Toolbar::RunConfigurationState m_run_config_state;
     Pixmap m_popup_back_buffer = 0;
     unsigned int m_popup_back_buffer_w = 0;

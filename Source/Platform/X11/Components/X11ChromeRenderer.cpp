@@ -2,6 +2,8 @@
 #include "Platform/HostSystem.h"
 
 #include "Utility/Fonts.h"
+#include "Utility/MathUtil.h"
+#include "Utility/Shadows.h"
 #include "Utility/X11Rounded.h"
 
 #include <X11/Xutil.h>
@@ -16,7 +18,7 @@ namespace Zenvra::Platform::X11::Components {
 
 namespace {
 
-int round_to_int(float value) { return static_cast<int>(std::lround(value)); }
+using Zenvra::Utility::round_to_int;
 
 std::string to_xft_color(const UI::Theme::Color &color) {
   char value[8]{};
@@ -487,6 +489,39 @@ void X11ChromeRenderer::render(
   fill_rectangle(back_buffer, chrome_layout.titlebar_bounds,
                  m_colors.titlebar_background);
 
+  // 1. Render workspace (editor, tabs, sidebar, terminal)
+  m_workspace_renderer.render(back_buffer, client_width, client_height,
+                              chrome_layout.titlebar_bounds.bottom());
+
+  // 2. Draw Left Titlebar Chrome (Logo, Hamburger/Menus) with background fill to cover scrolled tabs
+  const float left_chrome_w = chrome_layout.file_buffer_bounds.x > 0.0F
+                                  ? chrome_layout.file_buffer_bounds.x
+                                  : chrome_layout.logo_bounds.right() + 48.0F * m_dpi_scale;
+  fill_rectangle(back_buffer,
+                 UI::Rect{0.0F, 0.0F, left_chrome_w,
+                          chrome_layout.titlebar_bounds.height},
+                 m_colors.titlebar_background);
+
+  const float scale = chrome_layout.dpi_scale;
+  const float logo_size = 22.0F * scale;
+  const UI::Rect logo_bounds{
+      chrome_layout.logo_bounds.x +
+          (chrome_layout.logo_bounds.width - logo_size) * 0.5F,
+      chrome_layout.logo_bounds.y +
+          (chrome_layout.logo_bounds.height - logo_size) * 0.5F,
+      logo_size,
+      logo_size,
+  };
+  if (!m_workspace_renderer.draw_ico_icon(
+          back_buffer, "Assets/icons/zenvra_logo48x48.ico",
+          round_to_int(logo_bounds.x + logo_bounds.width * 0.5F),
+          round_to_int(logo_bounds.y + logo_bounds.height * 0.5F),
+          round_to_int(logo_size), m_titlebar_background_color)) {
+    fill_rectangle(back_buffer, logo_bounds, m_colors.accent,
+                   static_cast<int>(logo_size * 0.25F));
+    draw_centered_text(back_buffer, "Z", logo_bounds, m_text_colors.white);
+  }
+
   const std::span<const UI::Components::Menu> menus =
       UI::Components::get_window_menus();
   for (std::size_t region_index = 0;
@@ -544,36 +579,35 @@ void X11ChromeRenderer::render(
                        JoinMiter);
   }
 
-  const float scale = chrome_layout.dpi_scale;
-  const float logo_size = 22.0F * scale;
-  const UI::Rect logo_bounds{
-      chrome_layout.logo_bounds.x +
-          (chrome_layout.logo_bounds.width - logo_size) * 0.5F,
-      chrome_layout.logo_bounds.y +
-          (chrome_layout.logo_bounds.height - logo_size) * 0.5F,
-      logo_size,
-      logo_size,
-  };
-  if (!m_workspace_renderer.draw_ico_icon(
-          back_buffer, "Assets/icons/zenvra_logo48x48.ico",
-          round_to_int(logo_bounds.x + logo_bounds.width * 0.5F),
-          round_to_int(logo_bounds.y + logo_bounds.height * 0.5F),
-          round_to_int(logo_size), m_titlebar_background_color)) {
-    fill_rectangle(back_buffer, logo_bounds, m_colors.accent,
-                   static_cast<int>(logo_size * 0.25F));
-    draw_centered_text(back_buffer, "Z", logo_bounds, m_text_colors.white);
-  }
+  // 3. Draw Right Titlebar Controls (Toolbar, Configuration dropdowns, Window Controls) with background fill
+  const float right_toolbar_start = chrome_layout.file_buffer_bounds.right() > 0.0F
+                                        ? chrome_layout.file_buffer_bounds.right()
+                                        : (static_cast<float>(client_width) - 600.0F * scale);
+  fill_rectangle(back_buffer,
+                 UI::Rect{right_toolbar_start, 0.0F,
+                          static_cast<float>(client_width) - right_toolbar_start,
+                          chrome_layout.titlebar_bounds.height},
+                 m_colors.titlebar_background);
 
-  static_cast<void>(m_workspace_renderer.tick_animations());
-  m_workspace_renderer.render(back_buffer, client_width, client_height,
-                              chrome_layout.titlebar_bounds.bottom());
-
-  // Draw titlebar bottom separator border across full width with proper z-index above content
+  // Draw titlebar bottom separator border only outside of tab bar bounds
   const int titlebar_bottom_y =
       round_to_int(chrome_layout.titlebar_bounds.bottom()) - 1;
   XSetForeground(m_display, m_graphics_context, m_colors.titlebar_border);
-  XDrawLine(m_display, back_buffer, m_graphics_context, 0, titlebar_bottom_y,
-            client_width, titlebar_bottom_y);
+  if (chrome_layout.file_buffer_bounds.width > 0.0F) {
+    const int tab_left = round_to_int(chrome_layout.file_buffer_bounds.x);
+    const int tab_right = round_to_int(chrome_layout.file_buffer_bounds.right());
+    if (tab_left > 0) {
+      XDrawLine(m_display, back_buffer, m_graphics_context, 0, titlebar_bottom_y,
+                tab_left, titlebar_bottom_y);
+    }
+    if (tab_right < client_width) {
+      XDrawLine(m_display, back_buffer, m_graphics_context, tab_right,
+                titlebar_bottom_y, client_width, titlebar_bottom_y);
+    }
+  } else {
+    XDrawLine(m_display, back_buffer, m_graphics_context, 0, titlebar_bottom_y,
+              client_width, titlebar_bottom_y);
+  }
 
   draw_window_control(back_buffer, chrome_layout.minimize_bounds,
                       UI::Chrome::WindowControl::Minimize, interaction_state);
@@ -1145,7 +1179,18 @@ void X11ChromeRenderer::draw_popup_menu(
     return;
   }
 
-  const int popup_radius = std::max(round_to_int(7.0F * m_dpi_scale), 5);
+  const float scale = m_dpi_scale;
+  const int popup_radius = std::max(round_to_int(6.0F * scale), 5);
+
+  // macOS Acrylic Card Outer Rim (clean dark rim on 24-bit X11 without alpha-banding artifacts)
+  const UI::Rect outer_bounds{geometry.bounds.x - 1.0F, geometry.bounds.y - 1.0F,
+                              geometry.bounds.width + 2.0F,
+                              geometry.bounds.height + 2.0F};
+  fill_rectangle(drawable, outer_bounds,
+                 allocate_color(UI::Theme::Color{15, 16, 20, 255}),
+                 popup_radius + 1);
+
+  // macOS Dark Acrylic Card & Hairline Border
   fill_rectangle(drawable, geometry.bounds, m_colors.popup_background,
                  popup_radius);
   draw_rectangle(drawable, geometry.bounds, m_colors.popup_border,
@@ -1160,9 +1205,9 @@ void X11ChromeRenderer::draw_popup_menu(
       const float line_y = item_bounds.y + item_bounds.height * 0.5F;
       fill_rectangle(drawable,
                      UI::Rect{
-                         item_bounds.x + 8.0F * m_dpi_scale,
+                         item_bounds.x + 10.0F * scale,
                          line_y,
-                         item_bounds.width - 16.0F * m_dpi_scale,
+                         item_bounds.width - 20.0F * scale,
                          1.0F,
                      },
                      m_colors.popup_border);
@@ -1184,12 +1229,14 @@ void X11ChromeRenderer::draw_popup_menu(
         state.enabled;
     if (is_hovered) {
       UI::Rect hover_bounds = item_bounds;
-      hover_bounds.x += 3.0F * m_dpi_scale;
-      hover_bounds.width -= 6.0F * m_dpi_scale;
-      hover_bounds.y += 1.0F * m_dpi_scale;
-      hover_bounds.height -= 2.0F * m_dpi_scale;
-      fill_rectangle(drawable, hover_bounds, m_colors.accent,
-                     std::max(round_to_int(4.0F * m_dpi_scale), 3));
+      hover_bounds.x += 5.0F * scale;
+      hover_bounds.width -= 10.0F * scale;
+      hover_bounds.y += 1.0F * scale;
+      hover_bounds.height -= 2.0F * scale;
+      fill_rectangle(drawable, hover_bounds,
+                     allocate_color(UI::Theme::Color{53, 132, 228, 240}),
+                     std::max(round_to_int(4.0F * scale), 3),
+                     m_colors.popup_background);
     }
 
     std::string text_color = m_text_colors.secondary;
@@ -1197,36 +1244,7 @@ void X11ChromeRenderer::draw_popup_menu(
       text_color = is_hovered ? m_text_colors.white : m_text_colors.primary;
     }
 
-    // Debug log for hover state
-    static int draw_counter = 0;
-    if (is_hovered && ++draw_counter % 30 == 0) {
-      std::clog << "[DBG] DRAW HOVER: menu=" << menu_index
-                << " item=" << item_index << " id=" << item.command_id
-                << " enabled=" << state.enabled << " h_idx="
-                << interaction_state.hovered_popup_item_index.value_or(999)
-                << "\n";
-    } else if (!is_hovered &&
-               interaction_state.hovered_popup_item_index == item_index &&
-               ++draw_counter % 30 == 0) {
-      std::clog << "[DBG] DRAW HOVER FAILED: menu=" << menu_index
-                << " item=" << item_index << " id=" << item.command_id
-                << " enabled=" << state.enabled << " editor_enabled="
-                << (m_workspace_renderer
-                            .is_editor_command_enabled(item.command_id)
-                            .has_value()
-                        ? std::to_string(
-                              *m_workspace_renderer.is_editor_command_enabled(
-                                  item.command_id))
-                        : "none")
-                << " cb_enabled="
-                << (command_state_query_callback
-                        ? command_state_query_callback(item.command_id).enabled
-                        : -1)
-                << "\n";
-    }
-
-    draw_text(drawable, item.label, item_bounds, 26.0F * m_dpi_scale,
-              text_color);
+    draw_text(drawable, item.label, item_bounds, 26.0F * scale, text_color);
 
     if (!item.shortcut.empty()) {
       AntialiasedFont *font =
@@ -1236,11 +1254,11 @@ void X11ChromeRenderer::draw_popup_menu(
             ? m_text_colors.secondary
             : (is_hovered ? m_text_colors.white : m_text_colors.secondary);
         const int shortcut_w = font->getTextWidth(std::string{item.shortcut});
-        const int padding_right = round_to_int(16.0F * m_dpi_scale);
+        const int padding_right = round_to_int(14.0F * scale);
         const int text_x = round_to_int(item_bounds.x + item_bounds.width) -
                            padding_right - shortcut_w;
         const int text_y = round_to_int(
-            item_bounds.y + item_bounds.height * 0.5F + font->getAscent() * 0.5F - 2.0F * m_dpi_scale);
+            item_bounds.y + item_bounds.height * 0.5F + font->getAscent() * 0.5F - 2.0F * scale);
         font->drawString(drawable, shortcut_color, text_x, text_y,
                          std::string{item.shortcut});
       }
@@ -1248,8 +1266,8 @@ void X11ChromeRenderer::draw_popup_menu(
     if (state.checked) {
       XSetForeground(m_display, m_graphics_context,
                      is_hovered ? WhitePixel(m_display, m_screen)
-                                : m_colors.text_primary);
-      const int check_x = round_to_int(item_bounds.x + 11.0F * m_dpi_scale);
+                                : m_colors.accent);
+      const int check_x = round_to_int(item_bounds.x + 10.0F * scale);
       const int check_y =
           round_to_int(item_bounds.y + item_bounds.height * 0.5F);
       XDrawLine(m_display, drawable, m_graphics_context, check_x, check_y,
@@ -1274,11 +1292,23 @@ void X11ChromeRenderer::draw_overflow_menu(
     return;
   }
 
-  const int popup_radius = std::max(round_to_int(7.0F * m_dpi_scale), 5);
+  const float scale = m_dpi_scale;
+  const int popup_radius = std::max(round_to_int(6.0F * scale), 5);
+
+  // macOS Acrylic Card Outer Rim (clean dark rim on 24-bit X11 without alpha-banding artifacts)
+  const UI::Rect outer_bounds{geometry.bounds.x - 1.0F, geometry.bounds.y - 1.0F,
+                              geometry.bounds.width + 2.0F,
+                              geometry.bounds.height + 2.0F};
+  fill_rectangle(drawable, outer_bounds,
+                 allocate_color(UI::Theme::Color{15, 16, 20, 255}),
+                 popup_radius + 1);
+
+  // macOS Dark Acrylic Card & Hairline Border
   fill_rectangle(drawable, geometry.bounds, m_colors.popup_background,
                  popup_radius);
   draw_rectangle(drawable, geometry.bounds, m_colors.popup_border,
                  popup_radius);
+
   const std::span<const UI::Components::Menu> menus =
       UI::Components::get_window_menus();
   for (std::size_t item_index = 0; item_index < geometry.item_count;
@@ -1292,28 +1322,30 @@ void X11ChromeRenderer::draw_overflow_menu(
         interaction_state.open_menu_index == menu_index;
     if (is_hovered) {
       UI::Rect hover_bounds = geometry.item_bounds[item_index];
-      hover_bounds.x += 4.0F * m_dpi_scale;
-      hover_bounds.width -= 8.0F * m_dpi_scale;
-      hover_bounds.y += 2.0F * m_dpi_scale;
-      hover_bounds.height -= 4.0F * m_dpi_scale;
-      fill_rectangle(drawable, hover_bounds, m_colors.accent,
-                     std::max(round_to_int(4.0F * m_dpi_scale), 3),
+      hover_bounds.x += 5.0F * scale;
+      hover_bounds.width -= 10.0F * scale;
+      hover_bounds.y += 1.0F * scale;
+      hover_bounds.height -= 2.0F * scale;
+      fill_rectangle(drawable, hover_bounds,
+                     allocate_color(UI::Theme::Color{53, 132, 228, 240}),
+                     std::max(round_to_int(4.0F * scale), 3),
                      m_colors.popup_background);
     }
     draw_text(drawable, menus[menu_index].label,
-              geometry.item_bounds[item_index], 12.0F * m_dpi_scale,
+              geometry.item_bounds[item_index], 12.0F * scale,
               is_hovered ? m_text_colors.white : m_text_colors.primary);
 
     const int chevron_x = round_to_int(
-        geometry.item_bounds[item_index].right() - 14.0F * m_dpi_scale);
+        geometry.item_bounds[item_index].right() - 14.0F * scale);
     const int chevron_y =
         round_to_int(geometry.item_bounds[item_index].y +
                      geometry.item_bounds[item_index].height * 0.5F);
     m_workspace_renderer.draw_svg_icon(
         drawable, "Assets/icons/chevron-right.svg", chevron_x, chevron_y,
-        std::max(round_to_int(12.0F * m_dpi_scale), 10),
-        m_workspace_renderer.m_palette.text_muted,
-        is_hovered ? UI::Theme::StudioTheme::zenvra_dark().accent
+        std::max(round_to_int(11.0F * scale), 9),
+        is_hovered ? UI::Theme::Color{255, 255, 255, 255}
+                   : m_workspace_renderer.m_palette.text_muted,
+        is_hovered ? UI::Theme::Color{53, 132, 228, 255}
                    : UI::Theme::StudioTheme::zenvra_dark().panel_background);
   }
 }
@@ -1450,6 +1482,12 @@ Window X11ChromeRenderer::popup_window() const noexcept {
 }
 
 void X11ChromeRenderer::destroy_popup_window() noexcept {
+  if (m_popup_font) {
+    m_popup_font->resetDrawable();
+  }
+  if (m_font) {
+    m_font->resetDrawable();
+  }
   if (m_display != nullptr && m_popup_back_buffer != 0) {
     XFreePixmap(m_display, m_popup_back_buffer);
     m_popup_back_buffer = 0;

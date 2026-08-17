@@ -434,11 +434,12 @@ public:
       return;
     }
 
-    if (!m_draw) {
+    if (!m_draw || m_current_drawable != drawable) {
+      if (m_draw) {
+        XftDrawDestroy(m_draw);
+        m_draw = nullptr;
+      }
       m_draw = XftDrawCreate(m_display, drawable, m_visual, m_colormap);
-      m_current_drawable = drawable;
-    } else if (m_current_drawable != drawable) {
-      XftDrawChange(m_draw, drawable);
       m_current_drawable = drawable;
     }
 
@@ -451,6 +452,14 @@ public:
       XftDrawStringUtf8(m_draw, color, m_font, x, y,
                         reinterpret_cast<const FcChar8 *>(text.data()),
                         static_cast<int>(text.size()));
+    }
+  }
+
+  void resetDrawable() noexcept {
+    if (m_draw) {
+      XftDrawDestroy(m_draw);
+      m_draw = nullptr;
+      m_current_drawable = 0;
     }
   }
 

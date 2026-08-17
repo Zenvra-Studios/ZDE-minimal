@@ -5,6 +5,9 @@
 #include "Commands/CommandIds.h"
 #include "Language/LanguageServerManager.h"
 #include "Platform/PlatformDialogs.h"
+#include "Platform/X11/Components/StudioWorkspaceRenderer.h"
+#include "Platform/X11/Components/TextEditor.h"
+#include "Platform/X11/Components/ToolSidebar.h"
 #include "Platform/X11/Runtime/X11Context.h"
 #include "UI/Components/MenuModel.h"
 #include "Utility/IcoDecoder.h"
@@ -230,6 +233,11 @@ bool X11Window::initialize() {
              const std::vector<Language::Protocol::Diagnostic> &diags) {
         m_chrome_renderer.get_text_editor().on_diagnostics_updated(uri, diags);
         render();
+      });
+
+  m_chrome_renderer.get_workspace_renderer().get_terminal_panel().set_copy_callback(
+      [this](const std::string &text) {
+        copy_to_clipboard(text);
       });
   
   apply_window_icon();
@@ -789,6 +797,10 @@ void X11Window::render(std::optional<UI::Rect> dirty_rect) {
                            m_chrome_layout, m_interaction_state,
                            m_command_state_query_callback,
                            dirty_rect);
+
+  if (m_about_modal.is_visible()) {
+    draw_about_modal(m_window_handle, m_client_width, m_client_height);
+  }
 }
 
 void X11Window::handle_event(XEvent &event) {
@@ -942,6 +954,15 @@ void X11Window::handle_event(XEvent &event) {
 void X11Window::handle_motion(const XMotionEvent &event) {
   if (m_manual_move_resize_direction) {
     update_manual_move_resize(event);
+    return;
+  }
+
+  if (m_about_modal.is_visible()) {
+    const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(m_client_width), static_cast<float>(m_client_height)};
+    const auto layout = m_about_modal.calculate_layout(viewport, m_dpi_scale);
+    if (m_about_modal.handle_pointer_move(static_cast<float>(event.x), static_cast<float>(event.y), layout)) {
+      render();
+    }
     return;
   }
 
@@ -1150,6 +1171,14 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
     return;
   }
   if (event.button != Button1 && event.button != Button2) {
+    return;
+  }
+
+  if (m_about_modal.is_visible()) {
+    const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(m_client_width), static_cast<float>(m_client_height)};
+    const auto layout = m_about_modal.calculate_layout(viewport, m_dpi_scale);
+    static_cast<void>(m_about_modal.handle_pointer_press(static_cast<float>(event.x), static_cast<float>(event.y), layout));
+    render();
     return;
   }
 
@@ -1390,8 +1419,18 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
           m_chrome_layout.titlebar_bounds.bottom(),
           (event.state & ShiftMask) != 0, click_count, event.time,
           command_out)) {
-    if (!command_out.empty() && m_command_invoked_callback) {
-      m_command_invoked_callback(command_out);
+    if (!command_out.empty()) {
+      if (command_out.starts_with("zde.explorer.")) {
+        execute_explorer_command(command_out);
+      } else if (command_out == "zde.project.open") {
+        if (const auto folder = open_folder_dialog()) {
+          static_cast<void>(m_chrome_renderer.set_workspace_root(*folder));
+          Language::LanguageServerManager::instance().set_workspace_root(*folder);
+          render();
+        }
+      } else if (m_command_invoked_callback) {
+        m_command_invoked_callback(command_out);
+      }
     }
     if (m_chrome_renderer.is_terminal_resizing()) {
       XGrabPointer(m_display, m_window_handle, False,
@@ -1435,6 +1474,16 @@ void X11Window::handle_button_release(const XButtonEvent &event) {
 
   if (m_manual_move_resize_direction) {
     end_manual_move_resize(event.time);
+    return;
+  }
+
+  if (m_about_modal.is_visible()) {
+    const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(m_client_width), static_cast<float>(m_client_height)};
+    const auto layout = m_about_modal.calculate_layout(viewport, m_dpi_scale);
+    static_cast<void>(m_about_modal.handle_pointer_release(static_cast<float>(event.x), static_cast<float>(event.y), layout, [this](const std::string& text) {
+      copy_to_clipboard(text);
+    }));
+    render();
     return;
   }
 
@@ -1537,6 +1586,20 @@ void X11Window::handle_key_press(XKeyEvent &event) {
     return;
   }
 
+  if (m_about_modal.is_visible()) {
+    if (key_symbol == XK_Escape) {
+      static_cast<void>(m_about_modal.handle_escape());
+      render();
+      return;
+    }
+    if (key_symbol == XK_Return || key_symbol == XK_KP_Enter) {
+      static_cast<void>(m_about_modal.handle_enter());
+      render();
+      return;
+    }
+    return;
+  }
+
   if (m_chrome_renderer.is_prompt_modal_visible()) {
     if (key_symbol == XK_Escape) {
       static_cast<void>(m_chrome_renderer.get_workspace_renderer().get_prompt_modal().handle_escape());
@@ -1636,12 +1699,38 @@ void X11Window::handle_key_press(XKeyEvent &event) {
       m_chrome_renderer.is_terminal_focused() &&
       (event.state & Mod1Mask) == 0) {
     bool handled = false;
-    if ((event.state & ControlMask) != 0 &&
-        ((key_symbol >= XK_a && key_symbol <= XK_z) ||
-         (key_symbol >= XK_A && key_symbol <= XK_Z))) {
-      handled = m_chrome_renderer.handle_terminal_control(static_cast<char>(
-          key_symbol >= XK_A && key_symbol <= XK_Z ? key_symbol - XK_A + 'A'
-                                                   : key_symbol - XK_a + 'a'));
+    const bool shift_pressed = (event.state & ShiftMask) != 0;
+    if (shift_pressed && (key_symbol == XK_Up || key_symbol == XK_KP_Up ||
+                          key_symbol == XK_Down || key_symbol == XK_KP_Down)) {
+      std::ptrdiff_t delta = (key_symbol == XK_Up || key_symbol == XK_KP_Up) ? 3 : -3;
+      if (m_chrome_renderer.get_workspace_renderer().get_terminal_panel().handle_scroll(delta, false)) {
+        render();
+        return;
+      }
+    }
+
+    if ((event.state & ControlMask) != 0) {
+      if ((key_symbol == XK_c || key_symbol == XK_C) &&
+          m_chrome_renderer.get_workspace_renderer().get_terminal_panel().get_model().has_selection()) {
+        copy_to_clipboard(
+            m_chrome_renderer.get_workspace_renderer().get_terminal_panel().get_model().get_selected_text());
+        m_chrome_renderer.get_workspace_renderer().get_terminal_panel().get_model().clear_selection();
+        render();
+        return;
+      }
+      if (shift_pressed && (key_symbol == XK_v || key_symbol == XK_V)) {
+        if (!m_clipboard_text.empty()) {
+          m_chrome_renderer.get_workspace_renderer().get_terminal_panel().handle_text_input(m_clipboard_text);
+          render();
+          return;
+        }
+      }
+      if ((key_symbol >= XK_a && key_symbol <= XK_z) ||
+          (key_symbol >= XK_A && key_symbol <= XK_Z)) {
+        handled = m_chrome_renderer.handle_terminal_control(static_cast<char>(
+            key_symbol >= XK_A && key_symbol <= XK_Z ? key_symbol - XK_A + 'A'
+                                                     : key_symbol - XK_a + 'a'));
+      }
     } else {
       std::optional<Terminal::TerminalInputKey> terminal_key;
       switch (key_symbol) {
@@ -1814,6 +1903,22 @@ void X11Window::handle_key_press(XKeyEvent &event) {
       case XK_asciitilde:
         if (dispatch_shortcut_command(Commands::CommandIds::view_terminal_panel)) return;
         break;
+      case XK_backslash:
+        if (dispatch_shortcut_command("zde.editor.split_right")) return;
+        break;
+      case XK_1:
+        if (dispatch_shortcut_command("zde.editor.focus_first_group")) return;
+        break;
+      case XK_2:
+        if (dispatch_shortcut_command("zde.editor.focus_second_group")) return;
+        break;
+      case XK_w:
+      case XK_W:
+        if (dispatch_shortcut_command("workbench.action.closeActiveEditor")) return;
+        break;
+      case XK_space:
+        if (dispatch_shortcut_command("editor.action.triggerSuggest")) return;
+        break;
       default:
         break;
       }
@@ -1862,10 +1967,20 @@ void X11Window::handle_key_press(XKeyEvent &event) {
         break;
       case XK_c:
       case XK_C:
+        if (const auto *doc = m_chrome_renderer.get_text_editor().get_focused_document()) {
+          if (doc->has_selection()) {
+            copy_to_clipboard(doc->get_selected_text());
+          }
+        }
         action = UI::Editor::EditorAction::Copy;
         break;
       case XK_x:
       case XK_X:
+        if (const auto *doc = m_chrome_renderer.get_text_editor().get_focused_document()) {
+          if (doc->has_selection()) {
+            copy_to_clipboard(doc->get_selected_text());
+          }
+        }
         action = UI::Editor::EditorAction::Cut;
         break;
       case XK_v:
@@ -2033,61 +2148,13 @@ void X11Window::update_cursor(int point_x, int point_y) {
     }
     return;
   }
-  const bool tab_point = m_chrome_renderer.is_tab_bar_point(
-      static_cast<float>(point_x), static_cast<float>(point_y), m_client_width,
-      m_client_height, m_chrome_layout.titlebar_bounds.bottom());
-  const bool is_sidebar =
-      m_chrome_renderer.is_activity_bar_point(
-          static_cast<float>(point_x), static_cast<float>(point_y),
-          m_client_width, m_client_height,
-          m_chrome_layout.titlebar_bounds.bottom()) ||
-      m_chrome_renderer.is_tool_sidebar_point(
-          static_cast<float>(point_x), static_cast<float>(point_y),
-          m_client_width, m_client_height,
-          m_chrome_layout.titlebar_bounds.bottom());
-  const bool is_run_or_debug =
-      m_chrome_layout.is_run_button(static_cast<float>(point_x),
-                                    static_cast<float>(point_y)) ||
-      m_chrome_layout.is_debug_button(static_cast<float>(point_x),
-                                      static_cast<float>(point_y));
-  const bool is_toolbar_button =
-      m_chrome_layout.is_ellipsis_button(static_cast<float>(point_x),
-                                         static_cast<float>(point_y)) ||
-      m_chrome_layout.is_compiler_button(static_cast<float>(point_x),
-                                         static_cast<float>(point_y)) ||
-      m_chrome_layout.is_platform_button(static_cast<float>(point_x),
-                                         static_cast<float>(point_y)) ||
-      m_chrome_layout.is_binary_button(static_cast<float>(point_x),
-                                       static_cast<float>(point_y)) ||
-      m_chrome_layout.is_build_button(static_cast<float>(point_x),
-                                      static_cast<float>(point_y)) ||
-      m_chrome_layout.is_gear_button(static_cast<float>(point_x),
-                                     static_cast<float>(point_y));
-  const bool is_empty_state_button = m_chrome_renderer.is_empty_state_button_hovered();
-  const bool is_fold_marker =
-      m_chrome_renderer.is_fold_margin_point(
-          static_cast<float>(point_x), static_cast<float>(point_y),
-          m_client_width, m_client_height,
-          m_chrome_layout.titlebar_bounds.bottom());
-  const bool is_window_control =
-      m_chrome_layout.get_window_control(
-          static_cast<float>(point_x),
-          static_cast<float>(point_y)) != UI::Chrome::WindowControl::NoControl;
+
   const std::optional<MoveResizeDirection> direction =
-      (tab_point || is_run_or_debug || is_toolbar_button || is_sidebar ||
-       is_empty_state_button || is_window_control)
-          ? std::nullopt
-          : get_resize_direction(point_x, point_y);
-  if (tab_point || is_run_or_debug || is_toolbar_button || is_sidebar ||
-      is_empty_state_button || is_fold_marker || is_window_control) {
-    desired_cursor = m_pointer_cursor;
-  } else if (direction) {
+      get_resize_direction(point_x, point_y);
+
+  if (direction) {
     desired_cursor =
         m_move_resize_cursors[static_cast<std::size_t>(*direction)];
-  } else if (is_drag_region(static_cast<float>(point_x),
-                            static_cast<float>(point_y))) {
-    desired_cursor = m_move_resize_cursors[static_cast<std::size_t>(
-        MoveResizeDirection::Move)];
   } else if (m_chrome_renderer.is_terminal_resize_handle_point(
                  static_cast<float>(point_x), static_cast<float>(point_y),
                  m_client_width, m_client_height,
@@ -2098,6 +2165,10 @@ void X11Window::update_cursor(int point_x, int point_y) {
                  m_client_width, m_client_height,
                  m_chrome_layout.titlebar_bounds.bottom()) ||
              m_chrome_renderer.is_shader_splitter_point(
+                 static_cast<float>(point_x), static_cast<float>(point_y),
+                 m_client_width, m_client_height,
+                 m_chrome_layout.titlebar_bounds.bottom()) ||
+             m_chrome_renderer.is_editor_split_resize_handle_point(
                  static_cast<float>(point_x), static_cast<float>(point_y),
                  m_client_width, m_client_height,
                  m_chrome_layout.titlebar_bounds.bottom())) {
@@ -2111,6 +2182,8 @@ void X11Window::update_cursor(int point_x, int point_y) {
                  m_client_width, m_client_height,
                  m_chrome_layout.titlebar_bounds.bottom())) {
     desired_cursor = m_text_cursor;
+  } else {
+    desired_cursor = m_default_cursor;
   }
 
   if (desired_cursor != None && desired_cursor != m_active_cursor) {
@@ -2412,6 +2485,24 @@ void X11Window::execute_popup_selection() {
   if (command_id.empty()) {
     return;
   }
+  if (command_id == Commands::CommandIds::help_about) {
+    show_about_dialog();
+    return;
+  }
+  if (command_id == Commands::CommandIds::view_terminal_panel ||
+      command_id == "workbench.action.terminal.toggleTerminal") {
+    toggle_terminal();
+    return;
+  }
+  if (command_id == Commands::CommandIds::project_close ||
+      command_id == "workbench.action.closeFolder") {
+    static_cast<void>(close_project());
+    return;
+  }
+  if (command_id == Commands::CommandIds::window_toggle_fullscreen) {
+    toggle_fullscreen();
+    return;
+  }
   if (command_id == Commands::CommandIds::build_debug) {
     m_chrome_renderer.set_active_mode(UI::Toolbar::BuildConfigurationMode::Debug);
   } else if (command_id == Commands::CommandIds::build_release) {
@@ -2545,6 +2636,11 @@ bool X11Window::is_drag_region(float point_x, float point_y) const {
           m_chrome_layout.titlebar_bounds.bottom())) {
     return false;
   }
+  if (m_chrome_renderer.is_tab_bar_area_point(
+          point_x, point_y, m_client_width, m_client_height,
+          m_chrome_layout.titlebar_bounds.bottom())) {
+    return true;
+  }
   return m_titlebar_hit_test_callback
              ? m_titlebar_hit_test_callback(point_x, point_y)
              : m_chrome_layout.is_drag_region(point_x, point_y);
@@ -2625,15 +2721,6 @@ std::optional<std::size_t> X11Window::get_popup_item_index(int point_x,
       }
     }
   }
-  
-  // Debug log every 30th motion event if we have a menu open
-  static int debug_counter = 0;
-  if (++debug_counter % 30 == 0) {
-    std::clog << "[DBG] get_popup_item_index miss! pos=(" << point_x << "," << point_y << ") "
-              << "geom_bounds=(" << geometry.bounds.x << "," << geometry.bounds.y 
-              << " " << geometry.bounds.width << "x" << geometry.bounds.height << ") "
-              << "items=" << geometry.item_count << "\n";
-  }
 
   return std::nullopt;
 }
@@ -2658,8 +2745,7 @@ X11Window::get_overflow_popup_menu_index(int point_x, int point_y) const {
 
 bool X11Window::is_popup_item_enabled(std::size_t menu_index,
                                       std::size_t item_index) const {
-  const std::span<const UI::Components::Menu> menus =
-      UI::Components::get_window_menus();
+  const std::span<const UI::Components::Menu> menus = UI::Components::get_window_menus();
   if (menu_index >= menus.size() ||
       item_index >= menus[menu_index].items.size()) {
     return false;
@@ -2780,13 +2866,21 @@ void X11Window::show_editor_context_menu(int client_x, int client_y) {
 }
 
 void X11Window::execute_explorer_command(std::string_view command) {
-  const auto target_path = m_context_menu_target_path;
+  auto target_path = m_context_menu_target_path;
 
   if (command == "zde.explorer.newFile") {
     const auto root = m_chrome_renderer.get_workspace_renderer()
                           .get_tool_sidebar()
                           .get_model()
                           .get_workspace_root();
+    if (target_path.empty()) {
+      target_path = root.empty() ? std::filesystem::current_path() : root;
+    } else {
+      std::error_code ec;
+      if (!std::filesystem::is_directory(target_path, ec)) {
+        target_path = target_path.parent_path();
+      }
+    }
     const std::string proj_name =
         root.empty() ? "Project" : root.filename().string();
     m_add_item_dialog.open(
@@ -2807,6 +2901,23 @@ void X11Window::execute_explorer_command(std::string_view command) {
             }
             static_cast<void>(
                 m_chrome_renderer.get_text_editor().open_file(created_p));
+          } else {
+            static_cast<void>(
+                m_chrome_renderer.get_text_editor().create_buffer());
+            if (auto *doc =
+                    m_chrome_renderer.get_text_editor().get_focused_document()) {
+              if (!initial_content.empty()) {
+                std::vector<std::string> lines;
+                std::stringstream ss(initial_content);
+                std::string line;
+                while (std::getline(ss, line)) {
+                  lines.push_back(line);
+                }
+                if (lines.empty())
+                  lines.push_back("");
+                doc->reload_contents(std::move(lines), "\n");
+              }
+            }
           }
           render();
         });
@@ -2884,6 +2995,138 @@ void X11Window::execute_explorer_command(std::string_view command) {
           render();
         });
   }
+}
+
+bool X11Window::close_project() {
+  return m_chrome_renderer.close_workspace_project();
+}
+
+void X11Window::toggle_terminal() {
+  static_cast<void>(m_chrome_renderer.toggle_terminal());
+  render();
+}
+
+void X11Window::toggle_shader_sandbox() {
+  static_cast<void>(m_chrome_renderer.toggle_shader_sandbox());
+  render();
+}
+
+void X11Window::show_about_dialog() {
+  m_about_modal.open();
+  render();
+}
+
+bool X11Window::is_modal_active() const {
+  return m_prompt_dialog.is_open() || m_add_item_dialog.is_open() || m_about_modal.is_visible();
+}
+
+void X11Window::toggle_fullscreen() {
+  if (m_display == nullptr || m_window_handle == 0) return;
+  Atom wm_state = XInternAtom(m_display, "_NET_WM_STATE", False);
+  Atom fullscreen = XInternAtom(m_display, "_NET_WM_STATE_FULLSCREEN", False);
+  XEvent xev{};
+  xev.type = ClientMessage;
+  xev.xclient.window = m_window_handle;
+  xev.xclient.message_type = wm_state;
+  xev.xclient.format = 32;
+  xev.xclient.data.l[0] = 2; // _NET_WM_STATE_TOGGLE
+  xev.xclient.data.l[1] = static_cast<long>(fullscreen);
+  xev.xclient.data.l[2] = 0;
+  xev.xclient.data.l[3] = 1;
+  XSendEvent(m_display, DefaultRootWindow(m_display), False,
+             SubstructureNotifyMask | SubstructureRedirectMask, &xev);
+  m_is_fullscreen = !m_is_fullscreen;
+}
+
+bool X11Window::is_fullscreen() const {
+  return m_is_fullscreen;
+}
+
+void X11Window::draw_about_modal(Drawable drawable, int client_width, int client_height) {
+  if (!m_about_modal.is_visible()) {
+    return;
+  }
+  auto& surface = m_chrome_renderer.get_workspace_renderer();
+  const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(client_width), static_cast<float>(client_height)};
+  const float scale = m_dpi_scale;
+  const auto layout = m_about_modal.calculate_layout(viewport, scale);
+
+  // Semi-transparent backdrop overlay
+  surface.fill_rectangle(drawable, viewport, surface.allocate_color(UI::Theme::Color{0, 0, 0, 160}));
+
+  // Modal container box
+  surface.fill_rounded_rectangle(drawable, layout.base_layout.dialog_bounds,
+                                 surface.allocate_color(UI::Theme::Color{28, 29, 34, 255}),
+                                 8.0F * scale,
+                                 surface.allocate_color(UI::Theme::Color{0, 0, 0, 160}));
+  surface.draw_rectangle(drawable, layout.base_layout.dialog_bounds,
+                         surface.allocate_color(UI::Theme::Color{70, 74, 88, 255}));
+
+  // Logo
+  const int logo_cx = static_cast<int>(layout.logo_bounds.x + layout.logo_bounds.width * 0.5F);
+  const int logo_cy = static_cast<int>(layout.logo_bounds.y + layout.logo_bounds.height * 0.5F);
+  const int logo_sz = static_cast<int>(layout.logo_bounds.width);
+  surface.draw_svg_icon(drawable, "Assets/icons/zenvra_logo48x48.ico", logo_cx, logo_cy,
+                        logo_sz, surface.m_palette.accent,
+                        UI::Theme::Color{28, 29, 34, 255});
+
+  // Headline & Edition
+  surface.draw_text(drawable, *surface.m_ui_font, m_about_modal.get_app_name(),
+                    layout.headline_bounds.x,
+                    layout.headline_bounds.y + layout.headline_bounds.height * 0.5F,
+                    UI::Theme::Color{242, 244, 248, 255});
+  surface.draw_text(drawable, *surface.m_small_font, m_about_modal.get_edition(),
+                    layout.edition_bounds.x,
+                    layout.edition_bounds.y + layout.edition_bounds.height * 0.5F,
+                    UI::Theme::Color{145, 150, 162, 255});
+
+  // Specs Table rows
+  const auto& specs = m_about_modal.get_specs();
+  const float key_col_w = 125.0F * scale;
+  for (std::size_t i = 0; i < specs.size() && i < layout.spec_row_bounds.size(); ++i) {
+    const auto& row_r = layout.spec_row_bounds[i];
+    const float row_cy = row_r.y + row_r.height * 0.5F;
+    surface.draw_text(drawable, *surface.m_small_font, specs[i].key + ":",
+                      row_r.x, row_cy, UI::Theme::Color{138, 144, 155, 255});
+    surface.draw_text(drawable, *surface.m_small_font, specs[i].value,
+                      row_r.x + key_col_w, row_cy, UI::Theme::Color{220, 224, 232, 255});
+  }
+
+  // Action Buttons: "Copy" and "OK"
+  const bool copy_h = m_about_modal.is_copy_hovered();
+  const UI::Theme::Color copy_bg = copy_h ? UI::Theme::Color{58, 62, 72, 255} : UI::Theme::Color{44, 48, 56, 255};
+  surface.fill_rounded_rectangle(drawable, layout.copy_button_bounds,
+                                 surface.allocate_color(copy_bg), 4.0F * scale,
+                                 surface.allocate_color(UI::Theme::Color{28, 29, 34, 255}));
+  surface.draw_text(drawable, *surface.m_small_font, "Copy",
+                    layout.copy_button_bounds.x + layout.copy_button_bounds.width * 0.5F - 14.0F * scale,
+                    layout.copy_button_bounds.y + layout.copy_button_bounds.height * 0.5F,
+                    UI::Theme::Color{215, 220, 228, 255});
+
+  const bool ok_h = m_about_modal.is_ok_hovered();
+  const UI::Theme::Color ok_bg = ok_h ? UI::Theme::Color{17, 119, 187, 255} : UI::Theme::Color{14, 99, 156, 255};
+  surface.fill_rounded_rectangle(drawable, layout.ok_button_bounds,
+                                 surface.allocate_color(ok_bg), 4.0F * scale,
+                                 surface.allocate_color(UI::Theme::Color{28, 29, 34, 255}));
+  surface.draw_text(drawable, *surface.m_small_font, "OK",
+                    layout.ok_button_bounds.x + layout.ok_button_bounds.width * 0.5F - 8.0F * scale,
+                    layout.ok_button_bounds.y + layout.ok_button_bounds.height * 0.5F,
+                    UI::Theme::Color{255, 255, 255, 255});
+
+  // Close button (x)
+  const int close_cx = static_cast<int>(layout.close_button_bounds.x + layout.close_button_bounds.width * 0.5F);
+  const int close_cy = static_cast<int>(layout.close_button_bounds.y + layout.close_button_bounds.height * 0.5F);
+  if (m_about_modal.is_close_hovered()) {
+    surface.fill_rounded_rectangle(drawable, layout.close_button_bounds,
+                                   surface.allocate_color(UI::Theme::Color{232, 17, 35, 255}),
+                                   4.0F * scale,
+                                   surface.allocate_color(UI::Theme::Color{28, 29, 34, 255}));
+  }
+  surface.draw_svg_icon(drawable, "Assets/icons/diagnostic-error.svg", close_cx, close_cy,
+                        std::max(static_cast<int>(10.0F * scale), 8),
+                        m_about_modal.is_close_hovered() ? UI::Theme::Color{255, 255, 255, 255}
+                                                         : UI::Theme::Color{175, 180, 190, 255},
+                        UI::Theme::Color{28, 29, 34, 255});
 }
 
 } // namespace Zenvra::Platform::X11

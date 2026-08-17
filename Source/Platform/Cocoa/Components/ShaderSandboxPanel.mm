@@ -433,7 +433,7 @@ void ShaderSandboxPanel::render_header(
     {
         surface.fill_rounded_rectangle(context, close_btn, surface.m_colors.hover_background, 3.0F * scale);
     }
-    surface.draw_svg_icon(context, "Assets/icons/close.svg",
+    surface.draw_svg_icon(context, "Assets/icons/diagnostic-error.svg",
         round_to_int(close_btn.x + close_btn.width * 0.5F),
         round_to_int(close_btn.y + close_btn.height * 0.5F),
         round_to_int(12.0F * scale),

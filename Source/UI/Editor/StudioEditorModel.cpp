@@ -245,14 +245,12 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
 
   // Responsive right toolbar controls width calculation:
   // On macOS: traffic lights are on the LEFT, so the right side only holds the action toolbar (~550px * scale) + padding.
-  // On Win32 / Linux: toolbar (~550px) + standard min/max/close window controls (~138px) = ~688px * scale.
   const bool is_compact_window = safe_width < (960.0F * safe_scale);
   const bool is_ultra_compact_window = safe_width < (760.0F * safe_scale);
 
-  // Exact right toolbar width + 20.0F safety gap before Debug dropdown
   const float base_toolbar_width = is_ultra_compact_window
-      ? (420.0F * safe_scale)
-      : (is_compact_window ? (490.0F * safe_scale) : (576.0F * safe_scale));
+      ? (410.0F * safe_scale)
+      : (is_compact_window ? (486.0F * safe_scale) : (564.0F * safe_scale));
 
   const float platform_controls_width =
 #if defined(__APPLE__)

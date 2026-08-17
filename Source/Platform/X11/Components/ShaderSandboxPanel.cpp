@@ -1,6 +1,7 @@
 #include "Platform/X11/Components/ShaderSandboxPanel.h"
 #include "Platform/X11/Components/StudioWorkspaceRenderer.h"
 #include "Services/Shader/ShaderCompiler.h"
+#include "Utility/MathUtil.h"
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
@@ -17,7 +18,7 @@ namespace Zenvra::Platform::X11::Components {
 
 namespace {
 
-int round_to_int(float value) { return static_cast<int>(std::lround(value)); }
+using Zenvra::Utility::round_to_int;
 
 } // namespace
 
@@ -396,7 +397,7 @@ void ShaderSandboxPanel::render_header(
     surface.fill_rounded_rectangle(drawable, close_btn, surface.m_pixels.hover_background,
                                    3.0F * scale);
   }
-  surface.draw_svg_icon(drawable, "Assets/icons/close.svg",
+  surface.draw_svg_icon(drawable, "Assets/icons/diagnostic-error.svg",
                         round_to_int(close_btn.x + close_btn.width * 0.5F),
                         round_to_int(close_btn.y + close_btn.height * 0.5F),
                         round_to_int(12.0F * scale),
@@ -459,14 +460,19 @@ void ShaderSandboxPanel::render_viewport(
                              DefaultDepth(surface.m_display, surface.m_screen)),
                          ZPixmap, 0, img_data, static_cast<unsigned int>(img_w),
                          static_cast<unsigned int>(img_h), 32, 0);
-        m_cached_img_w = img_w;
-        m_cached_img_h = img_h;
+        if (m_cached_ximage) {
+          m_cached_img_w = img_w;
+          m_cached_img_h = img_h;
+        } else {
+          std::free(img_data);
+        }
       }
     }
 
     if (m_cached_ximage && m_cached_ximage->data) {
-      std::memcpy(m_cached_ximage->data, pixels.data(),
-                  static_cast<std::size_t>(img_w * img_h * 4));
+      const std::size_t copy_bytes = std::min(
+          pixels.size_bytes(), static_cast<std::size_t>(img_w * img_h * 4));
+      std::memcpy(m_cached_ximage->data, pixels.data(), copy_bytes);
 
       surface.push_clip(canvas_rect);
       XPutImage(surface.m_display, drawable, surface.m_graphics_context,

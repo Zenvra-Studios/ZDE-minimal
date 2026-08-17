@@ -1,12 +1,13 @@
 #pragma once
 
-#include "UI/Editor/ActivityPanelModel.h"
-#include "UI/Components/Button.h"
-#include "UI/Editor/StudioEditorModel.h"
 #include "Platform/X11/Components/ExplorerHeader.h"
+#include "UI/Components/Button.h"
+#include "UI/Editor/ActivityPanelModel.h"
+#include "UI/Editor/StudioEditorModel.h"
 
 #include <X11/Xlib.h>
 
+#include <chrono>
 #include <filesystem>
 #include <optional>
 #include <vector>
@@ -16,17 +17,36 @@ namespace Zenvra::Platform::X11::Components
 
 class StudioWorkspaceRenderer;
 
+enum class SidebarActionKind {
+    NoneAction,
+    OpenFile,
+    NewFile,
+    NewFolder,
+    Refresh,
+    CollapseAll
+};
+
+struct SidebarPressResult {
+    bool handled = false;
+    SidebarActionKind action = SidebarActionKind::NoneAction;
+    std::optional<std::filesystem::path> path;
+};
+
 class ToolSidebar
 {
 public:
     [[nodiscard]] bool initialize();
     [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root);
+    void clear_workspace() noexcept;
     [[nodiscard]] bool activate(UI::Editor::SidebarIcon icon) noexcept;
-    [[nodiscard]] bool handle_pointer_press(
+    [[nodiscard]] SidebarPressResult handle_pointer_press(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
-        float point_y,
-        std::optional<std::filesystem::path>& file_to_open);
+        float point_y);
+    [[nodiscard]] std::optional<std::filesystem::path> handle_right_click(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y);
     [[nodiscard]] bool handle_pointer_move(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
@@ -34,6 +54,9 @@ public:
     [[nodiscard]] bool handle_scroll(
         const UI::Editor::StudioEditorLayoutResult& layout,
         std::ptrdiff_t line_delta) noexcept;
+
+    [[nodiscard]] UI::Editor::ActivityPanelModel& get_model() noexcept { return m_model; }
+    [[nodiscard]] const UI::Editor::ActivityPanelModel& get_model() const noexcept { return m_model; }
 
     [[nodiscard]] bool is_visible() const noexcept;
     [[nodiscard]] bool is_active(UI::Editor::SidebarIcon icon) const noexcept;
@@ -51,15 +74,11 @@ public:
 
     [[nodiscard]] bool handle_pointer_drag(
         const UI::Editor::StudioEditorLayoutResult& layout,
-        float point_x) noexcept;
-    [[nodiscard]] bool handle_pointer_release() noexcept;
-
-    [[nodiscard]] std::optional<std::filesystem::path> handle_right_click(
-        const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
-        float point_y);
-    [[nodiscard]] UI::Editor::ActivityPanelModel& get_model() noexcept { return m_model; }
-    [[nodiscard]] const UI::Editor::ActivityPanelModel& get_model() const noexcept { return m_model; }
+        float point_y) noexcept;
+    [[nodiscard]] bool handle_pointer_release() noexcept;
+    [[nodiscard]] bool is_dragging_item() const noexcept { return m_is_dragging_item; }
+    [[nodiscard]] bool tick_animations() noexcept;
 
     void render(
         const StudioWorkspaceRenderer& surface,
@@ -68,7 +87,6 @@ public:
 
 private:
     static constexpr float default_width = 260.0F;
-    // Keep Explorer aligned with the editor tab strip on both platforms.
     static constexpr float header_height = UI::Editor::StudioEditorMetrics::tab_height;
     static constexpr float row_height = 22.0F;
 
@@ -95,6 +113,16 @@ private:
     bool m_resize_hovered = false;
     float m_drag_start_x = 0.0F;
     float m_drag_start_width = 0.0F;
+
+    // Drag & Drop item moving
+    std::optional<std::size_t> m_drag_source_row;
+    std::optional<std::size_t> m_drag_target_row;
+    float m_drag_press_x = 0.0F;
+    float m_drag_press_y = 0.0F;
+    float m_drag_current_x = 0.0F;
+    float m_drag_current_y = 0.0F;
+    bool m_is_dragging_item = false;
+    std::chrono::steady_clock::time_point m_last_refresh_time{};
 };
 
 } // namespace Zenvra::Platform::X11::Components

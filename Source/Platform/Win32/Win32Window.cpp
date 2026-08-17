@@ -9,6 +9,7 @@
 #include "UI/Components/MenuModel.h"
 #include "Utility/Antialiasing.h"
 #include "Utility/MathUtil.h"
+#include "Utility/Shadows.h"
 #include "Utility/TextEncoding.h"
 
 #include <dwmapi.h>
@@ -2797,31 +2798,14 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
       return;
     }
     // macOS ultra-thin, soft diffuse ambient shadow
-    struct ShadowLayer {
-      float dx;
-      float dy;
-      float spread;
-      uint8_t alpha;
-    };
-    const ShadowLayer shadow_layers[] = {
-      {0.0F, 8.0F, 16.0F,  8}, // Ambient ultra-soft atmospheric haze
-      {0.0F, 5.0F,  9.0F, 14}, // Soft outer glow
-      {0.0F, 3.0F,  4.5F, 22}, // Soft mid-shadow
-      {0.0F, 1.5F,  2.0F, 32}, // Soft near-shadow
-      {0.0F, 0.5F,  0.8F, 42}, // Ultra-thin contact shadow
-    };
-    for (const auto &layer : shadow_layers) {
-      const float spread = layer.spread * scale;
-      const UI::Rect layer_rect{
-          panel_bounds.x - spread + layer.dx * scale,
-          panel_bounds.y - spread + layer.dy * scale,
-          panel_bounds.width + spread * 2.0F,
-          panel_bounds.height + spread * 2.0F,
-      };
-      fill_rounded_rectangle(device_context, layer_rect,
-                             UI::Theme::Color{0, 0, 0, layer.alpha},
-                             static_cast<int>(static_cast<float>(radius) + spread));
-    }
+    Utility::for_each_shadow_layer(
+        panel_bounds, static_cast<float>(radius), scale,
+        Utility::macos_card_shadows,
+        [&](const UI::Rect &layer_rect, const UI::Theme::Color &color,
+            float layer_radius) {
+          fill_rounded_rectangle(device_context, layer_rect, color,
+                                 static_cast<int>(layer_radius));
+        });
 
     // macOS Dark Acrylic Card
     fill_rounded_rectangle(device_context, panel_bounds, m_theme.panel_background, radius);
