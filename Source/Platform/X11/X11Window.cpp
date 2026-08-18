@@ -3104,24 +3104,49 @@ void X11Window::draw_about_modal(Drawable drawable, int client_width, int client
   const float scale = m_dpi_scale;
   const auto layout = m_about_modal.calculate_layout(viewport, scale);
 
-  // Semi-transparent backdrop overlay
-  surface.fill_rectangle(drawable, viewport, surface.allocate_color(UI::Theme::Color{0, 0, 0, 160}));
+  // 1. Sleek semi-transparent dark acrylic backdrop veil
+  surface.fill_rectangle(drawable, viewport,
+                         surface.allocate_color(UI::Theme::Color{10, 12, 16, 175}));
 
-  // Modal container box
+  const float dialog_radius = 10.0F * scale;
+
+  // 2. Acrylic Multi-Layer Ambient Drop Shadows
+  const UI::Rect outer_shadow{layout.base_layout.dialog_bounds.x - 5.0F * scale,
+                              layout.base_layout.dialog_bounds.y - 3.0F * scale,
+                              layout.base_layout.dialog_bounds.width + 10.0F * scale,
+                              layout.base_layout.dialog_bounds.height + 10.0F * scale};
+  surface.fill_rounded_rectangle(drawable, outer_shadow,
+                                 surface.allocate_color(UI::Theme::Color{6, 7, 10, 255}),
+                                 dialog_radius + 4.0F * scale,
+                                 surface.allocate_color(UI::Theme::Color{10, 12, 16, 255}));
+
+  const UI::Rect mid_shadow{layout.base_layout.dialog_bounds.x - 2.0F * scale,
+                            layout.base_layout.dialog_bounds.y - 1.0F * scale,
+                            layout.base_layout.dialog_bounds.width + 4.0F * scale,
+                            layout.base_layout.dialog_bounds.height + 4.0F * scale};
+  surface.fill_rounded_rectangle(drawable, mid_shadow,
+                                 surface.allocate_color(UI::Theme::Color{14, 15, 20, 255}),
+                                 dialog_radius + 2.0F * scale,
+                                 surface.allocate_color(UI::Theme::Color{10, 12, 16, 255}));
+
+  // 3. Modal container card (Dark theme matching Studio)
+  const UI::Theme::Color dialog_bg{28, 29, 36, 255};
   surface.fill_rounded_rectangle(drawable, layout.base_layout.dialog_bounds,
-                                 surface.allocate_color(UI::Theme::Color{28, 29, 34, 255}),
-                                 8.0F * scale,
-                                 surface.allocate_color(UI::Theme::Color{0, 0, 0, 160}));
-  surface.draw_rectangle(drawable, layout.base_layout.dialog_bounds,
-                         surface.allocate_color(UI::Theme::Color{70, 74, 88, 255}));
+                                 surface.allocate_color(dialog_bg),
+                                 dialog_radius,
+                                 surface.allocate_color(UI::Theme::Color{10, 12, 16, 255}));
+
+  // 4. Rounded hairline border
+  surface.draw_rounded_rectangle(drawable, layout.base_layout.dialog_bounds,
+                                 surface.allocate_color(UI::Theme::Color{65, 68, 82, 255}),
+                                 dialog_radius);
 
   // Logo
   const int logo_cx = static_cast<int>(layout.logo_bounds.x + layout.logo_bounds.width * 0.5F);
   const int logo_cy = static_cast<int>(layout.logo_bounds.y + layout.logo_bounds.height * 0.5F);
   const int logo_sz = static_cast<int>(layout.logo_bounds.width);
-  surface.draw_svg_icon(drawable, "Assets/icons/zenvra_logo48x48.ico", logo_cx, logo_cy,
-                        logo_sz, surface.m_palette.accent,
-                        UI::Theme::Color{28, 29, 34, 255});
+  surface.draw_png_icon(drawable, "Assets/icons/zenvra_logo.png", logo_cx, logo_cy,
+                        logo_sz, dialog_bg);
 
   // Headline & Edition
   surface.draw_text(drawable, *surface.m_ui_font, m_about_modal.get_app_name(),
@@ -3150,7 +3175,7 @@ void X11Window::draw_about_modal(Drawable drawable, int client_width, int client
   const UI::Theme::Color copy_bg = copy_h ? UI::Theme::Color{58, 62, 72, 255} : UI::Theme::Color{44, 48, 56, 255};
   surface.fill_rounded_rectangle(drawable, layout.copy_button_bounds,
                                  surface.allocate_color(copy_bg), 4.0F * scale,
-                                 surface.allocate_color(UI::Theme::Color{28, 29, 34, 255}));
+                                 surface.allocate_color(dialog_bg));
   surface.draw_text(drawable, *surface.m_small_font, "Copy",
                     layout.copy_button_bounds.x + layout.copy_button_bounds.width * 0.5F - 14.0F * scale,
                     layout.copy_button_bounds.y + layout.copy_button_bounds.height * 0.5F,
@@ -3160,7 +3185,7 @@ void X11Window::draw_about_modal(Drawable drawable, int client_width, int client
   const UI::Theme::Color ok_bg = ok_h ? UI::Theme::Color{17, 119, 187, 255} : UI::Theme::Color{14, 99, 156, 255};
   surface.fill_rounded_rectangle(drawable, layout.ok_button_bounds,
                                  surface.allocate_color(ok_bg), 4.0F * scale,
-                                 surface.allocate_color(UI::Theme::Color{28, 29, 34, 255}));
+                                 surface.allocate_color(dialog_bg));
   surface.draw_text(drawable, *surface.m_small_font, "OK",
                     layout.ok_button_bounds.x + layout.ok_button_bounds.width * 0.5F - 8.0F * scale,
                     layout.ok_button_bounds.y + layout.ok_button_bounds.height * 0.5F,
@@ -3173,13 +3198,14 @@ void X11Window::draw_about_modal(Drawable drawable, int client_width, int client
     surface.fill_rounded_rectangle(drawable, layout.close_button_bounds,
                                    surface.allocate_color(UI::Theme::Color{232, 17, 35, 255}),
                                    4.0F * scale,
-                                   surface.allocate_color(UI::Theme::Color{28, 29, 34, 255}));
+                                   surface.allocate_color(dialog_bg));
   }
   surface.draw_svg_icon(drawable, "Assets/icons/diagnostic-error.svg", close_cx, close_cy,
                         std::max(static_cast<int>(10.0F * scale), 8),
                         m_about_modal.is_close_hovered() ? UI::Theme::Color{255, 255, 255, 255}
                                                          : UI::Theme::Color{175, 180, 190, 255},
-                        UI::Theme::Color{28, 29, 34, 255});
+                        m_about_modal.is_close_hovered() ? UI::Theme::Color{232, 17, 35, 255}
+                                                         : dialog_bg);
 }
 
 } // namespace Zenvra::Platform::X11
