@@ -97,16 +97,34 @@ std::vector<unsigned char> downsample_rgba(const unsigned char *source,
 struct EventTarget {
   Window main_window;
   Window popup_window;
+  Window prompt_dialog_window;
+  Window add_item_dialog_window;
 };
 
 Bool event_matches_window(Display *display, XEvent *event,
                           XPointer target_data) {
   static_cast<void>(display);
   const auto *target = reinterpret_cast<const EventTarget *>(target_data);
-  return event->type == MappingNotify || event->xany.window == target->main_window ||
-         (target->popup_window != 0 && event->xany.window == target->popup_window)
-             ? True
-             : False;
+  if (event->type == MappingNotify) {
+    return True;
+  }
+  if (event->type == SelectionRequest) {
+    return (event->xselectionrequest.owner == target->main_window) ? True : False;
+  }
+  const Window w = event->xany.window;
+  if (w == target->main_window) {
+    return True;
+  }
+  if (target->popup_window != 0 && w == target->popup_window) {
+    return True;
+  }
+  if (target->prompt_dialog_window != 0 && w == target->prompt_dialog_window) {
+    return True;
+  }
+  if (target->add_item_dialog_window != 0 && w == target->add_item_dialog_window) {
+    return True;
+  }
+  return False;
 }
 
 } // namespace
@@ -256,15 +274,20 @@ void X11Window::show() {
 }
 
 void X11Window::poll_events() {
-  if (m_display == nullptr) {
+  if (m_display == nullptr || m_window_handle == 0) {
     return;
   }
 
-  EventTarget target{m_window_handle, m_chrome_renderer.popup_window()};
+  EventTarget target{
+      m_window_handle,
+      m_chrome_renderer.popup_window(),
+      m_prompt_dialog.is_open() ? m_prompt_dialog.window() : 0,
+      m_add_item_dialog.is_open() ? m_add_item_dialog.window() : 0,
+  };
 
-  while (XPending(m_display) > 0) {
-    XEvent event{};
-    XNextEvent(m_display, &event);
+  XEvent event{};
+  while (XCheckIfEvent(m_display, &event, event_matches_window,
+                       reinterpret_cast<XPointer>(&target))) {
     if (event.type == SelectionRequest) {
       XSelectionRequestEvent *req = &event.xselectionrequest;
       XSelectionEvent sel_ev{};
@@ -301,36 +324,34 @@ void X11Window::poll_events() {
       m_add_item_dialog.handle_event(event);
       continue;
     }
-    if (event_matches_window(m_display, &event, reinterpret_cast<XPointer>(&target))) {
-      if (target.popup_window != 0 && event.xany.window == target.popup_window && event.type != MappingNotify) {
-        static_cast<void>(m_chrome_renderer.handle_popup_event(event));
-        if (const auto command = m_chrome_renderer.take_popup_command()) {
-          m_interaction_state.open_menu_index.reset();
-          m_interaction_state.overflow_menu_open = false;
-          m_interaction_state.hovered_popup_item_index.reset();
-          m_interaction_state.hovered_overflow_menu_index.reset();
-          m_pressed_popup_item_index.reset();
-          m_menu_pointer_tracking = false;
-          render();
-          if (!command->empty()) {
-            if (command->starts_with("zde.explorer.")) {
-              execute_explorer_command(*command);
-            } else {
-              const std::optional<bool> editor_result =
-                  m_chrome_renderer.handle_editor_command(*command);
-              if (editor_result) {
-                if (*editor_result) {
-                  render();
-                }
-              } else if (m_command_invoked_callback) {
-                m_command_invoked_callback(*command);
+    if (target.popup_window != 0 && event.xany.window == target.popup_window && event.type != MappingNotify) {
+      static_cast<void>(m_chrome_renderer.handle_popup_event(event));
+      if (const auto command = m_chrome_renderer.take_popup_command()) {
+        m_interaction_state.open_menu_index.reset();
+        m_interaction_state.overflow_menu_open = false;
+        m_interaction_state.hovered_popup_item_index.reset();
+        m_interaction_state.hovered_overflow_menu_index.reset();
+        m_pressed_popup_item_index.reset();
+        m_menu_pointer_tracking = false;
+        render();
+        if (!command->empty()) {
+          if (command->starts_with("zde.explorer.")) {
+            execute_explorer_command(*command);
+          } else {
+            const std::optional<bool> editor_result =
+                m_chrome_renderer.handle_editor_command(*command);
+            if (editor_result) {
+              if (*editor_result) {
+                render();
               }
+            } else if (m_command_invoked_callback) {
+              m_command_invoked_callback(*command);
             }
           }
         }
-      } else {
-        handle_event(event);
       }
+    } else {
+      handle_event(event);
     }
   }
 
@@ -952,23 +973,29 @@ void X11Window::handle_event(XEvent &event) {
 }
 
 void X11Window::handle_motion(const XMotionEvent &event) {
+  XMotionEvent latest_event = event;
+  XEvent next_event;
+  while (XCheckTypedWindowEvent(m_display, m_window_handle, MotionNotify, &next_event)) {
+    latest_event = next_event.xmotion;
+  }
+
   if (m_manual_move_resize_direction) {
-    update_manual_move_resize(event);
+    update_manual_move_resize(latest_event);
     return;
   }
 
   if (m_about_modal.is_visible()) {
     const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(m_client_width), static_cast<float>(m_client_height)};
     const auto layout = m_about_modal.calculate_layout(viewport, m_dpi_scale);
-    if (m_about_modal.handle_pointer_move(static_cast<float>(event.x), static_cast<float>(event.y), layout)) {
+    if (m_about_modal.handle_pointer_move(static_cast<float>(latest_event.x), static_cast<float>(latest_event.y), layout)) {
       render();
     }
     return;
   }
 
-  if ((event.state & Button1Mask) != 0 &&
+  if ((latest_event.state & Button1Mask) != 0 &&
       m_chrome_renderer.handle_workspace_pointer_drag(
-          static_cast<float>(event.x), static_cast<float>(event.y),
+          static_cast<float>(latest_event.x), static_cast<float>(latest_event.y),
           m_client_width, m_client_height,
           m_chrome_layout.titlebar_bounds.bottom())) {
     render();
@@ -976,36 +1003,36 @@ void X11Window::handle_motion(const XMotionEvent &event) {
   }
 
   const UI::Chrome::WindowControl hovered_control =
-      m_chrome_layout.get_window_control(static_cast<float>(event.x),
-                                         static_cast<float>(event.y));
+      m_chrome_layout.get_window_control(static_cast<float>(latest_event.x),
+                                         static_cast<float>(latest_event.y));
   const std::optional<std::size_t> hovered_menu =
-      m_chrome_layout.get_menu_index(static_cast<float>(event.x),
-                                     static_cast<float>(event.y));
+      m_chrome_layout.get_menu_index(static_cast<float>(latest_event.x),
+                                     static_cast<float>(latest_event.y));
   const std::optional<std::size_t> hovered_popup_item =
-      get_popup_item_index(event.x, event.y);
+      get_popup_item_index(latest_event.x, latest_event.y);
   const std::optional<std::size_t> hovered_overflow_menu =
-      get_overflow_popup_menu_index(event.x, event.y);
+      get_overflow_popup_menu_index(latest_event.x, latest_event.y);
   const bool overflow_menu_hovered = m_chrome_layout.is_overflow_menu(
-      static_cast<float>(event.x), static_cast<float>(event.y));
+      static_cast<float>(latest_event.x), static_cast<float>(latest_event.y));
   const bool command_center_hovered =
       m_chrome_layout.command_center_bounds.contains(
-          static_cast<float>(event.x), static_cast<float>(event.y));
+          static_cast<float>(latest_event.x), static_cast<float>(latest_event.y));
   const bool run_button_hovered = m_chrome_layout.is_run_button(
-      static_cast<float>(event.x), static_cast<float>(event.y));
+      static_cast<float>(latest_event.x), static_cast<float>(latest_event.y));
   const bool debug_button_hovered = m_chrome_layout.is_debug_button(
-      static_cast<float>(event.x), static_cast<float>(event.y));
+      static_cast<float>(latest_event.x), static_cast<float>(latest_event.y));
   const bool ellipsis_button_hovered = m_chrome_layout.is_ellipsis_button(
-      static_cast<float>(event.x), static_cast<float>(event.y));
+      static_cast<float>(latest_event.x), static_cast<float>(latest_event.y));
   const bool compiler_button_hovered = m_chrome_layout.is_compiler_button(
-      static_cast<float>(event.x), static_cast<float>(event.y));
+      static_cast<float>(latest_event.x), static_cast<float>(latest_event.y));
   const bool platform_button_hovered = m_chrome_layout.is_platform_button(
-      static_cast<float>(event.x), static_cast<float>(event.y));
+      static_cast<float>(latest_event.x), static_cast<float>(latest_event.y));
   const bool binary_button_hovered = m_chrome_layout.is_binary_button(
-      static_cast<float>(event.x), static_cast<float>(event.y));
+      static_cast<float>(latest_event.x), static_cast<float>(latest_event.y));
   const bool build_button_hovered = m_chrome_layout.is_build_button(
-      static_cast<float>(event.x), static_cast<float>(event.y));
+      static_cast<float>(latest_event.x), static_cast<float>(latest_event.y));
   const bool gear_button_hovered = m_chrome_layout.is_gear_button(
-      static_cast<float>(event.x), static_cast<float>(event.y));
+      static_cast<float>(latest_event.x), static_cast<float>(latest_event.y));
 
   bool changed =
       hovered_control != m_interaction_state.hovered_control ||
@@ -1039,7 +1066,7 @@ void X11Window::handle_motion(const XMotionEvent &event) {
         m_chrome_layout.titlebar_bounds.bottom());
   } else {
     workspace_changed = m_chrome_renderer.handle_workspace_pointer_move(
-        static_cast<float>(event.x), static_cast<float>(event.y),
+        static_cast<float>(latest_event.x), static_cast<float>(latest_event.y),
         m_client_width, m_client_height,
         m_chrome_layout.titlebar_bounds.bottom());
   }
@@ -1097,7 +1124,7 @@ void X11Window::handle_motion(const XMotionEvent &event) {
     m_pressed_popup_item_index.reset();
     changed = true;
   }
-  update_cursor(event.x, event.y);
+  update_cursor(latest_event.x, latest_event.y);
 
   if (changed) {
     render();
