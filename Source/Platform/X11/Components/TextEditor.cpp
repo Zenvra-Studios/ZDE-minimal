@@ -2792,24 +2792,65 @@ void TextEditor::draw_document(
     // Empty state
     surface.fill_rectangle(drawable, layout.editor_bounds,
                            surface.m_pixels.editor_background);
-    const float center_x =
-        layout.editor_bounds.x + layout.editor_bounds.width * 0.5F;
-    const float center_y =
-        layout.editor_bounds.y + layout.editor_bounds.height * 0.4F;
 
-    surface.draw_svg_icon(
-        drawable, "Assets/icons/zenvra_logo48x48.ico",
-        round_to_int(center_x), round_to_int(center_y - 40.0F * scale),
-        round_to_int(48.0F * scale), surface.m_palette.accent,
-        surface.m_palette.editor_background);
+    m_empty_state_open_btn.set_bounds(UI::Rect{});
+    m_empty_state_clone_btn.set_bounds(UI::Rect{});
 
-    surface.draw_text(
-        drawable, *surface.m_large_font, "ZDE Studio", center_x, center_y,
-        surface.m_text.primary);
-    surface.draw_text(
-        drawable, *surface.m_small_font,
-        "Press Ctrl+O to open a file or Ctrl+Shift+P for Command Palette",
-    center_x, center_y + 30.0F * scale, surface.m_text.muted);
+    const float dpi = surface.m_dpi_scale;
+    const float logo_size = 180.0F * dpi;
+    const float logo_gap = 32.0F * dpi;
+
+    const std::string title = "Zenvra Development Studio";
+    const int title_w = surface.m_large_font ? surface.get_text_width(*surface.m_large_font, title) : static_cast<int>(240.0F * dpi);
+    const float text_block_w = std::max(static_cast<float>(title_w), 260.0F * dpi);
+    const float total_w = logo_size + logo_gap + text_block_w;
+
+    const float start_x = std::max(layout.editor_bounds.x + 30.0F * dpi,
+                                   layout.editor_bounds.x + (layout.editor_bounds.width - total_w) * 0.5F);
+    const float start_y = layout.editor_bounds.y + layout.editor_bounds.height * 0.32F;
+
+    // 1. Extra Large Iconic Logo on the left
+    surface.draw_png_icon(
+        drawable, "Assets/icons/zenvra_logo.png",
+        round_to_int(start_x + logo_size * 0.5F),
+        round_to_int(start_y + logo_size * 0.5F),
+        round_to_int(logo_size), surface.m_palette.editor_background);
+
+    const float text_x = start_x + logo_size + logo_gap;
+
+    // 2. Heading "Zenvra Development Studio"
+    if (surface.m_large_font) {
+      surface.draw_text(
+          drawable, *surface.m_large_font, title, text_x, start_y + 36.0F * dpi,
+          surface.m_text.primary);
+    }
+
+    // 3. Shortcuts list aligned directly under the heading (uniform neutral tones, no blue)
+    if (surface.m_small_font) {
+      struct ShortcutEntry {
+        std::string_view key;
+        std::string_view label;
+      };
+      static constexpr std::array<ShortcutEntry, 4> shortcuts{{
+          {"Ctrl+O", "Open File"},
+          {"Ctrl+Shift+P", "Command Palette"},
+          {"Ctrl+`", "Toggle Terminal"},
+          {"Ctrl+B", "Toggle Sidebar"},
+      }};
+
+      const float key_col_w = 110.0F * dpi;
+      const float item_gap = 24.0F * dpi;
+      const float first_row_y = start_y + 74.0F * dpi;
+
+      for (std::size_t i = 0; i < shortcuts.size(); ++i) {
+        const float row_y = first_row_y + static_cast<float>(i) * item_gap;
+        surface.draw_text(drawable, *surface.m_small_font, shortcuts[i].key,
+                          text_x, row_y, surface.m_text.primary);
+        surface.draw_text(drawable, *surface.m_small_font, shortcuts[i].label,
+                          text_x + key_col_w, row_y, surface.m_text.muted);
+      }
+    }
+
     return;
   }
 
@@ -2891,19 +2932,26 @@ void TextEditor::render_pane(
                          surface.m_pixels.editor_background);
 
   const float line_h = 20.0F * scale;
-  const std::size_t first_visual_row =
-      is_split_pane ? m_split_scrollbar.get_first_visible_line()
-                    : m_scrollbar.get_first_visible_line();
-  const std::size_t vis_count = static_cast<std::size_t>(
-      std::max(static_cast<int>(code_rect.height / line_h), 1));
   const auto &folding = is_split_pane ? m_split_folding : m_folding;
   const std::size_t total_lines =
       std::max(doc->get_line_count(), std::size_t{1});
+  const std::size_t vis_count = static_cast<std::size_t>(
+      std::max(static_cast<int>(code_rect.height / line_h), 1));
 
   // Rebuild folding model dynamically from document lines (matching Win32)
   const_cast<UI::Components::EditorFoldingModel &>(folding).rebuild(
       doc->get_lines(), 4);
 
+  auto &scrollbar = is_split_pane ? const_cast<EditorScrollbar &>(m_split_scrollbar)
+                                  : const_cast<EditorScrollbar &>(m_scrollbar);
+  scrollbar.synchronize(count_visible_lines(folding, total_lines), vis_count);
+  if (m_reveal_caret_pending) {
+    static_cast<void>(scrollbar.reveal_line(physical_line_to_visual_row(
+        folding, doc->get_caret_line(), total_lines)));
+    const_cast<TextEditor *>(this)->m_reveal_caret_pending = false;
+  }
+
+  const std::size_t first_visual_row = scrollbar.get_first_visible_line();
   const std::size_t first_line =
       visual_row_to_physical_line(folding, first_visual_row, total_lines);
   const std::size_t render_count = vis_count;
@@ -2940,24 +2988,24 @@ void TextEditor::render_pane(
   const bool syntax_highlighting =
       UI::Editor::supports_editor_syntax_highlighting(doc->get_file_name());
 
-  const auto token_color = [&](UI::Editor::EditorTokenKind kind) -> UI::Theme::Color {
+  const auto token_color = [&](UI::Editor::EditorTokenKind kind) -> const std::string & {
     switch (kind) {
     case UI::Editor::EditorTokenKind::Keyword:
-      return surface.m_palette.keyword;
+      return surface.m_text.keyword;
     case UI::Editor::EditorTokenKind::Number:
-      return surface.m_palette.number;
+      return surface.m_text.number;
     case UI::Editor::EditorTokenKind::Label:
-      return surface.m_palette.label;
+      return surface.m_text.label;
     case UI::Editor::EditorTokenKind::Type:
-      return surface.m_palette.type;
+      return surface.m_text.type;
     case UI::Editor::EditorTokenKind::Comment:
-      return surface.m_palette.comment;
+      return surface.m_text.comment;
     case UI::Editor::EditorTokenKind::String:
-      return surface.m_palette.success;
+      return surface.m_text.success;
     case UI::Editor::EditorTokenKind::Plain:
-      return surface.m_palette.text_primary;
+      return surface.m_text.primary;
     }
-    return surface.m_palette.text_primary;
+    return surface.m_text.primary;
   };
 
   // Indent guides (VS Code / Win32 style)
@@ -3022,11 +3070,11 @@ void TextEditor::render_pane(
 
     // Line number (right-aligned against gutter_line_x with 5px gap, matching Win32)
     const std::string line_num = std::to_string(line_index + 1);
-    const int num_w = surface.m_small_font->getTextWidth(line_num);
+    const int num_w = surface.m_editor_font->getTextWidth(line_num);
     const float number_x =
         gutter_line_x - 5.0F * scale - static_cast<float>(num_w);
     surface.draw_text(
-        drawable, *surface.m_small_font, line_num, number_x, center_y,
+        drawable, *surface.m_editor_font, line_num, number_x, center_y,
         is_active_line ? surface.m_text.primary : surface.m_text.muted);
 
     // Diagnostics dot in gutter
@@ -3131,14 +3179,14 @@ void TextEditor::render_pane(
                                                : line.size();
 
           const float selection_x = static_cast<float>(
-              surface.m_editor_font->getTextWidth(std::string{
-                  line.substr(0, std::min(selection_start, line.size()))}));
+              surface.m_editor_font->getTextWidth(
+                  line.substr(0, std::min(selection_start, line.size()))));
           float selection_width = static_cast<float>(
-              surface.m_editor_font->getTextWidth(std::string{line.substr(
+              surface.m_editor_font->getTextWidth(line.substr(
                   selection_start,
                   (selection_end >= selection_start)
                       ? (selection_end - selection_start)
-                      : 0)}));
+                      : 0)));
 
           if (line_index < selection.end.line) {
             selection_width += 6.0F * scale;
