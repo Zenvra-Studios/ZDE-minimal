@@ -118,6 +118,105 @@ struct GpuShaderRasterizer::ContextImpl
         }
     }
 };
+#elif defined(__linux__)
+#include <X11/Xlib.h>
+#include <GL/glx.h>
+
+struct GpuShaderRasterizer::ContextImpl
+{
+    Display* display = nullptr;
+    GLXContext glx_context = nullptr;
+    GLXDrawable drawable = 0;
+    bool own_display = false;
+
+    ~ContextImpl()
+    {
+        destroy();
+    }
+
+    bool ensure_context()
+    {
+        if (display != nullptr && glx_context != nullptr && drawable != 0)
+        {
+            return glXMakeCurrent(display, drawable, glx_context) == True;
+        }
+
+        display = XOpenDisplay(nullptr);
+        if (!display)
+        {
+            return false;
+        }
+        own_display = true;
+
+        int screen = DefaultScreen(display);
+        int attribs[] = {
+            GLX_RGBA,
+            GLX_DOUBLEBUFFER,
+            GLX_RED_SIZE, 8,
+            GLX_GREEN_SIZE, 8,
+            GLX_BLUE_SIZE, 8,
+            GLX_DEPTH_SIZE, 24,
+            None
+        };
+
+        XVisualInfo* vi = glXChooseVisual(display, screen, attribs);
+        if (!vi)
+        {
+            return false;
+        }
+
+        glx_context = glXCreateContext(display, vi, nullptr, GL_TRUE);
+        XFree(vi);
+
+        if (!glx_context)
+        {
+            return false;
+        }
+
+        XSetWindowAttributes swa{};
+        swa.event_mask = 0;
+        Window root = RootWindow(display, screen);
+        drawable = XCreateWindow(
+            display, root, 0, 0, 16, 16, 0,
+            CopyFromParent, InputOutput, CopyFromParent,
+            0, &swa);
+
+        if (!drawable)
+        {
+            return false;
+        }
+
+        return glXMakeCurrent(display, drawable, glx_context) == True;
+    }
+
+    void make_current()
+    {
+        if (display && glx_context && drawable)
+        {
+            glXMakeCurrent(display, drawable, glx_context);
+        }
+    }
+
+    void destroy()
+    {
+        if (display && glx_context)
+        {
+            glXMakeCurrent(display, None, nullptr);
+            glXDestroyContext(display, glx_context);
+            glx_context = nullptr;
+        }
+        if (display && drawable)
+        {
+            XDestroyWindow(display, drawable);
+            drawable = 0;
+        }
+        if (display && own_display)
+        {
+            XCloseDisplay(display);
+            display = nullptr;
+        }
+    }
+};
 #else
 struct GpuShaderRasterizer::ContextImpl
 {
