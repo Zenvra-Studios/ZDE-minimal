@@ -3362,17 +3362,19 @@ UI::Editor::TextPosition TextEditor::position_from_point(
     const float code_x = right_x + right_gutter_w + 14.0F * scale;
     const float target_x = std::max(point_x - code_x, 0.0F);
 
+    const float char_w = std::max(static_cast<float>(surface.m_editor_font->getTextWidth(" ")), 1.0F);
+    const float tab_w = char_w * 4.0F;
+
     std::size_t column = 0;
-    int previous_width = 0;
+    float current_x = 0.0F;
     while (column < line.size()) {
-      const std::size_t next_column = next_character_column(line, column);
-      const int next_width = surface.m_editor_font->getTextWidth(
-          std::string{line.substr(0, next_column)});
-      if (target_x < static_cast<float>(previous_width + next_width) * 0.5F) {
+      const std::size_t next_col = next_character_column(line, column);
+      const float glyph_w = (line[column] == '\t') ? tab_w : char_w;
+      if (target_x < current_x + glyph_w * 0.5F) {
         break;
       }
-      column = next_column;
-      previous_width = next_width;
+      current_x += glyph_w;
+      column = next_col;
     }
     return {line_index, column};
   }
@@ -3403,17 +3405,20 @@ UI::Editor::TextPosition TextEditor::position_from_point(
   const float code_x = layout.editor_bounds.x + 14.0F * surface.m_dpi_scale -
                        m_text_scroll_offset;
   const float target_x = std::max(point_x - code_x, 0.0F);
+
+  const float char_w = std::max(static_cast<float>(surface.m_editor_font->getTextWidth(" ")), 1.0F);
+  const float tab_w = char_w * 4.0F;
+
   std::size_t column = 0;
-  int previous_width = 0;
+  float current_x = 0.0F;
   while (column < line.size()) {
-    const std::size_t next_column = next_character_column(line, column);
-    const int next_width = surface.m_editor_font->getTextWidth(
-        std::string{line.substr(0, next_column)});
-    if (target_x < static_cast<float>(previous_width + next_width) * 0.5F) {
+    const std::size_t next_col = next_character_column(line, column);
+    const float glyph_w = (line[column] == '\t') ? tab_w : char_w;
+    if (target_x < current_x + glyph_w * 0.5F) {
       break;
     }
-    column = next_column;
-    previous_width = next_width;
+    current_x += glyph_w;
+    column = next_col;
   }
   return {line_index, column};
 }
