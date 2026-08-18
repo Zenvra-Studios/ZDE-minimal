@@ -148,7 +148,7 @@ bool ShaderSandboxPanel::handle_pointer_press(
 
   const UI::Rect snap_btn{ctrl.right() - 34.0F * scale, btn_y, btn_w, btn_h};
   if (snap_btn.contains(point_x, point_y)) {
-    m_engine.export_snapshot_bmp("shader_artwork.bmp");
+    static_cast<void>(m_engine.export_snapshot_bmp("shader_artwork.bmp"));
     return true;
   }
 
@@ -228,7 +228,7 @@ bool ShaderSandboxPanel::handle_pointer_drag(
     const float scale = layout.dpi_scale;
     m_width =
         std::clamp(m_drag_start_width + delta, 180.0F * scale, 800.0F * scale);
-    m_engine.update_and_render();
+    static_cast<void>(m_engine.update_and_render());
     return true;
   }
 
@@ -237,7 +237,7 @@ bool ShaderSandboxPanel::handle_pointer_drag(
     const float vx = point_x - layout.shader_panel_viewport_bounds.x;
     const float vy = point_y - layout.shader_panel_viewport_bounds.y;
     m_engine.set_mouse(vx, vy, true);
-    m_engine.update_and_render();
+    static_cast<void>(m_engine.update_and_render());
     return true;
   }
 
@@ -428,17 +428,12 @@ void ShaderSandboxPanel::render_viewport(
     return;
   }
 
-  const float scale = layout.dpi_scale;
-  const float margin = 8.0F * scale;
-  const UI::Rect canvas_rect{vp.x + margin, vp.y + margin,
-                             std::max(vp.width - margin * 2.0F, 16.0F),
-                             std::max(vp.height - margin * 2.0F, 16.0F)};
+  const UI::Rect canvas_rect = vp;
 
   // Dark canvas frame & subtle inner background
   surface.fill_rectangle(
       drawable, canvas_rect,
       surface.allocate_color(UI::Theme::Color{18, 18, 24, 255}));
-  surface.draw_rectangle(drawable, canvas_rect, surface.m_pixels.border);
 
   // Resize engine rasterizer to canvas size if dimensions changed
   const int target_w = round_to_int(canvas_rect.width);
@@ -447,7 +442,6 @@ void ShaderSandboxPanel::render_viewport(
       (m_engine.get_viewport_width() != target_w ||
        m_engine.get_viewport_height() != target_h)) {
     const_cast<ShaderSandboxPanel *>(this)->m_engine.resize(target_w, target_h);
-    static_cast<void>(const_cast<ShaderSandboxPanel *>(this)->m_engine.update_and_render());
   }
 
   // Blit rasterized pixels
@@ -455,28 +449,28 @@ void ShaderSandboxPanel::render_viewport(
   const int img_w = m_engine.get_rendered_width();
   const int img_h = m_engine.get_rendered_height();
 
-  if (!pixels.empty() && img_w > 0 && img_h > 0 && surface.m_display) {
-    // Reallocate or reuse cached XImage
-    if (m_cached_ximage == nullptr || m_cached_img_w != img_w ||
-        m_cached_img_h != img_h) {
+  if (!pixels.empty() && img_w > 0 && img_h > 0 && target_w > 0 && target_h > 0 && surface.m_display) {
+    // Reallocate or reuse cached XImage with target canvas dimensions
+    if (m_cached_ximage == nullptr || m_cached_img_w != target_w ||
+        m_cached_img_h != target_h) {
       if (m_cached_ximage) {
         XDestroyImage(m_cached_ximage);
         m_cached_ximage = nullptr;
       }
 
       char *img_data = static_cast<char *>(
-          std::malloc(static_cast<std::size_t>(img_w * img_h * 4)));
+          std::malloc(static_cast<std::size_t>(target_w * target_h * 4)));
       if (img_data) {
         m_cached_ximage =
             XCreateImage(surface.m_display,
                          DefaultVisual(surface.m_display, surface.m_screen),
                          static_cast<unsigned int>(
                              DefaultDepth(surface.m_display, surface.m_screen)),
-                         ZPixmap, 0, img_data, static_cast<unsigned int>(img_w),
-                         static_cast<unsigned int>(img_h), 32, 0);
+                         ZPixmap, 0, img_data, static_cast<unsigned int>(target_w),
+                         static_cast<unsigned int>(target_h), 32, target_w * 4);
         if (m_cached_ximage) {
-          m_cached_img_w = img_w;
-          m_cached_img_h = img_h;
+          m_cached_img_w = target_w;
+          m_cached_img_h = target_h;
         } else {
           std::free(img_data);
         }
@@ -484,15 +478,30 @@ void ShaderSandboxPanel::render_viewport(
     }
 
     if (m_cached_ximage && m_cached_ximage->data) {
-      const std::size_t copy_bytes = std::min(
-          pixels.size_bytes(), static_cast<std::size_t>(img_w * img_h * 4));
-      std::memcpy(m_cached_ximage->data, pixels.data(), copy_bytes);
+      if (img_w == target_w && img_h == target_h) {
+        const std::size_t copy_bytes = std::min(
+            pixels.size_bytes(), static_cast<std::size_t>(target_w * target_h * 4));
+        std::memcpy(m_cached_ximage->data, pixels.data(), copy_bytes);
+      } else {
+        // Nearest-neighbor upscale to fill the full canvas rect seamlessly
+        const uint32_t *src = pixels.data();
+        uint32_t *dst = reinterpret_cast<uint32_t *>(m_cached_ximage->data);
+        for (int y = 0; y < target_h; ++y) {
+          const int src_y = std::min((y * img_h) / target_h, img_h - 1);
+          const uint32_t *src_row = src + src_y * img_w;
+          uint32_t *dst_row = dst + y * target_w;
+          for (int x = 0; x < target_w; ++x) {
+            const int src_x = std::min((x * img_w) / target_w, img_w - 1);
+            dst_row[x] = src_row[src_x];
+          }
+        }
+      }
 
       surface.push_clip(canvas_rect);
       XPutImage(surface.m_display, drawable, surface.m_graphics_context,
                 m_cached_ximage, 0, 0, round_to_int(canvas_rect.x),
-                round_to_int(canvas_rect.y), static_cast<unsigned int>(img_w),
-                static_cast<unsigned int>(img_h));
+                round_to_int(canvas_rect.y), static_cast<unsigned int>(target_w),
+                static_cast<unsigned int>(target_h));
       surface.pop_clip();
     }
   }
