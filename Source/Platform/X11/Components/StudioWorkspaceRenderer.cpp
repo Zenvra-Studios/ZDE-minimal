@@ -1146,22 +1146,36 @@ void StudioWorkspaceRenderer::draw_svg_icon(
       rel_str = rel_str.substr(10);
     }
 
+    const std::filesystem::path filename = resolved_path.filename();
     const std::filesystem::path direct_path = m_icon_asset_root / rel_str;
+    const std::filesystem::path symbol_file = m_icon_asset_root / "vscode-symbols" / "icons" / "files" / filename;
+    const std::filesystem::path symbol_folder = m_icon_asset_root / "vscode-symbols" / "icons" / "folders" / filename;
     const std::filesystem::path codicon_direct = m_icon_asset_root / "vscode-codicons" / "icons" / rel_str;
-    const std::filesystem::path codicon_file = m_icon_asset_root / "vscode-codicons" / "icons" / resolved_path.filename();
+    const std::filesystem::path codicon_file = m_icon_asset_root / "vscode-codicons" / "icons" / filename;
+    const std::filesystem::path vsicon_file = m_icon_asset_root / "vscode-icons" / "icons" / filename;
+    const std::filesystem::path material_file = m_icon_asset_root / "material-icon-theme" / filename;
+
     if (std::filesystem::is_regular_file(direct_path, path_error)) {
       resolved_path = direct_path;
+    } else if (std::filesystem::is_regular_file(symbol_file, path_error)) {
+      resolved_path = symbol_file;
+    } else if (std::filesystem::is_regular_file(symbol_folder, path_error)) {
+      resolved_path = symbol_folder;
     } else if (std::filesystem::is_regular_file(codicon_direct, path_error)) {
       resolved_path = codicon_direct;
     } else if (std::filesystem::is_regular_file(codicon_file, path_error)) {
       resolved_path = codicon_file;
+    } else if (std::filesystem::is_regular_file(vsicon_file, path_error)) {
+      resolved_path = vsicon_file;
+    } else if (std::filesystem::is_regular_file(material_file, path_error)) {
+      resolved_path = material_file;
     } else {
       const std::filesystem::path themed_path = m_icon_asset_root / resolved_path;
       if (std::filesystem::is_regular_file(themed_path, path_error)) {
         resolved_path = themed_path;
       } else {
         const std::filesystem::path legacy_path =
-            m_icon_asset_root / resolved_path.filename();
+            m_icon_asset_root / filename;
         if (std::filesystem::is_regular_file(legacy_path, path_error)) {
           resolved_path = legacy_path;
         }
@@ -1174,7 +1188,8 @@ void StudioWorkspaceRenderer::draw_svg_icon(
   preserve_source_colors =
       preserve_source_colors &&
       (resolved_path.parent_path().filename() == "material-icon-theme" ||
-       resolved_path.string().find("vscode-symbols") != std::string::npos);
+       resolved_path.string().find("vscode-symbols") != std::string::npos ||
+       resolved_path.string().find("vscode-icons") != std::string::npos);
 
   const int half = size / 2;
   const int draw_x = center_x - half;
@@ -1190,12 +1205,6 @@ void StudioWorkspaceRenderer::draw_svg_icon(
   if (it != m_svg_cache.end()) {
     image = it->second;
   } else {
-    if (m_svg_cache.size() >= 128) {
-      for (auto &[k, img] : m_svg_cache) {
-        if (img) XDestroyImage(img);
-      }
-      m_svg_cache.clear();
-    }
     auto document = lunasvg::Document::loadFromFile(resolved_string);
     if (!document) {
       return;
@@ -1264,14 +1273,30 @@ void StudioWorkspaceRenderer::draw_svg_icon(
 void StudioWorkspaceRenderer::draw_png_icon(
     Drawable drawable, const std::string &asset_path, int center_x,
     int center_y, int max_size, const UI::Theme::Color &background) const {
-  if (asset_path.empty()) {
+  if (asset_path.empty() || max_size <= 0 || m_display == nullptr ||
+      m_graphics_context == nullptr) {
     return;
   }
 
   std::error_code path_error;
   std::filesystem::path resolved_path{asset_path};
-  if (!std::filesystem::is_regular_file(resolved_path, path_error)) {
-    resolved_path = m_icon_asset_root / resolved_path;
+  if (!std::filesystem::is_regular_file(resolved_path, path_error) && !m_icon_asset_root.empty()) {
+    std::string rel_str = resolved_path.string();
+    if (rel_str.starts_with("Assets/icons/") || rel_str.starts_with("Assets\\icons\\")) {
+      rel_str = rel_str.substr(13);
+    } else if (rel_str.starts_with("Assets/") || rel_str.starts_with("Assets\\")) {
+      rel_str = rel_str.substr(7);
+    }
+    const std::filesystem::path direct_path = m_icon_asset_root / rel_str;
+    const std::filesystem::path filename_path = m_icon_asset_root / resolved_path.filename();
+    const std::filesystem::path themed_path = m_icon_asset_root / resolved_path;
+    if (std::filesystem::is_regular_file(direct_path, path_error)) {
+      resolved_path = direct_path;
+    } else if (std::filesystem::is_regular_file(filename_path, path_error)) {
+      resolved_path = filename_path;
+    } else if (std::filesystem::is_regular_file(themed_path, path_error)) {
+      resolved_path = themed_path;
+    }
   }
   if (!std::filesystem::is_regular_file(resolved_path, path_error)) {
     return;
@@ -1292,7 +1317,10 @@ void StudioWorkspaceRenderer::draw_png_icon(
     int channels = 0;
     unsigned char *data =
         stbi_load(resolved_string.c_str(), &width, &height, &channels, 4);
-    if (!data) {
+    if (!data || width <= 0 || height <= 0) {
+      if (data) {
+        stbi_image_free(data);
+      }
       return;
     }
 
@@ -1310,9 +1338,18 @@ void StudioWorkspaceRenderer::draw_png_icon(
       }
     }
 
+    if (draw_w <= 0 || draw_h <= 0) {
+      stbi_image_free(data);
+      return;
+    }
+
     const auto resampled = Utility::AntialiasedImage::resample_area_average(
         data, width, height, draw_w, draw_h);
     stbi_image_free(data);
+
+    if (resampled.size() < static_cast<std::size_t>(draw_w * draw_h * 4)) {
+      return;
+    }
 
     char *x11_data = static_cast<char *>(
         std::malloc(static_cast<std::size_t>(draw_w * draw_h * 4)));
@@ -1341,7 +1378,8 @@ void StudioWorkspaceRenderer::draw_png_icon(
     image = XCreateImage(
         m_display, DefaultVisual(m_display, m_screen),
         static_cast<unsigned int>(DefaultDepth(m_display, m_screen)), ZPixmap,
-        0, x11_data, draw_w, draw_h, 32, 0);
+        0, x11_data, static_cast<unsigned int>(draw_w),
+        static_cast<unsigned int>(draw_h), 32, draw_w * 4);
     if (!image) {
       std::free(x11_data);
       return;
@@ -1423,6 +1461,10 @@ bool StudioWorkspaceRenderer::draw_ico_icon(
     const auto resampled = Utility::AntialiasedImage::resample_area_average(
         decoded->pixels.data(), width, height, draw_w, draw_h);
 
+    if (resampled.size() < static_cast<std::size_t>(draw_w * draw_h * 4)) {
+      return false;
+    }
+
     char *x11_data = static_cast<char *>(
         std::malloc(static_cast<std::size_t>(draw_w * draw_h * 4)));
     if (!x11_data) {
@@ -1450,7 +1492,8 @@ bool StudioWorkspaceRenderer::draw_ico_icon(
     image = XCreateImage(
         m_display, DefaultVisual(m_display, m_screen),
         static_cast<unsigned int>(DefaultDepth(m_display, m_screen)), ZPixmap,
-        0, x11_data, draw_w, draw_h, 32, 0);
+        0, x11_data, static_cast<unsigned int>(draw_w),
+        static_cast<unsigned int>(draw_h), 32, draw_w * 4);
     if (!image) {
       std::free(x11_data);
       return false;

@@ -22,7 +22,7 @@ inline std::string lowercase_ascii(std::string value)
 
 inline std::string symbol_icon(std::string_view icon_name)
 {
-    std::string asset = "vscode-symbols/files/";
+    std::string asset = "vscode-symbols/icons/files/";
     asset.append(icon_name);
     asset.append(".svg");
     return asset;
