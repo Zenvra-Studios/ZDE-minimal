@@ -218,6 +218,7 @@ public:
     [[nodiscard]] bool is_shader_panel_resizing() const noexcept;
     [[nodiscard]] bool toggle_shader_panel() noexcept;
     [[nodiscard]] bool is_shader_panel_visible() const noexcept;
+    [[nodiscard]] bool toggle_terminal() noexcept;
     void sync_shader_sandbox() const;
     [[nodiscard]] bool is_empty_state_button_hovered() const noexcept;
     [[nodiscard]] bool tick_animations() noexcept;

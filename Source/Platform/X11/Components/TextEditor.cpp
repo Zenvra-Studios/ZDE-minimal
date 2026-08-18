@@ -2292,7 +2292,8 @@ bool TextEditor::check_external_file_changes() {
 }
 
 bool TextEditor::tick_animations() noexcept {
-  bool needs_repaint = m_caret_blink.tick();
+  const bool has_doc = get_document() != nullptr;
+  bool needs_repaint = (m_focused && has_doc) ? m_caret_blink.tick() : false;
   needs_repaint |= m_brace_animation.tick();
   needs_repaint |= m_selection_animation.tick();
   if (m_is_split) {

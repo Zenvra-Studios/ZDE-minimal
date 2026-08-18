@@ -417,7 +417,36 @@ void X11Window::poll_events() {
     return;
   }
 
-  if (!m_is_minimized && m_custom_chrome_enabled && m_chrome_renderer.tick_animations()) {
+  const auto now = std::chrono::steady_clock::now();
+  const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_last_animation_frame_time).count();
+  if (elapsed >= 4) {
+    m_last_animation_frame_time = now;
+    if (!m_is_minimized && m_custom_chrome_enabled && m_chrome_renderer.tick_animations()) {
+      render();
+    }
+  }
+
+  // Flush LSP diagnostics on the main thread (safe — no data race)
+  flush_pending_diagnostics();
+}
+
+void X11Window::flush_pending_diagnostics() {
+  if (!m_has_pending_diagnostics.load(std::memory_order_acquire)) {
+    return;
+  }
+  std::vector<PendingDiagnostics> batch;
+  {
+    std::lock_guard<std::mutex> lock(m_pending_diag_mutex);
+    batch.swap(m_pending_diagnostics);
+    m_has_pending_diagnostics.store(false, std::memory_order_release);
+  }
+  bool needs_render = false;
+  for (auto &pd : batch) {
+    m_chrome_renderer.get_text_editor().on_diagnostics_updated(
+        pd.uri, std::move(pd.diagnostics));
+    needs_render = true;
+  }
+  if (needs_render) {
     render();
   }
 }

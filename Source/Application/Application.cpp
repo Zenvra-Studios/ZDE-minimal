@@ -60,8 +60,8 @@ int Application::run()
             request_close();
         }
 
-        // Frame pacing
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        // Frame pacing (2ms sleep yields CPU cleanly while maintaining responsive 500Hz event polling)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
 
     return 0;

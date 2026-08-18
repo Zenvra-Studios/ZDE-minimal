@@ -75,7 +75,6 @@ bool StudioWorkspaceRenderer::initialize(Display *display, int screen,
 
   // Load bundled fonts from Assets/fonts/. For each valid TTF font, register
   // the file with Fontconfig.
-  bool custom_font_loaded = false;
   if (project_root) {
     const std::filesystem::path hack_dir =
         *project_root / "Assets" / "fonts" / "Hack" / "ttf";
@@ -198,9 +197,7 @@ bool StudioWorkspaceRenderer::initialize(Display *display, int screen,
   m_text.warning = to_xft_color(m_palette.warning);
   m_text.success = to_xft_color(m_palette.success);
   static_cast<void>(m_tool_sidebar.initialize());
-  static_cast<void>(m_terminal_panel.toggle());
   static_cast<void>(m_shader_sandbox_panel.initialize());
-  m_terminal_panel.set_focused(false);
   return true;
 }
 
@@ -728,17 +725,20 @@ bool StudioWorkspaceRenderer::is_shader_panel_visible() const noexcept {
   return m_shader_sandbox_panel.is_visible();
 }
 
+bool StudioWorkspaceRenderer::toggle_terminal() noexcept {
+  return m_terminal_panel.toggle();
+}
+
 bool StudioWorkspaceRenderer::is_empty_state_button_hovered() const noexcept {
   return m_text_editor.is_empty_state_button_hovered();
 }
 
 bool StudioWorkspaceRenderer::tick_animations() noexcept {
   const bool caret_changed = m_text_editor.tick_animations();
-  const bool terminal_changed = m_terminal_panel.poll();
-  const bool terminal_blink_changed = m_terminal_panel.tick_animations();
+  const bool terminal_changed = m_terminal_panel.is_visible() ? m_terminal_panel.poll() : false;
+  const bool terminal_blink_changed = m_terminal_panel.is_visible() ? m_terminal_panel.tick_animations() : false;
   const bool shader_changed = m_shader_sandbox_panel.tick_animations();
-  return caret_changed || terminal_changed || terminal_blink_changed ||
-         shader_changed;
+  return caret_changed || terminal_changed || terminal_blink_changed || shader_changed;
 }
 
 void StudioWorkspaceRenderer::shutdown() {

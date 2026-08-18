@@ -8,11 +8,15 @@
 #include "UI/Chrome/WindowChromeLayout.h"
 #include "UI/Components/AboutModal.h"
 #include "UI/Theme/StudioTheme.h"
+#include "Language/Protocol/LspTypes.h"
 
 #include <X11/Xlib.h>
 
 #include <array>
+#include <atomic>
+#include <mutex>
 #include <optional>
+#include <vector>
 
 namespace Zenvra::Platform::X11
 {
@@ -199,6 +203,17 @@ private:
     Components::X11AddNewItemDialog m_add_item_dialog;
     UI::Components::AboutModal m_about_modal;
     bool m_is_fullscreen = false;
+    std::chrono::steady_clock::time_point m_last_animation_frame_time = std::chrono::steady_clock::now();
+
+    // Thread-safe diagnostics queue: LSP thread writes, main thread reads
+    struct PendingDiagnostics {
+        std::string uri;
+        std::vector<Language::Protocol::Diagnostic> diagnostics;
+    };
+    std::mutex m_pending_diag_mutex;
+    std::vector<PendingDiagnostics> m_pending_diagnostics;
+    std::atomic<bool> m_has_pending_diagnostics{false};
+    void flush_pending_diagnostics();
 
     void draw_about_modal(Drawable drawable, int client_width, int client_height);
 };
