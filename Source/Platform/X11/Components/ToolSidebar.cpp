@@ -43,6 +43,7 @@ bool ToolSidebar::initialize() {
   m_hovered_row.reset();
   m_hovered_icon.reset();
   m_hovered_scrollbar = false;
+  m_project_scrollbar.reset();
   return m_model.initialize();
 }
 
@@ -76,10 +77,20 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
   if (!contains(layout, point_x, point_y)) {
     return SidebarPressResult{.handled = false};
   }
-  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project &&
-      m_model.get_project_items().size() > viewport_row_count(layout) &&
-      scrollbar_bounds(layout).contains(point_x, point_y)) {
-    return SidebarPressResult{.handled = true};
+
+  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
+    const float scale = layout.dpi_scale;
+    const auto items = m_model.get_project_items();
+    const std::size_t row_count = viewport_row_count(layout);
+    m_project_scrollbar.set_track_bounds(scrollbar_bounds(layout));
+    m_project_scrollbar.set_thumb_inset(2.0F * scale);
+    m_project_scrollbar.set_minimum_thumb_size(24.0F * scale);
+    m_project_scrollbar.set_metrics(items.size(), row_count);
+    m_project_scrollbar.scroll_to(m_model.get_scroll_offset());
+    if (m_project_scrollbar.handle_pointer_press(point_x, point_y)) {
+      m_model.set_scroll_offset(m_project_scrollbar.get_scroll_offset());
+      return SidebarPressResult{.handled = true};
+    }
   }
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project &&
       m_model.get_project_items().empty()) {
@@ -311,6 +322,14 @@ bool ToolSidebar::handle_pointer_drag(
     return true;
   }
 
+  if (m_project_scrollbar.is_dragging()) {
+    if (m_project_scrollbar.handle_pointer_drag(point_x, point_y)) {
+      m_model.set_scroll_offset(m_project_scrollbar.get_scroll_offset());
+      return true;
+    }
+    return true;
+  }
+
   if (m_drag_source_row.has_value() &&
       m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
     const float dist =
@@ -330,6 +349,7 @@ bool ToolSidebar::handle_pointer_drag(
 bool ToolSidebar::handle_pointer_release() noexcept {
   const bool was_resizing = m_resizing;
   const bool was_dragging = m_is_dragging_item;
+  const bool scroll_project_released = m_project_scrollbar.handle_pointer_release();
   m_resizing = false;
 
   if (m_is_dragging_item && m_drag_source_row.has_value()) {
@@ -363,7 +383,7 @@ bool ToolSidebar::handle_pointer_release() noexcept {
   m_drag_source_row.reset();
   m_drag_target_row.reset();
   m_is_dragging_item = false;
-  return was_resizing || was_dragging;
+  return was_resizing || was_dragging || scroll_project_released;
 }
 
 bool ToolSidebar::tick_animations() noexcept {
@@ -564,11 +584,11 @@ void ToolSidebar::render(
     }
 
     const float indent_x =
-        panel.x + (4.0F + static_cast<float>(item.depth) * 13.0F) * scale;
+        panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
     const int guide_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
     for (std::size_t level = 0; level < item.depth; ++level) {
       const int guide_x = round_to_int(
-          panel.x + (10.0F + static_cast<float>(level) * 13.0F) * scale);
+          panel.x + (17.0F + static_cast<float>(level) * 16.0F) * scale);
 
       bool line_active = false;
       for (std::size_t next = item_index + 1; next < items.size(); ++next) {
@@ -592,58 +612,59 @@ void ToolSidebar::render(
     if (item.depth > 0) {
       const int parent_x = round_to_int(
           panel.x +
-          (10.0F + static_cast<float>(item.depth - 1) * 13.0F) * scale);
-      const int child_x = round_to_int(indent_x + 4.0F * scale);
+          (17.0F + static_cast<float>(item.depth - 1) * 16.0F) * scale);
+      const int child_x = round_to_int(indent_x + 3.0F * scale);
       surface.draw_line(drawable, parent_x, guide_y, child_x, guide_y,
                         surface.m_pixels.border);
     }
 
     const UI::Theme::Color &row_background =
-        is_hovered ? surface.m_palette.tab_active_background
-                   : surface.m_palette.sidebar_background;
+        is_selected ? surface.m_palette.tab_active_background
+        : (is_hovered ? surface.m_palette.hover_background
+                      : surface.m_palette.sidebar_background);
 
     if (item.directory) {
-      const int arrow_x = round_to_int(indent_x + 4.0F * scale);
+      const int arrow_x = round_to_int(indent_x + 3.0F * scale);
       const int arrow_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
       if (arrow_x + 8.0F * scale < panel.right()) {
         surface.draw_svg_icon(
             drawable,
-            item.expanded ? "Assets/icons/chevron-down.svg" : "Assets/icons/chevron-right.svg",
+            item.expanded ? "chevron-down.svg" : "chevron-right.svg",
             arrow_x, arrow_y, std::max(round_to_int(8.0F * scale), 7),
             is_selected ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
             row_background);
       }
-      const int folder_x = round_to_int(indent_x + 16.0F * scale);
+      const int folder_x = round_to_int(indent_x + 19.0F * scale);
       if (folder_x + 16.0F * scale < panel.right()) {
         const int folder_size = std::max(round_to_int(14.0F * scale), 11);
         surface.draw_svg_icon(
             drawable,
-            item.expanded ? "Assets/icons/folder-open.svg" : "Assets/icons/folder.svg",
+            item.expanded ? "folder-open.svg" : "folder.svg",
             folder_x, arrow_y, folder_size,
             is_selected ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
             row_background);
       }
     } else {
-      const int icon_x = round_to_int(indent_x + 14.0F * scale);
+      const int icon_x = round_to_int(indent_x + 19.0F * scale);
       const int icon_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
       if (icon_x + 14.0F * scale < panel.right()) {
         const std::string icon_asset =
             UI::Editor::file_icon_asset_for_path(item.path);
         surface.draw_svg_icon(
-            drawable, "Assets/icons/" + icon_asset, icon_x, icon_y,
+            drawable, icon_asset, icon_x, icon_y,
             std::max(round_to_int(14.0F * scale), 11),
             surface.m_palette.text_muted, row_background, true);
       }
     }
 
-    const float label_x = indent_x + (item.directory ? 26.0F : 25.0F) * scale;
+    const float label_x = indent_x + (item.directory ? 30.0F : 36.0F) * scale;
     if (label_x < panel.right()) {
       const float available_width = panel.right() - label_x - 10.0F * scale;
       if (available_width > 0.0F) {
         const std::string label = ellipsize(
-            *surface.m_small_font, item.label, round_to_int(available_width));
+            *surface.m_ui_font, item.label, round_to_int(available_width));
         surface.draw_text(
-            drawable, *surface.m_small_font, label, label_x,
+            drawable, *surface.m_ui_font, label, label_x,
             row_bounds.y + row_bounds.height * 0.5F,
             is_selected ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_primary);
       }
@@ -665,39 +686,49 @@ void ToolSidebar::render(
         row_height * scale,
     };
 
+    const bool is_sticky_hovered =
+        (m_hovered_sticky_index && *m_hovered_sticky_index == absolute_index);
+    const UI::Theme::Color &sticky_bg = is_sticky_hovered
+                                            ? surface.m_palette.hover_background
+                                            : surface.m_palette.sidebar_background;
+
     // Background to overlay standard items
     surface.fill_rectangle(drawable, row_bounds,
-                           surface.m_pixels.sidebar_background);
+                           is_sticky_hovered ? surface.m_pixels.hover_background
+                                             : surface.m_pixels.sidebar_background);
 
-    if (m_hovered_sticky_index && *m_hovered_sticky_index == absolute_index) {
-      surface.fill_rectangle(drawable, row_bounds,
-                             surface.m_pixels.hover_background);
+    const float indent_x =
+        panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
+    const int arrow_x = round_to_int(indent_x + 3.0F * scale);
+    const int arrow_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
+
+    if (arrow_x + 8.0F * scale < panel.right()) {
+      surface.draw_svg_icon(
+          drawable, "chevron-down.svg",
+          arrow_x, arrow_y, std::max(round_to_int(8.0F * scale), 7),
+          surface.m_palette.text_muted, sticky_bg);
     }
 
-    const float chevron_x =
-        panel.x + 10.0F * scale + static_cast<float>(item.depth) * 12.0F * scale;
-    const float content_y = row_bounds.y + row_bounds.height * 0.5F;
-    const int icon_size = std::max(round_to_int(12.0F * scale), 10);
+    const int folder_x = round_to_int(indent_x + 19.0F * scale);
+    if (folder_x + 16.0F * scale < panel.right()) {
+      const int folder_size = std::max(round_to_int(14.0F * scale), 11);
+      surface.draw_svg_icon(
+          drawable, "folder-open.svg",
+          folder_x, arrow_y, folder_size,
+          surface.m_palette.text_muted, sticky_bg);
+    }
 
-    surface.draw_svg_icon(
-        drawable, "Assets/icons/chevron-down.svg",
-        round_to_int(chevron_x), round_to_int(content_y), icon_size,
-        surface.m_palette.text_muted,
-        (m_hovered_sticky_index && *m_hovered_sticky_index == absolute_index)
-            ? surface.m_palette.hover_background
-            : surface.m_palette.sidebar_background);
-
-    surface.draw_svg_icon(
-        drawable, "Assets/icons/folder-open.svg",
-        round_to_int(chevron_x + 14.0F * scale), round_to_int(content_y),
-        icon_size, surface.m_palette.text_muted,
-        (m_hovered_sticky_index && *m_hovered_sticky_index == absolute_index)
-            ? surface.m_palette.hover_background
-            : surface.m_palette.sidebar_background);
-
-    const float text_x = chevron_x + 25.0F * scale;
-    surface.draw_text(drawable, *surface.m_ui_font, item.label, text_x,
-                      content_y, surface.m_palette.text_primary);
+    const float label_x = indent_x + 30.0F * scale;
+    if (label_x < panel.right()) {
+      const float available_width = panel.right() - label_x - 10.0F * scale;
+      if (available_width > 0.0F) {
+        const std::string label = ellipsize(
+            *surface.m_ui_font, item.label, round_to_int(available_width));
+        surface.draw_text(drawable, *surface.m_ui_font, label, label_x,
+                          row_bounds.y + row_bounds.height * 0.5F,
+                          surface.m_palette.text_primary);
+      }
+    }
 
     if (i == sticky.size() - 1) {
       surface.draw_line(
@@ -711,23 +742,29 @@ void ToolSidebar::render(
   }
 
   // Draw scrollbar if needed
-  if (items.size() > row_count) {
-    const UI::Rect sb = scrollbar_bounds(layout);
-    surface.fill_rectangle(drawable, sb, surface.m_pixels.sidebar_background);
-    const float content_h = static_cast<float>(items.size()) * row_height * scale;
-    const float view_h = sb.height;
-    const float thumb_h = std::max(view_h * (view_h / content_h), 20.0F * scale);
-    const float max_scroll = static_cast<float>(items.size() - row_count);
-    const float scroll_pct =
-        max_scroll > 0.0F ? static_cast<float>(first) / max_scroll : 0.0F;
-    const float thumb_y = sb.y + scroll_pct * (view_h - thumb_h);
-    const UI::Rect thumb{sb.x + 2.0F * scale, thumb_y,
-                         sb.width - 4.0F * scale, thumb_h};
+  m_project_scrollbar.set_track_bounds(scrollbar_bounds(layout));
+  m_project_scrollbar.set_thumb_inset(2.0F * scale);
+  m_project_scrollbar.set_minimum_thumb_size(24.0F * scale);
+  m_project_scrollbar.set_metrics(items.size(), row_count);
+  m_project_scrollbar.scroll_to(first);
+  if (m_project_scrollbar.is_needed()) {
+    const UI::Rect thumb_bounds = m_project_scrollbar.get_thumb_bounds();
+    const UI::Theme::Color thumb_color = m_project_scrollbar.is_dragging()
+        ? UI::Theme::Color{255, 255, 255, 115}
+        : (m_hovered_scrollbar ? UI::Theme::Color{255, 255, 255, 75} : UI::Theme::Color{255, 255, 255, 40});
+
+    const auto& bg = surface.m_palette.sidebar_background;
+    const std::uint32_t a = thumb_color.alpha;
+    const UI::Theme::Color blended_thumb{
+        static_cast<std::uint8_t>((thumb_color.red * a + bg.red * (255 - a) + 127) / 255),
+        static_cast<std::uint8_t>((thumb_color.green * a + bg.green * (255 - a) + 127) / 255),
+        static_cast<std::uint8_t>((thumb_color.blue * a + bg.blue * (255 - a) + 127) / 255),
+        255
+    };
     surface.fill_rounded_rectangle(
-        drawable, thumb,
-        m_hovered_scrollbar ? surface.m_pixels.accent
-                            : surface.m_pixels.border,
-        2.0F * scale, surface.m_pixels.sidebar_background);
+        drawable, thumb_bounds,
+        surface.allocate_color(blended_thumb),
+        2.5F * scale, surface.m_pixels.sidebar_background);
   }
 
   // Draw right border
@@ -793,7 +830,7 @@ std::optional<std::size_t> ToolSidebar::row_from_point(
 UI::Rect ToolSidebar::scrollbar_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
-  const float sb_w = 8.0F * scale;
+  const float sb_w = 12.0F * scale;
   return UI::Rect{
       layout.tool_sidebar_bounds.right() - sb_w,
       layout.tool_sidebar_bounds.y + header_height * scale,

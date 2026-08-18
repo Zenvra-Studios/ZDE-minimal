@@ -2,6 +2,7 @@
 
 #include "Platform/X11/Components/ExplorerHeader.h"
 #include "UI/Components/Button.h"
+#include "UI/Components/ScrollBar.h"
 #include "UI/Editor/ActivityPanelModel.h"
 #include "UI/Editor/StudioEditorModel.h"
 
@@ -29,7 +30,7 @@ enum class SidebarActionKind {
 struct SidebarPressResult {
     bool handled = false;
     SidebarActionKind action = SidebarActionKind::NoneAction;
-    std::optional<std::filesystem::path> path;
+    std::optional<std::filesystem::path> path = std::nullopt;
 };
 
 class ToolSidebar
@@ -78,6 +79,7 @@ public:
         float point_y) noexcept;
     [[nodiscard]] bool handle_pointer_release() noexcept;
     [[nodiscard]] bool is_dragging_item() const noexcept { return m_is_dragging_item; }
+    [[nodiscard]] bool is_dragging_scrollbar() const noexcept { return m_project_scrollbar.is_dragging(); }
     [[nodiscard]] bool tick_animations() noexcept;
 
     void render(
@@ -103,6 +105,7 @@ private:
     ExplorerHeader m_explorer_header;
     mutable UI::Components::Button m_empty_state_open_btn;
     mutable UI::Components::Button m_empty_state_clone_btn;
+    mutable UI::Components::ScrollBar m_project_scrollbar;
     std::optional<std::size_t> m_hovered_row;
     std::optional<std::size_t> m_hovered_sticky_index;
     std::optional<UI::Editor::SidebarIcon> m_hovered_icon;

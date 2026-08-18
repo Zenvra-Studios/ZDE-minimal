@@ -361,8 +361,14 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(float point_x, float point_y,
                                                   float content_top) {
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
-  if (m_tool_sidebar.is_resizing() || m_tool_sidebar.is_dragging_item()) {
+  if (m_tool_sidebar.is_resizing() || m_tool_sidebar.is_dragging_item() ||
+      m_tool_sidebar.is_dragging_scrollbar()) {
     return m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y);
+  }
+  if (m_tool_sidebar.contains(layout, point_x, point_y)) {
+    if (m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y)) {
+      return true;
+    }
   }
   if (m_terminal_panel.is_resizing()) {
     return m_terminal_panel.handle_pointer_drag(layout, point_y);
