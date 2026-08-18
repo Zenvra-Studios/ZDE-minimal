@@ -63,6 +63,11 @@ private:
     unsigned int m_color_texture = 0;
     unsigned int m_depth_rbo = 0;
     std::array<unsigned int, 4> m_channel_textures{0, 0, 0, 0};
+    std::array<ChannelTextureKind, 4> m_loaded_channel_kinds{
+        ChannelTextureKind::Empty, ChannelTextureKind::Empty,
+        ChannelTextureKind::Empty, ChannelTextureKind::Empty
+    };
+    std::array<std::size_t, 4> m_loaded_channel_sizes{0, 0, 0, 0};
 
     std::vector<std::uint32_t> m_pixel_buffer;
     bool m_initialized = false;

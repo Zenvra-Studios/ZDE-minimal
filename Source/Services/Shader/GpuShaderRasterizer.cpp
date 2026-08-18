@@ -302,6 +302,8 @@ GpuShaderRasterizer::GpuShaderRasterizer(GpuShaderRasterizer&& other) noexcept
     , m_color_texture(other.m_color_texture)
     , m_depth_rbo(other.m_depth_rbo)
     , m_channel_textures(other.m_channel_textures)
+    , m_loaded_channel_kinds(other.m_loaded_channel_kinds)
+    , m_loaded_channel_sizes(other.m_loaded_channel_sizes)
     , m_pixel_buffer(std::move(other.m_pixel_buffer))
     , m_initialized(other.m_initialized)
     , m_context_valid(other.m_context_valid)
@@ -311,6 +313,8 @@ GpuShaderRasterizer::GpuShaderRasterizer(GpuShaderRasterizer&& other) noexcept
     other.m_color_texture = 0;
     other.m_depth_rbo = 0;
     other.m_channel_textures.fill(0);
+    other.m_loaded_channel_kinds.fill(ChannelTextureKind::Empty);
+    other.m_loaded_channel_sizes.fill(0);
     other.m_fbo_width = 0;
     other.m_fbo_height = 0;
     other.m_initialized = false;
@@ -333,6 +337,8 @@ GpuShaderRasterizer& GpuShaderRasterizer::operator=(GpuShaderRasterizer&& other)
         m_color_texture = other.m_color_texture;
         m_depth_rbo = other.m_depth_rbo;
         m_channel_textures = other.m_channel_textures;
+        m_loaded_channel_kinds = other.m_loaded_channel_kinds;
+        m_loaded_channel_sizes = other.m_loaded_channel_sizes;
         m_pixel_buffer = std::move(other.m_pixel_buffer);
         m_initialized = other.m_initialized;
         m_context_valid = other.m_context_valid;
@@ -342,6 +348,8 @@ GpuShaderRasterizer& GpuShaderRasterizer::operator=(GpuShaderRasterizer&& other)
         other.m_color_texture = 0;
         other.m_depth_rbo = 0;
         other.m_channel_textures.fill(0);
+        other.m_loaded_channel_kinds.fill(ChannelTextureKind::Empty);
+        other.m_loaded_channel_sizes.fill(0);
         other.m_fbo_width = 0;
         other.m_fbo_height = 0;
         other.m_initialized = false;
@@ -645,6 +653,8 @@ void GpuShaderRasterizer::destroy_fbo()
             tex = 0;
         }
     }
+    m_loaded_channel_kinds.fill(ChannelTextureKind::Empty);
+    m_loaded_channel_sizes.fill(0);
     m_fbo_width = 0;
     m_fbo_height = 0;
 }
@@ -663,18 +673,26 @@ void GpuShaderRasterizer::update_channel_textures(const std::array<ShaderChannel
         if (m_channel_textures[i] == 0)
         {
             glGenTextures(1, &m_channel_textures[i]);
+            m_loaded_channel_kinds[i] = ChannelTextureKind::Empty;
+            m_loaded_channel_sizes[i] = 0;
         }
 
-        if (gl.ActiveTexture != nullptr)
+        if (m_loaded_channel_kinds[i] != ch.kind || m_loaded_channel_sizes[i] != ch.pixels.size())
         {
-            gl.ActiveTexture(GL_TEXTURE0 + static_cast<unsigned int>(i));
+            if (gl.ActiveTexture != nullptr)
+            {
+                gl.ActiveTexture(GL_TEXTURE0 + static_cast<unsigned int>(i));
+            }
+            glBindTexture(GL_TEXTURE_2D, m_channel_textures[i]);
+            glTexImage2D(
+                GL_TEXTURE_2D, 0, GL_RGBA, ch.width, ch.height, 0,
+                GL_BGRA_EXT, GL_UNSIGNED_BYTE, ch.pixels.data());
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+            m_loaded_channel_kinds[i] = ch.kind;
+            m_loaded_channel_sizes[i] = ch.pixels.size();
         }
-        glBindTexture(GL_TEXTURE_2D, m_channel_textures[i]);
-        glTexImage2D(
-            GL_TEXTURE_2D, 0, GL_RGBA, ch.width, ch.height, 0,
-            GL_BGRA_EXT, GL_UNSIGNED_BYTE, ch.pixels.data());
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     }
 }
 
