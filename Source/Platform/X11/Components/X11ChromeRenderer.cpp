@@ -873,8 +873,10 @@ OverflowMenuGeometry X11ChromeRenderer::calculate_overflow_menu_geometry(
   }
 
   const float scale = chrome_layout.dpi_scale;
-  const float row_height = 28.0F * scale;
-  float popup_width = 168.0F * scale;
+  const float row_height = 24.0F * scale;
+  const float vertical_padding = 4.0F * scale;
+  const float floating_gap = 4.0F * scale;
+  float popup_width = 160.0F * scale;
   for (std::size_t menu_index = geometry.first_menu_index;
        menu_index < menus.size(); ++menu_index) {
     const UI::Components::Menu &menu = menus[menu_index];
@@ -884,16 +886,26 @@ OverflowMenuGeometry X11ChromeRenderer::calculate_overflow_menu_geometry(
   }
   geometry.item_count = std::min(menus.size() - geometry.first_menu_index,
                                  geometry.item_bounds.size());
+
+  const float window_right = chrome_layout.titlebar_bounds.right();
+  float popup_x = chrome_layout.overflow_menu_bounds.x;
+  if (popup_x + popup_width > window_right - 8.0F * scale) {
+    popup_x = window_right - popup_width - 8.0F * scale;
+  }
+  if (popup_x < 8.0F * scale) {
+    popup_x = 8.0F * scale;
+  }
+
   geometry.bounds = {
-      chrome_layout.overflow_menu_bounds.x,
-      chrome_layout.titlebar_bounds.bottom(),
+      popup_x,
+      chrome_layout.titlebar_bounds.bottom() + floating_gap,
       popup_width,
-      row_height * static_cast<float>(geometry.item_count),
+      row_height * static_cast<float>(geometry.item_count) + vertical_padding * 2.0F,
   };
   for (std::size_t index = 0; index < geometry.item_count; ++index) {
     geometry.item_bounds[index] = {
         geometry.bounds.x,
-        geometry.bounds.y + row_height * static_cast<float>(index),
+        geometry.bounds.y + vertical_padding + row_height * static_cast<float>(index),
         geometry.bounds.width,
         row_height,
     };

@@ -2446,93 +2446,26 @@ void X11Window::send_maximized_state(long operation) {
   XFlush(m_display);
 }
 
-void X11Window::open_menu(std::size_t menu_index, bool select_first_item, const UI::Rect* anchor_override) {
+void X11Window::open_menu(std::size_t menu_index, bool select_first_item, [[maybe_unused]] const UI::Rect* anchor_override) {
   const std::span<const UI::Components::Menu> menus =
       UI::Components::get_window_menus();
   if (menu_index >= menus.size()) {
     return;
   }
 
-  const UI::Rect *anchor_bounds = anchor_override;
-  bool side_popup = false;
-  UI::Rect overflow_anchor;
+  m_chrome_renderer.close_popup();
 
-  if (anchor_bounds == nullptr) {
-    for (std::size_t index = 0; index < m_chrome_layout.visible_menu_count; ++index) {
-      if (m_chrome_layout.menu_regions[index].menu_index == menu_index) {
-        anchor_bounds = &m_chrome_layout.menu_regions[index].bounds;
-        break;
-      }
-    }
-    if (anchor_bounds == nullptr && menu_index < UI::Chrome::window_menu_count &&
-        m_chrome_layout.has_overflow_menu()) {
-      auto overflow_geom = m_chrome_renderer.calculate_overflow_menu_geometry(m_chrome_layout);
-      if (menu_index >= overflow_geom.first_menu_index && menu_index < overflow_geom.first_menu_index + overflow_geom.item_count) {
-        std::size_t item_index = menu_index - overflow_geom.first_menu_index;
-        overflow_anchor = overflow_geom.item_bounds[item_index];
-        anchor_bounds = &overflow_anchor;
-        side_popup = true;
-      } else {
-        anchor_bounds = &m_chrome_layout.overflow_menu_bounds;
-      }
-    }
-
-    if (anchor_bounds == nullptr) {
-      static constexpr std::size_t compiler_menu_index = 10;
-      static constexpr std::size_t platform_menu_index = 11;
-      static constexpr std::size_t binary_menu_index   = 12;
-      static constexpr std::size_t gear_menu_index     = 13;
-      static constexpr std::size_t ellipsis_menu_index = 14;
-
-      if (menu_index == compiler_menu_index)
-        anchor_bounds = &m_chrome_layout.compiler_bounds;
-      else if (menu_index == platform_menu_index)
-        anchor_bounds = &m_chrome_layout.platform_bounds;
-      else if (menu_index == binary_menu_index)
-        anchor_bounds = &m_chrome_layout.binary_bounds;
-      else if (menu_index == gear_menu_index)
-        anchor_bounds = &m_chrome_layout.gear_bounds;
-      else if (menu_index == ellipsis_menu_index)
-        anchor_bounds = &m_chrome_layout.ellipsis_bounds;
-    }
-  }
-
-  if (anchor_bounds == nullptr) return;
-
-  if (!side_popup) {
+  const bool opened_from_overflow =
+      m_interaction_state.overflow_menu_open && m_chrome_layout.has_overflow_menu() &&
+      menu_index >= m_chrome_layout.first_overflow_menu_index;
+  if (!opened_from_overflow) {
     m_interaction_state.overflow_menu_open = false;
-    m_interaction_state.hovered_overflow_menu_index.reset();
-  }
-
-  std::vector<Components::PopupMenuItem> popup_items;
-  for (const auto &item : menus[menu_index].items) {
-    Components::PopupMenuItem popup_item;
-    popup_item.text = std::string(item.label);
-    popup_item.separator = item.separator;
-    popup_item.command_id = std::string(item.command_id);
-    popup_item.shortcut = std::string(item.shortcut);
-    if (!item.command_id.empty()) {
-      if (m_command_state_query_callback) {
-        const auto state = m_command_state_query_callback(item.command_id);
-        popup_item.enabled = state.enabled;
-        popup_item.checked = state.checked;
-      }
-      if (const std::optional<bool> editor_enabled =
-              m_chrome_renderer.is_editor_command_enabled(item.command_id)) {
-        popup_item.enabled = *editor_enabled;
-      }
-    }
-    popup_items.push_back(std::move(popup_item));
-  }
-
-  if (!m_chrome_renderer.open_popup(m_window_handle, *anchor_bounds, popup_items,
-                                    select_first_item, side_popup)) {
-    return;
   }
 
   m_interaction_state.open_menu_index = menu_index;
   m_interaction_state.hovered_popup_item_index = select_first_item ? 0 : std::optional<std::size_t>();
   m_pressed_popup_item_index.reset();
+  m_menu_pointer_tracking = true;
   render();
 }
 
