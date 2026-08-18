@@ -902,14 +902,14 @@ void X11Window::render(std::optional<UI::Rect> dirty_rect) {
 
   m_interaction_state.maximized = m_is_maximized;
   m_interaction_state.focused = m_is_focused;
-  m_chrome_renderer.render(m_window_handle, m_client_width, m_client_height,
-                           m_chrome_layout, m_interaction_state,
-                           m_command_state_query_callback,
-                           dirty_rect);
-
-  if (m_about_modal.is_visible()) {
-    draw_about_modal(m_window_handle, m_client_width, m_client_height);
-  }
+  m_chrome_renderer.render(
+      m_window_handle, m_client_width, m_client_height, m_chrome_layout,
+      m_interaction_state, m_command_state_query_callback, dirty_rect,
+      [this](Drawable back_buffer) {
+        if (m_about_modal.is_visible()) {
+          draw_about_modal(back_buffer, m_client_width, m_client_height);
+        }
+      });
 }
 
 void X11Window::handle_event(XEvent &event) {

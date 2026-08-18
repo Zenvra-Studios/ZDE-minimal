@@ -1030,6 +1030,27 @@ void StudioWorkspaceRenderer::draw_rectangle(Drawable drawable,
           std::max(round_to_int(rectangle.height) - 1, 0)));
 }
 
+void StudioWorkspaceRenderer::reset_font_drawables() noexcept {
+  if (m_ui_font) m_ui_font->resetDrawable();
+  if (m_small_font) m_small_font->resetDrawable();
+  if (m_editor_font) m_editor_font->resetDrawable();
+  if (m_minimap_font) m_minimap_font->resetDrawable();
+  if (m_large_font) m_large_font->resetDrawable();
+}
+
+void StudioWorkspaceRenderer::draw_rounded_rectangle(
+    Drawable drawable, const UI::Rect &rectangle, unsigned long color,
+    float radius) const {
+  if (rectangle.is_empty()) {
+    return;
+  }
+  XSetForeground(m_display, m_graphics_context, color);
+  Utility::X11Rounded::X11Rounded::drawRoundedRect(
+      m_display, drawable, m_graphics_context, round_to_int(rectangle.x),
+      round_to_int(rectangle.y), std::max(round_to_int(rectangle.width), 0),
+      std::max(round_to_int(rectangle.height), 0), round_to_int(radius));
+}
+
 void StudioWorkspaceRenderer::draw_line(Drawable drawable, int from_x,
                                         int from_y, int to_x, int to_y,
                                         unsigned long color) const {

@@ -295,7 +295,8 @@ public:
         const UI::Chrome::WindowChromeLayoutResult& chrome_layout,
         const ChromeInteractionState& interaction_state,
         const CommandStateQueryCallback& command_state_query_callback,
-        std::optional<UI::Rect> dirty_rect = std::nullopt);
+        std::optional<UI::Rect> dirty_rect = std::nullopt,
+        const std::function<void(Drawable)>& overlay_callback = nullptr);
 
     [[nodiscard]] OverflowMenuGeometry calculate_overflow_menu_geometry(
         const UI::Chrome::WindowChromeLayoutResult& chrome_layout) const noexcept;

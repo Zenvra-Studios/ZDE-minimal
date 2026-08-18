@@ -283,6 +283,7 @@ private:
         float radius,
         std::optional<unsigned long> bg_color = std::nullopt) const;
     void draw_rectangle(Drawable drawable, const UI::Rect& rectangle, unsigned long color) const;
+    void draw_rounded_rectangle(Drawable drawable, const UI::Rect& rectangle, unsigned long color, float radius) const;
     void draw_line(Drawable drawable, int from_x, int from_y, int to_x, int to_y, unsigned long color) const;
     void draw_text(
         Drawable drawable,
@@ -336,6 +337,8 @@ private:
     int m_screen = 0;
     float m_dpi_scale = 1.0F;
     GC m_graphics_context = nullptr;
+    void reset_font_drawables() noexcept;
+
     std::unique_ptr<AntialiasedFont> m_ui_font;
     std::unique_ptr<AntialiasedFont> m_small_font;
     std::unique_ptr<AntialiasedFont> m_editor_font;
@@ -353,7 +356,7 @@ private:
     mutable TerminalPanel m_terminal_panel;
     mutable ShaderSandboxPanel m_shader_sandbox_panel;
     mutable UI::Components::PromptModal m_prompt_modal;
-    static constexpr std::size_t max_image_cache_size = 64;
+    static constexpr std::size_t max_image_cache_size = 512;
     void store_cached_image(const std::string& key, XImage* image) const;
     mutable std::unordered_map<std::string, XImage*> m_svg_cache;
 };

@@ -456,7 +456,8 @@ void X11ChromeRenderer::render(
     const UI::Chrome::WindowChromeLayoutResult &chrome_layout,
     const ChromeInteractionState &interaction_state,
     const CommandStateQueryCallback &command_state_query_callback,
-    std::optional<UI::Rect> dirty_rect) {
+    std::optional<UI::Rect> dirty_rect,
+    const std::function<void(Drawable)> &overlay_callback) {
   if (m_display == nullptr || m_graphics_context == nullptr ||
       window_handle == 0 || client_width <= 0 || client_height <= 0) {
     return;
@@ -475,6 +476,10 @@ void X11ChromeRenderer::render(
         static_cast<unsigned int>(DefaultDepth(m_display, m_screen)));
     m_back_buffer_w = pixmap_width;
     m_back_buffer_h = pixmap_height;
+    if (m_font) {
+      m_font->resetDrawable();
+    }
+    m_workspace_renderer.reset_font_drawables();
   }
   if (m_back_buffer == 0) {
     return;
@@ -818,6 +823,10 @@ void X11ChromeRenderer::render(
   draw_overflow_menu(back_buffer, chrome_layout, interaction_state);
   draw_popup_menu(back_buffer, chrome_layout, interaction_state,
                   command_state_query_callback);
+
+  if (overlay_callback) {
+    overlay_callback(back_buffer);
+  }
 
   if (dirty_rect && !dirty_rect->is_empty()) {
     const int src_x = std::clamp(round_to_int(dirty_rect->x), 0,
