@@ -98,6 +98,7 @@ public:
         float point_y) const noexcept;
     [[nodiscard]] bool is_split_resizing() const noexcept { return m_is_resizing_split; }
     [[nodiscard]] bool is_split_active() const noexcept { return m_is_split && m_split_document_index.has_value(); }
+    void reset_split() noexcept;
     [[nodiscard]] bool is_fold_margin_point(
         const StudioWorkspaceRenderer& surface,
         const UI::Editor::StudioEditorLayoutResult& layout,

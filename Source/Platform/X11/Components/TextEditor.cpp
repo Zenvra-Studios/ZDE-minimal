@@ -242,6 +242,14 @@ bool TextEditor::close_all_files() {
   return m_controller.close_all_files();
 }
 
+void TextEditor::reset_split() noexcept {
+  m_is_split = false;
+  m_split_document_index.reset();
+  m_focused_pane = SplitPaneFocus::Left;
+  m_scrollbar.reset();
+  m_split_scrollbar.reset();
+}
+
 std::size_t TextEditor::open_dropped_paths(
     std::span<const std::filesystem::path> dropped_paths) {
   const std::size_t opened_count =

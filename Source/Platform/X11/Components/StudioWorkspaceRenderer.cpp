@@ -257,7 +257,7 @@ bool StudioWorkspaceRenderer::set_workspace_root(
 }
 
 bool StudioWorkspaceRenderer::close_project() {
-  m_text_editor.close_all_files();
+  static_cast<void>(m_text_editor.close_all_files());
   m_tool_sidebar.clear_workspace();
   m_terminal_panel.set_working_directory({});
   return true;
@@ -424,7 +424,7 @@ void StudioWorkspaceRenderer::reset_layout() noexcept {
   if (m_terminal_panel.is_visible()) {
     static_cast<void>(m_terminal_panel.toggle());
   }
-  m_shader_panel_visible = false;
+  m_shader_sandbox_panel.set_visible(false);
   m_text_editor.reset_split();
 }
 
