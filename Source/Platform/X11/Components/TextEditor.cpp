@@ -2644,6 +2644,11 @@ void TextEditor::draw_tab_strip(
                         tab_edge_color);
     }
 
+    const UI::Theme::Color &tab_bg_color =
+        active ? surface.m_palette.tab_active_background
+        : (tab_hovered ? surface.m_palette.hover_background
+                       : surface.m_palette.tab_background);
+
     const std::string icon_asset =
         UI::Editor::file_icon_asset_for_path(document.get_file_name());
     const int icon_cx = round_to_int(
@@ -2657,8 +2662,7 @@ void TextEditor::draw_tab_strip(
           drawable, "Assets/icons/" + icon_asset, icon_cx,
           round_to_int(bounds.y + bounds.height * 0.5F), icon_sz,
           surface.m_palette.text_primary,
-          active ? surface.m_palette.tab_active_background
-                 : surface.m_palette.tab_background,
+          tab_bg_color,
           true);
     }
 
@@ -2683,9 +2687,9 @@ void TextEditor::draw_tab_strip(
             drawable, "Assets/icons/dirty.svg", round_to_int(close_cx),
             round_to_int(close_cy), std::max(round_to_int(10.0F * scale), 8),
             surface.m_palette.warning,
-            active ? surface.m_palette.tab_active_background
-                   : surface.m_palette.tab_background);
+            tab_bg_color);
       } else if (active || tab_hovered || close_hovered) {
+        UI::Theme::Color close_bg = tab_bg_color;
         if (close_hovered) {
           const float pad = 2.0F * scale;
           const UI::Rect btn_rect{
@@ -2694,9 +2698,16 @@ void TextEditor::draw_tab_strip(
               static_cast<float>(close_icon_sz) + pad * 2.0F,
               static_cast<float>(close_icon_sz) + pad * 2.0F,
           };
+          const std::uint32_t a = 35; // 14% subtle white hover
+          close_bg = UI::Theme::Color{
+              static_cast<std::uint8_t>((255 * a + tab_bg_color.red * (255 - a) + 127) / 255),
+              static_cast<std::uint8_t>((255 * a + tab_bg_color.green * (255 - a) + 127) / 255),
+              static_cast<std::uint8_t>((255 * a + tab_bg_color.blue * (255 - a) + 127) / 255),
+              255
+          };
           surface.fill_rounded_rectangle(
               drawable, btn_rect,
-              surface.allocate_color(UI::Theme::Color{255, 255, 255, 25}),
+              surface.allocate_color(close_bg),
               3.0F * scale,
               active ? surface.m_pixels.tab_active_background
                      : surface.m_pixels.tab_background);
@@ -2710,8 +2721,7 @@ void TextEditor::draw_tab_strip(
             drawable, "Assets/icons/diagnostic-error.svg",
             round_to_int(close_cx), round_to_int(close_cy), close_icon_sz,
             close_col,
-            active ? surface.m_palette.tab_active_background
-                   : surface.m_palette.tab_background);
+            close_bg);
       }
     }
   };

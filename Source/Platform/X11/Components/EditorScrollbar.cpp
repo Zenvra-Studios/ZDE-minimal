@@ -107,10 +107,20 @@ void EditorScrollbar::render(
     const UI::Theme::Color thumb_color = m_model.is_dragging()
         ? UI::Theme::Color{255, 255, 255, 115}
         : (m_hovered ? UI::Theme::Color{255, 255, 255, 75} : UI::Theme::Color{255, 255, 255, 40});
+
+    const auto& bg = surface.m_palette.editor_background;
+    const std::uint32_t a = thumb_color.alpha;
+    const UI::Theme::Color blended_thumb{
+        static_cast<std::uint8_t>((thumb_color.red * a + bg.red * (255 - a) + 127) / 255),
+        static_cast<std::uint8_t>((thumb_color.green * a + bg.green * (255 - a) + 127) / 255),
+        static_cast<std::uint8_t>((thumb_color.blue * a + bg.blue * (255 - a) + 127) / 255),
+        255
+    };
+
     surface.fill_rectangle(
         drawable,
         geometry.thumb,
-        thumb_color);
+        surface.allocate_color(blended_thumb));
 }
 
 UI::Rect EditorScrollbar::get_track_bounds(
