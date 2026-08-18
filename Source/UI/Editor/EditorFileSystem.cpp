@@ -29,7 +29,7 @@ std::vector<std::string> build_binary_preview(
     constexpr char hexadecimal[] = "0123456789ABCDEF";
     for (std::size_t offset = 0; offset < preview_size; offset += 16)
     {
-        char address[16]{};
+        char address[32]{};
         std::snprintf(address, sizeof(address), "%08zX", offset);
         std::string line{address};
         line += "  ";

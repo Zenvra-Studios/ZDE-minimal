@@ -10,9 +10,9 @@ namespace Zenvra::Tools::Runner
 
 struct ProcessExecutionOptions
 {
-    std::filesystem::path executable_path;
-    std::vector<std::string> arguments;
-    std::filesystem::path working_directory;
+    std::filesystem::path executable_path{};
+    std::vector<std::string> arguments{};
+    std::filesystem::path working_directory{};
     bool run_in_background = true;
 };
 

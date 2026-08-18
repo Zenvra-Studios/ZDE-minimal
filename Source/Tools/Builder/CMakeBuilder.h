@@ -11,10 +11,10 @@ namespace Zenvra::Tools::Builder
 
 struct CMakeBuildOptions
 {
-    std::filesystem::path workspace_root;
+    std::filesystem::path workspace_root{};
     std::string preset_name = "macos-debug";
     std::string target_name = "ZDE";
-    std::string build_directory;
+    std::string build_directory = "";
     bool clean_first = false;
 };
 

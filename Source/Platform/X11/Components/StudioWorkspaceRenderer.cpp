@@ -1256,7 +1256,7 @@ void StudioWorkspaceRenderer::draw_svg_icon(
     image = XCreateImage(
         m_display, DefaultVisual(m_display, m_screen),
         static_cast<unsigned int>(DefaultDepth(m_display, m_screen)), ZPixmap,
-        0, x11_data, size, size, 32, 0);
+        0, x11_data, size, size, 32, size * 4);
     if (!image) {
       std::free(x11_data);
       return;

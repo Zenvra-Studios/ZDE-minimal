@@ -142,9 +142,11 @@ void X11PromptDialog::draw_icon(Drawable drawable, const std::string& path, int 
 
         image = XCreateImage(m_display, DefaultVisual(m_display, m_screen),
                              static_cast<unsigned int>(DefaultDepth(m_display, m_screen)),
-                             ZPixmap, 0, x11_data, size, size, 32, 0);
+                             ZPixmap, 0, x11_data, size, size, 32, size * 4);
         if (image) {
             m_svg_cache[cache_key] = image;
+        } else {
+            std::free(x11_data);
         }
     }
 

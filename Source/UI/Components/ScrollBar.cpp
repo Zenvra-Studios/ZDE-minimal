@@ -174,7 +174,7 @@ bool ScrollBar::handle_pointer_press(float point_x, float point_y) noexcept
         {
             m_pointer_offset = geo.thumb.height * 0.5F;
             const float travel = std::max(m_track_bounds.height - geo.thumb.height, 0.0F);
-            update_from_thumb_pos(point_y - m_pointer_offset, travel, m_track_bounds.y, geo.thumb.height);
+            static_cast<void>(update_from_thumb_pos(point_y - m_pointer_offset, travel, m_track_bounds.y, geo.thumb.height));
         }
     }
     else
@@ -187,7 +187,7 @@ bool ScrollBar::handle_pointer_press(float point_x, float point_y) noexcept
         {
             m_pointer_offset = geo.thumb.width * 0.5F;
             const float travel = std::max(m_track_bounds.width - geo.thumb.width, 0.0F);
-            update_from_thumb_pos(point_x - m_pointer_offset, travel, m_track_bounds.x, geo.thumb.width);
+            static_cast<void>(update_from_thumb_pos(point_x - m_pointer_offset, travel, m_track_bounds.x, geo.thumb.width));
         }
     }
 
