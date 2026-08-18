@@ -3395,9 +3395,9 @@ void TextEditor::draw_diagnostic_hover_overlay(
   const int src_w = surface.m_small_font->getTextWidth(source_tag);
 
   const float card_padding = 14.0F * scale;
-  const float min_w = 380.0F * scale;
   const float max_w =
-      std::min(layout.editor_bounds.width - 40.0F * scale, 640.0F * scale);
+      std::max(60.0F * scale, std::min(layout.editor_bounds.width - 40.0F * scale, 640.0F * scale));
+  const float min_w = std::min(380.0F * scale, max_w);
   const float card_w = std::clamp(
       static_cast<float>(msg_w + src_w) + 48.0F * scale, min_w, max_w);
   const float card_h = 74.0F * scale;
@@ -3406,9 +3406,9 @@ void TextEditor::draw_diagnostic_hover_overlay(
   if (card_y < layout.editor_bounds.y + 4.0F * scale) {
     card_y = info.anchor_y + 24.0F * scale;
   }
-  const float card_x = std::clamp(
-      info.anchor_x - 30.0F * scale, layout.editor_bounds.x + 8.0F * scale,
-      layout.editor_bounds.right() - card_w - 8.0F * scale);
+  const float min_card_x = layout.editor_bounds.x + 8.0F * scale;
+  const float max_card_x = std::max(min_card_x, layout.editor_bounds.right() - card_w - 8.0F * scale);
+  const float card_x = std::clamp(info.anchor_x - 30.0F * scale, min_card_x, max_card_x);
 
   const UI::Rect card_rect{card_x, card_y, card_w, card_h};
 
