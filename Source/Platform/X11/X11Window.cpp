@@ -48,46 +48,102 @@ unsigned long to_argb(const UI::Theme::Color &color) {
          static_cast<unsigned long>(color.blue);
 }
 
-/// Bilinear resample of an RGBA image into target_width x target_height.
+/// High-quality area-averaging (box filter) resampler with premultiplied alpha for clean anti-aliasing.
 std::vector<unsigned char> downsample_rgba(const unsigned char *source,
                                            int source_width,
                                            int source_height,
                                            int target_width,
                                            int target_height) {
   std::vector<unsigned char> result(
-      static_cast<std::size_t>(target_width * target_height) * 4);
+      static_cast<std::size_t>(target_width * target_height) * 4, 0);
   if (source == nullptr || source_width <= 0 || source_height <= 0 ||
       target_width <= 0 || target_height <= 0) {
     return result;
   }
+  if (source_width == target_width && source_height == target_height) {
+    std::memcpy(result.data(), source,
+                static_cast<std::size_t>(target_width * target_height) * 4);
+    return result;
+  }
+
   const float scale_x =
       static_cast<float>(source_width) / static_cast<float>(target_width);
   const float scale_y =
       static_cast<float>(source_height) / static_cast<float>(target_height);
+
   for (int y = 0; y < target_height; ++y) {
-    const float source_y = (static_cast<float>(y) + 0.5F) * scale_y - 0.5F;
-    const int y0 = std::max(static_cast<int>(std::floor(source_y)), 0);
-    const int y1 = std::min(y0 + 1, source_height - 1);
-    const float fy = source_y - static_cast<float>(y0);
+    const float y_start = static_cast<float>(y) * scale_y;
+    const float y_end = static_cast<float>(y + 1) * scale_y;
+    const int sy_min = std::max(static_cast<int>(std::floor(y_start)), 0);
+    const int sy_max =
+        std::min(static_cast<int>(std::ceil(y_end)), source_height);
+
     for (int x = 0; x < target_width; ++x) {
-      const float source_x = (static_cast<float>(x) + 0.5F) * scale_x - 0.5F;
-      const int x0 = std::max(static_cast<int>(std::floor(source_x)), 0);
-      const int x1 = std::min(x0 + 1, source_width - 1);
-      const float fx = source_x - static_cast<float>(x0);
-      for (int channel = 0; channel < 4; ++channel) {
-        const float top =
-            static_cast<float>(source[(y0 * source_width + x0) * 4 + channel]) *
-                (1.0F - fx) +
-            static_cast<float>(source[(y0 * source_width + x1) * 4 + channel]) *
-                fx;
-        const float bottom =
-            static_cast<float>(source[(y1 * source_width + x0) * 4 + channel]) *
-                (1.0F - fx) +
-            static_cast<float>(source[(y1 * source_width + x1) * 4 + channel]) *
-                fx;
-        result[static_cast<std::size_t>(y * target_width + x) * 4 + channel] =
-            static_cast<unsigned char>(
-                top * (1.0F - fy) + bottom * fy + 0.5F);
+      const float x_start = static_cast<float>(x) * scale_x;
+      const float x_end = static_cast<float>(x + 1) * scale_x;
+      const int sx_min = std::max(static_cast<int>(std::floor(x_start)), 0);
+      const int sx_max =
+          std::min(static_cast<int>(std::ceil(x_end)), source_width);
+
+      float total_weight = 0.0F;
+      float acc_r = 0.0F;
+      float acc_g = 0.0F;
+      float acc_b = 0.0F;
+      float acc_a = 0.0F;
+
+      for (int sy = sy_min; sy < sy_max; ++sy) {
+        const float sy_f = static_cast<float>(sy);
+        const float weight_y = std::max(
+            0.0F, std::min(sy_f + 1.0F, y_end) - std::max(sy_f, y_start));
+        if (weight_y <= 0.0F) {
+          continue;
+        }
+
+        const std::size_t row_offset =
+            static_cast<std::size_t>(sy * source_width) * 4U;
+
+        for (int sx = sx_min; sx < sx_max; ++sx) {
+          const float sx_f = static_cast<float>(sx);
+          const float weight_x = std::max(
+              0.0F, std::min(sx_f + 1.0F, x_end) - std::max(sx_f, x_start));
+          const float weight = weight_x * weight_y;
+          if (weight <= 0.0F) {
+            continue;
+          }
+
+          const std::size_t idx =
+              row_offset + static_cast<std::size_t>(sx) * 4U;
+          const float a = static_cast<float>(source[idx + 3]) / 255.0F;
+          const float r = static_cast<float>(source[idx + 0]) * a;
+          const float g = static_cast<float>(source[idx + 1]) * a;
+          const float b = static_cast<float>(source[idx + 2]) * a;
+
+          acc_r += r * weight;
+          acc_g += g * weight;
+          acc_b += b * weight;
+          acc_a += a * 255.0F * weight;
+          total_weight += weight;
+        }
+      }
+
+      const std::size_t out_idx =
+          static_cast<std::size_t>(y * target_width + x) * 4U;
+      if (total_weight > 0.0F && acc_a > 0.0F) {
+        const float alpha_norm = acc_a / total_weight;
+        const float un_premul =
+            (alpha_norm > 0.001F) ? (255.0F / alpha_norm) : 0.0F;
+        const float final_r = (acc_r / total_weight) * un_premul;
+        const float final_g = (acc_g / total_weight) * un_premul;
+        const float final_b = (acc_b / total_weight) * un_premul;
+
+        result[out_idx + 0] = static_cast<unsigned char>(
+            std::clamp(std::round(final_r), 0.0F, 255.0F));
+        result[out_idx + 1] = static_cast<unsigned char>(
+            std::clamp(std::round(final_g), 0.0F, 255.0F));
+        result[out_idx + 2] = static_cast<unsigned char>(
+            std::clamp(std::round(final_b), 0.0F, 255.0F));
+        result[out_idx + 3] = static_cast<unsigned char>(
+            std::clamp(std::round(alpha_norm), 0.0F, 255.0F));
       }
     }
   }
@@ -623,12 +679,13 @@ void X11Window::release_native_resources() {
 }
 
 void X11Window::apply_window_icon() const {
-  constexpr std::array<int, 4> icon_sizes{16, 32, 48, 64};
+  constexpr std::array<int, 9> icon_sizes{16, 24, 32, 48, 64, 96, 128, 256, 512};
 
   std::vector<unsigned long> icon_data;
 
   // Use the compiled-in bundled logo asset
-  std::optional<Utility::DecodedImage> decoded = Utility::decode_ico_memory(Assets_icons_zenvra_logo_build_ico, Assets_icons_zenvra_logo_build_ico_len);
+  std::optional<Utility::DecodedImage> decoded = Utility::decode_ico_memory(
+      Assets_icons_zenvra_logo_build_ico, Assets_icons_zenvra_logo_build_ico_len);
 
   if (decoded.has_value() && !decoded->pixels.empty()) {
     std::size_t icon_data_size = 0;
