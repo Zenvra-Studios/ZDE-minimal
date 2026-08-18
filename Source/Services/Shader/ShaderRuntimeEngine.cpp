@@ -338,9 +338,9 @@ const ShaderChannel& ShaderRuntimeEngine::get_channel(std::size_t channel_index)
 bool ShaderRuntimeEngine::export_snapshot_bmp(const std::string& filepath) const
 {
     std::lock_guard<std::mutex> lock(m_engine_mutex);
-    const int w = m_rasterizer.get_width();
-    const int h = m_rasterizer.get_height();
-    const auto pixels = m_rasterizer.get_pixel_buffer();
+    const int w = get_rendered_width();
+    const int h = get_rendered_height();
+    const auto pixels = get_rendered_pixels();
     if (pixels.empty() || w <= 0 || h <= 0)
     {
         return false;

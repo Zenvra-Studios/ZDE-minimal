@@ -755,11 +755,19 @@ bool GpuShaderRasterizer::render(
 
     m_shader.unbind();
 
-    // Read back rendered pixels into BGRA buffer (bottom-up native OpenGL alignment)
+    // Read back rendered pixels into BGRA buffer and flip vertically to match top-down UI bitmap layout
     if (m_pixel_buffer.size() == static_cast<std::size_t>(m_width) * static_cast<std::size_t>(m_height))
     {
         glPixelStorei(GL_PACK_ALIGNMENT, 4);
         glReadPixels(0, 0, m_width, m_height, GL_BGRA_EXT, GL_UNSIGNED_BYTE, m_pixel_buffer.data());
+
+        const std::size_t stride = static_cast<std::size_t>(m_width);
+        for (int y = 0; y < m_height / 2; ++y)
+        {
+            auto* top = m_pixel_buffer.data() + static_cast<std::size_t>(y) * stride;
+            auto* bottom = m_pixel_buffer.data() + static_cast<std::size_t>(m_height - 1 - y) * stride;
+            std::swap_ranges(top, top + stride, bottom);
+        }
     }
 
     gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
