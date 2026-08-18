@@ -406,9 +406,7 @@ void ToolSidebar::render(
                 const std::string folder_path = item.expanded
                     ? "Assets/icons/folder-open.svg"
                     : "Assets/icons/folder.svg";
-                const int folder_size = item.expanded
-                    ? std::max(round_to_int(12.0F * scale), 10)
-                    : std::max(round_to_int(16.0F * scale), 13);
+                const int folder_size = std::max(round_to_int(14.0F * scale), 11);
                 surface.draw_svg_icon(
                     context, folder_path, folder_x, arrow_y,
                     folder_size,

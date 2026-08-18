@@ -137,7 +137,7 @@ void ActivitySidebar::draw_icon(
         asset_name = "vscode-codicons/icons/source-control.svg";
         break;
     case UI::Editor::SidebarIcon::Search:
-        asset_name = "search.svg";
+        asset_name = "vscode-codicons/icons/search.svg";
         break;
     case UI::Editor::SidebarIcon::Services:
         asset_name = "vscode-codicons/icons/extensions.svg";
@@ -146,16 +146,16 @@ void ActivitySidebar::draw_icon(
         asset_name = "material-icon-theme/shader.svg";
         break;
     case UI::Editor::SidebarIcon::Run:
-        asset_name = "play.svg";
+        asset_name = "Assets/icons/play.svg";
         break;
     case UI::Editor::SidebarIcon::Terminal:
-        asset_name = "terminal.svg";
+        asset_name = "Assets/icons/terminal.svg";
         break;
     case UI::Editor::SidebarIcon::Problems:
-        asset_name = "bug.svg";
+        asset_name = "Assets/icons/bug.svg";
         break;
     case UI::Editor::SidebarIcon::More:
-        asset_name = "ellipsis.svg";
+        asset_name = "vscode-codicons/icons/ellipsis.svg";
         break;
     }
 

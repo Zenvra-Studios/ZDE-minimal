@@ -1277,9 +1277,19 @@ std::filesystem::path StudioWorkspaceRenderer::resolve_icon_path(
             resolved_path = relative;
         }
         const std::filesystem::path themed_path = m_icon_asset_root / resolved_path;
+        const std::filesystem::path codicon_direct = m_icon_asset_root / "vscode-codicons" / "icons" / relative;
+        const std::filesystem::path codicon_file = m_icon_asset_root / "vscode-codicons" / "icons" / resolved_path.filename();
         if (std::filesystem::is_regular_file(themed_path, path_error))
         {
             resolved_path = themed_path;
+        }
+        else if (std::filesystem::is_regular_file(codicon_direct, path_error))
+        {
+            resolved_path = codicon_direct;
+        }
+        else if (std::filesystem::is_regular_file(codicon_file, path_error))
+        {
+            resolved_path = codicon_file;
         }
         else
         {

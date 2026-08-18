@@ -131,9 +131,9 @@ void ActivitySidebar::draw_icon(
     case UI::Editor::SidebarIcon::Shader:
         svg_path = "Assets/icons/material-icon-theme/shader.svg"; break;
     case UI::Editor::SidebarIcon::Run:
-        svg_path = "Assets/icons/vscode-codicons/icons/play.svg"; break;
+        svg_path = "Assets/icons/play.svg"; break;
     case UI::Editor::SidebarIcon::Terminal:
-        svg_path = "Assets/icons/vscode-codicons/icons/terminal.svg"; break;
+        svg_path = "Assets/icons/terminal.svg"; break;
     case UI::Editor::SidebarIcon::Problems:
         svg_path = "Assets/icons/bug.svg"; break;
     case UI::Editor::SidebarIcon::More:

@@ -1623,9 +1623,7 @@ void ToolSidebar::render(
         const std::string folder_path = item.expanded
                                             ? "folder-open.svg"
                                             : "folder.svg";
-        const int folder_size = item.expanded 
-                                    ? std::max(round_to_int(12.0F * scale), 10)
-                                    : std::max(round_to_int(16.0F * scale), 13);
+        const int folder_size = std::max(round_to_int(14.0F * scale), 11);
         surface.draw_svg_icon(
             device_context, folder_path, folder_x, arrow_y,
             folder_size,
@@ -1706,7 +1704,7 @@ void ToolSidebar::render(
           device_context, "folder-open.svg",
           folder_x,
           arrow_y,
-          std::max(round_to_int(12.0F * scale), 10),
+          std::max(round_to_int(14.0F * scale), 11),
           surface.m_palette.text_muted,
           sticky_bg);
 

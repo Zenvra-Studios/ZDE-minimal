@@ -615,9 +615,7 @@ void ToolSidebar::render(
       }
       const int folder_x = round_to_int(indent_x + 16.0F * scale);
       if (folder_x + 16.0F * scale < panel.right()) {
-        const int folder_size = item.expanded
-                                    ? std::max(round_to_int(12.0F * scale), 10)
-                                    : std::max(round_to_int(16.0F * scale), 13);
+        const int folder_size = std::max(round_to_int(14.0F * scale), 11);
         surface.draw_svg_icon(
             drawable,
             item.expanded ? "Assets/icons/folder-open.svg" : "Assets/icons/folder.svg",

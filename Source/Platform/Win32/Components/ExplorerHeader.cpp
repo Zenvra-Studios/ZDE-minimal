@@ -11,8 +11,8 @@ namespace Zenvra::Platform::Win32::Components
 using Zenvra::Utility::round_to_int;
 
 constexpr float header_height = UI::Editor::StudioEditorMetrics::tab_height;
-constexpr float icon_spacing = 22.0F;
-constexpr float right_margin = 16.0F;
+constexpr float icon_spacing = 20.0F;
+constexpr float right_margin = 14.0F;
 
 ExplorerHeader::ActionIcon ExplorerHeader::get_icon_at_point(
     const UI::Editor::StudioEditorLayoutResult& layout,
