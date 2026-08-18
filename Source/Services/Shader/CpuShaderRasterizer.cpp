@@ -141,7 +141,8 @@ inline std::uint32_t to_rgba_u32(const Vec4& col) noexcept
 
 CpuShaderRasterizer::CpuShaderRasterizer()
 {
-    m_worker_count = static_cast<int>(std::min<unsigned int>(std::max(std::thread::hardware_concurrency(), 2U), 3U));
+    const unsigned int hw = std::thread::hardware_concurrency();
+    m_worker_count = static_cast<int>(hw > 0 ? std::clamp(hw, 2U, 16U) : 4U);
     m_workers.reserve(static_cast<std::size_t>(m_worker_count));
     for (int i = 0; i < m_worker_count; ++i)
     {

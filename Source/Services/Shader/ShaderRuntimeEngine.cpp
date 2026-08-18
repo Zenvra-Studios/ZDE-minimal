@@ -22,7 +22,7 @@ ShaderRuntimeEngine::~ShaderRuntimeEngine() = default;
 void ShaderRuntimeEngine::initialize()
 {
     // Initialize GPU and CPU rasterizers
-    m_gpu_rasterizer.initialize(640, 360);
+    static_cast<void>(m_gpu_rasterizer.initialize(640, 360));
 
     // Setup default noise channels
     set_channel_texture(0, ChannelTextureKind::PerlinNoise);
@@ -187,6 +187,14 @@ bool ShaderRuntimeEngine::update_and_render()
 {
     const auto now = std::chrono::steady_clock::now();
     const float dt = std::chrono::duration<float>(now - m_last_frame_time).count();
+
+    // Support smooth high-refresh rates up to 240 FPS while preventing runaway CPU spinning
+    constexpr float min_frame_interval = 1.0F / 240.0F;
+    if (m_is_playing && dt < min_frame_interval && !m_is_dirty)
+    {
+        return false;
+    }
+
     m_last_frame_time = now;
 
     bool needs_redraw = false;
@@ -215,7 +223,7 @@ bool ShaderRuntimeEngine::update_and_render()
             if (!m_gpu_rasterizer.is_valid() && !m_source_code.empty())
             {
                 std::string err;
-                m_gpu_rasterizer.compile(m_source_code, err);
+                static_cast<void>(m_gpu_rasterizer.compile(m_source_code, err));
             }
 
             if (m_gpu_rasterizer.is_valid())
