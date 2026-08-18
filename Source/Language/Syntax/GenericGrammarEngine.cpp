@@ -262,23 +262,13 @@ std::size_t GenericGrammarEngine::tokenize_line(
             }
         }
 
-        // 10. Scoped Identifiers (e.g. Zenvra::Core, std::vector)
+        // 10. Identifiers (e.g. Zenvra, EditorScrollbar, reset, std)
         if (std::isalpha(static_cast<unsigned char>(character)) != 0 || character == '_')
         {
-            while (cursor < line.size())
+            while (cursor < line.size() &&
+                   (std::isalnum(static_cast<unsigned char>(line[cursor])) != 0 || line[cursor] == '_'))
             {
-                if (std::isalnum(static_cast<unsigned char>(line[cursor])) != 0 || line[cursor] == '_')
-                {
-                    ++cursor;
-                }
-                else if (cursor + 1 < line.size() && line[cursor] == ':' && line[cursor + 1] == ':')
-                {
-                    cursor += 2;
-                }
-                else
-                {
-                    break;
-                }
+                ++cursor;
             }
             const std::string_view identifier = line.substr(token_start, cursor - token_start);
 
