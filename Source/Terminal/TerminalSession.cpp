@@ -223,6 +223,15 @@ std::filesystem::path TerminalSession::resolve_host_shell()
     }
     return find_windows_executable(L"bash.exe");
 #else
+    // 0. Check explicit ZDE override ($ZDE_SHELL)
+    if (const char* zde_shell = std::getenv("ZDE_SHELL"); zde_shell != nullptr && zde_shell[0] != '\0')
+    {
+        if (::access(zde_shell, X_OK) == 0)
+        {
+            return std::filesystem::path{zde_shell};
+        }
+    }
+
     // 1. Check environment variable $SHELL (host's active shell preference)
     if (const char* env_shell = std::getenv("SHELL"); env_shell != nullptr && env_shell[0] != '\0')
     {
@@ -449,10 +458,11 @@ bool TerminalSession::start(const std::filesystem::path& working_directory,
         }
         ::setenv("TERM", "xterm-256color", 1);
         ::setenv("COLORTERM", "truecolor", 1);
+        ::setenv("TERM_PROGRAM", "ZDE", 1);
         const std::string executable = m_shell_path.string();
+        ::execl(executable.c_str(), executable.c_str(), nullptr);
         ::execl(executable.c_str(), executable.c_str(), "-i", nullptr);
         ::execl(executable.c_str(), executable.c_str(), "-l", nullptr);
-        ::execl(executable.c_str(), executable.c_str(), nullptr);
         ::_exit(127);
     }
     m_implementation->process_id = process_id;
@@ -520,20 +530,8 @@ void TerminalSession::stop() noexcept
         if (::waitpid(m_implementation->process_id, &status, WNOHANG) == 0)
         {
             static_cast<void>(::kill(m_implementation->process_id, SIGHUP));
-            pid_t wait_result = 0;
-            for (int attempt = 0; attempt < 20 && wait_result == 0; ++attempt)
-            {
-                wait_result = ::waitpid(m_implementation->process_id, &status, WNOHANG);
-                if (wait_result == 0)
-                {
-                    ::usleep(1000);
-                }
-            }
-            if (wait_result == 0)
-            {
-                static_cast<void>(::kill(m_implementation->process_id, SIGKILL));
-                static_cast<void>(::waitpid(m_implementation->process_id, &status, 0));
-            }
+            static_cast<void>(::kill(m_implementation->process_id, SIGKILL));
+            static_cast<void>(::waitpid(m_implementation->process_id, &status, WNOHANG));
         }
         m_implementation->process_id = -1;
     }

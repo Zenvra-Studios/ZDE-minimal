@@ -1835,7 +1835,7 @@ void X11Window::handle_key_press(XKeyEvent &event) {
       }
       if (shift_pressed && (key_symbol == XK_v || key_symbol == XK_V)) {
         if (!m_clipboard_text.empty()) {
-          m_chrome_renderer.get_workspace_renderer().get_terminal_panel().handle_text_input(m_clipboard_text);
+          static_cast<void>(m_chrome_renderer.get_workspace_renderer().get_terminal_panel().handle_text_input(m_clipboard_text));
           render();
           return;
         }
