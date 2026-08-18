@@ -11,6 +11,7 @@
 #include "UI/Editor/BraceAnimationModel.h"
 #include "UI/Editor/CaretBlinkModel.h"
 #include "UI/Editor/EditorController.h"
+#include "UI/Components/BreadcrumbBar.h"
 #include "UI/Components/Button.h"
 #include "UI/Editor/SelectionAnimationModel.h"
 #include "UI/Editor/StudioEditorModel.h"

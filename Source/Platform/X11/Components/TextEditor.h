@@ -8,6 +8,7 @@
 #include "UI/Components/EditorFolding.h"
 #include "UI/Components/HoverTooltip.h"
 #include "UI/Components/SignatureHelpWidget.h"
+#include "UI/Components/BreadcrumbBar.h"
 #include "UI/Editor/BraceAnimationModel.h"
 #include "UI/Editor/CaretBlinkModel.h"
 #include "UI/Editor/EditorController.h"

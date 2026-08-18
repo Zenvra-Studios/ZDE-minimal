@@ -420,12 +420,23 @@ void TextEditor::draw_editor_header(
                                     (splitter_x + 2.0F * scale),
                                 header_bounds.height};
 
-    // Left filename
+    // Left Header File Title with Icon
     if (document != nullptr) {
-      surface.draw_text(drawable, *surface.m_small_font,
-                        document->get_file_name(),
-                        left_header.x + 12.0F * scale, center_y,
-                        surface.m_text.primary);
+      const std::string left_filename{document->get_file_name()};
+      const std::string left_icon = UI::Editor::file_icon_asset_for_path(std::filesystem::path{left_filename});
+      const int left_icon_sz = std::max(round_to_int(13.0F * scale), 11);
+      const float left_icon_cx = left_header.x + 12.0F * scale + left_icon_sz * 0.5F;
+      surface.draw_svg_icon(
+          drawable, "Assets/icons/" + left_icon,
+          round_to_int(left_icon_cx), round_to_int(center_y), left_icon_sz,
+          surface.m_palette.text_muted, surface.m_palette.editor_background);
+
+      if (surface.m_small_font) {
+        surface.draw_text(
+            drawable, *surface.m_small_font, left_filename,
+            left_header.x + 12.0F * scale + left_icon_sz + 6.0F * scale, center_y,
+            surface.m_text.primary);
+      }
     }
 
     // Splitter line in header
@@ -436,16 +447,6 @@ void TextEditor::draw_editor_header(
         (m_is_resizing_split || m_hovered_split_resize)
             ? surface.m_pixels.accent
             : surface.m_pixels.border);
-
-    // Right filename
-    const auto *right_doc =
-        m_controller.get_document(*m_split_document_index);
-    if (right_doc != nullptr) {
-      surface.draw_text(drawable, *surface.m_small_font,
-                        right_doc->get_file_name(),
-                        right_header.x + 12.0F * scale, center_y,
-                        surface.m_text.primary);
-    }
 
     // Split close button on far right of right header
     m_split_close_btn_bounds =
@@ -478,14 +479,29 @@ void TextEditor::draw_editor_header(
     m_tab_action_bounds[0] =
         UI::Rect{actions_right - 4.0F * btn_w - 6.0F * scale, btn_y, btn_w,
                  btn_h};
+
+    // Right Header File Title with Icon
+    const auto *right_doc =
+        m_controller.get_document(*m_split_document_index);
+    if (right_doc != nullptr) {
+      const std::string right_filename{right_doc->get_file_name()};
+      const std::string right_icon = UI::Editor::file_icon_asset_for_path(std::filesystem::path{right_filename});
+      const int right_icon_sz = std::max(round_to_int(13.0F * scale), 11);
+      const float right_icon_cx = right_header.x + 12.0F * scale + right_icon_sz * 0.5F;
+      surface.draw_svg_icon(
+          drawable, "Assets/icons/" + right_icon,
+          round_to_int(right_icon_cx), round_to_int(center_y), right_icon_sz,
+          surface.m_palette.text_muted, surface.m_palette.editor_background);
+
+      if (surface.m_small_font) {
+        surface.draw_text(
+            drawable, *surface.m_small_font, right_filename,
+            right_header.x + 12.0F * scale + right_icon_sz + 6.0F * scale, center_y,
+            surface.m_text.primary);
+      }
+    }
   } else {
     m_split_close_btn_bounds = UI::Rect{};
-    if (document != nullptr) {
-      surface.draw_text(drawable, *surface.m_small_font,
-                        document->get_file_name(),
-                        header_bounds.x + 12.0F * scale, center_y,
-                        surface.m_text.primary);
-    }
     const float actions_right = header_bounds.right() - 4.0F * scale;
     m_tab_action_bounds[3] =
         UI::Rect{actions_right - 1.0F * btn_w, btn_y, btn_w, btn_h};
@@ -498,6 +514,25 @@ void TextEditor::draw_editor_header(
     m_tab_action_bounds[0] =
         UI::Rect{actions_right - 4.0F * btn_w - 6.0F * scale, btn_y, btn_w,
                  btn_h};
+
+    // Left side: File title with Icon (Clipped before buttons)
+    if (document != nullptr) {
+      const std::string filename{document->get_file_name()};
+      const std::string icon_asset = UI::Editor::file_icon_asset_for_path(std::filesystem::path{filename});
+      const int icon_sz = std::max(round_to_int(13.0F * scale), 11);
+      const float icon_cx = header_bounds.x + 12.0F * scale + icon_sz * 0.5F;
+      surface.draw_svg_icon(
+          drawable, "Assets/icons/" + icon_asset,
+          round_to_int(icon_cx), round_to_int(center_y), icon_sz,
+          surface.m_palette.text_muted, surface.m_palette.editor_background);
+
+      if (surface.m_small_font) {
+        surface.draw_text(
+            drawable, *surface.m_small_font, filename,
+            header_bounds.x + 12.0F * scale + icon_sz + 6.0F * scale, center_y,
+            surface.m_text.primary);
+      }
+    }
   }
 
   const char *icons[] = {
@@ -2062,7 +2097,7 @@ bool TextEditor::handle_text_input(std::string_view utf8_text) {
     while (word_start > 0) {
       const char c = current_line[word_start - 1];
       if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' ||
-          c == '#' || c == ':' || c == '~') {
+          c == '#' || c == '~') {
         --word_start;
       } else {
         break;
@@ -2190,15 +2225,33 @@ bool TextEditor::handle_text_input(std::string_view utf8_text) {
       Language::Protocol::Position pos{
           .line = doc->get_caret_line(),
           .character = doc->get_caret_column()};
-      const std::string filter_word_captured = std::string(current_word);
       Language::LanguageServerManager::instance().request_completion(
           uri, fname, pos, current_line,
-          [this, filter_word_captured](std::vector<Language::Protocol::CompletionItem> items) {
+          [this](std::vector<Language::Protocol::CompletionItem> items) {
             std::lock_guard<std::mutex> lock(m_lsp_mutex);
             if (!items.empty()) {
               m_completion_popup.show(std::move(items), 100.0F, 100.0F);
-              if (!filter_word_captured.empty()) {
-                m_completion_popup.set_filter(filter_word_captured);
+
+              if (const auto *current_doc =
+                      m_controller.get_active_document()) {
+                const std::string_view line =
+                    current_doc->get_line(current_doc->get_caret_line());
+                const std::size_t col = current_doc->get_caret_column();
+                std::size_t start = std::min(col, line.size());
+                while (start > 0) {
+                  const char ch = line[start - 1];
+                  if (std::isalnum(static_cast<unsigned char>(ch)) ||
+                      ch == '_' || ch == '#' || ch == '~') {
+                    --start;
+                  } else {
+                    break;
+                  }
+                }
+                const std::string_view latest_word =
+                    line.substr(start, col - start);
+                if (!latest_word.empty()) {
+                  m_completion_popup.set_filter(latest_word);
+                }
               }
               if (m_completion_popup.get_item_count() == 0) {
                 m_completion_popup.hide();

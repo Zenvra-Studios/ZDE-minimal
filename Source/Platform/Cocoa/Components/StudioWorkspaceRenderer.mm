@@ -907,10 +907,8 @@ void StudioWorkspaceRenderer::render(
     m_activity_sidebar.render(*this, context, layout);
     if (const UI::Editor::TextDocumentModel* document = m_text_editor.get_document())
     {
-        const std::vector<UI::Editor::BreadcrumbItem> full_breadcrumbs =
-            document->get_full_breadcrumbs();
         m_footer_toolbar.render(
-            *this, context, layout, full_breadcrumbs, document->get_status());
+            *this, context, layout, document->get_full_breadcrumbs(), document->get_status());
     }
 
     if (m_explorer_context_menu.visible)
@@ -1277,11 +1275,21 @@ std::filesystem::path StudioWorkspaceRenderer::resolve_icon_path(
             resolved_path = relative;
         }
         const std::filesystem::path themed_path = m_icon_asset_root / resolved_path;
+        const std::filesystem::path symbol_file = m_icon_asset_root / "vscode-symbols" / "files" / resolved_path.filename();
+        const std::filesystem::path symbol_folder = m_icon_asset_root / "vscode-symbols" / "folders" / resolved_path.filename();
         const std::filesystem::path codicon_direct = m_icon_asset_root / "vscode-codicons" / "icons" / relative;
         const std::filesystem::path codicon_file = m_icon_asset_root / "vscode-codicons" / "icons" / resolved_path.filename();
         if (std::filesystem::is_regular_file(themed_path, path_error))
         {
             resolved_path = themed_path;
+        }
+        else if (std::filesystem::is_regular_file(symbol_file, path_error))
+        {
+            resolved_path = symbol_file;
+        }
+        else if (std::filesystem::is_regular_file(symbol_folder, path_error))
+        {
+            resolved_path = symbol_folder;
         }
         else if (std::filesystem::is_regular_file(codicon_direct, path_error))
         {

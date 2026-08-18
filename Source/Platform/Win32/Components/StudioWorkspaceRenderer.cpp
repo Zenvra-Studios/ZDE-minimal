@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <cwchar>
 #include <filesystem>
 #include <fstream>
@@ -867,9 +868,8 @@ void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
   m_shader_sandbox_panel.render(*this, device_context, layout);
   if (const UI::Editor::TextDocumentModel *document =
           m_text_editor.get_document()) {
-    const std::vector<UI::Editor::BreadcrumbItem> full_breadcrumbs =
-        document->get_full_breadcrumbs();
-    m_footer_toolbar.render(*this, device_context, layout, full_breadcrumbs,
+    m_footer_toolbar.render(*this, device_context, layout,
+                            document->get_full_breadcrumbs(),
                             document->get_status());
   }
 
@@ -1114,8 +1114,8 @@ void StudioWorkspaceRenderer::draw_svg_icon(
 
     const std::filesystem::path filename = resolved_path.filename();
     const std::filesystem::path direct_path = m_icon_asset_root / rel_str;
-    const std::filesystem::path symbol_file = m_icon_asset_root / "vscode-symbols" / "icons" / "files" / filename;
-    const std::filesystem::path symbol_folder = m_icon_asset_root / "vscode-symbols" / "icons" / "folders" / filename;
+    const std::filesystem::path symbol_file = m_icon_asset_root / "vscode-symbols" / "files" / filename;
+    const std::filesystem::path symbol_folder = m_icon_asset_root / "vscode-symbols" / "folders" / filename;
     const std::filesystem::path codicon_direct = m_icon_asset_root / "vscode-codicons" / "icons" / rel_str;
     const std::filesystem::path codicon_file = m_icon_asset_root / "vscode-codicons" / "icons" / filename;
     const std::filesystem::path vsicon_file = m_icon_asset_root / "vscode-icons" / "icons" / filename;

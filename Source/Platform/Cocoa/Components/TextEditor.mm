@@ -833,7 +833,7 @@ bool TextEditor::handle_text_input(std::string_view utf8)
             while (word_start > 0)
             {
                 const char c = current_line[word_start - 1];
-                if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '#' || c == ':' || c == '~')
+                if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '#' || c == '~')
                 {
                     --word_start;
                 }
@@ -858,7 +858,7 @@ bool TextEditor::handle_text_input(std::string_view utf8)
                     .character = doc->get_caret_column()
                 };
                 Language::LanguageServerManager::instance().request_signature_help(
-                    uri, fname, sig_pos, doc->get_line(doc->get_caret_line()),
+                    uri, fname, sig_pos, current_line,
                     [this](std::optional<Language::Protocol::SignatureHelp> help) {
                         std::lock_guard<std::mutex> lock(m_lsp_mutex);
                         if (help.has_value() && !help->signatures.empty())
@@ -872,8 +872,18 @@ bool TextEditor::handle_text_input(std::string_view utf8)
                     }
                 );
             }
+            else
+            {
+                std::lock_guard<std::mutex> lock(m_lsp_mutex);
+                m_signature_help.hide();
+            }
 
-            if (is_trigger_char || m_completion_popup.is_visible())
+            if (utf8 == " " || utf8 == ";" || utf8 == ")" || utf8 == "}")
+            {
+                std::lock_guard<std::mutex> lock(m_lsp_mutex);
+                m_completion_popup.hide();
+            }
+            else if (is_trigger_char || m_completion_popup.is_visible())
             {
                 Language::Protocol::Position pos{
                     .line = doc->get_caret_line(),
@@ -881,14 +891,39 @@ bool TextEditor::handle_text_input(std::string_view utf8)
                 };
                 Language::LanguageServerManager::instance().request_completion(
                     uri, fname, pos, doc->get_line(doc->get_caret_line()),
-                    [this, current_word = std::string(current_word)](std::vector<Language::Protocol::CompletionItem> items) {
+                    [this](std::vector<Language::Protocol::CompletionItem> items) {
                         std::lock_guard<std::mutex> lock(m_lsp_mutex);
                         if (!items.empty())
                         {
                             m_completion_popup.show(std::move(items), 100.0F, 100.0F);
-                            if (!current_word.empty())
+
+                            if (const auto* current_doc = m_controller.get_active_document())
                             {
-                                m_completion_popup.set_filter(current_word);
+                                const std::string_view line = current_doc->get_line(current_doc->get_caret_line());
+                                const std::size_t col = current_doc->get_caret_column();
+                                std::size_t start = std::min(col, line.size());
+                                while (start > 0)
+                                {
+                                    const char ch = line[start - 1];
+                                    if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '#' || ch == '~')
+                                    {
+                                        --start;
+                                    }
+                                    else
+                                    {
+                                        break;
+                                    }
+                                }
+                                const std::string_view latest_word = line.substr(start, col - start);
+                                if (!latest_word.empty())
+                                {
+                                    m_completion_popup.set_filter(latest_word);
+                                }
+                            }
+
+                            if (m_completion_popup.get_item_count() == 0)
+                            {
+                                m_completion_popup.hide();
                             }
                         }
                         else
@@ -1152,6 +1187,28 @@ void TextEditor::draw_document(
     }
 
     const float dpi = surface.m_dpi_scale;
+
+    // Editor Header File Title
+    if (!layout.editor_header_bounds.is_empty() && layout.editor_header_bounds.height > 2.0F)
+    {
+        const float header_center_y = layout.editor_header_bounds.y + layout.editor_header_bounds.height * 0.5F;
+        const std::string filename{document->get_file_name()};
+        const std::string icon_asset = UI::Editor::file_icon_asset_for_path(std::filesystem::path{filename});
+        const int icon_sz = std::max(round_to_int(13.0F * dpi), 11);
+        const float icon_cx = layout.editor_header_bounds.x + 12.0F * dpi + icon_sz * 0.5F;
+        surface.draw_svg_icon(
+            context, "Assets/icons/" + icon_asset,
+            round_to_int(icon_cx), round_to_int(header_center_y), icon_sz,
+            surface.m_palette.text_muted, surface.m_palette.editor_background);
+
+        if (surface.m_small_font)
+        {
+            surface.draw_text(
+                context, *surface.m_small_font, filename,
+                layout.editor_header_bounds.x + 12.0F * dpi + icon_sz + 6.0F * dpi, header_center_y,
+                surface.m_text.primary);
+        }
+    }
     const float line_height = 20.0F * dpi;
     const float first_center_y = layout.editor_bounds.y + line_height * 0.5F;
     const float code_x = layout.editor_bounds.x + 14.0F * dpi - m_text_scroll_offset;
@@ -1920,83 +1977,73 @@ void TextEditor::draw_empty_state(
     CGContextRef context,
     const UI::Editor::StudioEditorLayoutResult& layout) const
 {
+    m_empty_state_open_btn.set_bounds(UI::Rect{});
+    m_empty_state_clone_btn.set_bounds(UI::Rect{});
+
     const float dpi = surface.m_dpi_scale;
-    const int center_x = round_to_int(layout.editor_bounds.x + layout.editor_bounds.width * 0.5F);
+    const float logo_size = 180.0F * dpi;
+    const float logo_gap = 32.0F * dpi;
 
-    const int logo_size = round_to_int(150.0F * dpi);
-    const int gap1 = round_to_int(30.0F * dpi);
-    const int gap2 = round_to_int(40.0F * dpi);
-    const int line_height = round_to_int(28.0F * dpi);
-    const int total_height = logo_size + gap1 + gap2 + 3 * line_height;
-    const float full_height = layout.editor_bounds.height + layout.terminal_panel_bounds.height;
-    int current_y = round_to_int(layout.editor_bounds.y + (full_height - total_height) * 0.5F);
+    const std::string title = "Zenvra Development Studio";
+    const int title_w = surface.m_large_font ? surface.m_large_font->getTextWidth(title) : static_cast<int>(240.0F * dpi);
+    const float text_block_w = std::max(static_cast<float>(title_w), 260.0F * dpi);
+    const float total_w = logo_size + logo_gap + text_block_w;
 
-    surface.draw_png_image(context, "Assets/icons/zenvra_logo.png", center_x, current_y + logo_size / 2, logo_size);
-    current_y += logo_size + gap1;
+    const float start_x = std::max(layout.editor_bounds.x + 30.0F * dpi,
+                                   layout.editor_bounds.x + (layout.editor_bounds.width - total_w) * 0.5F);
+    const float start_y = layout.editor_bounds.y + layout.editor_bounds.height * 0.32F;
 
+    // 1. Extra Large Iconic Logo on the left
+    surface.draw_png_image(
+        context, "Assets/icons/zenvra_logo.png",
+        round_to_int(start_x + logo_size * 0.5F),
+        round_to_int(start_y + logo_size * 0.5F),
+        round_to_int(logo_size));
+
+    const float text_x = start_x + logo_size + logo_gap;
+
+    // 2. Heading "Zenvra Development Studio"
     if (surface.m_large_font)
     {
-        const std::string title = "Zenvra Development Studio";
-        const int title_w = surface.m_large_font->getTextWidth(title);
-        surface.draw_text(context, *surface.m_large_font, title,
-            static_cast<float>(center_x - title_w / 2), static_cast<float>(current_y),
+        surface.draw_text(
+            context, *surface.m_large_font, title, text_x, start_y + 36.0F * dpi,
             surface.m_text.primary);
     }
-    current_y += gap2;
+    else if (surface.m_ui_font)
+    {
+        surface.draw_text(
+            context, *surface.m_ui_font, title, text_x, start_y + 36.0F * dpi,
+            surface.m_text.primary);
+    }
 
-    const float btn_w = 300.0F * dpi;
-    const float btn_h = 40.0F * dpi;
-    const float btn_x = center_x - btn_w * 0.5F;
+    // 3. Shortcuts list aligned directly under the heading (uniform neutral tones, no blue)
+    if (surface.m_small_font || surface.m_ui_font)
+    {
+        auto& font = surface.m_small_font ? *surface.m_small_font : *surface.m_ui_font;
+        struct ShortcutEntry {
+            std::string_view key;
+            std::string_view label;
+        };
+        static constexpr std::array<ShortcutEntry, 4> shortcuts{{
+            {"Ctrl+O", "Open File"},
+            {"Ctrl+Shift+P", "Command Palette"},
+            {"Ctrl+`", "Toggle Terminal"},
+            {"Ctrl+B", "Toggle Sidebar"},
+        }};
 
-    // Open Folder Button
-    m_empty_state_open_btn.set_bounds(UI::Rect{btn_x, static_cast<float>(current_y), btn_w, btn_h});
-    const auto& open_state = m_empty_state_open_btn.get_state();
-    const UI::Theme::Color open_base = surface.m_palette.accent;
-    const UI::Theme::Color open_bg = open_state.pressed ? surface.m_palette.border :
-        (open_state.hovered ? UI::Theme::Color{
-            static_cast<std::uint8_t>(std::min(255, open_base.red + 24)),
-            static_cast<std::uint8_t>(std::min(255, open_base.green + 24)),
-            static_cast<std::uint8_t>(std::min(255, open_base.blue + 24)),
-            open_base.alpha}
-        : open_base);
-    CGFloat open_rgba[4];
-    StudioWorkspaceRenderer::color_to_rgba(open_bg, open_rgba);
-    surface.fill_rounded_rectangle(context, m_empty_state_open_btn.get_bounds(), open_rgba, 4.0F * dpi);
+        const float key_col_w = 110.0F * dpi;
+        const float item_gap = 24.0F * dpi;
+        const float first_row_y = start_y + 74.0F * dpi;
 
-    const float icon_size = 16.0F * dpi;
-    const float open_text_w = static_cast<float>(surface.m_ui_font->getTextWidth("Open Folder"));
-    const float open_icon_x = btn_x + btn_w * 0.5F - (icon_size + 8.0F * dpi + open_text_w) * 0.5F;
-    surface.draw_text(context, *surface.m_ui_font, "Open Folder",
-        open_icon_x + icon_size + 8.0F * dpi,
-        static_cast<float>(current_y) + btn_h * 0.5F,
-        surface.m_text.primary);
-    surface.draw_svg_icon(context, "Assets/icons/folder.svg",
-        round_to_int(open_icon_x + icon_size * 0.5F),
-        round_to_int(static_cast<float>(current_y) + btn_h * 0.5F),
-        round_to_int(icon_size), surface.m_palette.text_primary, open_bg);
-
-    current_y += round_to_int(btn_h) + round_to_int(10.0F * dpi);
-
-    // Clone Repository Button
-    m_empty_state_clone_btn.set_bounds(UI::Rect{btn_x, static_cast<float>(current_y), btn_w, btn_h});
-    const auto& clone_state = m_empty_state_clone_btn.get_state();
-    const UI::Theme::Color clone_bg = clone_state.pressed ? surface.m_palette.border :
-        (clone_state.hovered ? surface.m_palette.hover_background : surface.m_palette.editor_background);
-    CGFloat clone_rgba[4];
-    StudioWorkspaceRenderer::color_to_rgba(clone_bg, clone_rgba);
-    surface.draw_rectangle(context, m_empty_state_clone_btn.get_bounds(), surface.m_colors.border);
-    surface.fill_rounded_rectangle(context, m_empty_state_clone_btn.get_bounds(), clone_rgba, 4.0F * dpi);
-
-    const float clone_text_w = static_cast<float>(surface.m_ui_font->getTextWidth("Clone Repository"));
-    const float clone_icon_x = btn_x + btn_w * 0.5F - (icon_size + 8.0F * dpi + clone_text_w) * 0.5F;
-    surface.draw_text(context, *surface.m_ui_font, "Clone Repository",
-        clone_icon_x + icon_size + 8.0F * dpi,
-        static_cast<float>(current_y) + btn_h * 0.5F,
-        surface.m_text.primary);
-    surface.draw_svg_icon(context, "Assets/icons/terminal.svg",
-        round_to_int(clone_icon_x + icon_size * 0.5F),
-        round_to_int(static_cast<float>(current_y) + btn_h * 0.5F),
-        round_to_int(icon_size), surface.m_palette.text_primary, clone_bg);
+        for (std::size_t i = 0; i < shortcuts.size(); ++i)
+        {
+            const float row_y = first_row_y + static_cast<float>(i) * item_gap;
+            surface.draw_text(context, font, shortcuts[i].key,
+                              text_x, row_y, surface.m_text.primary);
+            surface.draw_text(context, font, shortcuts[i].label,
+                              text_x + key_col_w, row_y, surface.m_text.muted);
+        }
+    }
 }
 
 UI::Editor::TextPosition TextEditor::position_from_point(

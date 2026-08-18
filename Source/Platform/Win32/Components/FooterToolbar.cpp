@@ -44,62 +44,64 @@ void FooterToolbar::render(
                     round_to_int(layout.status_bar_bounds.right()),
                     round_to_int(layout.status_bar_bounds.y),
                     surface.m_palette.border);
+  const float scale = surface.m_dpi_scale;
   const float center_y =
       layout.status_bar_bounds.y + layout.status_bar_bounds.height * 0.5F;
   const std::string status_text =
-      std::to_string(status.line) + ":" + std::to_string(status.column) +
-      "   " + std::string{status.line_ending} + "   " +
-      std::string{status.encoding} + "   " +
+      "Ln " + std::to_string(status.line) + ", Col " + std::to_string(status.column) +
+      "    " + std::string{status.line_ending} + "    " +
+      std::string{status.encoding} + "    " +
       std::to_string(status.indent_width) + " spaces";
   const float status_x =
       layout.status_bar_bounds.right() -
       static_cast<float>(surface.get_text_width(
           device_context, *surface.m_small_font, status_text)) -
-      12.0F * surface.m_dpi_scale;
+      12.0F * scale;
   surface.draw_text(device_context, *surface.m_small_font, status_text,
                     status_x, center_y, surface.m_palette.text_muted);
 
-  float breadcrumb_x = 11.0F * surface.m_dpi_scale;
-  const int icon_size = std::max(round_to_int(11.0F * surface.m_dpi_scale), 8);
-  const float icon_advance =
-      static_cast<float>(icon_size) + 4.0F * surface.m_dpi_scale;
+  const float left_start = 12.0F * scale;
+  const float available_w = status_x - 16.0F * scale - left_start;
+  if (available_w > 0.0F && !breadcrumbs.empty()) {
+    m_breadcrumb_bar.set_items(breadcrumbs);
+    m_breadcrumb_bar.set_bounds(UI::Rect{
+        left_start, layout.status_bar_bounds.y, available_w,
+        layout.status_bar_bounds.height});
+    auto text_width_fn = [&](std::string_view str) -> float {
+      return static_cast<float>(surface.get_text_width(
+          device_context, *surface.m_small_font, str));
+    };
+    const auto segments =
+        m_breadcrumb_bar.calculate_layout(text_width_fn, scale, available_w);
+    for (const auto &seg : segments) {
+      if (!seg.is_ellipsis && !seg.icon_svg.empty()) {
+        const int icon_cx =
+            round_to_int(seg.icon_bounds.x + seg.icon_bounds.width * 0.5F);
+        const int icon_cy =
+            round_to_int(seg.icon_bounds.y + seg.icon_bounds.height * 0.5F);
+        const int icon_sz = round_to_int(seg.icon_bounds.width);
+        surface.draw_svg_icon(
+            device_context, seg.icon_svg, icon_cx, icon_cy, icon_sz,
+            surface.m_palette.text_muted, surface.m_palette.status_background,
+            true);
+      }
 
-  bool first = true;
-  for (const UI::Editor::BreadcrumbItem &item : breadcrumbs) {
-    const float separator_width = first ? 0.0F : 13.0F * surface.m_dpi_scale;
-    const float text_width = static_cast<float>(surface.get_text_width(
-        device_context, *surface.m_small_font, item.text));
-    const float total_width = icon_advance + text_width;
-    if (breadcrumb_x + separator_width + total_width >
-        status_x - 18.0F * surface.m_dpi_scale) {
-      surface.draw_text(device_context, *surface.m_small_font, "...",
-                        breadcrumb_x, center_y, surface.m_palette.text_muted);
-      break;
+      surface.draw_text(device_context, *surface.m_small_font, seg.text,
+                        seg.text_bounds.x, center_y,
+                        surface.m_palette.text_muted);
+
+      if (seg.has_chevron) {
+        const int chev_cx =
+            round_to_int(seg.chevron_bounds.x + seg.chevron_bounds.width * 0.5F);
+        const int chev_cy =
+            round_to_int(seg.chevron_bounds.y + seg.chevron_bounds.height * 0.5F);
+        const int chev_sz = round_to_int(seg.chevron_bounds.width);
+        surface.draw_svg_icon(
+            device_context, "Assets/icons/chevron-right.svg", chev_cx, chev_cy,
+            chev_sz, surface.m_palette.text_muted,
+            surface.m_palette.status_background);
+      }
     }
-    if (!first) {
-      const int chevron_size =
-          std::max(round_to_int(12.0F * surface.m_dpi_scale), 10);
-      surface.draw_svg_icon(device_context, "Assets/icons/chevron-right.svg",
-                            round_to_int(breadcrumb_x + separator_width * 0.5F),
-                            round_to_int(center_y), chevron_size,
-                            surface.m_palette.text_muted,
-                            surface.m_palette.status_background);
-      breadcrumb_x += separator_width;
-    }
-
-    // Draw the SVG icon for this breadcrumb item.
-    const std::string svg_path = breadcrumb_icon_svg(item.icon, item.text);
-    surface.draw_svg_icon(
-        device_context, svg_path,
-        round_to_int(breadcrumb_x + static_cast<float>(icon_size) * 0.5F),
-        round_to_int(center_y), icon_size, surface.m_palette.text_muted,
-        surface.m_palette.status_background);
-    breadcrumb_x += icon_advance;
-
-    surface.draw_text(device_context, *surface.m_small_font, item.text,
-                      breadcrumb_x, center_y, surface.m_palette.text_muted);
-    breadcrumb_x += text_width + 8.0F * surface.m_dpi_scale;
-    first = false;
   }
 }
 

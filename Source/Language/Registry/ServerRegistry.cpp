@@ -269,64 +269,66 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
         }
 #endif
 
-        // 0b. Check plugins/lsp and plugins/ under current working directory
-        const std::filesystem::path local_candidates[] = {
-            std::filesystem::current_path() / "plugins" / "lsp" / exe_with_ext,
-            std::filesystem::current_path() / "plugins" / exe_with_ext,
-            std::filesystem::path("plugins/lsp") / exe_with_ext,
-            std::filesystem::path("plugins") / exe_with_ext,
-            std::filesystem::path("bin/Debug/plugins/lsp") / exe_with_ext,
-            std::filesystem::path("bin/Release/plugins/lsp") / exe_with_ext,
-            std::filesystem::current_path() / exe_with_ext,
-        };
-
-        for (const auto& candidate : local_candidates)
+        // 0b. Traverse upward from current directory and check candidate folders (plugins, ThirdParty, etc.)
+        std::vector<std::filesystem::path> search_bases;
         {
             std::error_code ec;
-            if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
+            std::filesystem::path cur = std::filesystem::current_path(ec);
+            for (int i = 0; i < 8 && !cur.empty(); ++i)
             {
-                return candidate;
+                search_bases.push_back(cur);
+                const auto parent = cur.parent_path();
+                if (parent == cur) break;
+                cur = parent;
             }
         }
 
-        // 1. First Priority: Check ThirdParty directory and all subdirectories
-        const std::filesystem::path thirdparty_roots[] = {
-            std::filesystem::current_path() / "ThirdParty",
-            std::filesystem::path("ThirdParty"),
-            std::filesystem::path("../ThirdParty"),
-            std::filesystem::path("../../ThirdParty"),
-        };
-
-        for (const auto& tp_root : thirdparty_roots)
+        // Direct local paths in search bases
+        for (const auto& base : search_bases)
         {
-            std::error_code ec;
-            if (std::filesystem::exists(tp_root, ec) && std::filesystem::is_directory(tp_root, ec))
+            const std::filesystem::path direct_candidates[] = {
+                base / "plugins" / "lsp" / exe_with_ext,
+                base / "plugins" / exe_with_ext,
+                base / exe_with_ext,
+                base / "ThirdParty" / exe_with_ext,
+                base / "ThirdParty" / "bin" / exe_with_ext,
+            };
+
+            for (const auto& candidate : direct_candidates)
             {
-                const std::filesystem::path direct = tp_root / exe_with_ext;
-                if (std::filesystem::exists(direct, ec) && std::filesystem::is_regular_file(direct, ec))
+                std::error_code ec;
+                if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
                 {
-                    return direct;
+                    return candidate;
                 }
+            }
 
-                const std::filesystem::path direct_bin = tp_root / "bin" / exe_with_ext;
-                if (std::filesystem::exists(direct_bin, ec) && std::filesystem::is_regular_file(direct_bin, ec))
-                {
-                    return direct_bin;
-                }
+            // Check ThirdParty and plugins subdirectories
+            const std::filesystem::path container_dirs[] = {
+                base / "ThirdParty",
+                base / "plugins" / "lsp",
+                base / "plugins",
+            };
 
-                for (const auto& entry : std::filesystem::directory_iterator(tp_root, ec))
+            for (const auto& container : container_dirs)
+            {
+                std::error_code ec;
+                if (std::filesystem::exists(container, ec) && std::filesystem::is_directory(container, ec))
                 {
-                    if (entry.is_directory())
+                    for (const auto& entry : std::filesystem::directory_iterator(container, ec))
                     {
-                        const auto sub_candidate = entry.path() / exe_with_ext;
-                        if (std::filesystem::exists(sub_candidate, ec) && std::filesystem::is_regular_file(sub_candidate, ec))
+                        if (entry.is_directory())
                         {
-                            return sub_candidate;
-                        }
-                        const auto sub_bin_candidate = entry.path() / "bin" / exe_with_ext;
-                        if (std::filesystem::exists(sub_bin_candidate, ec) && std::filesystem::is_regular_file(sub_bin_candidate, ec))
-                        {
-                            return sub_bin_candidate;
+                            const auto sub_candidate = entry.path() / exe_with_ext;
+                            if (std::filesystem::exists(sub_candidate, ec) && std::filesystem::is_regular_file(sub_candidate, ec))
+                            {
+                                return sub_candidate;
+                            }
+                            const auto sub_bin = entry.path() / "bin" / exe_with_ext;
+                            if (std::filesystem::exists(sub_bin, ec) && std::filesystem::is_regular_file(sub_bin, ec))
+                            {
+                                return sub_bin;
+                            }
                         }
                     }
                 }
@@ -575,7 +577,7 @@ void ServerRegistry::initialize_default_profiles()
     cpp_profile.default_args = {
         "--background-index",
         "--clang-tidy",
-        "--header-insertion=iwyu",
+        "--header-insertion-decorators=false",
         "--query-driver=**",
         "--compile-commands-dir=build",
         "--completion-style=detailed",

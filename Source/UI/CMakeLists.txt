@@ -13,6 +13,7 @@ add_library(ZDEUI
     Components/HoverTooltip.cpp
     Components/ScrollBar.cpp
     Components/SignatureHelpWidget.cpp
+    Components/BreadcrumbBar.cpp
     Editor/ActivityPanelModel.cpp
     Editor/BraceAnimationModel.cpp
     Editor/CaretBlinkModel.cpp

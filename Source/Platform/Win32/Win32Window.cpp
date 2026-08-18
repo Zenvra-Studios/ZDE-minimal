@@ -35,6 +35,48 @@ namespace {
 constexpr DWORD dwm_immersive_dark_mode_attribute = 20;
 constexpr UINT_PTR editor_caret_timer_id = 1;
 
+enum class PreferredAppMode {
+  Default = 0,
+  AllowDark = 1,
+  ForceDark = 2,
+  ForceLight = 3,
+  Max = 4
+};
+
+using fnSetPreferredAppMode = PreferredAppMode(WINAPI*)(PreferredAppMode mode);
+using fnAllowDarkModeForWindow = bool(WINAPI*)(HWND hwnd, bool allow);
+using fnFlushMenuThemes = void(WINAPI*)();
+using fnSetWindowTheme = HRESULT(WINAPI*)(HWND hwnd, LPCWSTR pszSubAppName, LPCWSTR pszSubIdList);
+
+void enable_menu_dark_mode(HWND hwnd) {
+  HMODULE uxtheme = LoadLibraryExW(L"uxtheme.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+  if (!uxtheme) {
+    uxtheme = GetModuleHandleW(L"uxtheme.dll");
+  }
+  if (uxtheme) {
+    auto set_preferred_app_mode = reinterpret_cast<fnSetPreferredAppMode>(
+        GetProcAddress(uxtheme, MAKEINTRESOURCEA(135)));
+    if (set_preferred_app_mode) {
+      set_preferred_app_mode(PreferredAppMode::ForceDark);
+    }
+    auto allow_dark_mode_for_window = reinterpret_cast<fnAllowDarkModeForWindow>(
+        GetProcAddress(uxtheme, MAKEINTRESOURCEA(133)));
+    if (allow_dark_mode_for_window) {
+      allow_dark_mode_for_window(hwnd, true);
+    }
+    auto flush_menu_themes = reinterpret_cast<fnFlushMenuThemes>(
+        GetProcAddress(uxtheme, MAKEINTRESOURCEA(136)));
+    if (flush_menu_themes) {
+      flush_menu_themes();
+    }
+    auto set_window_theme = reinterpret_cast<fnSetWindowTheme>(
+        GetProcAddress(uxtheme, "SetWindowTheme"));
+    if (set_window_theme) {
+      set_window_theme(hwnd, L"DarkMode_Explorer", nullptr);
+    }
+  }
+}
+
 COLORREF to_color_ref(const UI::Theme::Color &color) {
   return RGB(color.red, color.green, color.blue);
 }
@@ -318,6 +360,7 @@ bool Win32Window::initialize() {
   const BOOL dark_mode_enabled = TRUE;
   DwmSetWindowAttribute(m_window_handle, dwm_immersive_dark_mode_attribute,
                         &dark_mode_enabled, sizeof(dark_mode_enabled));
+  enable_menu_dark_mode(m_window_handle);
 
   const MARGINS frame_margins{0, 0, 0, 0};
   DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
@@ -645,8 +688,25 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     }
     break;
 
+  case WM_NCRBUTTONUP:
+    if (m_custom_chrome_enabled) {
+      if (w_param == HTCAPTION || w_param == HTSYSMENU) {
+        show_system_menu(GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param));
+        return 0;
+      }
+    }
+    break;
+
   case WM_NCLBUTTONDOWN:
     if (m_custom_chrome_enabled) {
+      if (w_param == HTSYSMENU) {
+        POINT screen_pt{
+            static_cast<int>(m_chrome_layout.logo_bounds.x),
+            static_cast<int>(m_chrome_layout.titlebar_bounds.bottom())};
+        ClientToScreen(window_handle, &screen_pt);
+        show_system_menu(screen_pt.x, screen_pt.y);
+        return 0;
+      }
       if (w_param == HTMINBUTTON) {
         m_pressed_control = UI::Chrome::WindowControl::Minimize;
         InvalidateRect(window_handle, nullptr, FALSE);
@@ -1347,6 +1407,15 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       const int client_height = client_bounds.bottom - client_bounds.top;
       const float content_top = m_chrome_layout.titlebar_bounds.bottom();
 
+      if (m_chrome_layout.titlebar_bounds.contains(point_x, point_y)) {
+        if (message == WM_RBUTTONUP) {
+          POINT screen_pt{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
+          ClientToScreen(window_handle, &screen_pt);
+          show_system_menu(screen_pt.x, screen_pt.y);
+        }
+        return 0;
+      }
+
       if (m_workspace_renderer.is_tool_sidebar_point(point_x, point_y, client_width, client_height, content_top)) {
         if (message == WM_RBUTTONUP) {
           const auto opt_target = m_workspace_renderer.handle_right_click(
@@ -1356,6 +1425,26 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           }
         }
         InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
+    }
+    break;
+
+  case WM_CONTEXTMENU:
+    if (m_custom_chrome_enabled) {
+      POINT screen_pt{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
+      if (screen_pt.x == -1 && screen_pt.y == -1) {
+        RECT window_rect{};
+        GetWindowRect(window_handle, &window_rect);
+        screen_pt.x = window_rect.left + static_cast<int>(m_chrome_layout.logo_bounds.x);
+        screen_pt.y = window_rect.top + static_cast<int>(m_chrome_layout.titlebar_bounds.bottom());
+        show_system_menu(screen_pt.x, screen_pt.y);
+        return 0;
+      }
+      POINT client_pt = screen_pt;
+      ScreenToClient(window_handle, &client_pt);
+      if (m_chrome_layout.titlebar_bounds.contains(static_cast<float>(client_pt.x), static_cast<float>(client_pt.y))) {
+        show_system_menu(screen_pt.x, screen_pt.y);
         return 0;
       }
     }
@@ -2221,6 +2310,10 @@ LRESULT Win32Window::hit_test_non_client(LPARAM l_param) {
     return HTCLOSE;
   case UI::Chrome::WindowControl::NoControl:
     break;
+  }
+
+  if (m_chrome_layout.logo_bounds.contains(point_x, point_y)) {
+    return HTSYSMENU;
   }
 
   if (tab_point) {
@@ -3838,6 +3931,34 @@ void Win32Window::execute_explorer_context_menu_item(std::size_t item_index) {
   }
   default:
     break;
+  }
+}
+
+void Win32Window::show_system_menu(int screen_x, int screen_y) {
+  HMENU system_menu = GetSystemMenu(m_window_handle, FALSE);
+  if (system_menu == nullptr) {
+    return;
+  }
+
+  const bool maximized = is_maximized();
+  const bool minimized = is_minimized();
+
+  EnableMenuItem(system_menu, SC_RESTORE, MF_BYCOMMAND | (maximized || minimized ? MF_ENABLED : MF_GRAYED));
+  EnableMenuItem(system_menu, SC_MOVE, MF_BYCOMMAND | (!maximized && !minimized ? MF_ENABLED : MF_GRAYED));
+  EnableMenuItem(system_menu, SC_SIZE, MF_BYCOMMAND | (!maximized && !minimized ? MF_ENABLED : MF_GRAYED));
+  EnableMenuItem(system_menu, SC_MINIMIZE, MF_BYCOMMAND | (!minimized ? MF_ENABLED : MF_GRAYED));
+  EnableMenuItem(system_menu, SC_MAXIMIZE, MF_BYCOMMAND | (!maximized ? MF_ENABLED : MF_GRAYED));
+  EnableMenuItem(system_menu, SC_CLOSE, MF_BYCOMMAND | MF_ENABLED);
+
+  SetMenuDefaultItem(system_menu, maximized ? SC_RESTORE : SC_MAXIMIZE, FALSE);
+
+  const UINT command = TrackPopupMenuEx(
+      system_menu,
+      TPM_LEFTALIGN | TPM_TOPALIGN | TPM_RETURNCMD | TPM_RIGHTBUTTON,
+      screen_x, screen_y, m_window_handle, nullptr);
+
+  if (command > 0) {
+    PostMessageW(m_window_handle, WM_SYSCOMMAND, command, 0);
   }
 }
 

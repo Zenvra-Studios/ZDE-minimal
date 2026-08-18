@@ -575,16 +575,25 @@ void TextEditor::draw_editor_header(
         surface.fill_rectangle(device_context, left_header, surface.m_palette.editor_background);
         surface.fill_rectangle(device_context, right_header, surface.m_palette.editor_background);
 
-        // Left Header File & Name (Clipped, Title only, no icon)
+        // Left Header File Title with Icon
         SaveDC(device_context);
         IntersectClipRect(device_context,
             round_to_int(left_header.x), round_to_int(left_header.y),
             round_to_int(left_header.right() - 4.0F * scale), round_to_int(left_header.bottom()));
 
         const std::string left_filename{document->get_file_name()};
+        const std::string left_icon = UI::Editor::file_icon_asset_for_path(std::filesystem::path{left_filename});
+        const int left_icon_sz = std::max(round_to_int(13.0F * scale), 11);
+        const float left_icon_cx = left_header.x + 12.0F * scale + left_icon_sz * 0.5F;
+        surface.draw_svg_icon(
+            device_context, "Assets/icons/" + left_icon,
+            round_to_int(left_icon_cx), round_to_int(center_y), left_icon_sz,
+            surface.m_palette.text_muted, surface.m_palette.editor_background, true);
+
         surface.draw_text(
             device_context, *surface.m_small_font, left_filename,
-            left_header.x + 12.0F * scale, center_y, surface.m_palette.text_primary);
+            left_header.x + 12.0F * scale + left_icon_sz + 6.0F * scale, center_y,
+            surface.m_palette.text_primary);
         RestoreDC(device_context, -1);
 
         // Vertical Splitter Line in Header (matches editor splitter exactly)
@@ -607,7 +616,7 @@ void TextEditor::draw_editor_header(
         const int cross_cy = round_to_int(m_split_close_btn_bounds.y + m_split_close_btn_bounds.height * 0.5F);
         const int cross_icon_sz = std::max(round_to_int(12.0F * scale), 10);
         surface.draw_svg_icon(
-            device_context, "diagnostic-error.svg", cross_cx, cross_cy, cross_icon_sz,
+            device_context, "Assets/icons/diagnostic-error.svg", cross_cx, cross_cy, cross_icon_sz,
             cross_col, surface.m_palette.editor_background);
 
         // 4 Action Buttons placed before close split button
@@ -617,17 +626,29 @@ void TextEditor::draw_editor_header(
         m_tab_action_bounds[1] = UI::Rect{actions_right - 3.0F * button_w - 4.0F * scale, button_y, button_w, button_h};
         m_tab_action_bounds[0] = UI::Rect{actions_right - 4.0F * button_w - 6.0F * scale, button_y, button_w, button_h};
 
-        // Right Header File & Name (Clipped before buttons, Title only, no icon)
+        // Right Header File Title with Icon (Clipped before buttons)
         SaveDC(device_context);
         IntersectClipRect(device_context,
             round_to_int(right_header.x), round_to_int(right_header.y),
             round_to_int(m_tab_action_bounds[0].x - 4.0F * scale), round_to_int(right_header.bottom()));
 
-        const auto& split_doc = m_controller.get_documents()[*m_split_document_index].text;
-        const std::string right_filename{split_doc.get_file_name()};
-        surface.draw_text(
-            device_context, *surface.m_small_font, right_filename,
-            right_header.x + 12.0F * scale, center_y, surface.m_palette.text_primary);
+        const auto* split_doc = m_controller.get_document(*m_split_document_index);
+        if (split_doc != nullptr)
+        {
+            const std::string right_filename{split_doc->get_file_name()};
+            const std::string right_icon = UI::Editor::file_icon_asset_for_path(std::filesystem::path{right_filename});
+            const int right_icon_sz = std::max(round_to_int(13.0F * scale), 11);
+            const float right_icon_cx = right_header.x + 12.0F * scale + right_icon_sz * 0.5F;
+            surface.draw_svg_icon(
+                device_context, "Assets/icons/" + right_icon,
+                round_to_int(right_icon_cx), round_to_int(center_y), right_icon_sz,
+                surface.m_palette.text_muted, surface.m_palette.editor_background, true);
+
+            surface.draw_text(
+                device_context, *surface.m_small_font, right_filename,
+                right_header.x + 12.0F * scale + right_icon_sz + 6.0F * scale, center_y,
+                surface.m_palette.text_primary);
+        }
         RestoreDC(device_context, -1);
     }
     else
@@ -641,16 +662,25 @@ void TextEditor::draw_editor_header(
         m_tab_action_bounds[1] = UI::Rect{actions_right - 3.0F * button_w - 4.0F * scale, button_y, button_w, button_h};
         m_tab_action_bounds[0] = UI::Rect{actions_right - 4.0F * button_w - 6.0F * scale, button_y, button_w, button_h};
 
-        // Left side: Breadcrumb file path (Title only, no icon, clipped before buttons)
+        // Left side: File title with Icon (Clipped before buttons)
         SaveDC(device_context);
         IntersectClipRect(device_context,
             round_to_int(header_bounds.x), round_to_int(header_bounds.y),
             round_to_int(m_tab_action_bounds[0].x - 4.0F * scale), round_to_int(header_bounds.bottom()));
 
         const std::string filename{document->get_file_name()};
+        const std::string icon_asset = UI::Editor::file_icon_asset_for_path(std::filesystem::path{filename});
+        const int icon_sz = std::max(round_to_int(13.0F * scale), 11);
+        const float icon_cx = header_bounds.x + 12.0F * scale + icon_sz * 0.5F;
+        surface.draw_svg_icon(
+            device_context, "Assets/icons/" + icon_asset,
+            round_to_int(icon_cx), round_to_int(center_y), icon_sz,
+            surface.m_palette.text_muted, surface.m_palette.editor_background, true);
+
         surface.draw_text(
             device_context, *surface.m_small_font, filename,
-            header_bounds.x + 12.0F * scale, center_y, surface.m_palette.text_primary);
+            header_bounds.x + 12.0F * scale + icon_sz + 6.0F * scale, center_y,
+            surface.m_palette.text_primary);
         RestoreDC(device_context, -1);
     }
 
@@ -2707,6 +2737,35 @@ bool TextEditor::handle_text_input(std::string_view utf8_text)
                     if (!items.empty())
                     {
                         m_completion_popup.show(std::move(items), 100.0F, 100.0F);
+
+                        if (const auto* current_doc = m_controller.get_active_document())
+                        {
+                            const std::string_view line = current_doc->get_line(current_doc->get_caret_line());
+                            const std::size_t col = current_doc->get_caret_column();
+                            std::size_t start = std::min(col, line.size());
+                            while (start > 0)
+                            {
+                                const char ch = line[start - 1];
+                                if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '#' || ch == '~')
+                                {
+                                    --start;
+                                }
+                                else
+                                {
+                                    break;
+                                }
+                            }
+                            const std::string_view latest_word = line.substr(start, col - start);
+                            if (!latest_word.empty())
+                            {
+                                m_completion_popup.set_filter(latest_word);
+                            }
+                        }
+
+                        if (m_completion_popup.get_item_count() == 0)
+                        {
+                            m_completion_popup.hide();
+                        }
                     }
                     if (m_window_handle != nullptr)
                     {
@@ -2744,7 +2803,7 @@ bool TextEditor::handle_text_input(std::string_view utf8_text)
             while (word_start > 0)
             {
                 const char c = current_line[word_start - 1];
-                if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '#' || c == ':' || c == '~')
+                if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '#' || c == '~')
                 {
                     --word_start;
                 }
@@ -2952,7 +3011,7 @@ bool TextEditor::handle_text_input(std::string_view utf8_text)
                                 while (start > 0)
                                 {
                                     const char ch = line[start - 1];
-                                    if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '#' || ch == ':' || ch == '~')
+                                    if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '#' || ch == '~')
                                     {
                                         --start;
                                     }
@@ -3542,101 +3601,79 @@ void TextEditor::draw_document(
     }
     if (document == nullptr)
     {
+        surface.fill_rectangle(device_context, layout.editor_bounds,
+                               surface.m_palette.editor_background);
+
+        m_empty_state_open_btn.set_bounds(UI::Rect{});
+        m_empty_state_clone_btn.set_bounds(UI::Rect{});
+
         const float dpi = surface.m_dpi_scale;
-        const int center_x = round_to_int(layout.editor_bounds.x + layout.editor_bounds.width * 0.5F);
-        
-        const int logo_size = round_to_int(150.0F * dpi);
-        const int gap1 = round_to_int(30.0F * dpi);
-        const int gap2 = round_to_int(40.0F * dpi);
-        const int line_height = round_to_int(28.0F * dpi);
-        const int total_height = logo_size + gap1 + gap2 + 3 * line_height;
-        const float full_height = layout.editor_bounds.height + layout.terminal_panel_bounds.height;
-        int current_y = round_to_int(layout.editor_bounds.y + (full_height - total_height) * 0.5F);
+        const float logo_size = 180.0F * dpi;
+        const float logo_gap = 32.0F * dpi;
 
-        surface.draw_png_icon(device_context, "zenvra_logo.png", center_x, current_y + logo_size / 2, logo_size, surface.m_palette.editor_background);
-        current_y += logo_size + gap1;
+        const std::string title = "Zenvra Development Studio";
+        const int title_w = surface.m_large_font
+            ? surface.m_large_font->getTextWidth(device_context, title)
+            : (surface.m_ui_font ? surface.m_ui_font->getTextWidth(device_context, title) : static_cast<int>(240.0F * dpi));
+        const float text_block_w = std::max(static_cast<float>(title_w), 260.0F * dpi);
+        const float total_w = logo_size + logo_gap + text_block_w;
 
-        if (surface.m_ui_font)
+        const float start_x = std::max(layout.editor_bounds.x + 30.0F * dpi,
+                                       layout.editor_bounds.x + (layout.editor_bounds.width - total_w) * 0.5F);
+        const float start_y = layout.editor_bounds.y + layout.editor_bounds.height * 0.32F;
+
+        // 1. Extra Large Iconic Logo on the left
+        surface.draw_png_icon(
+            device_context, "zenvra_logo.png",
+            round_to_int(start_x + logo_size * 0.5F),
+            round_to_int(start_y + logo_size * 0.5F),
+            round_to_int(logo_size), surface.m_palette.editor_background);
+
+        const float text_x = start_x + logo_size + logo_gap;
+
+        // 2. Heading "Zenvra Development Studio"
+        if (surface.m_large_font)
         {
-            const std::string title = "Zenvra Development Studio";
-            if (surface.m_large_font)
-            {
-                int title_w = surface.m_large_font->getTextWidth(device_context, title);
-                surface.draw_text(device_context, *surface.m_large_font, title, static_cast<float>(center_x - title_w / 2), static_cast<float>(current_y), surface.m_palette.text_primary);
-            }
-            else
-            {
-                int title_w = surface.m_ui_font->getTextWidth(device_context, title);
-                surface.draw_text(device_context, *surface.m_ui_font, title, static_cast<float>(center_x - title_w / 2), static_cast<float>(current_y), surface.m_palette.text_primary);
-            }
-            current_y += gap2;
-
-            const float btn_w = 300.0F * dpi;
-            const float btn_h = 40.0F * dpi;
-            const float btn_x = center_x - btn_w * 0.5F;
-
-            // Open Folder Button
-            m_empty_state_open_btn.set_bounds(UI::Rect{btn_x, static_cast<float>(current_y), btn_w, btn_h});
-            const auto& open_state = m_empty_state_open_btn.get_state();
-            const UI::Theme::Color open_bg = open_state.pressed ? surface.m_palette.accent : (open_state.hovered ? surface.m_palette.accent : surface.m_palette.accent);
-            surface.fill_rounded_rectangle(device_context, m_empty_state_open_btn.get_bounds(), open_bg, 4.0F * dpi);
-
-            const float icon_size = 16.0F * dpi;
-            const float open_text_w = static_cast<float>(surface.m_ui_font->getTextWidth(device_context, "Open Folder"));
-            std::array<Utility::FlexItem, 2> flex_items_open{
-                Utility::FlexItem::fixed(icon_size),
-                Utility::FlexItem::fixed(open_text_w)
-            };
-            Utility::FlexOptions flex_opts;
-            flex_opts.axis = Utility::LayoutAxis::Horizontal;
-            flex_opts.justify_content = Utility::LayoutJustify::Center;
-            flex_opts.align_items = Utility::LayoutAlign::Center;
-            flex_opts.gap = 8.0F * dpi;
-
-            Utility::FlexLayoutResult flex_res_open = Utility::Flex::calculate(
-                m_empty_state_open_btn.get_bounds(), flex_items_open, flex_opts);
-
-            surface.draw_svg_icon(
-                device_context, "Assets/icons/folder.svg",
-                round_to_int(flex_res_open.items[0].x + flex_res_open.items[0].width * 0.5F),
-                round_to_int(flex_res_open.items[0].y + flex_res_open.items[0].height * 0.5F),
-                round_to_int(icon_size), surface.m_palette.text_primary, open_bg);
-            
             surface.draw_text(
-                device_context, *surface.m_ui_font, "Open Folder",
-                flex_res_open.items[1].x,
-                flex_res_open.items[1].y + flex_res_open.items[1].height * 0.5F,
-                surface.m_palette.text_primary);
-
-            current_y += round_to_int(btn_h) + round_to_int(10.0F * dpi);
-
-            // Clone Repository Button
-            m_empty_state_clone_btn.set_bounds(UI::Rect{btn_x, static_cast<float>(current_y), btn_w, btn_h});
-            const auto& clone_state = m_empty_state_clone_btn.get_state();
-            const UI::Theme::Color clone_bg = clone_state.pressed ? surface.m_palette.border : (clone_state.hovered ? surface.m_palette.hover_background : surface.m_palette.editor_background);
-            surface.fill_rounded_rectangle(device_context, m_empty_state_clone_btn.get_bounds(), clone_bg, 4.0F * dpi);
-
-            const float clone_text_w = static_cast<float>(surface.m_ui_font->getTextWidth(device_context, "Clone Repository"));
-            std::array<Utility::FlexItem, 2> flex_items_clone{
-                Utility::FlexItem::fixed(icon_size),
-                Utility::FlexItem::fixed(clone_text_w)
-            };
-
-            Utility::FlexLayoutResult flex_res_clone = Utility::Flex::calculate(
-                m_empty_state_clone_btn.get_bounds(), flex_items_clone, flex_opts);
-
-            surface.draw_svg_icon(
-                device_context, "Assets/icons/copy.svg",
-                round_to_int(flex_res_clone.items[0].x + flex_res_clone.items[0].width * 0.5F),
-                round_to_int(flex_res_clone.items[0].y + flex_res_clone.items[0].height * 0.5F),
-                round_to_int(icon_size), surface.m_palette.text_primary, clone_bg);
-
-            surface.draw_text(
-                device_context, *surface.m_ui_font, "Clone Repository",
-                flex_res_clone.items[1].x,
-                flex_res_clone.items[1].y + flex_res_clone.items[1].height * 0.5F,
+                device_context, *surface.m_large_font, title, text_x, start_y + 36.0F * dpi,
                 surface.m_palette.text_primary);
         }
+        else if (surface.m_ui_font)
+        {
+            surface.draw_text(
+                device_context, *surface.m_ui_font, title, text_x, start_y + 36.0F * dpi,
+                surface.m_palette.text_primary);
+        }
+
+        // 3. Shortcuts list aligned directly under the heading (uniform neutral tones, no blue)
+        if (surface.m_small_font || surface.m_ui_font)
+        {
+            auto& font = surface.m_small_font ? *surface.m_small_font : *surface.m_ui_font;
+            struct ShortcutEntry {
+                std::string_view key;
+                std::string_view label;
+            };
+            static constexpr std::array<ShortcutEntry, 4> shortcuts{{
+                {"Ctrl+O", "Open File"},
+                {"Ctrl+Shift+P", "Command Palette"},
+                {"Ctrl+`", "Toggle Terminal"},
+                {"Ctrl+B", "Toggle Sidebar"},
+            }};
+
+            const float key_col_w = 110.0F * dpi;
+            const float item_gap = 24.0F * dpi;
+            const float first_row_y = start_y + 74.0F * dpi;
+
+            for (std::size_t i = 0; i < shortcuts.size(); ++i)
+            {
+                const float row_y = first_row_y + static_cast<float>(i) * item_gap;
+                surface.draw_text(device_context, font, shortcuts[i].key,
+                                  text_x, row_y, surface.m_palette.text_primary);
+                surface.draw_text(device_context, font, shortcuts[i].label,
+                                  text_x + key_col_w, row_y, surface.m_palette.text_muted);
+            }
+        }
+
         return;
     }
     const float line_height = 20.0F * surface.m_dpi_scale;

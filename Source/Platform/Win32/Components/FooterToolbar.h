@@ -1,5 +1,6 @@
 #pragma once
 
+#include "UI/Components/BreadcrumbBar.h"
 #include "UI/Editor/StudioEditorModel.h"
 
 #include <windows.h>
@@ -21,6 +22,9 @@ public:
         const UI::Editor::StudioEditorLayoutResult& layout,
         std::span<const UI::Editor::BreadcrumbItem> breadcrumbs,
         const UI::Editor::FooterEditorStatus& status) const;
+
+private:
+    mutable UI::Components::BreadcrumbBar m_breadcrumb_bar;
 };
 
 } // namespace Zenvra::Platform::Win32::Components

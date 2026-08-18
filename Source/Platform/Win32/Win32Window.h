@@ -105,6 +105,7 @@ private:
     void close_explorer_context_menu();
     void draw_explorer_context_menu(HDC device_context) const;
     void execute_explorer_context_menu_item(std::size_t item_index);
+    void show_system_menu(int screen_x, int screen_y);
     void copy_to_clipboard(const std::string& text);
     static std::wstring utf8_to_wide(std::string_view text);
 
