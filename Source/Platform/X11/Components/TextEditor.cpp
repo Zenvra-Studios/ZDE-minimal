@@ -1460,6 +1460,22 @@ bool TextEditor::handle_pointer_drag(
 
   // Pointer selecting text
   if (m_pointer_selecting) {
+    auto &scrollbar = (is_split_active && m_focused_pane == SplitPaneFocus::Right)
+                          ? m_split_scrollbar
+                          : m_scrollbar;
+    const float top_boundary = layout.editor_bounds.y;
+    const float bottom_boundary = layout.editor_bounds.bottom();
+
+    if (point_y < top_boundary) {
+      const float diff = top_boundary - point_y;
+      const std::ptrdiff_t step = diff > 40.0F * scale ? -3 : -1;
+      scrollbar.scroll_lines(step);
+    } else if (point_y > bottom_boundary) {
+      const float diff = point_y - bottom_boundary;
+      const std::ptrdiff_t step = diff > 40.0F * scale ? 3 : 1;
+      scrollbar.scroll_lines(step);
+    }
+
     const auto pos = position_from_point(surface, layout, point_x, point_y);
     auto *doc = get_focused_document();
     if (doc != nullptr) {
@@ -1518,7 +1534,7 @@ bool TextEditor::handle_scroll(
   if (layout.tab_bar_bounds.contains(point_x, point_y)) {
     m_tab_scroll_offset = std::clamp(
         m_tab_scroll_offset + static_cast<float>(line_delta) * 20.0F, 0.0F,
-        m_max_tab_scroll);
+        std::max(0.0F, m_max_tab_scroll));
     return true;
   }
 
@@ -1547,7 +1563,7 @@ bool TextEditor::handle_scroll(
     if (horizontal) {
       m_text_scroll_offset = std::clamp(
           m_text_scroll_offset + static_cast<float>(line_delta) * 15.0F, 0.0F,
-          m_max_text_scroll);
+          std::max(0.0F, m_max_text_scroll));
       return true;
     }
     m_scrollbar.synchronize(
