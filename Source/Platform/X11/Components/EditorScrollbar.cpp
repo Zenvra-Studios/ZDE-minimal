@@ -104,29 +104,19 @@ void EditorScrollbar::render(
     }
     const UI::Editor::EditorScrollbarGeometry geometry = m_model.calculate_geometry(
         get_track_bounds(layout), 28.0F * layout.dpi_scale);
+    const UI::Theme::Color thumb_color = m_model.is_dragging()
+        ? UI::Theme::Color{255, 255, 255, 115}
+        : (m_hovered ? UI::Theme::Color{255, 255, 255, 75} : UI::Theme::Color{255, 255, 255, 40});
     surface.fill_rectangle(
         drawable,
         geometry.thumb,
-        m_model.is_dragging() || m_hovered
-            ? surface.m_pixels.accent
-            : surface.m_pixels.text_muted);
+        thumb_color);
 }
 
 UI::Rect EditorScrollbar::get_track_bounds(
     const UI::Editor::StudioEditorLayoutResult& layout) noexcept
 {
-    const float inset_x = std::min(
-        2.0F * layout.dpi_scale, layout.scrollbar_bounds.width * 0.25F);
-    const float track_width = std::min(
-        4.0F * layout.dpi_scale,
-        std::max(layout.scrollbar_bounds.width - inset_x, 1.0F));
-    const float inset_y = 2.0F * layout.dpi_scale;
-    return {
-        layout.scrollbar_bounds.x + inset_x,
-        layout.scrollbar_bounds.y + inset_y,
-        track_width,
-        std::max(layout.scrollbar_bounds.height - inset_y * 2.0F, 0.0F),
-    };
+    return layout.scrollbar_bounds;
 }
 
 } // namespace Zenvra::Platform::X11::Components

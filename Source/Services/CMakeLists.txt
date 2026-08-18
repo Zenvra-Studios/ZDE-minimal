@@ -1,5 +1,6 @@
 add_library(ZDEServices
     Shader/CpuShaderRasterizer.cpp
+    Shader/GpuShaderRasterizer.cpp
     Shader/ShaderCompiler.cpp
     Shader/ShaderRuntimeEngine.cpp
     Build/BuildService.cpp
@@ -12,5 +13,5 @@ target_include_directories(ZDEServices PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/.."
     "${PROJECT_SOURCE_DIR}"
 )
-target_link_libraries(ZDEServices PUBLIC Zenvra::Core Zenvra::UI Zenvra::Tools)
+target_link_libraries(ZDEServices PUBLIC Zenvra::Core Zenvra::UI Zenvra::Tools Zenvra::Graphics)
 zde_enable_warnings(ZDEServices)

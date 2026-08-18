@@ -1384,11 +1384,42 @@ void TextDocumentModel::begin_or_clear_selection(
 
 void TextDocumentModel::set_diagnostics(std::vector<Language::Protocol::Diagnostic> diagnostics)
 {
-    m_diagnostics = std::move(diagnostics);
+    if (m_diagnostics_mutex)
+    {
+        std::lock_guard<std::mutex> lock(*m_diagnostics_mutex);
+        m_diagnostics = std::move(diagnostics);
+    }
+    else
+    {
+        m_diagnostics = std::move(diagnostics);
+    }
+}
+
+std::vector<Language::Protocol::Diagnostic> TextDocumentModel::get_diagnostics() const
+{
+    if (m_diagnostics_mutex)
+    {
+        std::lock_guard<std::mutex> lock(*m_diagnostics_mutex);
+        return m_diagnostics;
+    }
+    return m_diagnostics;
 }
 
 std::vector<Language::Protocol::Diagnostic> TextDocumentModel::get_diagnostics_for_line(std::size_t line) const
 {
+    if (m_diagnostics_mutex)
+    {
+        std::lock_guard<std::mutex> lock(*m_diagnostics_mutex);
+        std::vector<Language::Protocol::Diagnostic> line_diags;
+        for (const auto& diag : m_diagnostics)
+        {
+            if (diag.range.start.line <= line && line <= diag.range.end.line)
+            {
+                line_diags.push_back(diag);
+            }
+        }
+        return line_diags;
+    }
     std::vector<Language::Protocol::Diagnostic> line_diags;
     for (const auto& diag : m_diagnostics)
     {

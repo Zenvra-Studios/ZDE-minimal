@@ -204,25 +204,45 @@ bool StudioWorkspaceRenderer::initialize(Display *display, int screen,
   return true;
 }
 
+void StudioWorkspaceRenderer::sync_shader_sandbox() const {
+  if (!m_shader_sandbox_panel.is_visible()) {
+    return;
+  }
+  if (const UI::Editor::TextDocumentModel *doc =
+          m_text_editor.get_document()) {
+    const std::string filename = std::string(doc->get_file_name());
+    const std::filesystem::path file_path(filename);
+    const std::string ext = file_path.extension().string();
+
+    std::string full_text;
+    for (const auto &line : doc->get_lines()) {
+      full_text += line;
+      full_text += '\n';
+    }
+
+    const bool is_shader_ext = (ext == ".glsl" || ext == ".frag" || ext == ".vert" || 
+                                ext == ".comp" || ext == ".shader" || ext == ".hlsl" ||
+                                ext == ".geom" || ext == ".tesc" || ext == ".tese");
+    const bool is_shader_content = (full_text.find("mainImage") != std::string::npos ||
+                                    full_text.find("gl_FragColor") != std::string::npos ||
+                                    full_text.find("gl_FragCoord") != std::string::npos ||
+                                    full_text.find("#version") != std::string::npos);
+
+    if ((is_shader_ext || is_shader_content) && !full_text.empty()) {
+      m_shader_sandbox_panel.set_source_code(full_text);
+    }
+  }
+}
+
 bool StudioWorkspaceRenderer::open_file(const std::filesystem::path &path) {
   const bool opened = m_text_editor.open_file(path);
   if (opened) {
     const std::string ext = path.extension().string();
     if (ext == ".glsl" || ext == ".frag" || ext == ".vert" || ext == ".comp" ||
-        ext == ".shader") {
+        ext == ".shader" || ext == ".hlsl") {
       m_shader_sandbox_panel.set_visible(true);
-      if (const UI::Editor::TextDocumentModel *doc =
-              m_text_editor.get_document()) {
-        std::string full_text;
-        for (const auto &line : doc->get_lines()) {
-          full_text += line;
-          full_text += '\n';
-        }
-        if (!full_text.empty()) {
-          m_shader_sandbox_panel.set_source_code(full_text);
-        }
-      }
     }
+    sync_shader_sandbox();
   }
   return opened;
 }
@@ -268,17 +288,7 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     if (items[*sidebar_index].icon == UI::Editor::SidebarIcon::Shader) {
       const bool res = m_shader_sandbox_panel.toggle();
       if (res) {
-        if (const UI::Editor::TextDocumentModel *doc =
-                m_text_editor.get_document()) {
-          std::string full_text;
-          for (const auto &line : doc->get_lines()) {
-            full_text += line;
-            full_text += '\n';
-          }
-          if (!full_text.empty()) {
-            m_shader_sandbox_panel.set_source_code(full_text);
-          }
-        }
+        sync_shader_sandbox();
       }
       return true;
     }
@@ -317,8 +327,14 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
       m_shader_sandbox_panel.contains(layout, point_x, point_y)) {
     return true;
   }
-  return m_text_editor.handle_pointer_press(
-      *this, layout, point_x, point_y, extend_selection, click_count, command_out);
+  m_terminal_panel.set_focused(false);
+  const bool editor_pressed = m_text_editor.handle_pointer_press(
+      *this, layout, point_x, point_y, extend_selection, click_count,
+      command_out);
+  if (editor_pressed) {
+    sync_shader_sandbox();
+  }
+  return editor_pressed;
 }
 
 bool StudioWorkspaceRenderer::handle_pointer_move(float point_x, float point_y,
@@ -386,12 +402,20 @@ bool StudioWorkspaceRenderer::handle_scroll(float point_x, float point_y,
 
 bool StudioWorkspaceRenderer::handle_editor_input(
     UI::Editor::EditorInputCommand command, bool extend_selection) {
-  return m_text_editor.handle_input(command, extend_selection);
+  const bool res = m_text_editor.handle_input(command, extend_selection);
+  if (res) {
+    sync_shader_sandbox();
+  }
+  return res;
 }
 
 bool StudioWorkspaceRenderer::handle_editor_action(
     UI::Editor::EditorAction action) {
-  return m_text_editor.handle_action(action);
+  const bool res = m_text_editor.handle_action(action);
+  if (res) {
+    sync_shader_sandbox();
+  }
+  return res;
 }
 
 std::optional<bool>
@@ -399,22 +423,16 @@ StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id) {
   if (command_id == Commands::CommandIds::view_toggle_right_dock ||
       command_id == "zde.view.shaderPanel") {
     const bool res = toggle_shader_panel();
-    if (m_shader_sandbox_panel.is_visible()) {
-      if (const UI::Editor::TextDocumentModel *doc =
-              m_text_editor.get_document()) {
-        std::string full_text;
-        for (const auto &line : doc->get_lines()) {
-          full_text += line;
-          full_text += '\n';
-        }
-        if (!full_text.empty()) {
-          m_shader_sandbox_panel.set_source_code(full_text);
-        }
-      }
+    if (res) {
+      sync_shader_sandbox();
     }
     return res;
   }
-  return m_text_editor.handle_command(command_id);
+  const auto res = m_text_editor.handle_command(command_id);
+  if (res.has_value() && *res) {
+    sync_shader_sandbox();
+  }
+  return res;
 }
 
 std::optional<bool> StudioWorkspaceRenderer::is_editor_command_enabled(
@@ -431,22 +449,7 @@ bool StudioWorkspaceRenderer::handle_text_input(std::string_view utf8_text) {
                        ? m_terminal_panel.handle_text_input(utf8_text)
                        : m_text_editor.handle_text_input(utf8_text);
   if (res && !m_terminal_panel.is_focused()) {
-    if (const UI::Editor::TextDocumentModel *doc =
-            m_text_editor.get_document()) {
-      const std::string_view fname = doc->get_file_name();
-      if (fname.ends_with(".glsl") || fname.ends_with(".frag") ||
-          fname.ends_with(".vert") || fname.ends_with(".shader") ||
-          m_shader_sandbox_panel.is_visible()) {
-        std::string full_text;
-        for (const auto &line : doc->get_lines()) {
-          full_text += line;
-          full_text += '\n';
-        }
-        if (!full_text.empty()) {
-          m_shader_sandbox_panel.set_source_code(full_text);
-        }
-      }
-    }
+    sync_shader_sandbox();
   }
   return res;
 }

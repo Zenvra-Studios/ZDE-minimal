@@ -317,13 +317,42 @@ ActiveIndentScope EditorFoldingModel::get_active_indent_scope(
         return {};
     }
 
+    // 1. Prioritize innermost enclosing fold range (brace scope)
+    const FoldRange* best_range = nullptr;
+    for (const auto& r : m_ranges)
+    {
+        if (m_collapsed.count(r.start_line))
+        {
+            continue;
+        }
+        if (caret_line >= r.start_line && caret_line <= r.end_line)
+        {
+            if (best_range == nullptr || r.indent_level > best_range->indent_level ||
+                (r.indent_level == best_range->indent_level && (r.end_line - r.start_line) < (best_range->end_line - best_range->start_line)))
+            {
+                best_range = &r;
+            }
+        }
+    }
+
+    if (best_range != nullptr)
+    {
+        const std::size_t active_col = ((best_range->indent_level / tab_size) + 1) * tab_size;
+        return ActiveIndentScope{
+            .start_line = best_range->start_line,
+            .end_line = best_range->end_line,
+            .column = active_col,
+            .valid = true
+        };
+    }
+
+    // 2. Fallback to indent-based scope scanning
     const std::size_t caret_indent = m_effective_indents[caret_line];
     if (caret_indent < tab_size)
     {
         return {};
     }
 
-    // Active column is the deepest tab stop at or before caret indent
     const std::size_t active_col = (caret_indent / tab_size) * tab_size;
 
     std::size_t start = caret_line;

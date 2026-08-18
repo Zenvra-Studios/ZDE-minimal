@@ -100,6 +100,10 @@ public:
         int client_width,
         int client_height,
         float content_top) noexcept;
+    [[nodiscard]] bool open_file_at_location(const std::filesystem::path& path, std::size_t line, std::size_t column);
+    [[nodiscard]] bool is_search_focused() const noexcept;
+    [[nodiscard]] bool handle_search_char(char32_t codepoint);
+    [[nodiscard]] bool handle_search_key(int vkey, bool ctrl, bool shift, bool alt);
     [[nodiscard]] bool is_editor_focused() const noexcept;
     [[nodiscard]] bool is_terminal_focused() const noexcept;
     [[nodiscard]] bool is_activity_bar_point(
@@ -139,6 +143,18 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_tool_sidebar_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_tool_sidebar_interactive_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_tool_sidebar_text_input_point(
         float point_x,
         float point_y,
         int client_width,
@@ -196,6 +212,7 @@ public:
     [[nodiscard]] bool is_editor_split_resizing() const noexcept;
     [[nodiscard]] bool toggle_shader_sandbox() noexcept;
     [[nodiscard]] bool is_shader_sandbox_visible() const noexcept;
+    void sync_shader_sandbox() const;
     [[nodiscard]] bool toggle_terminal() noexcept;
     [[nodiscard]] bool is_terminal_visible() const noexcept;
     [[nodiscard]] UI::Editor::StudioEditorLayoutResult calculate_layout(

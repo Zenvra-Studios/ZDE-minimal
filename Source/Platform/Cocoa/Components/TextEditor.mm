@@ -1257,8 +1257,8 @@ void TextEditor::draw_document(
         const float fold_margin = UI::Editor::StudioEditorMetrics::fold_margin_width * dpi;
         const std::string number = std::to_string(line_index + 1);
         const float number_x = layout.gutter_bounds.right() - fold_margin - 4.0F * dpi -
-            static_cast<float>(surface.m_small_font->getTextWidth(number));
-        surface.draw_text(context, *surface.m_small_font, number, number_x, center_y,
+            static_cast<float>(surface.m_editor_font->getTextWidth(number));
+        surface.draw_text(context, *surface.m_editor_font, number, number_x, center_y,
             active_line ? surface.m_text.primary : surface.m_text.muted);
 
         const auto gutter_diags = document->get_diagnostics_for_line(line_index);

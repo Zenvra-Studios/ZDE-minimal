@@ -134,9 +134,15 @@ bool ShaderSandboxPanel::handle_pointer_press(
     return true;
   }
 
-  const UI::Rect scale_btn{ctrl.x + 68.0F * scale, btn_y, 36.0F * scale, btn_h};
+  const UI::Rect scale_btn{ctrl.x + 68.0F * scale, btn_y, 48.0F * scale, btn_h};
   if (scale_btn.contains(point_x, point_y)) {
     m_engine.cycle_resolution_scale();
+    return true;
+  }
+
+  const UI::Rect backend_btn{ctrl.x + 120.0F * scale, btn_y, 44.0F * scale, btn_h};
+  if (backend_btn.contains(point_x, point_y)) {
+    m_engine.toggle_render_backend();
     return true;
   }
 
@@ -165,6 +171,7 @@ bool ShaderSandboxPanel::handle_pointer_move(
   const bool prev_play = m_hover_play;
   const bool prev_reset = m_hover_reset;
   const bool prev_scale = m_hover_scale;
+  const bool prev_backend = m_hover_backend;
   const bool prev_snapshot = m_hover_snapshot;
   const bool prev_splitter = m_hover_splitter;
 
@@ -190,7 +197,10 @@ bool ShaderSandboxPanel::handle_pointer_move(
       UI::Rect{ctrl.x + 38.0F * scale, btn_y, btn_w, btn_h}.contains(point_x,
                                                                      point_y);
   m_hover_scale =
-      UI::Rect{ctrl.x + 68.0F * scale, btn_y, 36.0F * scale, btn_h}.contains(
+      UI::Rect{ctrl.x + 68.0F * scale, btn_y, 48.0F * scale, btn_h}.contains(
+          point_x, point_y);
+  m_hover_backend =
+      UI::Rect{ctrl.x + 120.0F * scale, btn_y, 44.0F * scale, btn_h}.contains(
           point_x, point_y);
   m_hover_snapshot =
       UI::Rect{ctrl.right() - 34.0F * scale, btn_y, btn_w, btn_h}.contains(
@@ -205,7 +215,8 @@ bool ShaderSandboxPanel::handle_pointer_move(
 
   return (prev_close != m_hover_close) || (prev_preset != m_hover_preset) ||
          (prev_play != m_hover_play) || (prev_reset != m_hover_reset) ||
-         (prev_scale != m_hover_scale) || (prev_snapshot != m_hover_snapshot) ||
+         (prev_scale != m_hover_scale) || (prev_backend != m_hover_backend) ||
+         (prev_snapshot != m_hover_snapshot) ||
          (prev_splitter != m_hover_splitter);
 }
 
@@ -217,6 +228,7 @@ bool ShaderSandboxPanel::handle_pointer_drag(
     const float scale = layout.dpi_scale;
     m_width =
         std::clamp(m_drag_start_width + delta, 180.0F * scale, 800.0F * scale);
+    m_engine.update_and_render();
     return true;
   }
 
@@ -225,6 +237,7 @@ bool ShaderSandboxPanel::handle_pointer_drag(
     const float vx = point_x - layout.shader_panel_viewport_bounds.x;
     const float vy = point_y - layout.shader_panel_viewport_bounds.y;
     m_engine.set_mouse(vx, vy, true);
+    m_engine.update_and_render();
     return true;
   }
 
@@ -288,6 +301,10 @@ void ShaderSandboxPanel::render(
   surface.fill_rectangle(drawable, layout.shader_panel_bounds,
                          surface.m_pixels.sidebar_background);
 
+  render_header(surface, drawable, layout);
+  render_viewport(surface, drawable, layout);
+  render_controls(surface, drawable, layout);
+
   // Draw Splitter border on the left edge with blue accent highlight when hovered or resizing
   const bool show_accent = m_hover_splitter || m_is_resizing;
   const unsigned long splitter_color = show_accent
@@ -311,10 +328,6 @@ void ShaderSandboxPanel::render(
                  layout.shader_panel_bounds.height},
         surface.m_pixels.accent);
   }
-
-  render_header(surface, drawable, layout);
-  render_viewport(surface, drawable, layout);
-  render_controls(surface, drawable, layout);
 }
 
 void ShaderSandboxPanel::render_header(
@@ -431,9 +444,10 @@ void ShaderSandboxPanel::render_viewport(
   const int target_w = round_to_int(canvas_rect.width);
   const int target_h = round_to_int(canvas_rect.height);
   if (target_w > 16 && target_h > 16 &&
-      (m_engine.get_rendered_width() != target_w ||
-       m_engine.get_rendered_height() != target_h)) {
+      (m_engine.get_viewport_width() != target_w ||
+       m_engine.get_viewport_height() != target_h)) {
     const_cast<ShaderSandboxPanel *>(this)->m_engine.resize(target_w, target_h);
+    static_cast<void>(const_cast<ShaderSandboxPanel *>(this)->m_engine.update_and_render());
   }
 
   // Blit rasterized pixels
@@ -545,7 +559,7 @@ void ShaderSandboxPanel::render_controls(
                         false);
 
   // Resolution scale badge button (1x / 0.5x / 0.25x)
-  const UI::Rect scale_btn{ctrl.x + 68.0F * scale, btn_y, 36.0F * scale, btn_h};
+  const UI::Rect scale_btn{ctrl.x + 68.0F * scale, btn_y, 48.0F * scale, btn_h};
   surface.fill_rounded_rectangle(drawable, scale_btn,
                                  m_hover_scale
                                      ? surface.m_pixels.hover_background
@@ -555,7 +569,7 @@ void ShaderSandboxPanel::render_controls(
                          m_hover_scale ? surface.m_pixels.border
                                        : surface.m_pixels.border);
 
-  std::string scale_str = "1x";
+  std::string scale_str = "1.0x";
   switch (m_engine.get_resolution_scale()) {
   case Services::Shader::ResolutionScale::Full:
     scale_str = "1.0x";
@@ -571,13 +585,28 @@ void ShaderSandboxPanel::render_controls(
                     scale_btn.x + 6.0F * scale, ctrl.y + ctrl.height * 0.5F,
                     m_hover_scale ? "#FFFFFF" : surface.m_text.muted);
 
+  // Backend toggle button (CPU / GPU)
+  const UI::Rect backend_btn{ctrl.x + 120.0F * scale, btn_y, 44.0F * scale, btn_h};
+  const bool is_gpu = (m_engine.get_render_backend() == Services::Shader::RenderBackend::Gpu);
+  surface.fill_rounded_rectangle(drawable, backend_btn,
+                                 m_hover_backend
+                                     ? surface.m_pixels.hover_background
+                                     : surface.m_pixels.sidebar_background,
+                                 3.0F * scale);
+  surface.draw_rectangle(drawable, backend_btn,
+                         m_hover_backend ? surface.m_pixels.border
+                                         : surface.m_pixels.border);
+  surface.draw_text(drawable, *surface.m_small_font, is_gpu ? "GPU" : "CPU",
+                    backend_btn.x + 8.0F * scale, ctrl.y + ctrl.height * 0.5F,
+                    is_gpu ? "#50DC8C" : (m_hover_backend ? "#FFFFFF" : surface.m_text.muted));
+
   // Time elapsed display
   std::ostringstream time_ss;
   time_ss << std::fixed << std::setprecision(1) << m_engine.get_time() << "s ("
           << std::fixed << std::setprecision(1) << m_engine.get_frame_time_ms()
           << "ms)";
   surface.draw_text(drawable, *surface.m_small_font, time_ss.str(),
-                    ctrl.x + 112.0F * scale, ctrl.y + ctrl.height * 0.5F,
+                    ctrl.x + 172.0F * scale, ctrl.y + ctrl.height * 0.5F,
                     surface.m_text.muted);
 
   // Snapshot button (Capture art)

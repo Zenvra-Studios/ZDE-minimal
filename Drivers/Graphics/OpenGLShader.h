@@ -39,6 +39,7 @@ public:
     void set_uniform_1i(std::string_view name, int value);
     void set_uniform_1f(std::string_view name, float value);
     void set_uniform_2f(std::string_view name, float x, float y);
+    void set_uniform_3f(std::string_view name, float x, float y, float z);
     void set_uniform_4f(std::string_view name, float x, float y, float z, float w);
 
 private:

@@ -294,6 +294,30 @@ bool TextEditor::open_file(const std::filesystem::path& path)
     return opened;
 }
 
+bool TextEditor::open_file_at_location(const std::filesystem::path& path, std::size_t line, std::size_t column)
+{
+    const bool opened = open_file(path);
+    if (!opened)
+    {
+        return false;
+    }
+    if (auto* doc = const_cast<UI::Editor::TextDocumentModel*>(m_controller.get_active_document()))
+    {
+        const std::size_t line_idx = (line > 0) ? (line - 1) : 0;
+        doc->set_caret(line_idx, column, false);
+        m_reveal_caret_pending = true;
+        if (line_idx > 5)
+        {
+            static_cast<void>(m_scrollbar.scroll_to(line_idx - 5));
+        }
+        else
+        {
+            static_cast<void>(m_scrollbar.scroll_to(0));
+        }
+    }
+    return true;
+}
+
 bool TextEditor::close_file(const std::filesystem::path& path)
 {
     const auto docs = m_controller.get_documents();
@@ -484,7 +508,7 @@ void TextEditor::show_tab_action_menu(const UI::Editor::StudioEditorLayoutResult
     {
         popup_x = layout.workspace_bounds.right() - popup_width - 8.0F * scale;
     }
-    const float popup_y = layout.editor_header_bounds.bottom() + 4.0F * scale;
+    const float popup_y = layout.editor_header_bounds.bottom() + 6.0F * scale;
 
     m_tab_action_menu.bounds = UI::Rect{popup_x, popup_y, popup_width, total_h};
     m_tab_action_menu.item_bounds.clear();
@@ -688,7 +712,7 @@ void TextEditor::draw_tab_action_menu(
     const auto& bounds = m_tab_action_menu.bounds;
     const int radius = std::max(round_to_int(6.0F * scale), 5);
 
-    // 1. macOS / Windows ultra-thin, soft diffuse ambient shadow
+    // 1. Soft, realistic multi-layer elevation drop shadow
     struct ShadowLayer {
         float dx;
         float dy;
@@ -696,11 +720,9 @@ void TextEditor::draw_tab_action_menu(
         uint8_t alpha;
     };
     const ShadowLayer shadow_layers[] = {
-        {0.0F, 8.0F, 16.0F,  8},
-        {0.0F, 5.0F,  9.0F, 14},
-        {0.0F, 3.0F,  4.5F, 22},
-        {0.0F, 1.5F,  2.0F, 32},
-        {0.0F, 0.5F,  0.8F, 42},
+        {0.0F, 5.0F, 12.0F, 16},
+        {0.0F, 2.5F,  6.0F, 24},
+        {0.0F, 1.0F,  2.0F, 36},
     };
     for (const auto &layer : shadow_layers)
     {
@@ -716,19 +738,19 @@ void TextEditor::draw_tab_action_menu(
                                        static_cast<float>(radius) + spread);
     }
 
-    // 2. Card background
+    // 2. Elevated Floating Card background (rich dark slate)
     surface.fill_rounded_rectangle(device_context, bounds,
-                                   surface.m_palette.tab_active_background,
+                                   UI::Theme::Color{26, 28, 34, 255},
                                    static_cast<float>(radius));
 
-    // 3. Hairline border
+    // 3. Crisp modern floating hairline border
     const RECT native_bounds{
         round_to_int(bounds.x),
         round_to_int(bounds.y),
         round_to_int(bounds.right()),
         round_to_int(bounds.bottom())
     };
-    HPEN border_pen = CreatePen(PS_SOLID, 1, RGB(70, 72, 80));
+    HPEN border_pen = CreatePen(PS_SOLID, 1, RGB(65, 70, 85));
     HGDIOBJ previous_brush = SelectObject(device_context, GetStockObject(NULL_BRUSH));
     HGDIOBJ previous_pen = SelectObject(device_context, border_pen);
     RoundRect(device_context, native_bounds.left, native_bounds.top,
@@ -3275,18 +3297,23 @@ void TextEditor::draw_tab_strip(
         const int tab_right = round_to_int(bounds.right()) - 1;
         const int tab_top = round_to_int(bounds.y);
         const int tab_bottom = round_to_int(bounds.bottom()) - 1;
-        // Keep one flush top rule and vertical separators; there is no bottom
-        // rule, so the titlebar remains visually open below the labels.
-        surface.draw_line(device_context, tab_left, tab_top, tab_right, tab_top,
-            tab_edge_color);
-        surface.draw_line(device_context, tab_left, tab_top, tab_left, tab_bottom,
-            tab_edge_color);
-        surface.draw_line(device_context, tab_right, tab_top, tab_right, tab_bottom,
-            tab_edge_color);
-        if (is_dragging_this)
+
+        if (active)
         {
-            surface.draw_line(device_context, tab_left, tab_bottom, tab_right, tab_bottom,
-                tab_edge_color);
+            // Active tab top accent bar (VS Code style)
+            surface.fill_rectangle(
+                device_context,
+                UI::Rect{bounds.x, bounds.y, bounds.width, std::max(2.0F * surface.m_dpi_scale, 2.0F)},
+                surface.m_palette.accent);
+            surface.draw_line(device_context, tab_left, tab_top, tab_left, tab_bottom, tab_edge_color);
+            surface.draw_line(device_context, tab_right, tab_top, tab_right, tab_bottom, tab_edge_color);
+        }
+        else
+        {
+            surface.draw_line(device_context, tab_left, tab_top, tab_right, tab_top, tab_edge_color);
+            surface.draw_line(device_context, tab_left, tab_top, tab_left, tab_bottom, tab_edge_color);
+            surface.draw_line(device_context, tab_right, tab_top, tab_right, tab_bottom, tab_edge_color);
+            surface.draw_line(device_context, tab_left, tab_bottom, tab_right, tab_bottom, tab_edge_color);
         }
                 const std::string icon_asset = UI::Editor::file_icon_asset_for_path(
                     std::filesystem::path{std::string{document.get_file_name()}});
@@ -3589,16 +3616,22 @@ void TextEditor::draw_document(
             const float center_y = first_center_y + static_cast<float>(row_guide) * line_height;
             ++row_guide;
 
+            const float y_top = center_y - line_height * 0.5F;
+            const float y_bottom = center_y + line_height * 0.5F;
+
             const std::size_t line_indent = m_folding.get_effective_indent(line_index);
             if (line_indent < tab_size)
             {
                 continue;
             }
 
-            const float y_top = center_y - line_height * 0.5F;
-            const float y_bottom = center_y + line_height * 0.5F;
+            // Cap guides to block depth so continuation lines don't create multiple bogus guides
+            const std::size_t prev_indent = (line_index > 0) ? m_folding.get_effective_indent(line_index - 1) : 0;
+            const std::size_t next_indent = (line_index + 1 < total_lines) ? m_folding.get_effective_indent(line_index + 1) : 0;
+            const std::size_t max_allowed = std::max({prev_indent, next_indent, tab_size}) + tab_size;
+            const std::size_t max_guide = std::min(line_indent, max_allowed);
 
-            for (std::size_t col = tab_size; col <= line_indent; col += tab_size)
+            for (std::size_t col = tab_size; col <= max_guide; col += tab_size)
             {
                 const float guide_x = code_x + static_cast<float>(col) * space_width;
                 if (guide_x < layout.editor_bounds.x || guide_x > left_right_limit)
@@ -3644,10 +3677,10 @@ void TextEditor::draw_document(
         const std::string number = std::to_string(line_index + 1);
         const float number_x = layout.gutter_bounds.right() - fold_margin - 5.0F * surface.m_dpi_scale -
             static_cast<float>(surface.get_text_width(
-                device_context, *surface.m_small_font, number));
+                device_context, *surface.m_editor_font, number));
         surface.draw_text(
             device_context,
-            *surface.m_small_font,
+            *surface.m_editor_font,
             number,
             number_x,
             center_y,
@@ -3695,7 +3728,7 @@ void TextEditor::draw_document(
             DeleteObject(pen);
         }
 
-        // --- Fold icon and scope guide rendering ---
+        // --- Fold icon rendering (clean VS Code style) ---
         const UI::Components::FoldMarker fold_marker = m_folding.get_marker(line_index);
         const float fold_center_x = layout.gutter_bounds.right() - fold_margin * 0.5F;
         const int fold_cx = round_to_int(fold_center_x);
@@ -3706,18 +3739,16 @@ void TextEditor::draw_document(
         {
             const bool fold_hovered = m_hovered_fold_line && *m_hovered_fold_line == line_index;
 
-            // Draw a small rounded-ish box with +/- sign.
+            // Draw a small rounded box with +/- sign
             const int box_half = std::max(round_to_int(4.5F * surface.m_dpi_scale), 4);
             RECT box_rect{
                 fold_cx - box_half, fold_cy - box_half,
                 fold_cx + box_half, fold_cy + box_half};
 
-            // Box background matches editor background for a clean inset look.
             HBRUSH bg_brush = CreateSolidBrush(to_color_ref(active_line ? surface.m_palette.active_line_background : surface.m_palette.editor_background));
             FillRect(device_context, &box_rect, bg_brush);
             DeleteObject(bg_brush);
 
-            // Box border.
             HPEN box_pen = CreatePen(PS_SOLID, 1, to_color_ref(fold_hovered ? surface.m_palette.accent : surface.m_palette.border));
             HGDIOBJ old_pen = SelectObject(device_context, box_pen);
             HGDIOBJ old_brush = SelectObject(device_context, GetStockObject(HOLLOW_BRUSH));
@@ -3726,7 +3757,7 @@ void TextEditor::draw_document(
             SelectObject(device_context, old_pen);
             DeleteObject(box_pen);
 
-            // Horizontal line of +/- (always present).
+            // Horizontal line of +/- (always present)
             const int sign_inset = std::max(round_to_int(2.0F * surface.m_dpi_scale), 2);
             surface.draw_line(device_context,
                 fold_cx - box_half + sign_inset, fold_cy,
@@ -3735,42 +3766,12 @@ void TextEditor::draw_document(
 
             if (fold_marker == UI::Components::FoldMarker::Collapsed)
             {
-                // Vertical line of + (only when collapsed).
+                // Vertical line of + (only when collapsed)
                 surface.draw_line(device_context,
                     fold_cx, fold_cy - box_half + sign_inset,
                     fold_cx, fold_cy + box_half - sign_inset,
                     fold_hovered ? surface.m_palette.accent : surface.m_palette.text_muted);
             }
-        }
-        else if (fold_marker == UI::Components::FoldMarker::Continuation)
-        {
-            // Vertical scope guide line.
-            surface.draw_line(device_context,
-                fold_cx, round_to_int(center_y - line_height * 0.5F),
-                fold_cx, round_to_int(center_y + line_height * 0.5F),
-                surface.m_palette.border);
-        }
-        else if (fold_marker == UI::Components::FoldMarker::End)
-        {
-            // Vertical line from top to center, then horizontal to right (corner).
-            surface.draw_line(device_context,
-                fold_cx, round_to_int(center_y - line_height * 0.5F),
-                fold_cx, fold_cy,
-                surface.m_palette.border);
-            surface.draw_line(device_context,
-                fold_cx, fold_cy,
-                fold_cx + round_to_int(fold_margin * 0.35F), fold_cy,
-                surface.m_palette.border);
-        }
-
-        // Connect expanded marker to continuation line below.
-        if (fold_marker == UI::Components::FoldMarker::Expanded)
-        {
-            const int box_half = std::max(round_to_int(5.0F * surface.m_dpi_scale), 4);
-            surface.draw_line(device_context,
-                fold_cx, fold_cy + box_half,
-                fold_cx, round_to_int(center_y + line_height * 0.5F),
-                surface.m_palette.border);
         }
     }
 
@@ -4301,8 +4302,8 @@ void TextEditor::draw_document(
 
                 const std::string num_str = std::to_string(line_index + 1);
                 const float nx = right_gutter.right() - fold_margin - 5.0F * scale -
-                    static_cast<float>(surface.get_text_width(device_context, *surface.m_small_font, num_str));
-                surface.draw_text(device_context, *surface.m_small_font, num_str, nx, cy,
+                    static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, num_str));
+                surface.draw_text(device_context, *surface.m_editor_font, num_str, nx, cy,
                     is_active_line ? surface.m_palette.text_primary : surface.m_palette.text_muted);
 
                 const auto gutter_diags = split_doc.get_diagnostics_for_line(line_index);
@@ -5103,7 +5104,13 @@ void TextEditor::draw_document(
             surface.draw_text(device_context, *surface.m_editor_font, sig.label, hint_bounds.x + 8.0F * surface.m_dpi_scale, hint_bounds.y + hint_h * 0.5F, UI::Theme::Color{78, 201, 176, 255});
         }
     }
+}
 
+void TextEditor::render_overlays(
+    const StudioWorkspaceRenderer& surface,
+    HDC device_context,
+    const UI::Editor::StudioEditorLayoutResult& layout) const
+{
     draw_split_drop_overlay(surface, device_context, layout);
     draw_tab_action_menu(surface, device_context, layout);
     draw_diagnostic_hover_overlay(surface, device_context, layout);

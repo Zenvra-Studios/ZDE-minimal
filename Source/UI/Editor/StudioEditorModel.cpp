@@ -159,7 +159,7 @@ StudioEditorPalette StudioEditorPalette::jetbrains_dark() noexcept {
       .warning = {219, 139, 72, 255},
       .success = {83, 157, 84, 255},
       .tooltip_background = {43, 45, 49, 255},
-      .hover_background = {53, 53, 56, 255},
+      .hover_background = {58, 62, 72, 255},
       .indent_guide = {48, 50, 56, 255},
       .indent_guide_active = {95, 100, 112, 255},
   };
@@ -440,10 +440,9 @@ hit_test_studio_sidebar(const StudioEditorLayoutResult &layout, float point_x,
 
 float calculate_editor_tab_width(float text_width, float dpi_scale) noexcept {
   const float scale = std::max(dpi_scale, 0.5F);
-  return std::clamp(std::max(text_width, 0.0F) +
-                        StudioEditorMetrics::editor_tab_chrome_width * scale,
-                    StudioEditorMetrics::editor_tab_minimum_width * scale,
-                    StudioEditorMetrics::editor_tab_maximum_width * scale);
+  return std::max(StudioEditorMetrics::editor_tab_minimum_width * scale,
+                  std::max(text_width, 0.0F) +
+                      StudioEditorMetrics::editor_tab_chrome_width * scale);
 }
 
 std::size_t tokenize_editor_line(

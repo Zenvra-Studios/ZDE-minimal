@@ -49,12 +49,15 @@ struct Vec3
     [[nodiscard]] constexpr Vec3 operator*(float s) const noexcept { return {x * s, y * s, z * s}; }
     [[nodiscard]] constexpr Vec3 operator*(const Vec3& o) const noexcept { return {x * o.x, y * o.y, z * o.z}; }
     [[nodiscard]] constexpr Vec3 operator/(float s) const noexcept { return {x / s, y / s, z / s}; }
+    [[nodiscard]] constexpr Vec3 operator/(const Vec3& o) const noexcept { return {x / o.x, y / o.y, z / o.z}; }
+    [[nodiscard]] constexpr float dot(const Vec3& o) const noexcept { return x * o.x + y * o.y + z * o.z; }
     [[nodiscard]] float length() const noexcept { return std::sqrt(x * x + y * y + z * z); }
     [[nodiscard]] Vec3 normalize() const noexcept
     {
         const float len = length();
         return len > 0.00001F ? (*this * (1.0F / len)) : Vec3{0, 0, 0};
     }
+    [[nodiscard]] Vec3 normalized() const noexcept { return normalize(); }
 };
 
 struct Vec4
@@ -101,6 +104,10 @@ public:
     [[nodiscard]] static PixelShaderFunc get_fractal_fbm_shader() noexcept;
     [[nodiscard]] static PixelShaderFunc get_voronoi_art_shader() noexcept;
     [[nodiscard]] static PixelShaderFunc get_audio_spectrum_shader() noexcept;
+    [[nodiscard]] static PixelShaderFunc get_cyber_tunnel_shader() noexcept;
+    [[nodiscard]] static PixelShaderFunc get_galaxy_spiral_shader() noexcept;
+    [[nodiscard]] static PixelShaderFunc get_fire_flame_shader() noexcept;
+    [[nodiscard]] static PixelShaderFunc get_simple_gradient_shader() noexcept;
     [[nodiscard]] static PixelShaderFunc compile_custom_expression_shader(std::string_view glsl_code) noexcept;
 
     // Procedural texture generators for channel inputs
@@ -116,6 +123,8 @@ private:
     struct RenderTask {
         int y_start = 0;
         int y_end = 0;
+        int width = 0;
+        int height = 0;
         int step = 1;
         const PixelShaderFunc* shader = nullptr;
         const ShaderUniforms* uniforms = nullptr;

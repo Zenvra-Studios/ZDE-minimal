@@ -200,6 +200,16 @@ void OpenGLShader::set_uniform_2f(std::string_view name, float x, float y) {
     }
 }
 
+void OpenGLShader::set_uniform_3f(std::string_view name, float x, float y, float z) {
+    const int loc = get_uniform_location(name);
+    if (loc >= 0) {
+        auto& gl = get_gl_api();
+        if (gl.Uniform3f != nullptr) {
+            gl.Uniform3f(loc, x, y, z);
+        }
+    }
+}
+
 void OpenGLShader::set_uniform_4f(std::string_view name, float x, float y, float z, float w) {
     const int loc = get_uniform_location(name);
     if (loc >= 0) {

@@ -33,6 +33,12 @@ enum class ResolutionScale
     Quarter,   // 0.25x downsampled (16x faster)
 };
 
+enum class RenderBackend
+{
+    Cpu,  // Multithreaded software rasterizer
+    Gpu,  // Hardware-accelerated OpenGL rasterizer
+};
+
 enum class ChannelTextureKind
 {
     Empty,

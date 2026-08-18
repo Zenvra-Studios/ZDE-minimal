@@ -103,6 +103,7 @@ private:
     bool m_hover_reset = false;
     bool m_hover_preset = false;
     bool m_hover_scale = false;
+    bool m_hover_backend = false;
     bool m_hover_snapshot = false;
     bool m_hover_close = false;
     bool m_hover_splitter = false;

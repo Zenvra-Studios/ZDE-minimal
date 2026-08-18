@@ -45,6 +45,13 @@ public:
         float point_x,
         float point_y) noexcept;
 
+    [[nodiscard]] bool is_interactive_point(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) const noexcept {
+        return get_icon_at_point(layout, point_x, point_y) != ActionIcon::NoneAction;
+    }
+
 private:
     enum class ActionIcon {
         NoneAction,

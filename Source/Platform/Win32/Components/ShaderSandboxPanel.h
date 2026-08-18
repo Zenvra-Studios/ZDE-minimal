@@ -103,11 +103,13 @@ private:
     bool m_hover_play = false;
     bool m_hover_reset = false;
     bool m_hover_scale = false;
+    bool m_hover_backend = false;
     bool m_hover_snapshot = false;
     bool m_hover_splitter = false;
     bool m_viewport_mouse_down = false;
     mutable UI::Rect m_header_close_bounds{};
     mutable UI::Rect m_header_preset_bounds{};
+    mutable UI::Rect m_controls_backend_bounds{};
 };
 
 } // namespace Zenvra::Platform::Win32::Components

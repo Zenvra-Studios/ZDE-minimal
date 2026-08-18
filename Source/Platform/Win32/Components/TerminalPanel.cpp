@@ -143,8 +143,10 @@ bool TerminalPanel::handle_pointer_press(
     m_active_channel = PanelChannel::Output;
     return true;
   }
-  if (m_active_channel == PanelChannel::Output && clear_output_button_bounds(layout).contains(point_x, point_y)) {
-    Services::Output::OutputLogManager::instance().clear(Services::Output::OutputCategory::Build);
+  if (m_active_channel == PanelChannel::Output &&
+      clear_output_button_bounds(layout).contains(point_x, point_y)) {
+    Services::Output::OutputLogManager::instance().clear(
+        Services::Output::OutputCategory::Build);
     return true;
   }
 
@@ -164,9 +166,10 @@ bool TerminalPanel::handle_pointer_press(
     }
   }
   if (layout.terminal_content_bounds.contains(point_x, point_y)) {
-    const float line_height = m_cached_line_height > 0.0F
-                                  ? m_cached_line_height
-                                  : std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+    const float line_height =
+        m_cached_line_height > 0.0F
+            ? m_cached_line_height
+            : std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
     const float char_width = m_cached_char_width > 0.0F
                                  ? m_cached_char_width
                                  : std::max(8.0F * layout.dpi_scale, 1.0F);
@@ -189,7 +192,8 @@ bool TerminalPanel::handle_pointer_press(
 
     const float local_x =
         point_x - (layout.terminal_content_bounds.x + padding_x);
-    const int col = static_cast<int>(std::floor(std::max(local_x, 0.0F) / char_width));
+    const int col =
+        static_cast<int>(std::floor(std::max(local_x, 0.0F) / char_width));
     const std::size_t col_idx = static_cast<std::size_t>(std::max(0, col));
 
     m_model.start_selection(line_idx, col_idx);
@@ -207,9 +211,10 @@ bool TerminalPanel::handle_double_click(
     return m_resize_model.toggle_maximized();
   }
   if (layout.terminal_content_bounds.contains(point_x, point_y)) {
-    const float line_height = m_cached_line_height > 0.0F
-                                  ? m_cached_line_height
-                                  : std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+    const float line_height =
+        m_cached_line_height > 0.0F
+            ? m_cached_line_height
+            : std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
     const float char_width = m_cached_char_width > 0.0F
                                  ? m_cached_char_width
                                  : std::max(8.0F * layout.dpi_scale, 1.0F);
@@ -232,7 +237,8 @@ bool TerminalPanel::handle_double_click(
 
     const float local_x =
         point_x - (layout.terminal_content_bounds.x + padding_x);
-    const int col = static_cast<int>(std::floor(std::max(local_x, 0.0F) / char_width));
+    const int col =
+        static_cast<int>(std::floor(std::max(local_x, 0.0F) / char_width));
     const std::size_t col_idx = static_cast<std::size_t>(std::max(0, col));
 
     m_model.select_word(line_idx, col_idx);
@@ -252,9 +258,10 @@ bool TerminalPanel::handle_pointer_drag(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) noexcept {
   if (m_selecting_text) {
-    const float line_height = m_cached_line_height > 0.0F
-                                  ? m_cached_line_height
-                                  : std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
+    const float line_height =
+        m_cached_line_height > 0.0F
+            ? m_cached_line_height
+            : std::max(16.0F * layout.dpi_scale, 12.0F * layout.dpi_scale);
     const float char_width = m_cached_char_width > 0.0F
                                  ? m_cached_char_width
                                  : std::max(8.0F * layout.dpi_scale, 1.0F);
@@ -275,8 +282,10 @@ bool TerminalPanel::handle_pointer_drag(
                                                 ? m_last_visible_rows - 1
                                                 : 0));
 
-    const float local_x = point_x - (layout.terminal_content_bounds.x + padding_x);
-    const int col = static_cast<int>(std::floor(std::max(local_x, 0.0F) / char_width));
+    const float local_x =
+        point_x - (layout.terminal_content_bounds.x + padding_x);
+    const int col =
+        static_cast<int>(std::floor(std::max(local_x, 0.0F) / char_width));
     const std::size_t col_idx = static_cast<std::size_t>(std::max(0, col));
 
     m_model.update_selection(line_idx, col_idx);
@@ -435,9 +444,9 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
     surface.fill_rectangle(
         device_context,
         UI::Rect{layout.terminal_panel_bounds.x,
-                 layout.terminal_panel_bounds.y - surface.m_dpi_scale,
+                 layout.terminal_panel_bounds.y - 1.5F * surface.m_dpi_scale,
                  layout.terminal_panel_bounds.width,
-                 std::max(2.0F * surface.m_dpi_scale, 2.0F)},
+                 std::max(3.5F * surface.m_dpi_scale, 3.0F)},
         surface.m_palette.accent);
   }
   if (layout.terminal_panel_bounds.is_empty()) {
@@ -449,36 +458,59 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   const UI::Rect term_tab = terminal_channel_tab_bounds(layout);
   const UI::Rect out_tab = output_channel_tab_bounds(layout);
 
-  surface.fill_rectangle(device_context, term_tab,
-      (m_active_channel == PanelChannel::Terminal) ? surface.m_palette.tab_active_background : surface.m_palette.tab_background);
+  surface.fill_rounded_rectangle(device_context, term_tab,
+                                 (m_active_channel == PanelChannel::Terminal)
+                                     ? surface.m_palette.tab_active_background
+                                     : surface.m_palette.tab_background,
+                                 3.0F * scale);
+  if (m_active_channel == PanelChannel::Terminal) {
+    surface.draw_rectangle(device_context, term_tab, surface.m_palette.border);
+  }
   surface.draw_text(device_context, *surface.m_small_font, "Terminal",
-      term_tab.x + 12.0F * scale,
-      term_tab.y + term_tab.height * 0.5F,
-      (m_active_channel == PanelChannel::Terminal) ? surface.m_palette.text_primary : surface.m_palette.text_muted);
+                    term_tab.x + 12.0F * scale,
+                    term_tab.y + term_tab.height * 0.5F,
+                    (m_active_channel == PanelChannel::Terminal)
+                        ? surface.m_palette.text_primary
+                        : surface.m_palette.text_muted);
 
-  surface.fill_rectangle(device_context, out_tab,
-      (m_active_channel == PanelChannel::Output) ? surface.m_palette.tab_active_background : surface.m_palette.tab_background);
+  surface.fill_rounded_rectangle(device_context, out_tab,
+                                 (m_active_channel == PanelChannel::Output)
+                                     ? surface.m_palette.tab_active_background
+                                     : surface.m_palette.tab_background,
+                                 3.0F * scale);
+  if (m_active_channel == PanelChannel::Output) {
+    surface.draw_rectangle(device_context, out_tab, surface.m_palette.border);
+  }
   surface.draw_text(device_context, *surface.m_small_font, "Output",
-      out_tab.x + 14.0F * scale,
-      out_tab.y + out_tab.height * 0.5F,
-      (m_active_channel == PanelChannel::Output) ? surface.m_palette.text_primary : surface.m_palette.text_muted);
+                    out_tab.x + 14.0F * scale,
+                    out_tab.y + out_tab.height * 0.5F,
+                    (m_active_channel == PanelChannel::Output)
+                        ? surface.m_palette.text_primary
+                        : surface.m_palette.text_muted);
 
   if (m_active_channel == PanelChannel::Output) {
     const UI::Rect clear_btn = clear_output_button_bounds(layout);
-    surface.fill_rectangle(device_context, clear_btn, surface.m_palette.tab_background);
+    surface.fill_rounded_rectangle(device_context, clear_btn,
+                                   surface.m_palette.tab_background,
+                                   3.0F * scale);
     surface.draw_text(device_context, *surface.m_small_font, "Clear",
-        clear_btn.x + 10.0F * scale,
-        clear_btn.y + clear_btn.height * 0.5F,
-        surface.m_palette.text_muted);
+                      clear_btn.x + 10.0F * scale,
+                      clear_btn.y + clear_btn.height * 0.5F,
+                      surface.m_palette.text_muted);
 
-    const auto output_lines = Services::Output::OutputLogManager::instance().get_lines(Services::Output::OutputCategory::Build);
+    const auto output_lines =
+        Services::Output::OutputLogManager::instance().get_lines(
+            Services::Output::OutputCategory::Build);
     const float line_h = 16.0F * scale;
-    float cur_y = layout.terminal_content_bounds.y + 6.0F * scale + line_h * 0.5F;
+    float cur_y =
+        layout.terminal_content_bounds.y + 8.0F * scale + line_h * 0.5F;
     for (std::size_t i = 0; i < output_lines.size(); ++i) {
-      if (cur_y > layout.terminal_content_bounds.bottom() + line_h) break;
-      const std::string& l = output_lines[i];
+      if (cur_y > layout.terminal_content_bounds.bottom() + line_h)
+        break;
+      const std::string &l = output_lines[i];
       surface.draw_text(device_context, *surface.m_editor_font, l,
-          layout.terminal_content_bounds.x + 12.0F * scale, cur_y, surface.m_palette.text_primary);
+                        layout.terminal_content_bounds.x + 14.0F * scale, cur_y,
+                        surface.m_palette.text_primary);
       cur_y += line_h;
     }
     return;
@@ -490,27 +522,16 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   for (std::size_t index = 0; index < sessions.size(); ++index) {
     const UI::Rect tab = session_tab_bounds(layout, index);
     const bool active = active_index && *active_index == index;
-    surface.fill_rectangle(device_context, tab,
-                           active ? surface.m_palette.tab_active_background
-                                  : surface.m_palette.tab_background);
-    const UI::Theme::Color &tab_edge_color = surface.m_palette.border;
-    const int tab_left = round_to_int(tab.x);
-    const int tab_right = round_to_int(tab.right()) - 1;
-    const int tab_top = round_to_int(tab.y);
-    const int tab_bottom = round_to_int(tab.bottom()) - 1;
-    surface.draw_line(device_context, tab_left, tab_top, tab_right, tab_top,
-                      tab_edge_color);
-    surface.draw_line(device_context, tab_left, tab_top, tab_left, tab_bottom,
-                      tab_edge_color);
-    surface.draw_line(device_context, tab_right, tab_top, tab_right, tab_bottom,
-                      tab_edge_color);
-    if (!active) {
-      surface.draw_line(device_context, tab_left, tab_bottom, tab_right,
-                        tab_bottom, tab_edge_color);
+    surface.fill_rounded_rectangle(device_context, tab,
+                                   active
+                                       ? surface.m_palette.tab_active_background
+                                       : surface.m_palette.tab_background,
+                                   3.0F * scale);
+    if (active) {
+      surface.draw_rectangle(device_context, tab, surface.m_palette.border);
     }
     surface.draw_svg_icon(
-        device_context, "terminal.svg",
-        round_to_int(tab.x + 10.0F * scale),
+        device_context, "terminal.svg", round_to_int(tab.x + 10.0F * scale),
         round_to_int(tab.y + tab.height * 0.5F),
         std::max(round_to_int(13.0F * scale), 10),
         active ? surface.m_palette.text_primary : surface.m_palette.text_muted,
@@ -523,24 +544,27 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   }
 
   const UI::Rect add = add_button_bounds(layout);
+  surface.fill_rounded_rectangle(
+      device_context, add, surface.m_palette.tab_background, 3.0F * scale);
   surface.draw_line(device_context, round_to_int(add.x + add.width * 0.5F),
-                    round_to_int(add.y + 8.0F * scale),
+                    round_to_int(add.y + 5.0F * scale),
                     round_to_int(add.x + add.width * 0.5F),
-                    round_to_int(add.bottom() - 8.0F * scale),
+                    round_to_int(add.bottom() - 5.0F * scale),
                     surface.m_palette.text_muted);
-  surface.draw_line(
-      device_context, round_to_int(add.x + 6.0F * scale),
-      round_to_int(add.y + add.height * 0.5F),
-      round_to_int(add.right() - 6.0F * scale),
-      round_to_int(add.y + add.height * 0.5F), surface.m_palette.text_muted);
+  surface.draw_line(device_context, round_to_int(add.x + 5.0F * scale),
+                    round_to_int(add.y + add.height * 0.5F),
+                    round_to_int(add.right() - 5.0F * scale),
+                    round_to_int(add.y + add.height * 0.5F),
+                    surface.m_palette.text_muted);
+
   const UI::Rect close = close_button_bounds(layout);
   if (close.width > 0.0F) {
-    surface.draw_svg_icon(
-        device_context, "diagnostic-error.svg",
-        round_to_int(close.x + close.width * 0.5F),
-        round_to_int(close.y + close.height * 0.5F),
-        std::max(round_to_int(10.0F * scale), 9),
-        surface.m_palette.text_muted, surface.m_palette.tab_active_background);
+    surface.draw_svg_icon(device_context, "diagnostic-error.svg",
+                          round_to_int(close.x + close.width * 0.5F),
+                          round_to_int(close.y + close.height * 0.5F),
+                          std::max(round_to_int(10.0F * scale), 9),
+                          surface.m_palette.text_muted,
+                          surface.m_palette.tab_active_background);
   }
 
   const Terminal::TerminalSession *session = m_model.get_active_session();
@@ -557,13 +581,12 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
         device_context, *surface.m_small_font, shell_label);
     if (static_cast<float>(label_width) > available_shell_width) {
       shell_label = "Local  " + session->get_shell_path().filename().string();
-      label_width = surface.get_text_width(
-          device_context, *surface.m_small_font, shell_label);
+      label_width = surface.get_text_width(device_context,
+                                           *surface.m_small_font, shell_label);
     }
     if (static_cast<float>(label_width) <= available_shell_width) {
       surface.draw_text(device_context, *surface.m_small_font, shell_label,
-                        layout.terminal_header_bounds.right() -
-                            16.0F * scale -
+                        layout.terminal_header_bounds.right() - 16.0F * scale -
                             static_cast<float>(label_width),
                         layout.terminal_header_bounds.y +
                             layout.terminal_header_bounds.height * 0.5F,
@@ -571,12 +594,12 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
                                               : surface.m_palette.text_muted);
     }
   }
-  const float padding_x = 10.0F * surface.m_dpi_scale;
+  const float padding_x = 14.0F * surface.m_dpi_scale;
   const float line_height = std::max(
       static_cast<float>(surface.m_editor_font->getHeight(device_context)) +
           2.0F * surface.m_dpi_scale,
       12.0F * surface.m_dpi_scale);
-  const float content_top_padding = 5.0F * surface.m_dpi_scale;
+  const float content_top_padding = 8.0F * surface.m_dpi_scale;
   const float content_bottom_padding = 8.0F * surface.m_dpi_scale;
   const float usable_content_height = std::max(
       layout.terminal_content_bounds.height - content_bottom_padding, 0.0F);
@@ -627,13 +650,18 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
     const std::size_t col_len = utf8_column_count(line);
 
     if (has_selection && selection.intersects_line(index)) {
-      const auto [col_start, col_end] = selection.get_line_range(index, col_len);
+      const auto [col_start, col_end] =
+          selection.get_line_range(index, col_len);
       if (col_end > col_start) {
         const std::string pre_sel =
             col_start > 0 ? utf8_substr_columns(line, 0, col_start) : "";
-        const std::string sel_str = utf8_substr_columns(
-            line, col_start, col_end - col_start);
-        const int pre_w = pre_sel.empty() ? 0 : surface.get_text_width(device_context, *surface.m_editor_font, pre_sel);
+        const std::string sel_str =
+            utf8_substr_columns(line, col_start, col_end - col_start);
+        const int pre_w =
+            pre_sel.empty()
+                ? 0
+                : surface.get_text_width(device_context, *surface.m_editor_font,
+                                         pre_sel);
         const int sel_x =
             round_to_int(layout.terminal_content_bounds.x + padding_x) + pre_w;
         const int sel_w =
@@ -643,11 +671,11 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
 
         UI::Theme::Color sel_color = surface.m_palette.accent;
         sel_color.alpha = 90;
-        surface.fill_rectangle(
-            device_context,
-            UI::Rect{static_cast<float>(sel_x), center_y - line_height * 0.5F,
-                     static_cast<float>(sel_w), line_height},
-            sel_color);
+        surface.fill_rectangle(device_context,
+                               UI::Rect{static_cast<float>(sel_x),
+                                        center_y - line_height * 0.5F,
+                                        static_cast<float>(sel_w), line_height},
+                               sel_color);
       }
     }
 
@@ -712,31 +740,25 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
 UI::Rect TerminalPanel::terminal_channel_tab_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
-  return UI::Rect{
-      layout.terminal_header_bounds.x + 6.0F * scale,
-      layout.terminal_header_bounds.y + 3.0F * scale,
-      70.0F * scale,
-      layout.terminal_header_bounds.height - 6.0F * scale};
+  return UI::Rect{layout.terminal_header_bounds.x + 6.0F * scale,
+                  layout.terminal_header_bounds.y + 3.0F * scale, 70.0F * scale,
+                  layout.terminal_header_bounds.height - 6.0F * scale};
 }
 
 UI::Rect TerminalPanel::output_channel_tab_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
-  return UI::Rect{
-      layout.terminal_header_bounds.x + 80.0F * scale,
-      layout.terminal_header_bounds.y + 3.0F * scale,
-      64.0F * scale,
-      layout.terminal_header_bounds.height - 6.0F * scale};
+  return UI::Rect{layout.terminal_header_bounds.x + 80.0F * scale,
+                  layout.terminal_header_bounds.y + 3.0F * scale, 64.0F * scale,
+                  layout.terminal_header_bounds.height - 6.0F * scale};
 }
 
 UI::Rect TerminalPanel::clear_output_button_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
-  return UI::Rect{
-      layout.terminal_header_bounds.right() - 56.0F * scale,
-      layout.terminal_header_bounds.y + 4.0F * scale,
-      48.0F * scale,
-      layout.terminal_header_bounds.height - 8.0F * scale};
+  return UI::Rect{layout.terminal_header_bounds.right() - 56.0F * scale,
+                  layout.terminal_header_bounds.y + 4.0F * scale, 48.0F * scale,
+                  layout.terminal_header_bounds.height - 8.0F * scale};
 }
 
 UI::Rect TerminalPanel::session_tab_bounds(
@@ -744,22 +766,25 @@ UI::Rect TerminalPanel::session_tab_bounds(
     std::size_t index) const noexcept {
   const float scale = layout.dpi_scale;
   const float start_x = layout.terminal_header_bounds.x + 152.0F * scale;
-  const float tab_width = 108.0F * scale;
-  const float x = start_x + static_cast<float>(index) * tab_width;
-  return UI::Rect{x, layout.terminal_header_bounds.y, tab_width,
-                  layout.terminal_header_bounds.height};
+  const float tab_width = 118.0F * scale;
+  const float x =
+      start_x + static_cast<float>(index) * (tab_width + 4.0F * scale);
+  return UI::Rect{x, layout.terminal_header_bounds.y + 3.0F * scale, tab_width,
+                  layout.terminal_header_bounds.height - 6.0F * scale};
 }
 
 UI::Rect TerminalPanel::add_button_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
   const float start_x = layout.terminal_header_bounds.x + 152.0F * scale;
-  const float tab_width = 108.0F * scale;
-  const float x =
-      start_x + static_cast<float>(m_model.get_sessions().size()) * tab_width +
-      4.0F * scale;
-  return UI::Rect{x, layout.terminal_header_bounds.y, 24.0F * scale,
-                  layout.terminal_header_bounds.height};
+  const float tab_width = 118.0F * scale;
+  const float x = start_x +
+                  static_cast<float>(m_model.get_sessions().size()) *
+                      (tab_width + 4.0F * scale) +
+                  2.0F * scale;
+  return UI::Rect{x, layout.terminal_header_bounds.y + 3.0F * scale,
+                  22.0F * scale,
+                  layout.terminal_header_bounds.height - 6.0F * scale};
 }
 
 UI::Rect TerminalPanel::close_button_bounds(
@@ -774,10 +799,9 @@ UI::Rect TerminalPanel::close_button_bounds(
     return UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
   }
   const UI::Rect tab = session_tab_bounds(layout, *active_index);
-  const float width = 20.0F * layout.dpi_scale;
-  return UI::Rect{tab.right() - width - 2.0F * layout.dpi_scale,
-                  layout.terminal_header_bounds.y,
-                  width, layout.terminal_header_bounds.height};
+  const float width = 18.0F * layout.dpi_scale;
+  return UI::Rect{tab.right() - width - 4.0F * layout.dpi_scale,
+                  tab.y + (tab.height - width) * 0.5F, width, width};
 }
 
 UI::Rect TerminalPanel::resize_handle_bounds(

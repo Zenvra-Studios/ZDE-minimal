@@ -23,7 +23,8 @@ private:
         CGContextRef context,
         UI::Editor::SidebarIcon icon,
         int center_x, int center_y,
-        bool active) const;
+        bool active,
+        bool hovered) const;
 };
 
 } // namespace Zenvra::Platform::Cocoa::Components

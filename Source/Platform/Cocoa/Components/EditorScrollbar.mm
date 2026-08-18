@@ -56,24 +56,14 @@ void EditorScrollbar::render(
     if (m_model.get_maximum_first_line() == 0) return;
     const UI::Editor::EditorScrollbarGeometry geometry = m_model.calculate_geometry(
         get_track_bounds(layout), 28.0F * layout.dpi_scale);
-    surface.fill_rectangle(
-        context, geometry.thumb,
-        m_model.is_dragging() || m_hovered ? surface.m_colors.accent : surface.m_colors.text_muted);
+    CGFloat thumb_rgba[4] = {1.0f, 1.0f, 1.0f, m_model.is_dragging() ? 0.45f : (m_hovered ? 0.30f : 0.16f)};
+    surface.fill_rectangle(context, geometry.thumb, thumb_rgba);
 }
 
 UI::Rect EditorScrollbar::get_track_bounds(
     const UI::Editor::StudioEditorLayoutResult& layout) noexcept
 {
-    const float inset_x = std::min(2.0F * layout.dpi_scale, layout.scrollbar_bounds.width * 0.25F);
-    const float track_width = std::min(4.0F * layout.dpi_scale,
-        std::max(layout.scrollbar_bounds.width - inset_x, 1.0F));
-    const float inset_y = 2.0F * layout.dpi_scale;
-    return {
-        layout.scrollbar_bounds.x + inset_x,
-        layout.scrollbar_bounds.y + inset_y,
-        track_width,
-        std::max(layout.scrollbar_bounds.height - inset_y * 2.0F, 0.0F),
-    };
+    return layout.scrollbar_bounds;
 }
 
 } // namespace Zenvra::Platform::Cocoa::Components

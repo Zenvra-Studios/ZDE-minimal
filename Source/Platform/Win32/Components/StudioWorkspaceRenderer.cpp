@@ -199,20 +199,59 @@ StudioWorkspaceRenderer::calculate_layout(int client_width, int client_height,
       m_shader_sandbox_panel.is_visible(), m_shader_sandbox_panel.get_width());
 }
 
+void StudioWorkspaceRenderer::sync_shader_sandbox() const {
+  if (!m_shader_sandbox_panel.is_visible()) {
+    return;
+  }
+  if (const UI::Editor::TextDocumentModel *doc =
+          m_text_editor.get_document()) {
+    const std::string filename = std::string(doc->get_file_name());
+    const std::filesystem::path file_path(filename);
+    const std::string ext = file_path.extension().string();
+
+    std::string full_text;
+    for (const auto &line : doc->get_lines()) {
+      full_text += line;
+      full_text += '\n';
+    }
+
+    const bool is_shader_ext = (ext == ".glsl" || ext == ".frag" || ext == ".vert" || 
+                                ext == ".comp" || ext == ".shader" || ext == ".hlsl" ||
+                                ext == ".geom" || ext == ".tesc" || ext == ".tese");
+    const bool is_shader_content = (full_text.find("mainImage") != std::string::npos ||
+                                    full_text.find("gl_FragColor") != std::string::npos ||
+                                    full_text.find("gl_FragCoord") != std::string::npos ||
+                                    full_text.find("#version") != std::string::npos);
+
+    if ((is_shader_ext || is_shader_content) && !full_text.empty()) {
+      m_shader_sandbox_panel.set_source_code(full_text);
+    }
+  }
+}
+
 bool StudioWorkspaceRenderer::open_file(const std::filesystem::path &path) {
   const bool res = m_text_editor.open_file(path);
-  if (res && m_shader_sandbox_panel.is_visible()) {
-    if (const UI::Editor::TextDocumentModel *doc =
-            m_text_editor.get_document()) {
-      std::string full_text;
-      for (const auto &line : doc->get_lines()) {
-        full_text += line;
-        full_text += '\n';
-      }
-      if (!full_text.empty()) {
-        m_shader_sandbox_panel.set_source_code(full_text);
-      }
+  if (res) {
+    const std::string ext = path.extension().string();
+    if (ext == ".glsl" || ext == ".frag" || ext == ".vert" || ext == ".comp" ||
+        ext == ".shader" || ext == ".hlsl") {
+      m_shader_sandbox_panel.set_visible(true);
     }
+    sync_shader_sandbox();
+  }
+  return res;
+}
+
+bool StudioWorkspaceRenderer::open_file_at_location(
+    const std::filesystem::path &path, std::size_t line, std::size_t column) {
+  const bool res = m_text_editor.open_file_at_location(path, line, column);
+  if (res) {
+    const std::string ext = path.extension().string();
+    if (ext == ".glsl" || ext == ".frag" || ext == ".vert" || ext == ".comp" ||
+        ext == ".shader" || ext == ".hlsl") {
+      m_shader_sandbox_panel.set_visible(true);
+    }
+    sync_shader_sandbox();
   }
   return res;
 }
@@ -235,11 +274,19 @@ bool StudioWorkspaceRenderer::close_project() {
 
 std::size_t StudioWorkspaceRenderer::open_dropped_paths(
     std::span<const std::filesystem::path> dropped_paths) {
-  return m_text_editor.open_dropped_paths(dropped_paths);
+  const std::size_t count = m_text_editor.open_dropped_paths(dropped_paths);
+  if (count > 0) {
+    sync_shader_sandbox();
+  }
+  return count;
 }
 
 bool StudioWorkspaceRenderer::create_buffer() {
-  return m_text_editor.create_buffer();
+  const bool res = m_text_editor.create_buffer();
+  if (res) {
+    sync_shader_sandbox();
+  }
+  return res;
 }
 
 bool StudioWorkspaceRenderer::handle_pointer_press(
@@ -266,17 +313,7 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     if (items[*sidebar_index].icon == UI::Editor::SidebarIcon::Shader) {
       const bool res = m_shader_sandbox_panel.toggle();
       if (res) {
-        if (const UI::Editor::TextDocumentModel *doc =
-                m_text_editor.get_document()) {
-          std::string full_text;
-          for (const auto &line : doc->get_lines()) {
-            full_text += line;
-            full_text += '\n';
-          }
-          if (!full_text.empty()) {
-            m_shader_sandbox_panel.set_source_code(full_text);
-          }
-        }
+        sync_shader_sandbox();
       }
       return true;
     }
@@ -290,7 +327,11 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
   if (sidebar_res.handled) {
     m_terminal_panel.set_focused(false);
     if (sidebar_res.action == SidebarActionKind::OpenFile && sidebar_res.path) {
-      static_cast<void>(m_text_editor.open_file(*sidebar_res.path));
+      if (sidebar_res.line > 0) {
+        static_cast<void>(open_file_at_location(*sidebar_res.path, sidebar_res.line, sidebar_res.column));
+      } else {
+        static_cast<void>(open_file(*sidebar_res.path));
+      }
     } else if (sidebar_res.action == SidebarActionKind::NewFile &&
                sidebar_res.path) {
       const auto root = m_tool_sidebar.get_model().get_workspace_root();
@@ -308,7 +349,7 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
                   out.close();
                 }
               }
-              static_cast<void>(m_text_editor.open_file(created_p));
+              static_cast<void>(open_file(created_p));
             }
           });
     } else if (sidebar_res.action == SidebarActionKind::NewFolder &&
@@ -325,9 +366,13 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     return true;
   }
   m_terminal_panel.set_focused(false);
-  return m_text_editor.handle_pointer_press(*this, device_context, layout,
-                                            point_x, point_y, extend_selection,
-                                            command_out);
+  const bool editor_pressed = m_text_editor.handle_pointer_press(
+      *this, device_context, layout, point_x, point_y, extend_selection,
+      command_out);
+  if (editor_pressed) {
+    sync_shader_sandbox();
+  }
+  return editor_pressed;
 }
 
 bool StudioWorkspaceRenderer::handle_double_click(float point_x, float point_y,
@@ -370,7 +415,8 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(HDC device_context,
                                                   float content_top) {
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
-  if (m_tool_sidebar.is_resizing() || m_tool_sidebar.is_dragging_item()) {
+  if (m_tool_sidebar.is_resizing() || m_tool_sidebar.is_dragging_item() ||
+      m_tool_sidebar.is_dragging_scrollbar()) {
     return m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y);
   }
   if (m_tool_sidebar.contains(layout, point_x, point_y)) {
@@ -413,12 +459,20 @@ bool StudioWorkspaceRenderer::handle_scroll(const Event::ScrollEvent &event,
 
 bool StudioWorkspaceRenderer::handle_editor_input(
     UI::Editor::EditorInputCommand command, bool extend_selection) {
-  return m_text_editor.handle_input(command, extend_selection);
+  const bool res = m_text_editor.handle_input(command, extend_selection);
+  if (res) {
+    sync_shader_sandbox();
+  }
+  return res;
 }
 
 bool StudioWorkspaceRenderer::handle_editor_action(
     UI::Editor::EditorAction action) {
-  return m_text_editor.handle_action(action);
+  const bool res = m_text_editor.handle_action(action);
+  if (res) {
+    sync_shader_sandbox();
+  }
+  return res;
 }
 
 std::optional<bool>
@@ -428,21 +482,15 @@ StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id) {
       command_id == "zde.view.shader_sandbox") {
     const bool res = m_shader_sandbox_panel.toggle();
     if (res) {
-      if (const UI::Editor::TextDocumentModel *doc =
-              m_text_editor.get_document()) {
-        std::string full_text;
-        for (const auto &line : doc->get_lines()) {
-          full_text += line;
-          full_text += '\n';
-        }
-        if (!full_text.empty()) {
-          m_shader_sandbox_panel.set_source_code(full_text);
-        }
-      }
+      sync_shader_sandbox();
     }
     return res;
   }
-  return m_text_editor.handle_command(command_id);
+  const auto res = m_text_editor.handle_command(command_id);
+  if (res.has_value() && *res) {
+    sync_shader_sandbox();
+  }
+  return res;
 }
 
 std::optional<bool> StudioWorkspaceRenderer::is_editor_command_enabled(
@@ -459,19 +507,8 @@ bool StudioWorkspaceRenderer::handle_text_input(std::string_view utf8_text) {
   const bool res = m_terminal_panel.is_focused()
                        ? m_terminal_panel.handle_text_input(utf8_text)
                        : m_text_editor.handle_text_input(utf8_text);
-  if (res && !m_terminal_panel.is_focused() &&
-      m_shader_sandbox_panel.is_visible()) {
-    if (const UI::Editor::TextDocumentModel *doc =
-            m_text_editor.get_document()) {
-      std::string full_text;
-      for (const auto &line : doc->get_lines()) {
-        full_text += line;
-        full_text += '\n';
-      }
-      if (!full_text.empty()) {
-        m_shader_sandbox_panel.set_source_code(full_text);
-      }
-    }
+  if (res && !m_terminal_panel.is_focused()) {
+    sync_shader_sandbox();
   }
   return res;
 }
@@ -498,8 +535,20 @@ bool StudioWorkspaceRenderer::handle_tool_sidebar_scroll(
   return m_tool_sidebar.handle_scroll(layout, line_delta);
 }
 
+bool StudioWorkspaceRenderer::is_search_focused() const noexcept {
+  return m_tool_sidebar.is_search_focused();
+}
+
+bool StudioWorkspaceRenderer::handle_search_char(char32_t codepoint) {
+  return m_tool_sidebar.handle_char(codepoint);
+}
+
+bool StudioWorkspaceRenderer::handle_search_key(int vkey, bool ctrl, bool shift, bool alt) {
+  return m_tool_sidebar.handle_key(vkey, ctrl, shift, alt);
+}
+
 bool StudioWorkspaceRenderer::is_editor_focused() const noexcept {
-  return !m_terminal_panel.is_focused() && m_text_editor.is_focused();
+  return !m_terminal_panel.is_focused() && !m_tool_sidebar.is_search_focused() && m_text_editor.is_focused();
 }
 
 bool StudioWorkspaceRenderer::is_terminal_focused() const noexcept {
@@ -590,6 +639,22 @@ bool StudioWorkspaceRenderer::is_tool_sidebar_point(
   return m_tool_sidebar.contains(layout, point_x, point_y);
 }
 
+bool StudioWorkspaceRenderer::is_tool_sidebar_interactive_point(
+    float point_x, float point_y, int client_width, int client_height,
+    float content_top) const noexcept {
+  const UI::Editor::StudioEditorLayoutResult layout =
+      calculate_layout(client_width, client_height, content_top);
+  return m_tool_sidebar.is_interactive_point(layout, point_x, point_y);
+}
+
+bool StudioWorkspaceRenderer::is_tool_sidebar_text_input_point(
+    float point_x, float point_y, int client_width, int client_height,
+    float content_top) const noexcept {
+  const UI::Editor::StudioEditorLayoutResult layout =
+      calculate_layout(client_width, client_height, content_top);
+  return m_tool_sidebar.is_text_input_point(layout, point_x, point_y);
+}
+
 bool StudioWorkspaceRenderer::is_terminal_interactive_point(
     float point_x, float point_y, int client_width, int client_height,
     float content_top) const noexcept {
@@ -662,17 +727,7 @@ bool StudioWorkspaceRenderer::is_editor_split_resizing() const noexcept {
 bool StudioWorkspaceRenderer::toggle_shader_sandbox() noexcept {
   const bool res = m_shader_sandbox_panel.toggle();
   if (res) {
-    if (const UI::Editor::TextDocumentModel *doc =
-            m_text_editor.get_document()) {
-      std::string full_text;
-      for (const auto &line : doc->get_lines()) {
-        full_text += line;
-        full_text += '\n';
-      }
-      if (!full_text.empty()) {
-        m_shader_sandbox_panel.set_source_code(full_text);
-      }
-    }
+    sync_shader_sandbox();
   }
   return res;
 }
@@ -750,12 +805,19 @@ void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
     m_footer_toolbar.render(*this, device_context, layout, full_breadcrumbs,
                             document->get_status());
   }
+
+  // Floating overlays (e.g. Action Dropdown Menu, Diagnostics) rendered on top of everything
+  m_text_editor.render_overlays(*this, device_context, layout);
 }
 
 void StudioWorkspaceRenderer::fill_rectangle(
     HDC device_context, const UI::Rect &rectangle,
     const UI::Theme::Color &color) const {
   if (rectangle.is_empty()) {
+    return;
+  }
+  if (color.alpha < 255) {
+    fill_rounded_rectangle(device_context, rectangle, color, 0.0f);
     return;
   }
   RECT native_rectangle = to_native_rect(rectangle);
@@ -777,7 +839,7 @@ void StudioWorkspaceRenderer::fill_rounded_rectangle(
   }
 
   float r = std::min({radius, rectangle.width * 0.5f, rectangle.height * 0.5f});
-  if (r <= 0.0f) {
+  if (r <= 0.0f && color.alpha >= 255) {
     RECT bounds = to_native_rect(rectangle);
     SetDCBrushColor(device_context, to_color_ref(color));
     FillRect(device_context, &bounds,

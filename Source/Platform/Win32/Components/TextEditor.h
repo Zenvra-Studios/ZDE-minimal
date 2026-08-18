@@ -37,6 +37,7 @@ class TextEditor
 {
 public:
     [[nodiscard]] bool open_file(const std::filesystem::path& path);
+    [[nodiscard]] bool open_file_at_location(const std::filesystem::path& path, std::size_t line, std::size_t column);
     [[nodiscard]] bool close_file(const std::filesystem::path& path);
     [[nodiscard]] bool close_all_files();
     [[nodiscard]] std::size_t open_dropped_paths(
@@ -121,6 +122,10 @@ public:
     void on_diagnostics_updated(const std::string& uri, std::vector<Language::Protocol::Diagnostic> diags);
 
     void render(
+        const StudioWorkspaceRenderer& surface,
+        HDC device_context,
+        const UI::Editor::StudioEditorLayoutResult& layout) const;
+    void render_overlays(
         const StudioWorkspaceRenderer& surface,
         HDC device_context,
         const UI::Editor::StudioEditorLayoutResult& layout) const;

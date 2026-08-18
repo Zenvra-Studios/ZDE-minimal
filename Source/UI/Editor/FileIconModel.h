@@ -208,7 +208,7 @@ inline std::string material_icon(std::string_view icon_name)
     }
     if (extension == ".ps1" || extension == ".psm1" || extension == ".psd1")
     {
-        return Detail::material_icon("powershell");
+        return Detail::material_icon("pwsh");
     }
     if (extension == ".sh" || extension == ".bash" || extension == ".zsh" ||
         extension == ".fish" || extension == ".bat" || extension == ".cmd")

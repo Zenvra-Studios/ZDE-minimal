@@ -70,7 +70,7 @@ void ActivitySidebar::render(
                 ? surface.m_shader_sandbox_panel.is_visible()
                 : surface.m_tool_sidebar.is_active(item.icon);
         const bool hovered = surface.m_tool_sidebar.is_hovered(item.icon);
-        if (active || hovered)
+        if (active)
         {
             surface.fill_rectangle(
                 device_context,
@@ -82,9 +82,6 @@ void ActivitySidebar::render(
                     UI::Editor::StudioEditorMetrics::sidebar_item_height * surface.m_dpi_scale,
                 },
                 surface.m_palette.tab_active_background);
-        }
-        if (active)
-        {
             surface.fill_rectangle(
                 device_context,
                 UI::Rect{
@@ -95,7 +92,20 @@ void ActivitySidebar::render(
                 },
                 surface.m_palette.accent);
         }
-        draw_icon(surface, device_context, item.icon, center_x, round_to_int(center_y), active);
+        else if (hovered)
+        {
+            surface.fill_rectangle(
+                device_context,
+                UI::Rect{
+                    layout.activity_bar_bounds.x,
+                    center_y - UI::Editor::StudioEditorMetrics::sidebar_item_height *
+                        0.5F * surface.m_dpi_scale,
+                    layout.activity_bar_bounds.width,
+                    UI::Editor::StudioEditorMetrics::sidebar_item_height * surface.m_dpi_scale,
+                },
+                surface.m_palette.hover_background);
+        }
+        draw_icon(surface, device_context, item.icon, center_x, round_to_int(center_y), active, hovered);
     }
 
     surface.draw_line(
@@ -113,7 +123,8 @@ void ActivitySidebar::draw_icon(
     UI::Editor::SidebarIcon icon,
     int center_x,
     int center_y,
-    bool active) const
+    bool active,
+    bool hovered) const
 {
     const int size = std::max(round_to_int(UI::Editor::StudioEditorMetrics::sidebar_icon_size * surface.m_dpi_scale), 14);
     std::string_view asset_name;
@@ -150,15 +161,20 @@ void ActivitySidebar::draw_icon(
 
     if (!asset_name.empty())
     {
+        const UI::Theme::Color icon_color = active
+            ? UI::Theme::Color{255, 255, 255, 255}
+            : (hovered ? surface.m_palette.text_primary : surface.m_palette.text_muted);
+        const UI::Theme::Color bg_color = active
+            ? surface.m_palette.tab_active_background
+            : (hovered ? surface.m_palette.hover_background : surface.m_palette.sidebar_background);
         surface.draw_svg_icon(
             device_context,
             asset_name,
             center_x,
             center_y,
             size,
-            active ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
-            active ? surface.m_palette.tab_active_background
-                   : surface.m_palette.sidebar_background,
+            icon_color,
+            bg_color,
             false);
     }
 }

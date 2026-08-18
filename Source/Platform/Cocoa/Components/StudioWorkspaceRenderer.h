@@ -41,6 +41,7 @@ public:
     [[nodiscard]] bool create_buffer();
     [[nodiscard]] bool toggle_terminal();
     [[nodiscard]] bool toggle_shader_sandbox();
+    void sync_shader_sandbox() const;
     [[nodiscard]] bool handle_pointer_press(
         float point_x, float point_y,
         int client_width, int client_height,

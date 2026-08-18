@@ -361,6 +361,7 @@ void Win32Window::show() {
   refresh_chrome_layout();
   InvalidateRect(m_window_handle, nullptr, TRUE);
   UpdateWindow(m_window_handle);
+  SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1), static_cast<SIZE_T>(-1));
 }
 
 void Win32Window::poll_events() {
@@ -382,7 +383,10 @@ void Win32Window::poll_events() {
 
 bool Win32Window::should_close() const { return m_should_close; }
 
-void Win32Window::minimize() { ShowWindow(m_window_handle, SW_MINIMIZE); }
+void Win32Window::minimize() {
+  ShowWindow(m_window_handle, SW_MINIMIZE);
+  SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1), static_cast<SIZE_T>(-1));
+}
 
 void Win32Window::maximize() {
   ShowWindow(m_window_handle, SW_MAXIMIZE);
@@ -901,6 +905,8 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       if (over_tool_sidebar && scroll_event.delta_y != 0 &&
           m_workspace_renderer.handle_tool_sidebar_scroll(
               scroll_event.delta_y, client_width, client_height, content_top)) {
+        static_cast<void>(m_workspace_renderer.handle_pointer_move(
+            point_x, point_y, client_width, client_height, content_top));
         const int ct = round_to_int(content_top);
         RECT content_rect{client_bounds.left, ct, client_bounds.right,
                           client_bounds.bottom};
@@ -1426,7 +1432,7 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
               client_bounds.right - client_bounds.left,
               client_bounds.bottom - client_bounds.top,
               m_chrome_layout.titlebar_bounds.bottom()) ||
-          m_workspace_renderer.is_tool_sidebar_point(
+          m_workspace_renderer.is_tool_sidebar_interactive_point(
               static_cast<float>(cursor_position.x),
               static_cast<float>(cursor_position.y),
               client_bounds.right - client_bounds.left,
@@ -1494,6 +1500,12 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
               static_cast<float>(cursor_position.y),
               client_bounds.right - client_bounds.left,
               client_bounds.bottom - client_bounds.top,
+              m_chrome_layout.titlebar_bounds.bottom()) ||
+          m_workspace_renderer.is_tool_sidebar_text_input_point(
+              static_cast<float>(cursor_position.x),
+              static_cast<float>(cursor_position.y),
+              client_bounds.right - client_bounds.left,
+              client_bounds.bottom - client_bounds.top,
               m_chrome_layout.titlebar_bounds.bottom())) {
         SetCursor(LoadCursorW(nullptr, IDC_IBEAM));
         return TRUE;
@@ -1539,6 +1551,15 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       close_explorer_context_menu();
       InvalidateRect(window_handle, nullptr, FALSE);
       return 0;
+    }
+    if (m_custom_chrome_enabled && m_workspace_renderer.is_search_focused()) {
+      const bool alt_pressed = (GetKeyState(VK_MENU) & 0x8000) != 0;
+      const bool control_pressed = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+      const bool shift_pressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+      if (m_workspace_renderer.handle_search_key(static_cast<int>(w_param), control_pressed, shift_pressed, alt_pressed)) {
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
     }
     if (m_custom_chrome_enabled && m_workspace_renderer.is_terminal_focused()) {
       const bool shift_pressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
@@ -1755,6 +1776,14 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         InvalidateRect(window_handle, nullptr, FALSE);
       }
       return 0;
+    }
+    if (m_custom_chrome_enabled && m_workspace_renderer.is_search_focused()) {
+      if (w_param >= 32) {
+        if (m_workspace_renderer.handle_search_char(static_cast<char32_t>(w_param))) {
+          InvalidateRect(window_handle, nullptr, FALSE);
+          return 0;
+        }
+      }
     }
     if (m_custom_chrome_enabled && m_workspace_renderer.is_terminal_focused()) {
       bool changed = false;
@@ -2356,7 +2385,8 @@ void Win32Window::paint_custom_chrome() {
     const int icon_size = std::max(static_cast<int>(16.0F * scale), 14);
     m_workspace_renderer.draw_svg_icon(
         buffer_context, "Assets/icons/ellipsis.svg", center_x, center_y,
-        icon_size, m_workspace_renderer.m_palette.text_primary,
+        icon_size,
+        m_workspace_renderer.m_palette.text_primary,
         m_ellipsis_button_hovered ? m_theme.hover
                                   : m_theme.titlebar_background);
   }
@@ -2383,7 +2413,8 @@ void Win32Window::paint_custom_chrome() {
     m_workspace_renderer.draw_svg_icon(
         buffer_context, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
         std::max(static_cast<int>(10.0F * scale), 8),
-        m_workspace_renderer.m_palette.text_muted, m_theme.titlebar_background);
+        m_compiler_button_hovered ? m_theme.text_primary : m_workspace_renderer.m_palette.text_muted,
+        m_compiler_button_hovered ? m_theme.hover : m_theme.titlebar_background);
   }
 
   if (!m_chrome_layout.platform_bounds.is_empty()) {
@@ -2398,7 +2429,8 @@ void Win32Window::paint_custom_chrome() {
         static_cast<LONG>(m_chrome_layout.platform_bounds.bottom())};
     std::string arch_str(UI::Toolbar::to_string(m_run_config_state.active_architecture));
     std::wstring arch_wstr(arch_str.begin(), arch_str.end());
-    draw_centered_text(buffer_context, arch_wstr.c_str(), text_rect, m_theme.text_primary);
+    draw_centered_text(buffer_context, arch_wstr.c_str(), text_rect,
+                       m_theme.text_primary);
     const int chevron_x = static_cast<int>(
         m_chrome_layout.platform_bounds.right() - 10.0F * scale);
     const int chevron_y =
@@ -2407,7 +2439,7 @@ void Win32Window::paint_custom_chrome() {
     m_workspace_renderer.draw_svg_icon(
         buffer_context, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
         std::max(static_cast<int>(10.0F * scale), 8),
-        m_workspace_renderer.m_palette.text_muted,
+        m_platform_button_hovered ? m_theme.text_primary : m_workspace_renderer.m_palette.text_muted,
         m_platform_button_hovered ? m_theme.hover
                                   : m_theme.titlebar_background);
   }
@@ -2422,7 +2454,8 @@ void Win32Window::paint_custom_chrome() {
         static_cast<int>(m_chrome_layout.binary_bounds.x + 16.0F * scale),
         static_cast<int>(m_chrome_layout.binary_bounds.y +
                          m_chrome_layout.binary_bounds.height * 0.5F),
-        binary_icon_size, m_theme.text_primary,
+        binary_icon_size,
+        m_theme.text_primary,
         m_binary_button_hovered ? m_theme.hover : m_theme.titlebar_background);
     RECT text_rect = {
         static_cast<LONG>(m_chrome_layout.binary_bounds.x + 36.0F * scale),
@@ -2441,7 +2474,7 @@ void Win32Window::paint_custom_chrome() {
     m_workspace_renderer.draw_svg_icon(
         buffer_context, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
         std::max(static_cast<int>(12.0F * scale), 10),
-        m_workspace_renderer.m_palette.text_muted,
+        m_binary_button_hovered ? m_theme.text_primary : m_workspace_renderer.m_palette.text_muted,
         m_binary_button_hovered ? m_theme.hover : m_theme.titlebar_background);
   }
 
@@ -3547,7 +3580,7 @@ void Win32Window::execute_explorer_context_menu_item(std::size_t item_index) {
             out.close();
           }
         }
-        static_cast<void>(m_workspace_renderer.m_text_editor.open_file(created_p));
+        static_cast<void>(m_workspace_renderer.open_file(created_p));
       }
       InvalidateRect(m_window_handle, nullptr, FALSE);
     });
@@ -3566,7 +3599,7 @@ void Win32Window::execute_explorer_context_menu_item(std::size_t item_index) {
   case CmdOpenToSide: {
     std::error_code ec;
     if (!std::filesystem::is_directory(target_path, ec)) {
-      static_cast<void>(m_workspace_renderer.m_text_editor.open_file(target_path));
+      static_cast<void>(m_workspace_renderer.open_file(target_path));
     }
     break;
   }
@@ -3626,7 +3659,7 @@ void Win32Window::execute_explorer_context_menu_item(std::size_t item_index) {
       std::filesystem::path new_p;
       if (m_workspace_renderer.m_tool_sidebar.get_model().rename_item(target_path, new_name, new_p)) {
         static_cast<void>(m_workspace_renderer.m_text_editor.close_file(target_path));
-        static_cast<void>(m_workspace_renderer.m_text_editor.open_file(new_p));
+        static_cast<void>(m_workspace_renderer.open_file(new_p));
       }
       InvalidateRect(m_window_handle, nullptr, FALSE);
     });

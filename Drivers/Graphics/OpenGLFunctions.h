@@ -78,6 +78,7 @@ using PFNGLGETUNIFORMLOCATIONPROC = int (*)(unsigned int program, const char* na
 using PFNGLUNIFORM1IPROC = void (*)(int location, int v0);
 using PFNGLUNIFORM1FPROC = void (*)(int location, float v0);
 using PFNGLUNIFORM2FPROC = void (*)(int location, float v0, float v1);
+using PFNGLUNIFORM3FPROC = void (*)(int location, float v0, float v1, float v2);
 using PFNGLUNIFORM4FPROC = void (*)(int location, float v0, float v1, float v2, float v3);
 using PFNGLACTIVETEXTUREPROC = void (*)(unsigned int texture);
 using PFNGLGENFRAMEBUFFERSPROC = void (*)(int n, unsigned int* framebuffers);
@@ -111,6 +112,7 @@ struct OpenGLApi {
     PFNGLUNIFORM1IPROC Uniform1i = nullptr;
     PFNGLUNIFORM1FPROC Uniform1f = nullptr;
     PFNGLUNIFORM2FPROC Uniform2f = nullptr;
+    PFNGLUNIFORM3FPROC Uniform3f = nullptr;
     PFNGLUNIFORM4FPROC Uniform4f = nullptr;
     PFNGLACTIVETEXTUREPROC ActiveTexture = nullptr;
     PFNGLGENFRAMEBUFFERSPROC GenFramebuffers = nullptr;

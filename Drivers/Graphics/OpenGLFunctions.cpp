@@ -4,6 +4,52 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+
+namespace {
+void ensure_win32_bootstrap_context() {
+    if (wglGetCurrentContext() != nullptr) {
+        return;
+    }
+    HINSTANCE hInst = GetModuleHandleA(nullptr);
+    WNDCLASSA wc{};
+    wc.lpfnWndProc = DefWindowProcA;
+    wc.hInstance = hInst;
+    wc.lpszClassName = "ZDE_GL_Bootstrap_Host";
+    RegisterClassA(&wc);
+
+    HWND hwnd = CreateWindowExA(
+        0, "ZDE_GL_Bootstrap_Host", "ZDE_GL_Bootstrap",
+        WS_POPUP, 0, 0, 16, 16,
+        nullptr, nullptr, hInst, nullptr);
+    if (!hwnd) {
+        return;
+    }
+
+    HDC hdc = GetDC(hwnd);
+    if (!hdc) {
+        DestroyWindow(hwnd);
+        return;
+    }
+
+    PIXELFORMATDESCRIPTOR pfd{};
+    pfd.nSize = sizeof(pfd);
+    pfd.nVersion = 1;
+    pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+    pfd.iPixelType = PFD_TYPE_RGBA;
+    pfd.cColorBits = 32;
+    pfd.cDepthBits = 24;
+    pfd.cStencilBits = 8;
+    pfd.iLayerType = PFD_MAIN_PLANE;
+
+    int format = ChoosePixelFormat(hdc, &pfd);
+    if (format != 0 && SetPixelFormat(hdc, format, &pfd)) {
+        HGLRC hglrc = wglCreateContext(hdc);
+        if (hglrc) {
+            wglMakeCurrent(hdc, hglrc);
+        }
+    }
+}
+} // namespace
 #elif defined(__linux__)
 #include <GL/glx.h>
 #include <dlfcn.h>
@@ -17,6 +63,7 @@ namespace {
 
 void* get_gl_proc_address(const char* name) {
 #if defined(_WIN32)
+    ensure_win32_bootstrap_context();
     void* proc = reinterpret_cast<void*>(wglGetProcAddress(name));
     if (proc == nullptr || proc == reinterpret_cast<void*>(0x1) ||
         proc == reinterpret_cast<void*>(0x2) || proc == reinterpret_cast<void*>(0x3) ||
@@ -83,6 +130,7 @@ bool initialize_opengl_functions() noexcept {
     load_gl_func(g_gl_api.Uniform1i, "glUniform1i");
     load_gl_func(g_gl_api.Uniform1f, "glUniform1f");
     load_gl_func(g_gl_api.Uniform2f, "glUniform2f");
+    load_gl_func(g_gl_api.Uniform3f, "glUniform3f");
     load_gl_func(g_gl_api.Uniform4f, "glUniform4f");
     load_gl_func(g_gl_api.ActiveTexture, "glActiveTexture");
     load_gl_func(g_gl_api.GenFramebuffers, "glGenFramebuffers");

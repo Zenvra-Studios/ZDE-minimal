@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Services/Shader/CpuShaderRasterizer.h"
+#include "Services/Shader/GpuShaderRasterizer.h"
 #include "Services/Shader/ShaderCompiler.h"
 #include "Services/Shader/ShaderTypes.h"
 
@@ -40,6 +41,11 @@ public:
     [[nodiscard]] ResolutionScale get_resolution_scale() const noexcept { return m_resolution_scale; }
     void cycle_resolution_scale() noexcept;
 
+    void set_render_backend(RenderBackend backend) noexcept;
+    [[nodiscard]] RenderBackend get_render_backend() const noexcept { return m_render_backend; }
+    void toggle_render_backend() noexcept;
+    [[nodiscard]] bool is_gpu_supported() const noexcept;
+
     void set_mouse(float x, float y, bool is_down);
 
     // Update time & render frame if playing or dirty
@@ -56,6 +62,8 @@ public:
     [[nodiscard]] std::span<const std::uint32_t> get_rendered_pixels() const noexcept;
     [[nodiscard]] int get_rendered_width() const noexcept;
     [[nodiscard]] int get_rendered_height() const noexcept;
+    [[nodiscard]] int get_viewport_width() const noexcept { return m_viewport_width; }
+    [[nodiscard]] int get_viewport_height() const noexcept { return m_viewport_height; }
 
     // Channel configuration
     void set_channel_texture(std::size_t channel_index, ChannelTextureKind kind);
@@ -74,6 +82,7 @@ private:
     std::string m_source_code;
     ShaderCompiler m_compiler;
     CpuShaderRasterizer m_rasterizer;
+    GpuShaderRasterizer m_gpu_rasterizer;
     PixelShaderFunc m_active_shader;
 
     ShaderUniforms m_uniforms;
@@ -81,6 +90,7 @@ private:
 
     ShaderStatus m_status = ShaderStatus::Idle;
     ResolutionScale m_resolution_scale = ResolutionScale::Full;
+    RenderBackend m_render_backend = RenderBackend::Cpu;
     bool m_is_playing = true;
     bool m_is_dirty = true;
     float m_playback_speed = 1.0F;
@@ -92,6 +102,10 @@ private:
     float m_current_fps = 60.0F;
     float m_frame_time_ms = 16.6F;
     std::size_t m_active_preset_index = 0;
+    int m_viewport_width = 320;
+    int m_viewport_height = 240;
+
+    void apply_effective_resolution();
 
     mutable std::mutex m_engine_mutex;
 };

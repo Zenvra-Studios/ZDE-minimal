@@ -11,6 +11,7 @@ add_library(ZDEUI
     Components/AddNewItemDialog.cpp
     Components/CompletionPopup.cpp
     Components/HoverTooltip.cpp
+    Components/ScrollBar.cpp
     Components/SignatureHelpWidget.cpp
     Editor/ActivityPanelModel.cpp
     Editor/BraceAnimationModel.cpp
@@ -26,6 +27,7 @@ add_library(ZDEUI
     Editor/SelectionAnimationModel.cpp
     Editor/StudioEditorModel.cpp
     Editor/TextDocumentModel.cpp
+    Editor/WorkspaceSearchModel.cpp
     Theme/StudioTheme.cpp
     Toolbar/ToolbarLayout.cpp
     Toolbar/StudioMainToolbar.cpp

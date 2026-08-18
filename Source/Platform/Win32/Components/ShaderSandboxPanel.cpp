@@ -136,10 +136,18 @@ bool ShaderSandboxPanel::handle_pointer_press(
         return true;
     }
 
-    const UI::Rect scale_btn{ctrl.x + 68.0F * scale, btn_y, 36.0F * scale, btn_h};
+    const UI::Rect scale_btn{ctrl.x + 68.0F * scale, btn_y, 48.0F * scale, btn_h};
     if (scale_btn.contains(point_x, point_y))
     {
         m_engine.cycle_resolution_scale();
+        return true;
+    }
+
+    // Backend toggle button (CPU / GPU)
+    const UI::Rect backend_btn{ctrl.x + 120.0F * scale, btn_y, 44.0F * scale, btn_h};
+    if (backend_btn.contains(point_x, point_y))
+    {
+        m_engine.toggle_render_backend();
         return true;
     }
 
@@ -171,6 +179,7 @@ bool ShaderSandboxPanel::handle_pointer_move(
     const bool prev_play = m_hover_play;
     const bool prev_reset = m_hover_reset;
     const bool prev_scale = m_hover_scale;
+    const bool prev_backend = m_hover_backend;
     const bool prev_snapshot = m_hover_snapshot;
     const bool prev_splitter = m_hover_splitter;
 
@@ -185,7 +194,8 @@ bool ShaderSandboxPanel::handle_pointer_move(
 
     m_hover_play = UI::Rect{ctrl.x + 8.0F * scale, btn_y, btn_w, btn_h}.contains(point_x, point_y);
     m_hover_reset = UI::Rect{ctrl.x + 38.0F * scale, btn_y, btn_w, btn_h}.contains(point_x, point_y);
-    m_hover_scale = UI::Rect{ctrl.x + 68.0F * scale, btn_y, 36.0F * scale, btn_h}.contains(point_x, point_y);
+    m_hover_scale = UI::Rect{ctrl.x + 68.0F * scale, btn_y, 48.0F * scale, btn_h}.contains(point_x, point_y);
+    m_hover_backend = UI::Rect{ctrl.x + 120.0F * scale, btn_y, 44.0F * scale, btn_h}.contains(point_x, point_y);
     m_hover_snapshot = UI::Rect{ctrl.right() - 34.0F * scale, btn_y, btn_w, btn_h}.contains(point_x, point_y);
 
     if (m_viewport_mouse_down &&
@@ -198,8 +208,8 @@ bool ShaderSandboxPanel::handle_pointer_move(
 
     return (prev_close != m_hover_close) || (prev_preset != m_hover_preset) ||
            (prev_play != m_hover_play) || (prev_reset != m_hover_reset) ||
-           (prev_scale != m_hover_scale) || (prev_snapshot != m_hover_snapshot) ||
-           (prev_splitter != m_hover_splitter);
+           (prev_scale != m_hover_scale) || (prev_backend != m_hover_backend) ||
+           (prev_snapshot != m_hover_snapshot) || (prev_splitter != m_hover_splitter);
 }
 
 bool ShaderSandboxPanel::handle_pointer_drag(
@@ -212,6 +222,7 @@ bool ShaderSandboxPanel::handle_pointer_drag(
         const float delta = m_drag_start_x - point_x;
         const float scale = layout.dpi_scale;
         m_width = std::clamp(m_drag_start_width + delta, 180.0F * scale, 800.0F * scale);
+        static_cast<void>(m_engine.update_and_render());
         return true;
     }
 
@@ -221,6 +232,7 @@ bool ShaderSandboxPanel::handle_pointer_drag(
         const float vx = point_x - layout.shader_panel_viewport_bounds.x;
         const float vy = point_y - layout.shader_panel_viewport_bounds.y;
         m_engine.set_mouse(vx, vy, true);
+        static_cast<void>(m_engine.update_and_render());
         return true;
     }
 
@@ -291,12 +303,17 @@ void ShaderSandboxPanel::render(
     surface.fill_rectangle(
         device_context, layout.shader_panel_bounds, surface.m_palette.sidebar_background);
 
+    render_header(surface, device_context, layout);
+    render_viewport(surface, device_context, layout);
+    render_controls(surface, device_context, layout);
+
     // Draw Splitter border on the left edge with blue accent highlight when hovered or resizing
     const bool show_accent = m_hover_splitter || m_is_resizing;
     const UI::Theme::Color& splitter_color = show_accent
         ? surface.m_palette.accent
         : surface.m_palette.border;
 
+    const float scale = surface.m_dpi_scale;
     const float splitter_x = layout.shader_panel_bounds.x;
     surface.draw_line(
         device_context,
@@ -311,16 +328,12 @@ void ShaderSandboxPanel::render(
         surface.fill_rectangle(
             device_context,
             UI::Rect{
-                splitter_x - surface.m_dpi_scale,
+                splitter_x - 1.5F * scale,
                 layout.shader_panel_bounds.y,
-                std::max(2.0F * surface.m_dpi_scale, 2.0F),
+                std::max(3.5F * scale, 3.0F),
                 layout.shader_panel_bounds.height},
             surface.m_palette.accent);
     }
-
-    render_header(surface, device_context, layout);
-    render_viewport(surface, device_context, layout);
-    render_controls(surface, device_context, layout);
 }
 
 void ShaderSandboxPanel::render_header(
@@ -444,46 +457,31 @@ void ShaderSandboxPanel::render_viewport(
     HDC device_context,
     const UI::Editor::StudioEditorLayoutResult& layout) const
 {
-    const UI::Rect& vp = layout.shader_panel_viewport_bounds;
-    if (vp.is_empty())
-    {
-        return;
-    }
+    const UI::Rect& canvas_rect = layout.shader_panel_viewport_bounds;
 
-    const float scale = layout.dpi_scale;
-    const float margin = 8.0F * scale;
-    const UI::Rect canvas_rect{
-        vp.x + margin,
-        vp.y + margin,
-        std::max(vp.width - margin * 2.0F, 16.0F),
-        std::max(vp.height - margin * 2.0F, 16.0F)};
-
-    // Dark canvas frame & subtle inner background
-    surface.fill_rectangle(
-        device_context, canvas_rect, UI::Theme::Color{18, 18, 24, 255});
-    surface.draw_rectangle(device_context, canvas_rect, surface.m_palette.border);
-
-    // Resize engine rasterizer to canvas size if dimensions changed
+    // Resize engine rasterizer to canvas size if dimensions changed & immediately render
     const int target_w = round_to_int(canvas_rect.width);
     const int target_h = round_to_int(canvas_rect.height);
     if (target_w > 16 && target_h > 16 &&
-        (m_engine.get_rendered_width() != target_w ||
-         m_engine.get_rendered_height() != target_h))
+        (m_engine.get_viewport_width() != target_w ||
+         m_engine.get_viewport_height() != target_h))
     {
         const_cast<ShaderSandboxPanel*>(this)->m_engine.resize(target_w, target_h);
+        static_cast<void>(const_cast<ShaderSandboxPanel*>(this)->m_engine.update_and_render());
     }
 
-    // Blit rasterized pixels
+    // Blit rasterized pixels directly
     const auto pixels = m_engine.get_rendered_pixels();
     const int img_w = m_engine.get_rendered_width();
     const int img_h = m_engine.get_rendered_height();
 
     if (!pixels.empty() && img_w > 0 && img_h > 0)
     {
+        const bool is_gpu = (m_engine.get_render_backend() == Services::Shader::RenderBackend::Gpu);
         BITMAPINFO bmi{};
         bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
         bmi.bmiHeader.biWidth = img_w;
-        bmi.bmiHeader.biHeight = -img_h; // Top-down DIB
+        bmi.bmiHeader.biHeight = is_gpu ? img_h : -img_h; // GPU glReadPixels is bottom-up, CPU is top-down
         bmi.bmiHeader.biPlanes = 1;
         bmi.bmiHeader.biBitCount = 32;
         bmi.bmiHeader.biCompression = BI_RGB;
@@ -513,6 +511,13 @@ void ShaderSandboxPanel::render_viewport(
 
         RestoreDC(device_context, -1);
     }
+    else
+    {
+        surface.fill_rectangle(
+            device_context, canvas_rect, UI::Theme::Color{18, 18, 24, 255});
+    }
+
+    surface.draw_rectangle(device_context, canvas_rect, surface.m_palette.border);
 
     // Error overlay banner if compilation failed
     render_diagnostics_overlay(surface, device_context, canvas_rect);
@@ -578,7 +583,7 @@ void ShaderSandboxPanel::render_controls(
         false);
 
     // Resolution scale badge button (1x / 0.5x / 0.25x)
-    const UI::Rect scale_btn{ctrl.x + 68.0F * scale, btn_y, 36.0F * scale, btn_h};
+    const UI::Rect scale_btn{ctrl.x + 68.0F * scale, btn_y, 48.0F * scale, btn_h};
     surface.fill_rounded_rectangle(
         device_context,
         scale_btn,
@@ -586,7 +591,7 @@ void ShaderSandboxPanel::render_controls(
         3.0F * scale);
     surface.draw_rectangle(device_context, scale_btn, surface.m_palette.border);
 
-    std::string scale_str = "1x";
+    std::string scale_str = "1.0x";
     switch (m_engine.get_resolution_scale())
     {
     case Services::Shader::ResolutionScale::Full:
@@ -601,16 +606,46 @@ void ShaderSandboxPanel::render_controls(
     }
     if (surface.m_small_font)
     {
+        const int text_w = surface.get_text_width(device_context, *surface.m_small_font, scale_str);
+        const float text_x = scale_btn.x + (scale_btn.width - static_cast<float>(text_w)) * 0.5F;
         surface.draw_text(
             device_context,
             *surface.m_small_font,
             scale_str,
-            scale_btn.x + 6.0F * scale,
+            text_x,
             ctrl.y + ctrl.height * 0.5F,
             m_hover_scale ? surface.m_palette.text_primary : surface.m_palette.text_muted);
     }
 
-    // Time elapsed display
+    // Backend toggle badge button (CPU / GPU)
+    const UI::Rect backend_btn{ctrl.x + 120.0F * scale, btn_y, 44.0F * scale, btn_h};
+    m_controls_backend_bounds = backend_btn;
+    const bool is_gpu = (m_engine.get_render_backend() == Services::Shader::RenderBackend::Gpu);
+    const UI::Theme::Color backend_bg = m_hover_backend
+        ? surface.m_palette.active_line_background
+        : (is_gpu ? UI::Theme::Color{30, 60, 45, 255} : surface.m_palette.sidebar_background);
+    const UI::Theme::Color backend_text_col = is_gpu
+        ? UI::Theme::Color{80, 220, 140, 255}
+        : (m_hover_backend ? surface.m_palette.text_primary : surface.m_palette.text_muted);
+
+    surface.fill_rounded_rectangle(device_context, backend_btn, backend_bg, 3.0F * scale);
+    surface.draw_rectangle(device_context, backend_btn, is_gpu ? UI::Theme::Color{45, 120, 75, 255} : surface.m_palette.border);
+
+    if (surface.m_small_font)
+    {
+        const std::string_view backend_str = is_gpu ? "GPU" : "CPU";
+        const int btext_w = surface.get_text_width(device_context, *surface.m_small_font, backend_str);
+        const float btext_x = backend_btn.x + (backend_btn.width - static_cast<float>(btext_w)) * 0.5F;
+        surface.draw_text(
+            device_context,
+            *surface.m_small_font,
+            backend_str,
+            btext_x,
+            ctrl.y + ctrl.height * 0.5F,
+            backend_text_col);
+    }
+
+    // Time elapsed & frametime display
     std::ostringstream time_ss;
     time_ss << std::fixed << std::setprecision(1) << m_engine.get_time() << "s ("
             << std::fixed << std::setprecision(1) << m_engine.get_frame_time_ms() << "ms)";
@@ -620,7 +655,7 @@ void ShaderSandboxPanel::render_controls(
             device_context,
             *surface.m_small_font,
             time_ss.str(),
-            ctrl.x + 112.0F * scale,
+            ctrl.x + 172.0F * scale,
             ctrl.y + ctrl.height * 0.5F,
             surface.m_palette.text_muted);
     }

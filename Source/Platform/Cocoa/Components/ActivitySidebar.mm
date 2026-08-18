@@ -142,11 +142,16 @@ void ActivitySidebar::draw_icon(
 
     if (!svg_path.empty())
     {
+        const UI::Theme::Color icon_color = active
+            ? UI::Theme::Color{255, 255, 255, 255}
+            : (hovered ? surface.m_palette.text_primary : surface.m_palette.text_muted);
+        const UI::Theme::Color bg_color = active
+            ? surface.m_palette.tab_active_background
+            : (hovered ? surface.m_palette.hover_background : surface.m_palette.sidebar_background);
         surface.draw_svg_icon(
             context, svg_path, center_x, center_y, size,
-            active ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
-            active ? surface.m_palette.tab_active_background :
-                     surface.m_palette.sidebar_background,
+            icon_color,
+            bg_color,
             false);
     }
 }

@@ -9,6 +9,8 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <mutex>
+#include <memory>
 
 namespace Zenvra::UI::Editor
 {
@@ -130,7 +132,7 @@ public:
     void mark_saved() noexcept;
 
     void set_diagnostics(std::vector<Language::Protocol::Diagnostic> diagnostics);
-    [[nodiscard]] const std::vector<Language::Protocol::Diagnostic>& get_diagnostics() const noexcept { return m_diagnostics; }
+    [[nodiscard]] std::vector<Language::Protocol::Diagnostic> get_diagnostics() const;
     [[nodiscard]] std::vector<Language::Protocol::Diagnostic> get_diagnostics_for_line(std::size_t line) const;
 
 private:
@@ -150,6 +152,7 @@ private:
     std::size_t m_preferred_column = 0;
     TextPosition m_selection_anchor;
     std::vector<TextCursor> m_secondary_cursors;
+    mutable std::shared_ptr<std::mutex> m_diagnostics_mutex = std::make_shared<std::mutex>();
     std::vector<Language::Protocol::Diagnostic> m_diagnostics;
     bool m_dirty = false;
     bool m_read_only = false;
