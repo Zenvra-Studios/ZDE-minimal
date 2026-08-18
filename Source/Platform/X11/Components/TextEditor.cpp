@@ -346,22 +346,35 @@ void TextEditor::show_tab_action_menu(
   };
 
   const float scale = layout.dpi_scale;
-  const float menu_w = 180.0F * scale;
-  const float item_h = 24.0F * scale;
-  const float menu_h =
-      static_cast<float>(m_tab_action_menu.items.size()) * item_h + 8.0F * scale;
-  const float menu_x =
-      std::max(layout.tab_bar_bounds.right() - menu_w - 6.0F * scale,
-               layout.tab_bar_bounds.x);
-  const float menu_y = layout.tab_bar_bounds.bottom() + 2.0F * scale;
+  const float menu_w = 210.0F * scale;
+  const float item_h = 26.0F * scale;
+  const float separator_h = 7.0F * scale;
+  const float vertical_padding = 5.0F * scale;
+
+  float total_items_h = 0.0F;
+  for (const auto &it : m_tab_action_menu.items) {
+    total_items_h += it.is_separator ? separator_h : item_h;
+  }
+  const float menu_h = total_items_h + vertical_padding * 2.0F;
+
+  // Align directly to the right edge of the ellipsis button
+  const float btn_right = (!m_tab_action_bounds[3].is_empty())
+      ? m_tab_action_bounds[3].right()
+      : (layout.editor_header_bounds.right() - 4.0F * scale);
+  const float btn_bottom = (!m_tab_action_bounds[3].is_empty())
+      ? m_tab_action_bounds[3].bottom()
+      : (layout.editor_header_bounds.bottom());
+
+  const float menu_x = std::max(btn_right - menu_w, 8.0F * scale);
+  const float menu_y = btn_bottom + 4.0F * scale;
 
   m_tab_action_menu.bounds = UI::Rect{menu_x, menu_y, menu_w, menu_h};
   m_tab_action_menu.item_bounds.clear();
-  float curr_y = menu_y + 4.0F * scale;
+  float curr_y = menu_y + vertical_padding;
   for (const auto &it : m_tab_action_menu.items) {
-    const float h = it.is_separator ? 6.0F * scale : item_h;
+    const float h = it.is_separator ? separator_h : item_h;
     m_tab_action_menu.item_bounds.push_back(
-        UI::Rect{menu_x + 4.0F * scale, curr_y, menu_w - 8.0F * scale, h});
+        UI::Rect{menu_x, curr_y, menu_w, h});
     curr_y += h;
   }
 }
@@ -499,12 +512,19 @@ void TextEditor::draw_editor_header(
     const bool is_active_menu =
         (i == 3 && m_tab_action_menu.visible) || (i == 0 && m_is_split);
 
+    const auto& ed_bg = surface.m_palette.editor_background;
+    const std::uint32_t a = is_active_menu ? 45 : 25;
+    const UI::Theme::Color blended_btn_bg{
+        static_cast<std::uint8_t>((255 * a + ed_bg.red * (255 - a) + 127) / 255),
+        static_cast<std::uint8_t>((255 * a + ed_bg.green * (255 - a) + 127) / 255),
+        static_cast<std::uint8_t>((255 * a + ed_bg.blue * (255 - a) + 127) / 255),
+        255
+    };
+
     if (is_active_menu || is_hovered) {
       surface.fill_rounded_rectangle(
           drawable, btn,
-          is_active_menu
-              ? surface.allocate_color(UI::Theme::Color{255, 255, 255, 36})
-              : surface.m_pixels.hover_background,
+          surface.allocate_color(blended_btn_bg),
           3.0F * scale, surface.m_pixels.editor_background);
     }
 
@@ -515,7 +535,8 @@ void TextEditor::draw_editor_header(
         icon_sizes[i],
         (is_active_menu || is_hovered) ? surface.m_palette.text_primary
                                        : surface.m_palette.text_muted,
-        surface.m_palette.editor_background);
+        (is_active_menu || is_hovered) ? blended_btn_bg
+                                       : surface.m_palette.editor_background);
   }
 }
 
@@ -529,21 +550,38 @@ void TextEditor::draw_tab_action_menu(
 
   const float scale = surface.m_dpi_scale;
   const auto &menu = m_tab_action_menu;
+  const int radius = std::max(round_to_int(6.0F * scale), 5);
+  AntialiasedFont &font = (surface.m_ui_font != nullptr) ? *surface.m_ui_font : *surface.m_small_font;
 
+  // Acrylic ambient outer shadow
+  const UI::Rect outer_shadow{menu.bounds.x - 2.0F * scale, menu.bounds.y - 1.0F * scale,
+                              menu.bounds.width + 4.0F * scale,
+                              menu.bounds.height + 4.0F * scale};
   surface.fill_rounded_rectangle(
-      drawable,
-      UI::Rect{menu.bounds.x + 2.0F * scale, menu.bounds.y + 4.0F * scale,
-               menu.bounds.width, menu.bounds.height},
-      surface.allocate_color(UI::Theme::Color{0, 0, 0, 100}), 4.0F * scale,
-      surface.m_pixels.tab_background);
+      drawable, outer_shadow,
+      surface.allocate_color(UI::Theme::Color{12, 13, 16, 255}), radius + 2,
+      surface.m_pixels.editor_background);
 
+  // Mid shadow
+  const UI::Rect mid_shadow{menu.bounds.x - 1.0F * scale, menu.bounds.y,
+                            menu.bounds.width + 2.0F * scale,
+                            menu.bounds.height + 2.0F * scale};
+  surface.fill_rounded_rectangle(
+      drawable, mid_shadow,
+      surface.allocate_color(UI::Theme::Color{18, 19, 23, 255}), radius + 1,
+      surface.m_pixels.editor_background);
+
+  // Card Background matching Menubar / Studio Theme
+  const UI::Theme::Color popup_bg{30, 31, 38, 255};
   surface.fill_rounded_rectangle(
       drawable, menu.bounds,
-      surface.allocate_color(UI::Theme::Color{30, 31, 38, 255}), 4.0F * scale,
-      surface.m_pixels.tab_background);
-  surface.draw_rectangle(
+      surface.allocate_color(popup_bg), radius,
+      surface.m_pixels.editor_background);
+
+  // Translucent Hairline Rounded Border
+  surface.draw_rounded_rectangle(
       drawable, menu.bounds,
-      surface.allocate_color(UI::Theme::Color{60, 62, 75, 255}));
+      surface.allocate_color(UI::Theme::Color{70, 72, 80, 255}), static_cast<float>(radius));
 
   for (std::size_t i = 0; i < menu.items.size() && i < menu.item_bounds.size();
        ++i) {
@@ -551,45 +589,51 @@ void TextEditor::draw_tab_action_menu(
     const auto &rect = menu.item_bounds[i];
 
     if (item.is_separator) {
-      const int sep_y = round_to_int(rect.y + rect.height * 0.5F);
-      surface.draw_line(
-          drawable, round_to_int(rect.x + 4.0F * scale), sep_y,
-          round_to_int(rect.right() - 4.0F * scale), sep_y,
-          surface.allocate_color(UI::Theme::Color{50, 52, 65, 255}));
+      const float sep_y = rect.y + rect.height * 0.5F;
+      surface.fill_rectangle(
+          drawable,
+          UI::Rect{rect.x + 10.0F * scale, sep_y, rect.width - 20.0F * scale, 1.0F * scale},
+          surface.allocate_color(UI::Theme::Color{55, 58, 70, 255}));
       continue;
     }
 
     const bool hovered = (menu.hovered_index && *menu.hovered_index == i);
     if (hovered) {
+      UI::Rect hover_bounds = rect;
+      hover_bounds.x += 5.0F * scale;
+      hover_bounds.width -= 10.0F * scale;
+      hover_bounds.y += 1.0F * scale;
+      hover_bounds.height -= 2.0F * scale;
       surface.fill_rounded_rectangle(
-          drawable, rect,
-          surface.allocate_color(UI::Theme::Color{45, 48, 60, 255}), 3.0F * scale,
-          surface.allocate_color(UI::Theme::Color{30, 31, 38, 255}));
+          drawable, hover_bounds,
+          surface.allocate_color(UI::Theme::Color{53, 132, 228, 240}),
+          std::max(round_to_int(4.0F * scale), 3),
+          surface.allocate_color(popup_bg));
     }
 
     const float center_y = rect.y + rect.height * 0.5F;
-    float text_x = rect.x + 10.0F * scale;
+    float text_x = rect.x + 12.0F * scale;
 
     if (item.has_checkbox && item.is_checked) {
       surface.draw_svg_icon(
           drawable, "Assets/icons/check.svg",
-          round_to_int(rect.x + 8.0F * scale), round_to_int(center_y),
+          round_to_int(rect.x + 10.0F * scale), round_to_int(center_y),
           std::max(round_to_int(12.0F * scale), 10),
-          surface.m_palette.accent,
-          surface.m_palette.tab_background);
-      text_x += 12.0F * scale;
+          hovered ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.accent,
+          popup_bg);
+      text_x += 14.0F * scale;
     }
 
-    surface.draw_text(
-        drawable, *surface.m_small_font, item.label, text_x, center_y,
-        hovered ? surface.m_text.primary : surface.m_text.muted);
+    const std::string label_color = hovered ? "#FFFFFF" : "#CCCCCC";
+    surface.draw_text(drawable, font, item.label, text_x, center_y, label_color);
 
     if (!item.shortcut.empty()) {
-      const int sc_w = surface.m_small_font->getTextWidth(item.shortcut);
+      const int sc_w = font.getTextWidth(item.shortcut);
+      const std::string shortcut_color = hovered ? "#FFFFFF" : "#8A8A8A";
       surface.draw_text(
-          drawable, *surface.m_small_font, item.shortcut,
-          rect.right() - static_cast<float>(sc_w) - 8.0F * scale, center_y,
-          surface.m_text.muted);
+          drawable, font, item.shortcut,
+          rect.right() - static_cast<float>(sc_w) - 14.0F * scale, center_y,
+          shortcut_color);
     }
   }
 }
