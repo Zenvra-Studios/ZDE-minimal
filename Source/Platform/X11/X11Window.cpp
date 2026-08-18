@@ -305,8 +305,10 @@ bool X11Window::initialize() {
   Language::LanguageServerManager::instance().set_diagnostics_callback(
       [this](const std::string &uri,
              const std::vector<Language::Protocol::Diagnostic> &diags) {
-        m_chrome_renderer.get_text_editor().on_diagnostics_updated(uri, diags);
-        render();
+        // Queue diagnostics for main thread — never touch UI state from LSP thread
+        std::lock_guard<std::mutex> lock(m_pending_diag_mutex);
+        m_pending_diagnostics.push_back({uri, diags});
+        m_has_pending_diagnostics.store(true, std::memory_order_release);
       });
 
   m_chrome_renderer.get_workspace_renderer().get_terminal_panel().set_copy_callback(

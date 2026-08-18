@@ -2068,8 +2068,8 @@ bool TextEditor::handle_text_input(std::string_view utf8_text) {
         utf8_text == "<" || utf8_text == "\"" || utf8_text == "#";
     const bool is_trigger_char =
         utf8_text == "." || utf8_text == ">" || utf8_text == ":" ||
-        utf8_text == "/" || utf8_text == "\\" || utf8_text == "(" ||
-        utf8_text == "," || is_include_context || current_word.size() >= 1;
+        utf8_text == "/" || utf8_text == "\\" || is_include_context ||
+        current_word.size() >= 3;
 
     if (utf8_text == "{") {
       std::string_view line_before =
@@ -2130,8 +2130,7 @@ bool TextEditor::handle_text_input(std::string_view utf8_text) {
     }
 
     // Check if caret is inside parentheses '(' ... ')'
-    const std::string_view prefix_before_caret =
-        current_line.substr(0, std::min(caret_col, current_line.size()));
+    const std::string_view prefix_before_caret = current_line.substr(0, std::min(caret_col, current_line.size()));
     std::size_t open_parens = 0;
     std::size_t close_parens = 0;
     for (char ch : prefix_before_caret) {
@@ -2153,26 +2152,6 @@ bool TextEditor::handle_text_input(std::string_view utf8_text) {
           uri, fname, sig_pos, current_line,
           [this](std::optional<Language::Protocol::SignatureHelp> help) {
             std::lock_guard<std::mutex> lock(m_lsp_mutex);
-            if (const auto *current_doc = m_controller.get_active_document()) {
-              const std::string_view line =
-                  current_doc->get_line(current_doc->get_caret_line());
-              const std::size_t col = current_doc->get_caret_column();
-              const std::string_view pfx =
-                  line.substr(0, std::min(col, line.size()));
-              std::size_t op = 0;
-              std::size_t cp = 0;
-              for (char ch : pfx) {
-                if (ch == '(')
-                  ++op;
-                else if (ch == ')')
-                  ++cp;
-              }
-              if (op <= cp) {
-                m_signature_help.hide();
-                m_lsp_dirty = true;
-                return;
-              }
-            }
             if (help.has_value() && !help->signatures.empty()) {
               m_signature_help.show(std::move(*help), 0.0F, 0.0F);
             } else {
@@ -2189,39 +2168,30 @@ bool TextEditor::handle_text_input(std::string_view utf8_text) {
         utf8_text == "}") {
       std::lock_guard<std::mutex> lock(m_lsp_mutex);
       m_completion_popup.hide();
-    } else if (is_trigger_char || m_completion_popup.is_visible()) {
+    } else if (m_completion_popup.is_visible()) {
+      std::lock_guard<std::mutex> lock(m_lsp_mutex);
+      if (!current_word.empty()) {
+        m_completion_popup.set_filter(std::string(current_word));
+        if (m_completion_popup.get_item_count() == 0) {
+          m_completion_popup.hide();
+        }
+      } else {
+        m_completion_popup.hide();
+      }
+    } else if (is_trigger_char) {
       Language::Protocol::Position pos{
           .line = doc->get_caret_line(),
           .character = doc->get_caret_column()};
+      const std::string filter_word_captured = std::string(current_word);
       Language::LanguageServerManager::instance().request_completion(
           uri, fname, pos, current_line,
-          [this](std::vector<Language::Protocol::CompletionItem> items) {
+          [this, filter_word_captured](std::vector<Language::Protocol::CompletionItem> items) {
             std::lock_guard<std::mutex> lock(m_lsp_mutex);
             if (!items.empty()) {
               m_completion_popup.show(std::move(items), 100.0F, 100.0F);
-
-              if (const auto *current_doc =
-                      m_controller.get_active_document()) {
-                const std::string_view line =
-                    current_doc->get_line(current_doc->get_caret_line());
-                const std::size_t col = current_doc->get_caret_column();
-                std::size_t start = std::min(col, line.size());
-                while (start > 0) {
-                  const char ch = line[start - 1];
-                  if (std::isalnum(static_cast<unsigned char>(ch)) ||
-                      ch == '_' || ch == '#' || ch == ':' || ch == '~') {
-                    --start;
-                  } else {
-                    break;
-                  }
-                }
-                const std::string_view latest_word =
-                    line.substr(start, col - start);
-                if (!latest_word.empty()) {
-                  m_completion_popup.set_filter(latest_word);
-                }
+              if (!filter_word_captured.empty()) {
+                m_completion_popup.set_filter(filter_word_captured);
               }
-
               if (m_completion_popup.get_item_count() == 0) {
                 m_completion_popup.hide();
               }
@@ -3650,12 +3620,15 @@ void TextEditor::draw_completion_popup(
         completion_bg);
   }
 
-  // Documentation / Detail Flyout Card
+  // Render Detail / Documentation Info Popup (VS Code Style Flyout Card matching Win32)
   const auto *selected_item = m_completion_popup.get_selected_item();
   if (selected_item != nullptr &&
       (!selected_item->detail.empty() || !selected_item->documentation.empty() ||
        selected_item->kind != Language::Protocol::CompletionItemKind::Text)) {
-    const float detail_w = 320.0F * scale;
+    const float detail_pad = 8.0F * scale;
+    const float detail_w = 340.0F * scale;
+
+    // Check if there is enough space on the right, otherwise place on the left
     float detail_x = actual_bounds.right() + 4.0F * scale;
     if (detail_x + detail_w > layout.editor_bounds.right() - 8.0F * scale) {
       detail_x = actual_bounds.x - detail_w - 4.0F * scale;
@@ -3665,39 +3638,142 @@ void TextEditor::draw_completion_popup(
       }
     }
 
+    // Word wrap documentation lines
     std::vector<std::string> doc_lines;
     if (!selected_item->documentation.empty()) {
       std::stringstream ss(selected_item->documentation);
       std::string line;
       while (std::getline(ss, line)) {
-        doc_lines.push_back(line);
+        if (line.empty()) {
+          doc_lines.push_back("");
+          continue;
+        }
+        std::stringstream words_ss(line);
+        std::string word;
+        std::string current_wrapped;
+        while (words_ss >> word) {
+          std::string test = current_wrapped.empty() ? word : current_wrapped + " " + word;
+          int text_w = surface.m_ui_font->getTextWidth(test);
+          if (static_cast<float>(text_w) > (detail_w - detail_pad * 2.0F - 4.0F * scale) && !current_wrapped.empty()) {
+            doc_lines.push_back(current_wrapped);
+            current_wrapped = word;
+          } else {
+            current_wrapped = test;
+          }
+        }
+        if (!current_wrapped.empty()) {
+          doc_lines.push_back(current_wrapped);
+        }
       }
     }
-    if (!selected_item->detail.empty() && doc_lines.empty()) {
-      doc_lines.push_back(selected_item->detail);
+
+    const float header_h = 24.0F * scale;
+    const float line_spacing = 16.0F * scale;
+    const float content_h = header_h + (doc_lines.empty() ? 6.0F * scale : (6.0F * scale + static_cast<float>(doc_lines.size()) * line_spacing + detail_pad));
+    const float detail_h = std::clamp(std::max(actual_bounds.height, content_h), 48.0F * scale, 300.0F * scale);
+    const float detail_y = actual_bounds.y;
+
+    const UI::Rect detail_bounds{detail_x, detail_y, detail_w, detail_h};
+
+    // Background & Border
+    surface.fill_rounded_rectangle(drawable, detail_bounds,
+                                   surface.allocate_color(UI::Theme::Color{22, 22, 26, 255}),
+                                   3.0F * scale, surface.m_pixels.editor_background);
+    surface.draw_rectangle(drawable, detail_bounds, completion_border);
+
+    // Top Header: Kind Badge + Label + Signature/Detail
+    float cursor_x = detail_bounds.x + detail_pad;
+    const float cursor_y = detail_bounds.y + header_h * 0.5F;
+
+    // Header Kind Badge
+    std::string kind_badge = " ";
+    UI::Theme::Color badge_color = surface.m_palette.accent;
+    std::string kind_name;
+
+    switch (selected_item->kind) {
+    case Language::Protocol::CompletionItemKind::Snippet:
+      kind_badge = "[]";
+      badge_color = UI::Theme::Color{79, 193, 255, 255};
+      kind_name = "(snippet)";
+      break;
+    case Language::Protocol::CompletionItemKind::Keyword:
+      kind_badge = "{}";
+      badge_color = UI::Theme::Color{197, 134, 192, 255};
+      kind_name = "(keyword)";
+      break;
+    case Language::Protocol::CompletionItemKind::Function:
+    case Language::Protocol::CompletionItemKind::Method:
+      kind_badge = "f";
+      badge_color = UI::Theme::Color{177, 128, 215, 255};
+      kind_name = "(function)";
+      break;
+    case Language::Protocol::CompletionItemKind::Variable:
+    case Language::Protocol::CompletionItemKind::Field:
+      kind_badge = "v";
+      badge_color = UI::Theme::Color{156, 220, 254, 255};
+      kind_name = "(variable)";
+      break;
+    case Language::Protocol::CompletionItemKind::Property:
+      kind_badge = "p";
+      badge_color = UI::Theme::Color{79, 193, 255, 255};
+      kind_name = "(property)";
+      break;
+    case Language::Protocol::CompletionItemKind::Class:
+    case Language::Protocol::CompletionItemKind::Struct:
+    case Language::Protocol::CompletionItemKind::Interface:
+      kind_badge = "c";
+      badge_color = UI::Theme::Color{78, 201, 176, 255};
+      kind_name = "(type)";
+      break;
+    case Language::Protocol::CompletionItemKind::File:
+      kind_badge = "h";
+      badge_color = UI::Theme::Color{156, 220, 254, 255};
+      kind_name = "(header)";
+      break;
+    case Language::Protocol::CompletionItemKind::Module:
+      kind_badge = "m";
+      badge_color = UI::Theme::Color{220, 220, 170, 255};
+      kind_name = "(module)";
+      break;
+    default:
+      kind_badge = "abc";
+      badge_color = surface.m_palette.text_muted;
+      kind_name = "";
+      break;
     }
 
-    const float doc_line_h = 16.0F * scale;
-    const float flyout_h =
-        std::min(static_cast<float>(std::max(doc_lines.size(), std::size_t{1})) *
-                         doc_line_h +
-                     16.0F * scale,
-                 200.0F * scale);
-    const UI::Rect flyout_rect{detail_x, actual_bounds.y, detail_w, flyout_h};
+    surface.draw_text(drawable, *surface.m_ui_font, kind_badge, cursor_x, cursor_y, badge_color);
+    cursor_x += 20.0F * scale;
 
-    surface.fill_rounded_rectangle(drawable, flyout_rect, completion_bg,
-                                   3.0F * scale,
-                                   surface.m_pixels.editor_background);
-    surface.draw_rectangle(drawable, flyout_rect, completion_border);
+    std::string header_text = selected_item->detail.empty() ? (kind_name + " " + selected_item->label) : selected_item->detail;
+    surface.draw_text(drawable, *surface.m_editor_font, header_text, cursor_x, cursor_y, UI::Theme::Color{230, 230, 235, 255});
 
-    float text_y = flyout_rect.y + 10.0F * scale;
-    for (const auto &d_line : doc_lines) {
-      if (text_y + doc_line_h > flyout_rect.bottom())
-        break;
-      surface.draw_text(drawable, *surface.m_ui_font, d_line,
-                        flyout_rect.x + 8.0F * scale, text_y,
-                        UI::Theme::Color{220, 220, 225, 255});
-      text_y += doc_line_h;
+    // Divider line
+    const float sep_y = detail_bounds.y + header_h;
+    surface.draw_line(drawable, round_to_int(detail_bounds.x), round_to_int(sep_y),
+                      round_to_int(detail_bounds.right()), round_to_int(sep_y), completion_border);
+
+    // Documentation text lines
+    float doc_y = sep_y + 10.0F * scale;
+    bool inside_code_block = false;
+    for (const auto &doc_line : doc_lines) {
+      if (doc_y + line_spacing * 0.5F > detail_bounds.bottom() - 4.0F * scale) break;
+      if (doc_line.starts_with("```")) {
+        inside_code_block = !inside_code_block;
+        continue;
+      }
+      if (!doc_line.empty()) {
+        if (doc_line.starts_with("### ")) {
+          surface.draw_text(drawable, *surface.m_ui_font, doc_line.substr(4), detail_bounds.x + detail_pad, doc_y, UI::Theme::Color{156, 220, 254, 255});
+        } else if (inside_code_block) {
+          surface.draw_text(drawable, *surface.m_editor_font, doc_line, detail_bounds.x + detail_pad + 6.0F * scale, doc_y, UI::Theme::Color{230, 230, 240, 255});
+        } else if (doc_line.starts_with("- ")) {
+          surface.draw_text(drawable, *surface.m_ui_font, "• " + doc_line.substr(2), detail_bounds.x + detail_pad + 4.0F * scale, doc_y, UI::Theme::Color{210, 210, 215, 255});
+        } else {
+          surface.draw_text(drawable, *surface.m_ui_font, doc_line, detail_bounds.x + detail_pad, doc_y, UI::Theme::Color{204, 204, 204, 255});
+        }
+      }
+      doc_y += line_spacing;
     }
   }
 }
