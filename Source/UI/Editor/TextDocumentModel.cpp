@@ -852,6 +852,10 @@ bool TextDocumentModel::execute(EditorInputCommand command, bool extend_selectio
         return move_line_up();
     case EditorInputCommand::MoveLineDown:
         return move_line_down();
+    case EditorInputCommand::AddCursorAbove:
+    case EditorInputCommand::AddCursorBelow:
+    case EditorInputCommand::Escape:
+        break;
     }
     if (edited)
     {
