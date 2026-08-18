@@ -6,6 +6,34 @@
 namespace Zenvra::Language::Syntax
 {
 
+namespace
+{
+
+bool is_path_or_filename(std::string_view text) noexcept
+{
+    if (text.empty()) return false;
+    if (text.find('/') != std::string_view::npos || text.find('\\') != std::string_view::npos)
+    {
+        return true;
+    }
+    const std::size_t dot = text.rfind('.');
+    if (dot != std::string_view::npos && dot > 0 && dot + 1 < text.size())
+    {
+        const std::string_view ext = text.substr(dot);
+        return ext == ".mm" || ext == ".cpp" || ext == ".h" || ext == ".hpp" ||
+               ext == ".c" || ext == ".cc" || ext == ".cxx" || ext == ".m" ||
+               ext == ".rs" || ext == ".py" || ext == ".js" || ext == ".ts" ||
+               ext == ".txt" || ext == ".cmake" || ext == ".json" || ext == ".xml" ||
+               ext == ".html" || ext == ".css" || ext == ".in" || ext == ".rc" ||
+               ext == ".def" || ext == ".lib" || ext == ".a" || ext == ".so" ||
+               ext == ".dylib" || ext == ".dll" || ext == ".exe" || ext == ".o" ||
+               ext == ".obj" || ext == ".ico" || ext == ".png" || ext == ".svg";
+    }
+    return false;
+}
+
+} // namespace
+
 std::size_t GenericGrammarEngine::tokenize_line(
     std::string_view line,
     const GrammarRule& grammar,
@@ -97,7 +125,54 @@ std::size_t GenericGrammarEngine::tokenize_line(
             continue;
         }
 
-        // 5. Strings
+        // 5. Variable Expansions (${VAR}, $ENV{VAR}, $<...>, @VAR@)
+        if (character == '$' && cursor + 1 < line.size())
+        {
+            const std::string_view remaining = line.substr(cursor);
+            if (remaining.starts_with("${"))
+            {
+                const std::size_t close_pos = line.find('}', cursor + 2);
+                if (close_pos != std::string_view::npos)
+                {
+                    cursor = close_pos + 1;
+                    append(line.substr(token_start, cursor - token_start), UI::Editor::EditorTokenKind::Label);
+                    continue;
+                }
+            }
+            else if (remaining.starts_with("$ENV{") || remaining.starts_with("$CACHE{"))
+            {
+                const std::size_t close_pos = line.find('}', cursor + 5);
+                if (close_pos != std::string_view::npos)
+                {
+                    cursor = close_pos + 1;
+                    append(line.substr(token_start, cursor - token_start), UI::Editor::EditorTokenKind::Label);
+                    continue;
+                }
+            }
+            else if (remaining.starts_with("$<"))
+            {
+                const std::size_t close_pos = line.find('>', cursor + 2);
+                if (close_pos != std::string_view::npos)
+                {
+                    cursor = close_pos + 1;
+                    append(line.substr(token_start, cursor - token_start), UI::Editor::EditorTokenKind::Label);
+                    continue;
+                }
+            }
+        }
+        if (character == '@' && grammar.name == "CMake" && cursor + 1 < line.size())
+        {
+            const std::size_t next_at = line.find('@', cursor + 1);
+            if (next_at != std::string_view::npos && next_at - cursor < 64 &&
+                line.substr(cursor + 1, next_at - cursor - 1).find_first_of(" \t\r\n();{}") == std::string_view::npos)
+            {
+                cursor = next_at + 1;
+                append(line.substr(token_start, cursor - token_start), UI::Editor::EditorTokenKind::Label);
+                continue;
+            }
+        }
+
+        // 6. Strings
         bool is_string_delim = false;
         for (const auto& delim : grammar.string_delimiters)
         {
@@ -130,7 +205,7 @@ std::size_t GenericGrammarEngine::tokenize_line(
             continue;
         }
 
-        // 6. Numbers (Decimal, Hex, Binary, Floats)
+        // 7. Numbers (Decimal, Hex, Binary, Floats)
         if (std::isdigit(static_cast<unsigned char>(character)) != 0 ||
             (character == '-' && cursor + 1 < line.size() &&
              std::isdigit(static_cast<unsigned char>(line[cursor + 1])) != 0))
@@ -150,7 +225,7 @@ std::size_t GenericGrammarEngine::tokenize_line(
             continue;
         }
 
-        // 7. Annotations / Decorators (e.g. @SpringBootApplication, @Component, @Injectable, @Override)
+        // 8. Annotations / Decorators (e.g. @SpringBootApplication, @Component, @Injectable, @Override)
         if (character == '@' && cursor + 1 < line.size() &&
             (std::isalpha(static_cast<unsigned char>(line[cursor + 1])) != 0 || line[cursor + 1] == '_'))
         {
@@ -165,14 +240,45 @@ std::size_t GenericGrammarEngine::tokenize_line(
             continue;
         }
 
-        // 8. Identifiers (Keywords, Types, Functions, Classes, Namespaces, Plain)
+        // 9. File Paths & Source Files in Build Scripts (e.g. CocoaWindow.mm, Runtime/CocoaContext.mm)
+        if (grammar.name == "CMake" || grammar.name == "Meson")
+        {
+            // Scan word boundaries up to whitespace / parentheses / quotes
+            std::size_t word_end = cursor;
+            while (word_end < line.size() &&
+                   std::isspace(static_cast<unsigned char>(line[word_end])) == 0 &&
+                   line[word_end] != '(' && line[word_end] != ')' &&
+                   line[word_end] != '"' && line[word_end] != '\'' &&
+                   line[word_end] != '#' && line[word_end] != ';')
+            {
+                ++word_end;
+            }
+            const std::string_view candidate = line.substr(cursor, word_end - cursor);
+            if (is_path_or_filename(candidate))
+            {
+                cursor = word_end;
+                append(candidate, UI::Editor::EditorTokenKind::Plain);
+                continue;
+            }
+        }
+
+        // 10. Scoped Identifiers (e.g. Zenvra::Core, std::vector)
         if (std::isalpha(static_cast<unsigned char>(character)) != 0 || character == '_')
         {
-            while (cursor < line.size() &&
-                   (std::isalnum(static_cast<unsigned char>(line[cursor])) != 0 ||
-                    line[cursor] == '_'))
+            while (cursor < line.size())
             {
-                ++cursor;
+                if (std::isalnum(static_cast<unsigned char>(line[cursor])) != 0 || line[cursor] == '_')
+                {
+                    ++cursor;
+                }
+                else if (cursor + 1 < line.size() && line[cursor] == ':' && line[cursor + 1] == ':')
+                {
+                    cursor += 2;
+                }
+                else
+                {
+                    break;
+                }
             }
             const std::string_view identifier = line.substr(token_start, cursor - token_start);
 
@@ -183,7 +289,6 @@ std::size_t GenericGrammarEngine::tokenize_line(
                 ++next_idx;
             }
 
-            const bool followed_by_scope = (next_idx + 1 < line.size() && line[next_idx] == ':' && line[next_idx + 1] == ':');
             const bool followed_by_paren = (next_idx < line.size() && line[next_idx] == '(');
 
             if (grammar.is_keyword(identifier))
@@ -212,6 +317,22 @@ std::size_t GenericGrammarEngine::tokenize_line(
                     decl_context = DeclContext::None;
                 }
             }
+            else if (grammar.is_variable(identifier))
+            {
+                append(identifier, UI::Editor::EditorTokenKind::Label);
+            }
+            else if (followed_by_paren)
+            {
+                // In CMake and build files, any command/function call is a Keyword command
+                if (grammar.name == "CMake" || grammar.name == "Meson")
+                {
+                    append(identifier, UI::Editor::EditorTokenKind::Keyword);
+                }
+                else
+                {
+                    append(identifier, UI::Editor::EditorTokenKind::Label);
+                }
+            }
             else
             {
                 bool is_label = false;
@@ -226,11 +347,11 @@ std::size_t GenericGrammarEngine::tokenize_line(
                         decl_context = DeclContext::None;
                     }
                 }
-                else if (followed_by_paren || followed_by_scope)
+                else if (identifier.find("::") != std::string_view::npos)
                 {
-                    is_label = true;
+                    is_label = (grammar.name == "CMake");
                 }
-                else if (std::isupper(static_cast<unsigned char>(identifier.front())) != 0)
+                else if (grammar.name != "CMake" && std::isupper(static_cast<unsigned char>(identifier.front())) != 0)
                 {
                     is_label = true;
                 }
@@ -247,7 +368,7 @@ std::size_t GenericGrammarEngine::tokenize_line(
             continue;
         }
 
-        // 9. Operators and punctuation symbols
+        // 11. Operators and punctuation symbols
         const char punct = line[cursor];
         if (punct == ';' || punct == '{' || punct == '}' || punct == '(' || punct == ')')
         {

@@ -410,6 +410,42 @@ void Win32Window::request_close() {
   }
 }
 
+void Win32Window::toggle_fullscreen() {
+  if (m_window_handle == nullptr) return;
+  const DWORD style = GetWindowLongW(m_window_handle, GWL_STYLE);
+  if (!m_is_fullscreen) {
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    m_saved_placement.length = sizeof(m_saved_placement);
+    if (GetWindowPlacement(m_window_handle, &m_saved_placement) &&
+        GetMonitorInfoW(MonitorFromWindow(m_window_handle, MONITOR_DEFAULTTONEAREST), &mi)) {
+      m_is_fullscreen = true;
+      SetWindowLongW(m_window_handle, GWL_STYLE, (style & ~WS_OVERLAPPEDWINDOW) | WS_POPUP);
+      SetWindowPos(m_window_handle, HWND_TOP,
+                   mi.rcMonitor.left, mi.rcMonitor.top,
+                   mi.rcMonitor.right - mi.rcMonitor.left,
+                   mi.rcMonitor.bottom - mi.rcMonitor.top,
+                   SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    }
+  } else {
+    m_is_fullscreen = false;
+    SetWindowLongW(m_window_handle, GWL_STYLE, (style & ~WS_POPUP) | WS_OVERLAPPEDWINDOW);
+    SetWindowPlacement(m_window_handle, &m_saved_placement);
+    SetWindowPos(m_window_handle, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER |
+                 SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+  }
+  apply_system_corner_preference();
+  refresh_chrome_layout();
+  InvalidateRect(m_window_handle, nullptr, TRUE);
+  UpdateWindow(m_window_handle);
+}
+
+void Win32Window::reset_layout() {
+  m_workspace_renderer.reset_layout();
+  InvalidateRect(m_window_handle, nullptr, FALSE);
+}
+
 bool Win32Window::is_maximized() const {
   return m_window_handle != nullptr && IsZoomed(m_window_handle) != FALSE;
 }
@@ -1513,7 +1549,7 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     }
     break;
 
-  case WM_KEYDOWN:
+  case WM_KEYDOWN: {
     if (m_custom_chrome_enabled && m_workspace_renderer.is_prompt_modal_visible()) {
       if (w_param == VK_ESCAPE) {
         static_cast<void>(m_workspace_renderer.get_prompt_modal().handle_escape());
@@ -1551,6 +1587,101 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       close_explorer_context_menu();
       InvalidateRect(window_handle, nullptr, FALSE);
       return 0;
+    }
+
+    auto dispatch_shortcut_command = [&](std::string_view cmd_id) -> bool {
+      if (cmd_id == Commands::CommandIds::window_toggle_fullscreen) {
+        toggle_fullscreen();
+        return true;
+      }
+      if (cmd_id == Commands::CommandIds::window_minimize) {
+        minimize();
+        return true;
+      }
+      if (cmd_id == Commands::CommandIds::window_maximize) {
+        if (is_maximized()) {
+          restore();
+        } else {
+          maximize();
+        }
+        return true;
+      }
+      if (cmd_id == Commands::CommandIds::window_reset_layout) {
+        reset_layout();
+        return true;
+      }
+      if (cmd_id == Commands::CommandIds::window_close) {
+        request_close();
+        return true;
+      }
+      const std::optional<bool> editor_result =
+          m_workspace_renderer.handle_editor_command(cmd_id);
+      if (!editor_result && m_command_invoked_callback) {
+        m_command_invoked_callback(cmd_id);
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return true;
+      }
+      if (editor_result.value_or(false)) {
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return true;
+      }
+      return false;
+    };
+
+    if (m_custom_chrome_enabled) {
+      const bool alt_down = (GetKeyState(VK_MENU) & 0x8000) != 0;
+      const bool ctrl_down = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+      const bool shift_down = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+
+      if (!ctrl_down && !alt_down && !shift_down) {
+        if (w_param == VK_F11) {
+          if (dispatch_shortcut_command(Commands::CommandIds::window_toggle_fullscreen)) return 0;
+        } else if (w_param == VK_F5) {
+          if (dispatch_shortcut_command(Commands::CommandIds::run_start)) return 0;
+        }
+      } else if (ctrl_down && shift_down && !alt_down) {
+        if (w_param == 'W') {
+          if (dispatch_shortcut_command(Commands::CommandIds::window_close)) return 0;
+        } else if (w_param == 'S') {
+          if (dispatch_shortcut_command(Commands::CommandIds::file_save_as)) return 0;
+        } else if (w_param == 'B') {
+          if (dispatch_shortcut_command(Commands::CommandIds::build_build_project)) return 0;
+        } else if (w_param == 'F') {
+          if (dispatch_shortcut_command(Commands::CommandIds::view_search)) return 0;
+        } else if (w_param == 'E') {
+          if (dispatch_shortcut_command(Commands::CommandIds::view_explorer)) return 0;
+        } else if (w_param == 'G') {
+          if (dispatch_shortcut_command(Commands::CommandIds::view_git_panel)) return 0;
+        } else if (w_param == 'D') {
+          if (dispatch_shortcut_command(Commands::CommandIds::view_debugger_panel)) return 0;
+        } else if (w_param == 'X') {
+          if (dispatch_shortcut_command(Commands::CommandIds::open_plugins)) return 0;
+        } else if (w_param == 'M') {
+          if (dispatch_shortcut_command(Commands::CommandIds::view_diagnostics)) return 0;
+        } else if (w_param == 'P') {
+          if (dispatch_shortcut_command(Commands::CommandIds::help_show_all_commands)) return 0;
+        } else if (w_param == VK_TAB || w_param == VK_PRIOR) {
+          if (dispatch_shortcut_command(Commands::CommandIds::window_prev_tab)) return 0;
+        }
+      } else if (ctrl_down && alt_down && !shift_down) {
+        if (w_param == 'B') {
+          if (dispatch_shortcut_command(Commands::CommandIds::view_toggle_right_dock)) return 0;
+        }
+      } else if (ctrl_down && !shift_down && !alt_down) {
+        if (w_param == VK_TAB || w_param == VK_NEXT) {
+          if (dispatch_shortcut_command(Commands::CommandIds::window_next_tab)) return 0;
+        } else if (w_param == VK_OEM_5) {
+          if (dispatch_shortcut_command(Commands::CommandIds::view_split_right)) return 0;
+        } else if (w_param == 'B') {
+          if (dispatch_shortcut_command(Commands::CommandIds::view_toggle_left_dock)) return 0;
+        } else if (w_param == 'J' || w_param == VK_OEM_3) {
+          if (dispatch_shortcut_command(Commands::CommandIds::view_terminal_panel)) return 0;
+        } else if (w_param == VK_OEM_COMMA) {
+          if (dispatch_shortcut_command(Commands::CommandIds::open_settings)) return 0;
+        } else if (w_param == 'O') {
+          if (dispatch_shortcut_command(Commands::CommandIds::file_open)) return 0;
+        }
+      }
     }
     if (m_custom_chrome_enabled && m_workspace_renderer.is_search_focused()) {
       const bool alt_pressed = (GetKeyState(VK_MENU) & 0x8000) != 0;
@@ -1658,12 +1789,6 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         }
         return 0;
       }
-      if (control_pressed && shift_pressed && w_param == 'N') {
-        if (m_command_invoked_callback) {
-          m_command_invoked_callback(Commands::CommandIds::window_new);
-        }
-        return 0;
-      }
       std::optional<UI::Editor::EditorAction> action;
       if (control_pressed && shift_pressed && w_param == VK_DELETE) {
         action = UI::Editor::EditorAction::RemoveDocument;
@@ -1743,6 +1868,7 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       }
     }
     break;
+  }
 
   case WM_SYSKEYDOWN:
     if (m_custom_chrome_enabled && m_workspace_renderer.is_editor_focused()) {
@@ -1896,16 +2022,27 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         MONITORINFO monitor_info{};
         monitor_info.cbSize = sizeof(monitor_info);
         if (GetMonitorInfoW(monitor, &monitor_info) != FALSE) {
-          min_max_info->ptMaxPosition.x =
-              std::abs(monitor_info.rcWork.left - monitor_info.rcMonitor.left);
-          min_max_info->ptMaxPosition.y =
-              std::abs(monitor_info.rcWork.top - monitor_info.rcMonitor.top);
-          min_max_info->ptMaxSize.x =
-              std::abs(monitor_info.rcWork.right - monitor_info.rcWork.left);
-          min_max_info->ptMaxSize.y =
-              std::abs(monitor_info.rcWork.bottom - monitor_info.rcWork.top);
-          min_max_info->ptMaxTrackSize.x = min_max_info->ptMaxSize.x;
-          min_max_info->ptMaxTrackSize.y = min_max_info->ptMaxSize.y;
+          if (m_is_fullscreen) {
+            min_max_info->ptMaxPosition.x = monitor_info.rcMonitor.left;
+            min_max_info->ptMaxPosition.y = monitor_info.rcMonitor.top;
+            min_max_info->ptMaxSize.x =
+                std::abs(monitor_info.rcMonitor.right - monitor_info.rcMonitor.left);
+            min_max_info->ptMaxSize.y =
+                std::abs(monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top);
+            min_max_info->ptMaxTrackSize.x = min_max_info->ptMaxSize.x;
+            min_max_info->ptMaxTrackSize.y = min_max_info->ptMaxSize.y;
+          } else {
+            min_max_info->ptMaxPosition.x =
+                std::abs(monitor_info.rcWork.left - monitor_info.rcMonitor.left);
+            min_max_info->ptMaxPosition.y =
+                std::abs(monitor_info.rcWork.top - monitor_info.rcMonitor.top);
+            min_max_info->ptMaxSize.x =
+                std::abs(monitor_info.rcWork.right - monitor_info.rcWork.left);
+            min_max_info->ptMaxSize.y =
+                std::abs(monitor_info.rcWork.bottom - monitor_info.rcWork.top);
+            min_max_info->ptMaxTrackSize.x = min_max_info->ptMaxSize.x;
+            min_max_info->ptMaxTrackSize.y = min_max_info->ptMaxSize.y;
+          }
         }
       }
       return 0;
@@ -2587,6 +2724,30 @@ void Win32Window::execute_menu_item(std::size_t menu_index,
   close_menu_overlay();
   if (command_id == Commands::CommandIds::help_about) {
     show_about_dialog();
+    return;
+  }
+  if (command_id == Commands::CommandIds::window_toggle_fullscreen) {
+    toggle_fullscreen();
+    return;
+  }
+  if (command_id == Commands::CommandIds::window_minimize) {
+    minimize();
+    return;
+  }
+  if (command_id == Commands::CommandIds::window_maximize) {
+    if (is_maximized()) {
+      restore();
+    } else {
+      maximize();
+    }
+    return;
+  }
+  if (command_id == Commands::CommandIds::window_reset_layout) {
+    reset_layout();
+    return;
+  }
+  if (command_id == Commands::CommandIds::window_close) {
+    request_close();
     return;
   }
   if (command_id == Commands::CommandIds::build_debug) {

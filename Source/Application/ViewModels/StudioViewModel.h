@@ -26,6 +26,9 @@ struct StudioActions
     std::function<void()> request_close_window;
     std::function<void()> request_toggle_terminal;
     std::function<void()> request_toggle_fullscreen;
+    std::function<void()> request_reset_layout;
+    std::function<void()> request_minimize_window;
+    std::function<void()> request_maximize_window;
     std::function<void()> request_toggle_shader;
     std::function<void()> request_build;
     std::function<void()> request_run;

@@ -130,31 +130,31 @@ void ActivitySidebar::draw_icon(
     switch (icon)
     {
     case UI::Editor::SidebarIcon::Project:
-        svg_path = "Assets/icons/folder.svg";
+        svg_path = "Assets/icons/vscode-codicons/icons/folder.svg";
         break;
     case UI::Editor::SidebarIcon::VersionControl:
-        svg_path = "Assets/icons/git_branch.svg";
+        svg_path = "Assets/icons/vscode-codicons/icons/source-control.svg";
         break;
     case UI::Editor::SidebarIcon::Search:
-        svg_path = "Assets/icons/search.svg";
+        svg_path = "Assets/icons/vscode-codicons/icons/search.svg";
         break;
     case UI::Editor::SidebarIcon::Services:
-        svg_path = "Assets/icons/puzzle.svg";
+        svg_path = "Assets/icons/vscode-codicons/icons/extensions.svg";
         break;
     case UI::Editor::SidebarIcon::Shader:
         svg_path = "Assets/icons/material-icon-theme/shader.svg";
         break;
     case UI::Editor::SidebarIcon::Run:
-        svg_path = "Assets/icons/play.svg";
+        svg_path = "Assets/icons/vscode-codicons/icons/play.svg";
         break;
     case UI::Editor::SidebarIcon::Terminal:
-        svg_path = "Assets/icons/terminal.svg";
+        svg_path = "Assets/icons/vscode-codicons/icons/terminal.svg";
         break;
     case UI::Editor::SidebarIcon::Problems:
         svg_path = "Assets/icons/bug.svg";
         break;
     case UI::Editor::SidebarIcon::More:
-        svg_path = "Assets/icons/menu.svg";
+        svg_path = "Assets/icons/vscode-codicons/icons/ellipsis.svg";
         break;
     }
 

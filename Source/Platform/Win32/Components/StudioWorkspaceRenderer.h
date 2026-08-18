@@ -215,6 +215,7 @@ public:
     void sync_shader_sandbox() const;
     [[nodiscard]] bool toggle_terminal() noexcept;
     [[nodiscard]] bool is_terminal_visible() const noexcept;
+    void reset_layout() noexcept;
     [[nodiscard]] UI::Editor::StudioEditorLayoutResult calculate_layout(
         int client_width,
         int client_height,

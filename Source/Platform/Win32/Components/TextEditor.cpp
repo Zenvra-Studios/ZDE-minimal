@@ -1,5 +1,6 @@
 #include "Platform/Win32/Components/TextEditor.h"
 
+#include "Commands/CommandIds.h"
 #include "Language/LanguageServerManager.h"
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
 #include "UI/Editor/FileIconModel.h"
@@ -2493,8 +2494,102 @@ bool TextEditor::handle_action(UI::Editor::EditorAction action)
     return changed;
 }
 
+void TextEditor::reset_split() noexcept
+{
+    m_is_split = false;
+    m_split_document_index.reset();
+    m_focused_pane = SplitPaneFocus::Left;
+    m_scrollbar.reset();
+    m_split_scrollbar.reset();
+}
+
 std::optional<bool> TextEditor::handle_command(std::string_view command_id)
 {
+    if (command_id == Commands::CommandIds::view_split_right || command_id == "zde.editor.split_right" ||
+        command_id == Commands::CommandIds::view_split_left || command_id == Commands::CommandIds::view_split_up ||
+        command_id == Commands::CommandIds::view_split_down)
+    {
+        m_is_split = !m_is_split;
+        if (m_is_split)
+        {
+            const auto doc_count = m_controller.get_documents().size();
+            if (doc_count > 1)
+            {
+                const std::size_t active = m_controller.get_active_index().value_or(0);
+                m_split_document_index = (active + 1) % doc_count;
+            }
+            else
+            {
+                m_split_document_index = m_controller.get_active_index().value_or(0);
+            }
+            std::clog << "[ZDE] Split Editor activated\n";
+        }
+        else
+        {
+            m_split_document_index.reset();
+            std::clog << "[ZDE] Split Editor closed\n";
+        }
+        return true;
+    }
+
+    if (command_id == Commands::CommandIds::window_next_tab || command_id == "zde.editor.nextTab")
+    {
+        const auto doc_count = m_controller.get_documents().size();
+        if (doc_count > 1)
+        {
+            const std::size_t active = m_controller.get_active_index().value_or(0);
+            const std::size_t next = (active + 1) % doc_count;
+            static_cast<void>(m_controller.activate_file(next));
+            m_scrollbar.reset();
+            m_reveal_caret_pending = true;
+            m_caret_blink.reset();
+            return true;
+        }
+        return false;
+    }
+
+    if (command_id == Commands::CommandIds::window_prev_tab || command_id == "zde.editor.prevTab")
+    {
+        const auto doc_count = m_controller.get_documents().size();
+        if (doc_count > 1)
+        {
+            const std::size_t active = m_controller.get_active_index().value_or(0);
+            const std::size_t prev = (active == 0) ? (doc_count - 1) : (active - 1);
+            static_cast<void>(m_controller.activate_file(prev));
+            m_scrollbar.reset();
+            m_reveal_caret_pending = true;
+            m_caret_blink.reset();
+            return true;
+        }
+        return false;
+    }
+
+    if (command_id == Commands::CommandIds::file_close_all || command_id == "zde.editor.closeAll" ||
+        command_id == "workbench.action.closeAllEditors")
+    {
+        return close_all_files();
+    }
+
+    if (command_id == "workbench.action.closeActiveEditor" || command_id == Commands::CommandIds::file_close)
+    {
+        return handle_action(UI::Editor::EditorAction::CloseDocument);
+    }
+
+    if (command_id == "zde.editor.focus_first_group")
+    {
+        m_focused_pane = SplitPaneFocus::Left;
+        return true;
+    }
+    if (command_id == "zde.editor.focus_second_group")
+    {
+        if (m_is_split)
+        {
+            m_focused_pane = SplitPaneFocus::Right;
+            return true;
+        }
+        return false;
+    }
+
     const std::optional<UI::Editor::EditorAction> action =
         UI::Editor::EditorController::action_from_command_id(command_id);
     return action ? std::optional<bool>{handle_action(*action)} : std::nullopt;
@@ -2503,6 +2598,17 @@ std::optional<bool> TextEditor::handle_command(std::string_view command_id)
 std::optional<bool> TextEditor::is_command_enabled(
     std::string_view command_id) const noexcept
 {
+    if (command_id == Commands::CommandIds::view_split_right || command_id == "zde.editor.split_right" ||
+        command_id == Commands::CommandIds::view_split_left || command_id == Commands::CommandIds::view_split_up ||
+        command_id == Commands::CommandIds::view_split_down ||
+        command_id == Commands::CommandIds::window_next_tab || command_id == "zde.editor.nextTab" ||
+        command_id == Commands::CommandIds::window_prev_tab || command_id == "zde.editor.prevTab" ||
+        command_id == Commands::CommandIds::file_close_all || command_id == "zde.editor.closeAll" ||
+        command_id == "workbench.action.closeActiveEditor" || command_id == "zde.editor.focus_first_group" ||
+        command_id == "zde.editor.focus_second_group")
+    {
+        return true;
+    }
     const std::optional<UI::Editor::EditorAction> action =
         UI::Editor::EditorController::action_from_command_id(command_id);
     return action ? std::optional<bool>{m_controller.can_execute_action(*action)} : std::nullopt;

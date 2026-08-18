@@ -353,11 +353,41 @@ std::string_view Menubar::get_command_id(int native_command_id) noexcept
     case ID_VIEW_PROBLEMS:
         command_id = Commands::CommandIds::view_problems;
         break;
+    case ID_WINDOW_CLOSE:
+        command_id = Commands::CommandIds::window_close;
+        break;
     case ID_WINDOW_RESET_LAYOUT:
         command_id = Commands::CommandIds::window_reset_layout;
         break;
     case ID_WINDOW_TOGGLE_FULLSCREEN:
         command_id = Commands::CommandIds::window_toggle_fullscreen;
+        break;
+    case ID_WINDOW_MINIMIZE:
+        command_id = Commands::CommandIds::window_minimize;
+        break;
+    case ID_WINDOW_MAXIMIZE:
+        command_id = Commands::CommandIds::window_maximize;
+        break;
+    case ID_WINDOW_SPLIT_RIGHT:
+        command_id = Commands::CommandIds::view_split_right;
+        break;
+    case ID_WINDOW_SPLIT_LEFT:
+        command_id = Commands::CommandIds::view_split_left;
+        break;
+    case ID_WINDOW_SPLIT_UP:
+        command_id = Commands::CommandIds::view_split_up;
+        break;
+    case ID_WINDOW_SPLIT_DOWN:
+        command_id = Commands::CommandIds::view_split_down;
+        break;
+    case ID_WINDOW_NEXT_TAB:
+        command_id = Commands::CommandIds::window_next_tab;
+        break;
+    case ID_WINDOW_PREV_TAB:
+        command_id = Commands::CommandIds::window_prev_tab;
+        break;
+    case ID_FILE_CLOSE_ALL:
+        command_id = Commands::CommandIds::file_close_all;
         break;
     case ID_PROJECT_OPEN:
         command_id = Commands::CommandIds::project_open;

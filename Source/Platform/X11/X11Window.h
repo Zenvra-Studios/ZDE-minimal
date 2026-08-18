@@ -55,6 +55,7 @@ public:
     [[nodiscard]] bool is_modal_active() const override;
     void toggle_fullscreen() override;
     [[nodiscard]] bool is_fullscreen() const override;
+    void reset_layout() override;
 
 private:
     struct Atoms

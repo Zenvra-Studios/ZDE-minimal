@@ -3042,6 +3042,11 @@ bool X11Window::is_fullscreen() const {
   return m_is_fullscreen;
 }
 
+void X11Window::reset_layout() {
+  m_chrome_renderer.get_workspace_renderer().reset_layout();
+  render();
+}
+
 void X11Window::draw_about_modal(Drawable drawable, int client_width, int client_height) {
   if (!m_about_modal.is_visible()) {
     return;

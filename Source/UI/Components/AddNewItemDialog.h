@@ -60,9 +60,15 @@ public:
 
     UI::Rect category_pane_bounds{};
     std::vector<UI::Rect> category_item_bounds{};
+    UI::Rect category_scrollbar_track{};
+    UI::Rect category_scrollbar_thumb{};
+    bool category_scroll_visible = false;
 
     UI::Rect template_pane_bounds{};
     std::vector<UI::Rect> template_item_bounds{};
+    UI::Rect template_scrollbar_track{};
+    UI::Rect template_scrollbar_thumb{};
+    bool template_scroll_visible = false;
 
     UI::Rect details_pane_bounds{};
 
@@ -85,8 +91,10 @@ public:
 
   bool handle_pointer_move(float x, float y, const LayoutResult &layout);
   bool handle_pointer_press(float x, float y, const LayoutResult &layout);
+  bool handle_pointer_drag(float x, float y, const LayoutResult &layout);
+  bool handle_pointer_release();
   bool handle_double_click(float x, float y, const LayoutResult &layout);
-  bool handle_scroll(int delta);
+  bool handle_scroll(int delta, float mouse_x, float mouse_y, const LayoutResult &layout);
   bool handle_text_input(std::string_view text);
   bool handle_key_down(WPARAM w_param);
 
@@ -115,7 +123,12 @@ private:
   std::vector<TemplateCategory> m_categories;
   std::size_t m_selected_category_index = 0;
   std::size_t m_selected_template_index = 0;
-  int m_template_scroll_offset = 0;
+  float m_category_scroll_offset = 0.0F;
+  float m_template_scroll_offset = 0.0F;
+  bool m_category_scroll_dragging = false;
+  bool m_template_scroll_dragging = false;
+  float m_drag_start_y = 0.0F;
+  float m_drag_start_offset = 0.0F;
 
   std::string m_filename_input;
   std::size_t m_caret_position = 0;

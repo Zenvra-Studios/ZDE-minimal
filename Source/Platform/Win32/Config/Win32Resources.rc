@@ -60,8 +60,22 @@ BEGIN
     END
     POPUP "&Window"
     BEGIN
-        MENUITEM "&Reset Layout", ID_WINDOW_RESET_LAYOUT, GRAYED
-        MENUITEM "Toggle &Fullscreen\tF11", ID_WINDOW_TOGGLE_FULLSCREEN, GRAYED
+        MENUITEM "&Close Window\tCtrl+Shift+W", ID_WINDOW_CLOSE
+        MENUITEM SEPARATOR
+        MENUITEM "Split Editor &Right\tCtrl+\\", ID_WINDOW_SPLIT_RIGHT
+        MENUITEM "Split Editor &Left", ID_WINDOW_SPLIT_LEFT
+        MENUITEM "Split Editor &Up", ID_WINDOW_SPLIT_UP
+        MENUITEM "Split Editor &Down", ID_WINDOW_SPLIT_DOWN
+        MENUITEM SEPARATOR
+        MENUITEM "Toggle &Fullscreen\tF11", ID_WINDOW_TOGGLE_FULLSCREEN
+        MENUITEM "&Minimize", ID_WINDOW_MINIMIZE
+        MENUITEM "Ma&ximize / Restore", ID_WINDOW_MAXIMIZE
+        MENUITEM SEPARATOR
+        MENUITEM "&Reset Layout", ID_WINDOW_RESET_LAYOUT
+        MENUITEM SEPARATOR
+        MENUITEM "Next Editor &Tab\tCtrl+Tab", ID_WINDOW_NEXT_TAB
+        MENUITEM "Previous Editor Ta&b\tCtrl+Shift+Tab", ID_WINDOW_PREV_TAB
+        MENUITEM "Close &All Editors", ID_FILE_CLOSE_ALL
     END
     POPUP "&Help"
     BEGIN

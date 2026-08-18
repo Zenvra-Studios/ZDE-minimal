@@ -111,8 +111,22 @@ constexpr std::array run_items{
 };
 
 constexpr std::array window_items{
-    MenuItem{"Reset Layout", Commands::CommandIds::window_reset_layout, false, ""},
+    MenuItem{"Close Window", Commands::CommandIds::window_close, false, "Ctrl+Shift+W"},
+    separator,
+    MenuItem{"Split Editor Right", Commands::CommandIds::view_split_right, false, "Ctrl+\\"},
+    MenuItem{"Split Editor Left", Commands::CommandIds::view_split_left, false, "Ctrl+K Left"},
+    MenuItem{"Split Editor Up", Commands::CommandIds::view_split_up, false, "Ctrl+K Up"},
+    MenuItem{"Split Editor Down", Commands::CommandIds::view_split_down, false, "Ctrl+K Down"},
+    separator,
     MenuItem{"Toggle Fullscreen", Commands::CommandIds::window_toggle_fullscreen, false, "F11"},
+    MenuItem{"Minimize", Commands::CommandIds::window_minimize, false, ""},
+    MenuItem{"Maximize / Restore", Commands::CommandIds::window_maximize, false, ""},
+    separator,
+    MenuItem{"Reset Layout", Commands::CommandIds::window_reset_layout, false, ""},
+    separator,
+    MenuItem{"Next Editor Tab", Commands::CommandIds::window_next_tab, false, "Ctrl+Tab"},
+    MenuItem{"Previous Editor Tab", Commands::CommandIds::window_prev_tab, false, "Ctrl+Shift+Tab"},
+    MenuItem{"Close All Editors", Commands::CommandIds::file_close_all, false, "Ctrl+K W"},
 };
 
 constexpr std::array help_items{

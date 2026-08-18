@@ -151,6 +151,15 @@ Platform::IPlatformWindow* Application::create_new_window(
         .request_close_window = [this, win_ptr] { close_window(win_ptr); },
         .request_toggle_terminal = [win_ptr] { win_ptr->toggle_terminal(); },
         .request_toggle_fullscreen = [win_ptr] { win_ptr->toggle_fullscreen(); },
+        .request_reset_layout = [win_ptr] { win_ptr->reset_layout(); },
+        .request_minimize_window = [win_ptr] { win_ptr->minimize(); },
+        .request_maximize_window = [win_ptr] {
+            if (win_ptr->is_maximized()) {
+                win_ptr->restore();
+            } else {
+                win_ptr->maximize();
+            }
+        },
         .request_toggle_shader = [win_ptr] { win_ptr->toggle_shader_sandbox(); },
         .request_build = [this, view_model_holder] {
             std::string preset = (*view_model_holder) ? std::string((*view_model_holder)->get_active_preset()) : "macos-debug";

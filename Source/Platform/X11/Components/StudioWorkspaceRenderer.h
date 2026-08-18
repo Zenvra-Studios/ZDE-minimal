@@ -82,8 +82,8 @@ public:
         bool extend_selection);
     [[nodiscard]] bool handle_editor_action(UI::Editor::EditorAction action);
     [[nodiscard]] std::optional<bool> handle_editor_command(std::string_view command_id);
-    [[nodiscard]] std::optional<bool> is_editor_command_enabled(
-        std::string_view command_id) const noexcept;
+    [[nodiscard]] std::optional<bool> is_editor_command_enabled(std::string_view command_id) const noexcept;
+    void reset_layout() noexcept;
     [[nodiscard]] bool handle_text_input(std::string_view utf8_text);
     [[nodiscard]] bool handle_terminal_key(Terminal::TerminalInputKey key);
     [[nodiscard]] bool handle_terminal_control(char letter);

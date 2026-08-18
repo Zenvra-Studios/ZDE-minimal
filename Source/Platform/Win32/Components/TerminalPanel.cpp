@@ -455,16 +455,14 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   const float scale = surface.m_dpi_scale;
 
   // Draw Channel Switcher Tabs: [ Terminal ] [ Output ]
+  // Draw Channel Switcher Tabs: Terminal, Output
   const UI::Rect term_tab = terminal_channel_tab_bounds(layout);
   const UI::Rect out_tab = output_channel_tab_bounds(layout);
 
-  surface.fill_rounded_rectangle(device_context, term_tab,
-                                 (m_active_channel == PanelChannel::Terminal)
-                                     ? surface.m_palette.tab_active_background
-                                     : surface.m_palette.tab_background,
-                                 3.0F * scale);
   if (m_active_channel == PanelChannel::Terminal) {
-    surface.draw_rectangle(device_context, term_tab, surface.m_palette.border);
+    surface.fill_rounded_rectangle(device_context, term_tab,
+                                   surface.m_palette.tab_active_background,
+                                   3.0F * scale);
   }
   surface.draw_text(device_context, *surface.m_small_font, "Terminal",
                     term_tab.x + 12.0F * scale,
@@ -473,13 +471,10 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
                         ? surface.m_palette.text_primary
                         : surface.m_palette.text_muted);
 
-  surface.fill_rounded_rectangle(device_context, out_tab,
-                                 (m_active_channel == PanelChannel::Output)
-                                     ? surface.m_palette.tab_active_background
-                                     : surface.m_palette.tab_background,
-                                 3.0F * scale);
   if (m_active_channel == PanelChannel::Output) {
-    surface.draw_rectangle(device_context, out_tab, surface.m_palette.border);
+    surface.fill_rounded_rectangle(device_context, out_tab,
+                                   surface.m_palette.tab_active_background,
+                                   3.0F * scale);
   }
   surface.draw_text(device_context, *surface.m_small_font, "Output",
                     out_tab.x + 14.0F * scale,
@@ -490,9 +485,6 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
 
   if (m_active_channel == PanelChannel::Output) {
     const UI::Rect clear_btn = clear_output_button_bounds(layout);
-    surface.fill_rounded_rectangle(device_context, clear_btn,
-                                   surface.m_palette.tab_background,
-                                   3.0F * scale);
     surface.draw_text(device_context, *surface.m_small_font, "Clear",
                       clear_btn.x + 10.0F * scale,
                       clear_btn.y + clear_btn.height * 0.5F,
@@ -522,16 +514,13 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   for (std::size_t index = 0; index < sessions.size(); ++index) {
     const UI::Rect tab = session_tab_bounds(layout, index);
     const bool active = active_index && *active_index == index;
-    surface.fill_rounded_rectangle(device_context, tab,
-                                   active
-                                       ? surface.m_palette.tab_active_background
-                                       : surface.m_palette.tab_background,
-                                   3.0F * scale);
     if (active) {
-      surface.draw_rectangle(device_context, tab, surface.m_palette.border);
+      surface.fill_rounded_rectangle(device_context, tab,
+                                     surface.m_palette.tab_active_background,
+                                     3.0F * scale);
     }
     surface.draw_svg_icon(
-        device_context, "terminal.svg", round_to_int(tab.x + 10.0F * scale),
+        device_context, "vscode-codicons/icons/terminal.svg", round_to_int(tab.x + 10.0F * scale),
         round_to_int(tab.y + tab.height * 0.5F),
         std::max(round_to_int(13.0F * scale), 10),
         active ? surface.m_palette.text_primary : surface.m_palette.text_muted,
@@ -544,8 +533,6 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   }
 
   const UI::Rect add = add_button_bounds(layout);
-  surface.fill_rounded_rectangle(
-      device_context, add, surface.m_palette.tab_background, 3.0F * scale);
   surface.draw_line(device_context, round_to_int(add.x + add.width * 0.5F),
                     round_to_int(add.y + 5.0F * scale),
                     round_to_int(add.x + add.width * 0.5F),

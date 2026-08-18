@@ -568,19 +568,23 @@ void TerminalPanel::render(
         return;
     }
 
-    // Draw Channel Switcher Tabs: [ Terminal ] [ Output ]
+    // Draw Channel Switcher Tabs: Terminal, Output
     const UI::Rect term_tab = terminal_channel_tab_bounds(layout);
     const UI::Rect out_tab = output_channel_tab_bounds(layout);
 
-    surface.fill_rectangle(drawable, term_tab,
-        (m_active_channel == PanelChannel::Terminal) ? surface.m_pixels.tab_active_background : surface.m_pixels.tab_background);
+    if (m_active_channel == PanelChannel::Terminal)
+    {
+        surface.fill_rectangle(drawable, term_tab, surface.m_pixels.tab_active_background);
+    }
     surface.draw_text(drawable, *surface.m_small_font, "Terminal",
         term_tab.x + 12.0F * surface.m_dpi_scale,
         term_tab.y + term_tab.height * 0.5F,
         (m_active_channel == PanelChannel::Terminal) ? surface.m_text.primary : surface.m_text.muted);
 
-    surface.fill_rectangle(drawable, out_tab,
-        (m_active_channel == PanelChannel::Output) ? surface.m_pixels.tab_active_background : surface.m_pixels.tab_background);
+    if (m_active_channel == PanelChannel::Output)
+    {
+        surface.fill_rectangle(drawable, out_tab, surface.m_pixels.tab_active_background);
+    }
     surface.draw_text(drawable, *surface.m_small_font, "Output",
         out_tab.x + 14.0F * surface.m_dpi_scale,
         out_tab.y + out_tab.height * 0.5F,
@@ -589,7 +593,6 @@ void TerminalPanel::render(
     if (m_active_channel == PanelChannel::Output)
     {
         const UI::Rect clear_btn = clear_output_button_bounds(layout);
-        surface.fill_rectangle(drawable, clear_btn, surface.m_pixels.tab_background);
         surface.draw_text(drawable, *surface.m_small_font, "Clear",
             clear_btn.x + 10.0F * surface.m_dpi_scale,
             clear_btn.y + clear_btn.height * 0.5F,
@@ -623,20 +626,11 @@ void TerminalPanel::render(
         tab.x = m_tab_animated_x[id];
 
         const bool active = active_index && *active_index == index;
-        surface.fill_rectangle(drawable, tab, active ? surface.m_pixels.tab_active_background : surface.m_pixels.tab_background);
-        const unsigned long tab_edge_color = surface.m_pixels.border;
-        const int tab_left = round_to_int(tab.x);
-        const int tab_right = round_to_int(tab.right()) - 1;
-        const int tab_top = round_to_int(tab.y);
-        const int tab_bottom = round_to_int(tab.bottom()) - 1;
-        surface.draw_line(drawable, tab_left, tab_top, tab_right, tab_top, tab_edge_color);
-        surface.draw_line(drawable, tab_left, tab_top, tab_left, tab_bottom, tab_edge_color);
-        surface.draw_line(drawable, tab_right, tab_top, tab_right, tab_bottom, tab_edge_color);
-        if (!active)
+        if (active)
         {
-            surface.draw_line(drawable, tab_left, tab_bottom, tab_right, tab_bottom, tab_edge_color);
+            surface.fill_rectangle(drawable, tab, surface.m_pixels.tab_active_background);
         }
-        surface.draw_svg_icon(drawable, "Assets/icons/terminal.svg",
+        surface.draw_svg_icon(drawable, "Assets/icons/vscode-codicons/icons/terminal.svg",
             round_to_int(tab.x + 12.0F * surface.m_dpi_scale),
             round_to_int(tab.y + tab.height * 0.5F),
             std::max(round_to_int(13.0F * surface.m_dpi_scale), 10),

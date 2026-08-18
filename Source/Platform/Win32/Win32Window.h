@@ -35,10 +35,13 @@ public:
     void maximize() override;
     void restore() override;
     void request_close() override;
+    void toggle_fullscreen() override;
+    void reset_layout() override;
 
     [[nodiscard]] bool is_maximized() const override;
     [[nodiscard]] bool is_minimized() const override;
     [[nodiscard]] bool is_focused() const override;
+    [[nodiscard]] bool is_fullscreen() const override { return m_is_fullscreen; }
     [[nodiscard]] const WindowCapabilities& get_capabilities() const noexcept override;
     [[nodiscard]] void* get_native_handle() const noexcept override;
 
@@ -128,6 +131,8 @@ private:
     std::wstring m_window_title;
     bool m_should_close = false;
     bool m_custom_chrome_enabled = false;
+    bool m_is_fullscreen = false;
+    WINDOWPLACEMENT m_saved_placement{};
     TitlebarHitTestCallback m_titlebar_hit_test_callback;
     CommandInvokedCallback m_command_invoked_callback;
     CommandStateQueryCallback m_command_state_query_callback;

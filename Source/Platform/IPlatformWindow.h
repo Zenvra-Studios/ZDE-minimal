@@ -51,6 +51,7 @@ public:
     virtual void restore() = 0;
     virtual void request_close() = 0;
     virtual void toggle_fullscreen() {}
+    virtual void reset_layout() {}
 
     [[nodiscard]] virtual bool is_maximized() const = 0;
     [[nodiscard]] virtual bool is_minimized() const = 0;

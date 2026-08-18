@@ -142,6 +142,15 @@ void test_studio_view_model_routes_actions()
         .request_save_all = {},
         .request_close_window = {},
         .request_toggle_terminal = {},
+        .request_toggle_fullscreen = {},
+        .request_reset_layout = {},
+        .request_minimize_window = {},
+        .request_maximize_window = {},
+        .request_toggle_shader = {},
+        .request_build = {},
+        .request_run = {},
+        .request_debug = {},
+        .request_stop = {},
     });
 
     expect(view_model.initialize(), "the Studio ViewModel must initialize its command model");

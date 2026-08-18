@@ -384,20 +384,11 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   for (std::size_t index = 0; index < sessions.size(); ++index) {
     UI::Rect tab = session_tab_bounds(layout, index);
     const bool active = active_index && *active_index == index;
-    surface.fill_rectangle(context, tab, active ? surface.m_colors.tab_active_background : surface.m_colors.tab_background);
-
-    const int tab_left = round_to_int(tab.x);
-    const int tab_right = round_to_int(tab.right()) - 1;
-    const int tab_top = round_to_int(tab.y);
-    const int tab_bottom = round_to_int(tab.bottom()) - 1;
-    surface.draw_line(context, tab_left, tab_top, tab_right, tab_top, surface.m_colors.border);
-    surface.draw_line(context, tab_left, tab_top, tab_left, tab_bottom, surface.m_colors.border);
-    surface.draw_line(context, tab_right, tab_top, tab_right, tab_bottom, surface.m_colors.border);
-    if (!active) {
-      surface.draw_line(context, tab_left, tab_bottom, tab_right, tab_bottom, surface.m_colors.border);
+    if (active) {
+      surface.fill_rectangle(context, tab, surface.m_colors.tab_active_background);
     }
 
-    surface.draw_svg_icon(context, "Assets/icons/terminal.svg",
+    surface.draw_svg_icon(context, "Assets/icons/vscode-codicons/icons/terminal.svg",
         round_to_int(tab.x + 12.0F * surface.m_dpi_scale),
         round_to_int(tab.y + tab.height * 0.5F),
         std::max(round_to_int(13.0F * surface.m_dpi_scale), 10),

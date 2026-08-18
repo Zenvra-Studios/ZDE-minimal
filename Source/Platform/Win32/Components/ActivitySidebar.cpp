@@ -131,16 +131,16 @@ void ActivitySidebar::draw_icon(
     switch (icon)
     {
     case UI::Editor::SidebarIcon::Project:
-        asset_name = "folder.svg";
+        asset_name = "vscode-codicons/icons/folder.svg";
         break;
     case UI::Editor::SidebarIcon::VersionControl:
-        asset_name = "git_branch.svg";
+        asset_name = "vscode-codicons/icons/source-control.svg";
         break;
     case UI::Editor::SidebarIcon::Search:
         asset_name = "search.svg";
         break;
     case UI::Editor::SidebarIcon::Services:
-        asset_name = "puzzle.svg";
+        asset_name = "vscode-codicons/icons/extensions.svg";
         break;
     case UI::Editor::SidebarIcon::Shader:
         asset_name = "material-icon-theme/shader.svg";

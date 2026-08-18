@@ -31,6 +31,7 @@ public:
     void restore() override;
     void request_close() override;
     void toggle_fullscreen() override;
+    void reset_layout() override;
 
     [[nodiscard]] bool is_maximized() const override;
     [[nodiscard]] bool is_minimized() const override;

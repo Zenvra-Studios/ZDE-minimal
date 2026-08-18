@@ -374,6 +374,16 @@ void CocoaWindow::toggle_fullscreen()
     [window toggleFullScreen:nil];
 }
 
+void CocoaWindow::reset_layout()
+{
+    m_renderer.get_workspace_renderer().reset_layout();
+    if (m_window_handle != nullptr)
+    {
+        NSWindow* window = (__bridge NSWindow*)m_window_handle;
+        [[window contentView] setNeedsDisplay:YES];
+    }
+}
+
 bool CocoaWindow::is_fullscreen() const
 {
     if (m_window_handle == nullptr) return false;

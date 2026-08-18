@@ -402,26 +402,65 @@ void GrammarRegistry::initialize_default_grammars()
         cmake_rule.name = "CMake";
         cmake_rule.extensions = {".cmake", "cmakelists.txt"};
         cmake_rule.line_comment = "#";
+        cmake_rule.case_insensitive = true;
         cmake_rule.keywords = {
             "cmake_minimum_required", "project", "add_executable", "add_library",
             "add_subdirectory", "add_custom_command", "add_custom_target", "add_definitions",
             "add_dependencies", "find_package", "find_path", "find_library", "find_program",
             "find_file", "target_link_libraries", "target_include_directories",
             "target_compile_definitions", "target_compile_features", "target_compile_options",
-            "target_sources", "set", "unset", "set_target_properties", "get_target_property",
-            "set_property", "get_property", "if", "else", "elseif", "endif",
-            "foreach", "endforeach", "while", "endwhile", "function", "endfunction",
-            "macro", "endmacro", "return", "break", "continue", "option", "message",
-            "include", "include_directories", "link_directories", "enable_testing",
-            "add_test", "configure_file", "file", "list", "string", "math"
+            "target_sources", "target_link_options", "target_precompile_headers",
+            "set", "unset", "set_target_properties", "get_target_property",
+            "set_property", "get_property", "set_directory_properties", "get_directory_property",
+            "if", "else", "elseif", "endif", "foreach", "endforeach", "while", "endwhile",
+            "function", "endfunction", "macro", "endmacro", "return", "break", "continue",
+            "block", "endblock", "option", "message", "include", "include_directories",
+            "link_directories", "link_libraries", "enable_testing", "add_test",
+            "configure_file", "file", "list", "string", "math", "install", "export",
+            "mark_as_advanced", "execute_process", "try_compile", "try_run",
+            "source_group", "aux_source_directory", "separate_arguments", "cmake_policy",
+            "cmake_host_system_information", "cmake_path", "cmake_language", "cmake_file_api"
         };
         cmake_rule.types = {
             "PUBLIC", "PRIVATE", "INTERFACE", "REQUIRED", "COMPONENTS", "CONFIG",
+            "EXACT", "NO_MODULE", "NO_DEFAULT_PATH", "VERSION", "LANGUAGES",
+            "CXX", "C", "OBJC", "OBJCXX", "CUDA", "ASM", "PROPERTIES", "DESTINATION",
+            "TARGET", "TARGETS", "DIRECTORY", "DIRECTORIES", "FILES", "GLOBAL",
+            "PROPERTY", "DEFINITIONS", "INCLUDES", "HEADERS", "SOURCES",
             "STATIC", "SHARED", "MODULE", "OBJECT", "ALIAS", "IMPORTED",
             "STATUS", "WARNING", "AUTHOR_WARNING", "FATAL_ERROR", "SEND_ERROR",
+            "DEBUG", "TRACE", "CHECK_START", "CHECK_PASS", "CHECK_FAIL",
             "TRUE", "FALSE", "ON", "OFF", "STREQUAL", "STRLESS", "STRGREATER",
-            "VERSION_LESS", "VERSION_GREATER", "VERSION_EQUAL", "EXISTS", "IS_DIRECTORY",
-            "DEFINED", "NOT", "AND", "OR", "MATCHES"
+            "VERSION_LESS", "VERSION_GREATER", "VERSION_EQUAL", "VERSION_LESS_EQUAL",
+            "VERSION_GREATER_EQUAL", "EXISTS", "IS_DIRECTORY", "IS_ABSOLUTE", "IS_SYMLINK",
+            "DEFINED", "NOT", "AND", "OR", "MATCHES", "LESS", "GREATER", "EQUAL",
+            "LESS_EQUAL", "GREATER_EQUAL", "COMMAND", "DEPENDS", "COMMENT",
+            "WORKING_DIRECTORY", "OUTPUT", "POST_BUILD", "PRE_BUILD", "PRE_LINK",
+            "OUTPUT_VARIABLE", "ERROR_VARIABLE", "RESULT_VARIABLE", "PARSE_ARGV",
+            "READ", "WRITE", "APPEND", "MAKE_DIRECTORY", "REMOVE", "REMOVE_RECURSE",
+            "GLOB", "GLOB_RECURSE", "COPY", "RENAME", "DOWNLOAD", "UPLOAD", "TIMESTAMP",
+            "GENERATE", "ALL", "EXCLUDE_FROM_ALL", "CXX_STANDARD", "CXX_STANDARD_REQUIRED",
+            "CXX_EXTENSIONS", "C_STANDARD", "C_STANDARD_REQUIRED", "C_EXTENSIONS",
+            "POSITION_INDEPENDENT_CODE", "RUNTIME_OUTPUT_DIRECTORY", "LIBRARY_OUTPUT_DIRECTORY",
+            "ARCHIVE_OUTPUT_DIRECTORY", "MSVC_RUNTIME_LIBRARY", "FOLDER", "VS_STARTUP_PROJECT"
+        };
+        cmake_rule.variables = {
+            "CMAKE_CURRENT_SOURCE_DIR", "CMAKE_CURRENT_BINARY_DIR", "CMAKE_SOURCE_DIR",
+            "CMAKE_BINARY_DIR", "CMAKE_CURRENT_LIST_DIR", "CMAKE_CURRENT_LIST_FILE",
+            "CMAKE_CURRENT_LIST_LINE", "CMAKE_COMMAND", "CMAKE_CTEST_COMMAND",
+            "CMAKE_BUILD_TYPE", "CMAKE_CXX_STANDARD", "CMAKE_CXX_STANDARD_REQUIRED",
+            "CMAKE_CXX_FLAGS", "CMAKE_CXX_FLAGS_DEBUG", "CMAKE_CXX_FLAGS_RELEASE",
+            "CMAKE_C_FLAGS", "CMAKE_C_FLAGS_DEBUG", "CMAKE_C_FLAGS_RELEASE",
+            "CMAKE_EXE_LINKER_FLAGS", "CMAKE_SHARED_LINKER_FLAGS", "CMAKE_MODULE_PATH",
+            "CMAKE_PREFIX_PATH", "CMAKE_INSTALL_PREFIX", "CMAKE_RUNTIME_OUTPUT_DIRECTORY",
+            "CMAKE_LIBRARY_OUTPUT_DIRECTORY", "CMAKE_ARCHIVE_OUTPUT_DIRECTORY",
+            "CMAKE_SYSTEM_NAME", "CMAKE_SYSTEM_VERSION", "CMAKE_SYSTEM_PROCESSOR",
+            "CMAKE_GENERATOR", "CMAKE_PROJECT_NAME", "PROJECT_NAME", "PROJECT_SOURCE_DIR",
+            "PROJECT_BINARY_DIR", "PROJECT_VERSION", "PROJECT_VERSION_MAJOR",
+            "PROJECT_VERSION_MINOR", "PROJECT_VERSION_PATCH", "BUILD_SHARED_LIBS",
+            "WIN32", "APPLE", "UNIX", "MSVC", "MINGW", "CYGWIN", "ANDROID", "IOS",
+            "EMSCRIPTEN", "CMAKE_HOST_WIN32", "CMAKE_HOST_APPLE", "CMAKE_HOST_UNIX",
+            "CMAKE_DL_LIBS", "CMAKE_THREAD_LIBS_INIT", "ENV", "CACHE"
         };
         register_grammar(std::move(cmake_rule));
     }

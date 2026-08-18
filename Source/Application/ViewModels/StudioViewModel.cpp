@@ -451,6 +451,51 @@ bool StudioViewModel::register_future_commands()
     });
 
     add_command(Commands::Command{
+        .id = std::string(Commands::CommandIds::window_reset_layout),
+        .name = "Reset Layout",
+        .description = "Restore default Studio panel and editor layout.",
+        .category = "Window",
+        .shortcut_binding = {},
+        .execute = [this] {
+            if (m_actions.request_reset_layout) {
+                m_actions.request_reset_layout();
+            }
+        },
+        .is_enabled = [this] { return static_cast<bool>(m_actions.request_reset_layout); },
+        .is_checked = {},
+    });
+
+    add_command(Commands::Command{
+        .id = std::string(Commands::CommandIds::window_minimize),
+        .name = "Minimize",
+        .description = "Minimize the current window.",
+        .category = "Window",
+        .shortcut_binding = {},
+        .execute = [this] {
+            if (m_actions.request_minimize_window) {
+                m_actions.request_minimize_window();
+            }
+        },
+        .is_enabled = [this] { return static_cast<bool>(m_actions.request_minimize_window); },
+        .is_checked = {},
+    });
+
+    add_command(Commands::Command{
+        .id = std::string(Commands::CommandIds::window_maximize),
+        .name = "Maximize / Restore",
+        .description = "Maximize or restore the current window.",
+        .category = "Window",
+        .shortcut_binding = {},
+        .execute = [this] {
+            if (m_actions.request_maximize_window) {
+                m_actions.request_maximize_window();
+            }
+        },
+        .is_enabled = [this] { return static_cast<bool>(m_actions.request_maximize_window); },
+        .is_checked = {},
+    });
+
+    add_command(Commands::Command{
         .id = std::string(Commands::CommandIds::view_shader_panel),
         .name = "Shader Sandbox",
         .description = "Toggle the Shader Sandbox panel.",
@@ -535,11 +580,6 @@ bool StudioViewModel::register_future_commands()
         "Show Problems",
         "Show or focus the Problems panel.",
         "View"));
-    add_command(create_unavailable_command(
-        Commands::CommandIds::window_reset_layout,
-        "Reset Layout",
-        "Restore the default Studio panel layout.",
-        "Window"));
 
     // Additional Editor & Navigation Commands
     add_command(create_unavailable_command(

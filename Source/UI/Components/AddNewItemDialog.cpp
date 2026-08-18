@@ -173,20 +173,7 @@ void AddNewItemDialog::draw_icon(HDC dc, const std::string &icon_rel_path,
     if (!icon_bm || !bits)
       return;
 
-    const auto *src_pixels =
-        reinterpret_cast<const std::uint8_t *>(bitmap.data());
-    auto *dst_pixels = reinterpret_cast<std::uint8_t *>(bits);
-    for (int i = 0; i < size * size; ++i) {
-      std::uint8_t c0 = src_pixels[i * 4 + 0];
-      std::uint8_t c1 = src_pixels[i * 4 + 1];
-      std::uint8_t c2 = src_pixels[i * 4 + 2];
-      std::uint8_t a = src_pixels[i * 4 + 3];
-
-      dst_pixels[i * 4 + 0] = (c0 * a) / 255;
-      dst_pixels[i * 4 + 1] = (c1 * a) / 255;
-      dst_pixels[i * 4 + 2] = (c2 * a) / 255;
-      dst_pixels[i * 4 + 3] = a;
-    }
+    std::memcpy(bits, bitmap.data(), static_cast<std::size_t>(size) * static_cast<std::size_t>(size) * 4);
 
     m_icon_cache[cache_key] = CachedBitmap{icon_bm, size, size};
   }
@@ -212,30 +199,30 @@ void AddNewItemDialog::init_default_templates() {
   TemplateCategory cpp_cat{
       "cpp",
       "C/C++",
-      "Assets/icons/material-icon-theme/cpp.svg",
+      "Assets/icons/vscode-symbols/files/cplus.svg",
       {{"cpp_file", "C++ File (.cpp)", "Source.cpp", ".cpp", "C/C++",
         "Creates a file containing C++ source code.",
-        "Assets/icons/material-icon-theme/cpp.svg",
+        "Assets/icons/vscode-symbols/files/cplus.svg",
         "#include <iostream>\n\nint main()\n{\n    std::cout << \"Hello from "
         "ZDE!\" << std::endl;\n    return 0;\n}\n"},
        {"h_file", "Header File (.h)", "Header.h", ".h", "C/C++",
         "Creates a C/C++ header file with include guards.",
-        "Assets/icons/material-icon-theme/h.svg",
+        "Assets/icons/vscode-symbols/files/h.svg",
         "#pragma once\n\nnamespace Name\n{\n\n}\n"},
        {"cpp_class", "C++ Class", "MyClass.h", ".h", "C/C++",
         "Creates a C++ class declaration with constructor and destructor.",
-        "Assets/icons/material-icon-theme/cpp.svg",
+        "Assets/icons/vscode-symbols/files/cplus.svg",
         "#pragma once\n\nnamespace Name\n{\n\nclass MyClass\n{\npublic:\n    "
         "MyClass() = default;\n    ~MyClass() = "
         "default;\n\nprivate:\n};\n\n}\n"},
        {"ixx_file", "C++ Module Interface (.ixx)", "Module.ixx", ".ixx",
         "C/C++", "Creates a modern C++20 module interface unit.",
-        "Assets/icons/material-icon-theme/cpp.svg",
+        "Assets/icons/vscode-symbols/files/cplus.svg",
         "export module MyModule;\n\nexport namespace MyModule\n{\n    void "
         "hello();\n}\n"},
        {"hpp_file", "Header File (.hpp)", "Header.hpp", ".hpp", "C/C++",
         "Creates a C++ template header file.",
-        "Assets/icons/material-icon-theme/hpp.svg",
+        "Assets/icons/vscode-symbols/files/cplus.svg",
         "#pragma once\n\ntemplate <typename T>\nclass Buffer\n{\npublic:\n    "
         "Buffer() = default;\n};\n"}}};
 
@@ -243,23 +230,23 @@ void AddNewItemDialog::init_default_templates() {
   TemplateCategory rust_cat{
       "rust",
       "Rust",
-      "Assets/icons/material-icon-theme/rust.svg",
+      "Assets/icons/vscode-symbols/files/rust.svg",
       {{"rs_main", "Rust Binary (main.rs)", "main.rs", ".rs", "Rust",
         "Creates a Rust binary application entry point.",
-        "Assets/icons/material-icon-theme/rust.svg",
+        "Assets/icons/vscode-symbols/files/rust.svg",
         "fn main() {\n    println!(\"Hello from Rust!\");\n}\n"},
        {"rs_mod", "Rust Module (mod.rs)", "mod.rs", ".rs", "Rust",
         "Creates a Rust module file.",
-        "Assets/icons/material-icon-theme/rust.svg",
+        "Assets/icons/vscode-symbols/files/rust.svg",
         "pub fn hello() -> &'static str {\n    \"Hello from module\"\n}\n"},
        {"rs_lib", "Rust Library (lib.rs)", "lib.rs", ".rs", "Rust",
         "Creates a Rust library root with unit tests.",
-        "Assets/icons/material-icon-theme/rust.svg",
+        "Assets/icons/vscode-symbols/files/rust.svg",
         "pub fn add(left: usize, right: usize) -> usize {\n    left + "
         "right\n}\n"},
        {"cargo_toml", "Cargo Manifest (Cargo.toml)", "Cargo.toml", ".toml",
         "Rust", "Creates a Cargo package configuration manifest.",
-        "Assets/icons/material-icon-theme/toml.svg",
+        "Assets/icons/vscode-symbols/files/rust.svg",
         "[package]\nname = \"my_project\"\nversion = \"0.1.0\"\nedition = "
         "\"2021\"\n\n[dependencies]\n"}}};
 
@@ -267,34 +254,34 @@ void AddNewItemDialog::init_default_templates() {
   TemplateCategory ts_cat{
       "typescript",
       "TypeScript / JavaScript",
-      "Assets/icons/material-icon-theme/typescript.svg",
+      "Assets/icons/vscode-symbols/files/ts.svg",
       {{"ts_file", "TypeScript File (.ts)", "index.ts", ".ts", "TypeScript",
         "Creates a modern TypeScript source file.",
-        "Assets/icons/material-icon-theme/typescript.svg",
+        "Assets/icons/vscode-symbols/files/ts.svg",
         "export interface AppConfig {\n    title: string;\n    version: string;\n}\n\nexport const config: AppConfig = {\n    title: \"ZDE Application\",\n    version: \"1.0.0\",\n};\n\nexport function bootstrap(): void {\n    console.log(`Starting ${config.title} v${config.version}...`);\n}\n\nbootstrap();\n"},
        {"js_file", "JavaScript File (.js)", "index.js", ".js", "JavaScript",
         "Creates a standard JavaScript source file.",
-        "Assets/icons/material-icon-theme/javascript.svg",
+        "Assets/icons/vscode-symbols/files/js.svg",
         "// @ts-check\n\nexport function bootstrap() {\n    console.log('Hello from JavaScript in ZDE!');\n}\n\nbootstrap();\n"},
        {"mjs_file", "ES Module File (.mjs)", "index.mjs", ".mjs", "JavaScript",
         "Creates a modern ECMAScript module file.",
-        "Assets/icons/material-icon-theme/javascript.svg",
+        "Assets/icons/vscode-symbols/files/js.svg",
         "import { promises as fs } from 'node:fs';\n\nexport async function bootstrap() {\n    console.log('Running ES Module in ZDE...');\n}\n\nawait bootstrap();\n"},
        {"tsx_file", "React Component (.tsx)", "Component.tsx", ".tsx", "TypeScript",
         "Creates a React functional component with TypeScript props.",
-        "Assets/icons/material-icon-theme/react_ts.svg",
+        "Assets/icons/vscode-symbols/files/react-ts.svg",
         "import React, { useState } from 'react';\n\nexport interface ComponentProps {\n    title?: string;\n}\n\nexport const Component: React.FC<ComponentProps> = ({\n    title = \"ZDE Component\",\n}) => {\n    const [count, setCount] = useState<number>(0);\n\n    return (\n        <div className=\"container\">\n            <h2>{title}</h2>\n            <button onClick={() => setCount(count + 1)}>Count: {count}</button>\n        </div>\n    );\n};\n\nexport default Component;\n"},
        {"jsx_file", "React Component (.jsx)", "Component.jsx", ".jsx", "JavaScript",
         "Creates a React functional component with JSX syntax.",
-        "Assets/icons/material-icon-theme/react.svg",
+        "Assets/icons/vscode-symbols/files/react.svg",
         "import React, { useState } from 'react';\n\nexport const Component = ({ title = 'ZDE Component' }) => {\n    const [count, setCount] = useState(0);\n\n    return (\n        <div className=\"container\">\n            <h2>{title}</h2>\n            <button onClick={() => setCount(count + 1)}>Count: {count}</button>\n        </div>\n    );\n};\n\nexport default Component;\n"},
        {"dts_file", "TypeScript Declaration (.d.ts)", "types.d.ts", ".d.ts", "TypeScript",
         "Creates a TypeScript ambient declaration type definitions file.",
-        "Assets/icons/material-icon-theme/typescript-def.svg",
+        "Assets/icons/vscode-symbols/files/dts.svg",
         "declare namespace ZDE {\n    interface UserSession {\n        id: string;\n        username: string;\n        createdAt: Date;\n    }\n}\n"},
        {"tsconfig", "TSConfig (tsconfig.json)", "tsconfig.json", ".json", "TypeScript",
         "Creates a standard TypeScript compiler configuration file.",
-        "Assets/icons/material-icon-theme/tsconfig.svg",
+        "Assets/icons/vscode-symbols/files/tsconfig.svg",
         "{\n  \"compilerOptions\": {\n    \"target\": \"ESNext\",\n    \"module\": \"ESNext\",\n    \"moduleResolution\": \"bundler\",\n    \"strict\": true,\n    \"jsx\": \"react-jsx\",\n    \"esModuleInterop\": true,\n    \"skipLibCheck\": true,\n    \"forceConsistentCasingInFileNames\": true\n  },\n  \"include\": [\"src/**/*\"]\n}\n"}}};
 
   // 4. Shaders & Graphics Category
@@ -326,55 +313,55 @@ void AddNewItemDialog::init_default_templates() {
   TemplateCategory build_cat{
       "build",
       "Build & Config",
-      "Assets/icons/material-icon-theme/cmake.svg",
+      "Assets/icons/vscode-symbols/files/cmake.svg",
       {{"cmakelists", "CMakeLists (CMakeLists.txt)", "CMakeLists.txt", ".txt",
         "Build & Config", "Creates a CMake project build configuration script.",
-        "Assets/icons/material-icon-theme/cmake.svg",
+        "Assets/icons/vscode-symbols/files/cmake.svg",
         "cmake_minimum_required(VERSION 3.25)\nproject(MyProject LANGUAGES "
         "CXX)\n\nset(CMAKE_CXX_STANDARD 20)\nadd_executable(MyProject "
         "Source.cpp)\n"},
        {"json_file", "JSON Configuration (.json)", "config.json", ".json",
         "Build & Config", "Creates a JSON configuration file.",
-        "Assets/icons/material-icon-theme/json.svg",
+        "Assets/icons/vscode-symbols/files/brackets-yellow.svg",
         "{\n    \"name\": \"ZDE-Project\",\n    \"version\": \"1.0.0\"\n}\n"},
        {"toml_file", "TOML Document (.toml)", "settings.toml", ".toml",
         "Build & Config", "Creates a TOML document.",
-        "Assets/icons/material-icon-theme/toml.svg",
+        "Assets/icons/vscode-symbols/files/gear.svg",
         "[settings]\ntheme = \"zenvra_dark\"\n"}}};
 
   // 6. HTML & Web Category
   TemplateCategory web_cat{
       "web",
       "HTML & Web",
-      "Assets/icons/material-icon-theme/html.svg",
+      "Assets/icons/vscode-symbols/files/code-orange.svg",
       {{"html5_page", "HTML5 Page (.html)", "index.html", ".html", "HTML & Web",
         "Creates a modern HTML5 document structure with viewport and styling.",
-        "Assets/icons/material-icon-theme/html.svg",
+        "Assets/icons/vscode-symbols/files/code-orange.svg",
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>ZDE App</title>\n    <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n    <div class=\"container\">\n        <h1>Hello from ZDE!</h1>\n        <p>Built with native C++ power.</p>\n    </div>\n    <script src=\"main.js\"></script>\n</body>\n</html>\n"},
        {"css_style", "CSS Stylesheet (.css)", "style.css", ".css", "HTML & Web",
         "Creates a CSS stylesheet for HTML layouts.",
-        "Assets/icons/material-icon-theme/css.svg",
+        "Assets/icons/vscode-symbols/files/code-sky.svg",
         "* {\n    box-sizing: border-box;\n    margin: 0;\n    padding: 0;\n}\n\nbody {\n    font-family: system-ui, -apple-system, sans-serif;\n    background-color: #1e1e1e;\n    color: #ffffff;\n    padding: 2rem;\n}\n"},
        {"svg_graphic", "SVG Vector Graphic (.svg)", "graphic.svg", ".svg", "HTML & Web",
         "Creates an SVG scalable vector graphics XML file.",
-        "Assets/icons/material-icon-theme/svg.svg",
+        "Assets/icons/vscode-symbols/files/svg.svg",
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n    <circle cx=\"12\" cy=\"12\" r=\"10\"></circle>\n</svg>\n"}}};
 
   // 7. General Category
   TemplateCategory gen_cat{
       "general",
       "General",
-      "Assets/icons/material-icon-theme/document.svg",
+      "Assets/icons/vscode-symbols/files/document.svg",
       {{"txt_file", "Text Document (.txt)", "Document.txt", ".txt", "General",
         "Creates an empty plain text document.",
-        "Assets/icons/material-icon-theme/document.svg", ""},
+        "Assets/icons/vscode-symbols/files/document.svg", ""},
        {"md_file", "Markdown Document (.md)", "README.md", ".md", "General",
         "Creates a Markdown documentation file.",
-        "Assets/icons/material-icon-theme/markdown.svg",
+        "Assets/icons/vscode-symbols/files/markdown.svg",
         "# Project Documentation\n"},
        {"gitignore", "Git Ignore (.gitignore)", ".gitignore", "", "General",
         "Creates standard gitignore rules.",
-        "Assets/icons/material-icon-theme/git.svg",
+        "Assets/icons/vscode-symbols/files/git.svg",
         "build/\nbin/\n*.obj\n*.exe\n.cache/\n"}}};
 
   m_categories.push_back(cpp_cat);
@@ -488,6 +475,17 @@ void AddNewItemDialog::close() {
   m_cancel_hovered = false;
   m_hovered_category_index.reset();
   m_hovered_template_index.reset();
+  m_category_scroll_offset = 0.0F;
+  m_template_scroll_offset = 0.0F;
+  m_category_scroll_dragging = false;
+  m_template_scroll_dragging = false;
+  for (auto &[key, entry] : m_icon_cache) {
+    if (entry.bitmap) {
+      DeleteObject(entry.bitmap);
+      entry.bitmap = nullptr;
+    }
+  }
+  m_icon_cache.clear();
 }
 
 void AddNewItemDialog::select_template(std::size_t index) {
@@ -708,18 +706,53 @@ AddNewItemDialog::calculate_layout(float width, float height,
   layout.details_pane_bounds = {cat_w + template_w, middle_y, details_w,
                                 middle_h};
 
-  // Category Items (Full width rows starting flush at middle_y)
+  // Category Items & Scrollbar Calculation
   const float cat_item_h = 28.0F * dpi_scale;
-  float curr_cat_y = middle_y;
+  const float cat_total_h = static_cast<float>(m_categories.size()) * cat_item_h;
+  const float cat_max_scroll = (cat_total_h > middle_h) ? (cat_total_h - middle_h + 4.0F * dpi_scale) : 0.0F;
+  const_cast<AddNewItemDialog *>(this)->m_category_scroll_offset =
+      std::clamp(m_category_scroll_offset, 0.0F, cat_max_scroll);
+
+  layout.category_scroll_visible = (cat_max_scroll > 0.0F);
+  if (layout.category_scroll_visible) {
+    layout.category_scrollbar_track = {cat_w - 6.0F * dpi_scale, middle_y + 2.0F * dpi_scale,
+                                       4.0F * dpi_scale, middle_h - 4.0F * dpi_scale};
+    const float thumb_h = std::max(20.0F * dpi_scale, (middle_h / cat_total_h) * layout.category_scrollbar_track.height);
+    const float thumb_y = layout.category_scrollbar_track.y +
+                          (m_category_scroll_offset / cat_max_scroll) * (layout.category_scrollbar_track.height - thumb_h);
+    layout.category_scrollbar_thumb = {layout.category_scrollbar_track.x, thumb_y,
+                                       layout.category_scrollbar_track.width, thumb_h};
+  }
+
+  float curr_cat_y = middle_y - m_category_scroll_offset;
   for (std::size_t i = 0; i < m_categories.size(); ++i) {
     layout.category_item_bounds.push_back(
         {0.0F, curr_cat_y, cat_w, cat_item_h});
     curr_cat_y += cat_item_h;
   }
 
-  // Template Items (Full width rows starting flush at middle_y)
+  // Template Items & Scrollbar Calculation
   const float tpl_item_h = 28.0F * dpi_scale;
-  float curr_tpl_y = middle_y - static_cast<float>(m_template_scroll_offset);
+  float tpl_total_h = 0.0F;
+  if (m_selected_category_index < m_categories.size()) {
+    tpl_total_h = static_cast<float>(m_categories[m_selected_category_index].templates.size()) * tpl_item_h;
+  }
+  const float tpl_max_scroll = (tpl_total_h > middle_h) ? (tpl_total_h - middle_h + 4.0F * dpi_scale) : 0.0F;
+  const_cast<AddNewItemDialog *>(this)->m_template_scroll_offset =
+      std::clamp(m_template_scroll_offset, 0.0F, tpl_max_scroll);
+
+  layout.template_scroll_visible = (tpl_max_scroll > 0.0F);
+  if (layout.template_scroll_visible) {
+    layout.template_scrollbar_track = {cat_w + template_w - 6.0F * dpi_scale, middle_y + 2.0F * dpi_scale,
+                                       4.0F * dpi_scale, middle_h - 4.0F * dpi_scale};
+    const float thumb_h = std::max(20.0F * dpi_scale, (middle_h / tpl_total_h) * layout.template_scrollbar_track.height);
+    const float thumb_y = layout.template_scrollbar_track.y +
+                          (m_template_scroll_offset / tpl_max_scroll) * (layout.template_scrollbar_track.height - thumb_h);
+    layout.template_scrollbar_thumb = {layout.template_scrollbar_track.x, thumb_y,
+                                       layout.template_scrollbar_track.width, thumb_h};
+  }
+
+  float curr_tpl_y = middle_y - m_template_scroll_offset;
   if (m_selected_category_index < m_categories.size()) {
     const auto &templates = m_categories[m_selected_category_index].templates;
     for (std::size_t i = 0; i < templates.size(); ++i) {
@@ -744,7 +777,6 @@ void AddNewItemDialog::render(HDC dc, const LayoutResult &layout,
   // 1. Clean Dark Background & Frame (Matching Text Editor Slate-Gray Palette)
   const COLORREF bg_col = RGB(30, 31, 34);
   const COLORREF border_col = RGB(48, 50, 55);
-  const COLORREF section_border_col = RGB(48, 50, 55);
 
   HBRUSH bg_brush = CreateSolidBrush(bg_col);
   HPEN border_pen = CreatePen(PS_SOLID, 1, border_col);
@@ -781,14 +813,16 @@ void AddNewItemDialog::render(HDC dc, const LayoutResult &layout,
             title_icon_size);
 
   SetBkMode(dc, TRANSPARENT);
-  SetTextColor(dc, RGB(188, 190, 196));
+  SetTextColor(dc, RGB(220, 222, 228));
+  SelectObject(dc, m_semibold_font);
   RECT title_text_r = native_title;
-  title_text_r.left += static_cast<LONG>(32.0F * dpi_scale);
+  title_text_r.left += static_cast<LONG>(34.0F * dpi_scale);
   const std::wstring title_str =
       L"Add New Item - " +
       Utility::utf8_to_wide(m_project_name).value_or(L"Project");
   DrawTextW(dc, title_str.c_str(), -1, &title_text_r,
             DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+  SelectObject(dc, m_regular_font);
 
   // Close button (Native DWM / Custom Chrome style)
   if (m_close_hovered) {
@@ -828,54 +862,21 @@ void AddNewItemDialog::render(HDC dc, const LayoutResult &layout,
   MoveToEx(dc, tpl_r.right, tpl_r.top, nullptr);
   LineTo(dc, tpl_r.right, tpl_r.bottom);
 
-  // 4. Left Categories Pane (With SVG Icons & Antialiased text)
   const COLORREF select_blue = RGB(53, 132, 228); // JetBrains / ZDE Accent Blue
   const int icon_size_16 = static_cast<int>(16.0F * dpi_scale);
 
-  for (std::size_t i = 0;
-       i < m_categories.size() && i < layout.category_item_bounds.size(); ++i) {
-    const auto &cat = m_categories[i];
-    const auto &item_b = layout.category_item_bounds[i];
-    const bool selected = (i == m_selected_category_index);
-    const bool hovered =
-        (m_hovered_category_index && *m_hovered_category_index == i);
+  // 4. Left Categories Pane with strict clipping
+  {
+    const int save_state = SaveDC(dc);
+    IntersectClipRect(dc, cat_r.left, cat_r.top, cat_r.right, cat_r.bottom);
 
-    RECT ir = to_native_rect(item_b);
-    if (selected) {
-      HBRUSH it_br = CreateSolidBrush(select_blue);
-      FillRect(dc, &ir, it_br);
-      DeleteObject(it_br);
-    } else if (hovered) {
-      HBRUSH it_br = CreateSolidBrush(RGB(45, 47, 52));
-      FillRect(dc, &ir, it_br);
-      DeleteObject(it_br);
-    }
-
-    // Draw Category Icon
-    const int cat_ic_x = ir.left + static_cast<int>(10.0F * dpi_scale);
-    const int cat_ic_y =
-        ir.top + static_cast<int>((item_b.height - icon_size_16) * 0.5F);
-    draw_icon(dc, cat.icon_path, cat_ic_x, cat_ic_y, icon_size_16);
-
-    // Draw Category Text
-    RECT tr = ir;
-    tr.left += static_cast<LONG>(32.0F * dpi_scale);
-    SetTextColor(dc, selected ? RGB(255, 255, 255) : RGB(188, 190, 196));
-    const std::wstring label_w = Utility::utf8_to_wide(cat.name).value_or(L"");
-    DrawTextW(dc, label_w.c_str(), -1, &tr,
-              DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-  }
-
-  // 5. Middle Template Items Pane (With SVG Icons & Antialiased text)
-  if (m_selected_category_index < m_categories.size()) {
-    const auto &templates = m_categories[m_selected_category_index].templates;
     for (std::size_t i = 0;
-         i < templates.size() && i < layout.template_item_bounds.size(); ++i) {
-      const auto &tpl = templates[i];
-      const auto &item_b = layout.template_item_bounds[i];
-      const bool selected = (i == m_selected_template_index);
+         i < m_categories.size() && i < layout.category_item_bounds.size(); ++i) {
+      const auto &cat = m_categories[i];
+      const auto &item_b = layout.category_item_bounds[i];
+      const bool selected = (i == m_selected_category_index);
       const bool hovered =
-          (m_hovered_template_index && *m_hovered_template_index == i);
+          (m_hovered_category_index && *m_hovered_category_index == i);
 
       RECT ir = to_native_rect(item_b);
       if (selected) {
@@ -888,68 +889,139 @@ void AddNewItemDialog::render(HDC dc, const LayoutResult &layout,
         DeleteObject(it_br);
       }
 
-      // Draw Template File Icon
-      const int tpl_ic_x = ir.left + static_cast<int>(10.0F * dpi_scale);
-      const int tpl_ic_y =
+      // Draw Category Icon
+      const int cat_ic_x = ir.left + static_cast<int>(10.0F * dpi_scale);
+      const int cat_ic_y =
           ir.top + static_cast<int>((item_b.height - icon_size_16) * 0.5F);
-      draw_icon(dc, tpl.icon_path, tpl_ic_x, tpl_ic_y, icon_size_16);
+      draw_icon(dc, cat.icon_path, cat_ic_x, cat_ic_y, icon_size_16);
 
-      // Draw Template Name
+      // Draw Category Text
       RECT tr = ir;
       tr.left += static_cast<LONG>(32.0F * dpi_scale);
       SetTextColor(dc, selected ? RGB(255, 255, 255) : RGB(188, 190, 196));
-      const std::wstring name_w = Utility::utf8_to_wide(tpl.name).value_or(L"");
-      DrawTextW(dc, name_w.c_str(), -1, &tr,
+      const std::wstring label_w = Utility::utf8_to_wide(cat.name).value_or(L"");
+      DrawTextW(dc, label_w.c_str(), -1, &tr,
                 DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    }
 
-      // Draw Category Tag (with small font)
-      SelectObject(dc, m_small_font);
-      RECT tag_r = ir;
-      tag_r.right -= static_cast<LONG>(14.0F * dpi_scale);
-      SetTextColor(dc, selected ? RGB(230, 230, 235) : RGB(104, 107, 115));
-      const std::wstring cat_w =
-          Utility::utf8_to_wide(tpl.category).value_or(L"");
-      DrawTextW(dc, cat_w.c_str(), -1, &tag_r,
-                DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-      SelectObject(dc, m_regular_font);
+    RestoreDC(dc, save_state);
+
+    // Draw Category Scrollbar (only if category list overflows pane)
+    if (layout.category_scroll_visible) {
+      RECT thumb_r = to_native_rect(layout.category_scrollbar_thumb);
+      HBRUSH thumb_br = CreateSolidBrush(RGB(75, 78, 85));
+      FillRect(dc, &thumb_r, thumb_br);
+      DeleteObject(thumb_br);
     }
   }
 
-  // 6. Right Details Pane (With Large 28x28 Icon badge & Crisp Type header)
-  if (m_selected_category_index < m_categories.size()) {
-    const auto &templates = m_categories[m_selected_category_index].templates;
-    if (m_selected_template_index < templates.size()) {
-      const auto &tpl = templates[m_selected_template_index];
-      RECT det_r = to_native_rect(layout.details_pane_bounds);
-      det_r.left += static_cast<LONG>(14.0F * dpi_scale);
-      det_r.top += static_cast<LONG>(14.0F * dpi_scale);
-      det_r.right -= static_cast<LONG>(14.0F * dpi_scale);
+  // 5. Middle Template Items Pane with strict clipping
+  {
+    const int save_state = SaveDC(dc);
+    IntersectClipRect(dc, tpl_r.left, tpl_r.top, tpl_r.right, tpl_r.bottom);
 
-      // Draw 28x28 Details Icon
-      const int large_icon_size = static_cast<int>(24.0F * dpi_scale);
-      draw_icon(dc, tpl.icon_path, det_r.left, det_r.top, large_icon_size);
+    if (m_selected_category_index < m_categories.size()) {
+      const auto &templates = m_categories[m_selected_category_index].templates;
+      for (std::size_t i = 0;
+           i < templates.size() && i < layout.template_item_bounds.size(); ++i) {
+        const auto &tpl = templates[i];
+        const auto &item_b = layout.template_item_bounds[i];
+        const bool selected = (i == m_selected_template_index);
+        const bool hovered =
+            (m_hovered_template_index && *m_hovered_template_index == i);
 
-      // Type header next to icon (using Semibold font)
-      SelectObject(dc, m_semibold_font);
-      SetTextColor(dc, RGB(220, 222, 228));
-      RECT type_r = det_r;
-      type_r.left += static_cast<LONG>(32.0F * dpi_scale);
-      type_r.top += static_cast<LONG>(3.0F * dpi_scale);
-      const std::wstring type_str =
-          L"Type: " + Utility::utf8_to_wide(tpl.category).value_or(L"");
-      DrawTextW(dc, type_str.c_str(), -1, &type_r,
-                DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
-      SelectObject(dc, m_regular_font);
+        RECT ir = to_native_rect(item_b);
+        if (selected) {
+          HBRUSH it_br = CreateSolidBrush(select_blue);
+          FillRect(dc, &ir, it_br);
+          DeleteObject(it_br);
+        } else if (hovered) {
+          HBRUSH it_br = CreateSolidBrush(RGB(45, 47, 52));
+          FillRect(dc, &ir, it_br);
+          DeleteObject(it_br);
+        }
 
-      // Description text
-      RECT desc_r = det_r;
-      desc_r.top += static_cast<LONG>(34.0F * dpi_scale);
-      SetTextColor(dc, RGB(140, 144, 155));
-      const std::wstring desc_str =
-          Utility::utf8_to_wide(tpl.description).value_or(L"");
-      DrawTextW(dc, desc_str.c_str(), -1, &desc_r,
-                DT_LEFT | DT_TOP | DT_WORDBREAK | DT_NOPREFIX);
+        // Draw Template File Icon
+        const int tpl_ic_x = ir.left + static_cast<int>(10.0F * dpi_scale);
+        const int tpl_ic_y =
+            ir.top + static_cast<int>((item_b.height - icon_size_16) * 0.5F);
+        draw_icon(dc, tpl.icon_path, tpl_ic_x, tpl_ic_y, icon_size_16);
+
+        // Draw Template Name
+        RECT tr = ir;
+        tr.left += static_cast<LONG>(32.0F * dpi_scale);
+        SetTextColor(dc, selected ? RGB(255, 255, 255) : RGB(188, 190, 196));
+        const std::wstring name_w = Utility::utf8_to_wide(tpl.name).value_or(L"");
+        DrawTextW(dc, name_w.c_str(), -1, &tr,
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+
+        // Draw Category Tag (with small font)
+        SelectObject(dc, m_small_font);
+        RECT tag_r = ir;
+        tag_r.right -= static_cast<LONG>(14.0F * dpi_scale);
+        SetTextColor(dc, selected ? RGB(230, 230, 235) : RGB(104, 107, 115));
+        const std::wstring cat_w =
+            Utility::utf8_to_wide(tpl.category).value_or(L"");
+        DrawTextW(dc, cat_w.c_str(), -1, &tag_r,
+                  DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        SelectObject(dc, m_regular_font);
+      }
     }
+
+    RestoreDC(dc, save_state);
+
+    // Draw Template Scrollbar (only if template items overflow pane)
+    if (layout.template_scroll_visible) {
+      RECT thumb_r = to_native_rect(layout.template_scrollbar_thumb);
+      HBRUSH thumb_br = CreateSolidBrush(RGB(75, 78, 85));
+      FillRect(dc, &thumb_r, thumb_br);
+      DeleteObject(thumb_br);
+    }
+  }
+
+  // 6. Right Details Pane with strict clipping
+  {
+    RECT det_r = to_native_rect(layout.details_pane_bounds);
+    const int save_state = SaveDC(dc);
+    IntersectClipRect(dc, det_r.left, det_r.top, det_r.right, det_r.bottom);
+
+    if (m_selected_category_index < m_categories.size()) {
+      const auto &templates = m_categories[m_selected_category_index].templates;
+      if (m_selected_template_index < templates.size()) {
+        const auto &tpl = templates[m_selected_template_index];
+        RECT inner_det = det_r;
+        inner_det.left += static_cast<LONG>(14.0F * dpi_scale);
+        inner_det.top += static_cast<LONG>(14.0F * dpi_scale);
+        inner_det.right -= static_cast<LONG>(14.0F * dpi_scale);
+
+        // Draw 24x24 Details Icon
+        const int large_icon_size = static_cast<int>(24.0F * dpi_scale);
+        draw_icon(dc, tpl.icon_path, inner_det.left, inner_det.top, large_icon_size);
+
+        // Type header next to icon (using Semibold font)
+        SelectObject(dc, m_semibold_font);
+        SetTextColor(dc, RGB(220, 222, 228));
+        RECT type_r = inner_det;
+        type_r.left += static_cast<LONG>(32.0F * dpi_scale);
+        type_r.top += static_cast<LONG>(3.0F * dpi_scale);
+        const std::wstring type_str =
+            L"Type: " + Utility::utf8_to_wide(tpl.category).value_or(L"");
+        DrawTextW(dc, type_str.c_str(), -1, &type_r,
+                  DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
+        SelectObject(dc, m_regular_font);
+
+        // Description text
+        RECT desc_r = inner_det;
+        desc_r.top += static_cast<LONG>(34.0F * dpi_scale);
+        SetTextColor(dc, RGB(140, 144, 155));
+        const std::wstring desc_str =
+            Utility::utf8_to_wide(tpl.description).value_or(L"");
+        DrawTextW(dc, desc_str.c_str(), -1, &desc_r,
+                  DT_LEFT | DT_TOP | DT_WORDBREAK | DT_NOPREFIX);
+      }
+    }
+
+    RestoreDC(dc, save_state);
   }
 
   // 7. Footer Panel
@@ -1189,7 +1261,14 @@ LRESULT AddNewItemDialog::handle_message(HWND hwnd, UINT message,
         calculate_layout(static_cast<float>(rc.right - rc.left),
                          static_cast<float>(rc.bottom - rc.top), dpi_scale);
 
-    if (handle_pointer_move(x, y, layout)) {
+    bool need_redraw = false;
+    if (m_category_scroll_dragging || m_template_scroll_dragging) {
+      need_redraw = handle_pointer_drag(x, y, layout);
+    } else {
+      need_redraw = handle_pointer_move(x, y, layout);
+    }
+
+    if (need_redraw) {
       InvalidateRect(hwnd, nullptr, FALSE);
     }
 
@@ -1215,6 +1294,11 @@ LRESULT AddNewItemDialog::handle_message(HWND hwnd, UINT message,
       if (m_selection_anchor && *m_selection_anchor == m_caret_position) {
         m_selection_anchor.reset();
       }
+      InvalidateRect(hwnd, nullptr, FALSE);
+    }
+    if (m_category_scroll_dragging || m_template_scroll_dragging) {
+      handle_pointer_release();
+      ReleaseCapture();
       InvalidateRect(hwnd, nullptr, FALSE);
     }
     return 0;
@@ -1254,7 +1338,16 @@ LRESULT AddNewItemDialog::handle_message(HWND hwnd, UINT message,
 
   case WM_MOUSEWHEEL: {
     const short delta = GET_WHEEL_DELTA_WPARAM(w_param);
-    if (handle_scroll(delta)) {
+    POINT pt{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
+    ScreenToClient(hwnd, &pt);
+    RECT rc;
+    GetClientRect(hwnd, &rc);
+    const float dpi_scale = static_cast<float>(m_dpi) / 96.0F;
+    const auto layout =
+        calculate_layout(static_cast<float>(rc.right - rc.left),
+                         static_cast<float>(rc.bottom - rc.top), dpi_scale);
+
+    if (handle_scroll(delta, static_cast<float>(pt.x), static_cast<float>(pt.y), layout)) {
       InvalidateRect(hwnd, nullptr, FALSE);
     }
     return 0;
@@ -1316,18 +1409,22 @@ bool AddNewItemDialog::handle_pointer_move(float x, float y,
   m_cancel_hovered = layout.cancel_button_bounds.contains(x, y);
 
   m_hovered_category_index.reset();
-  for (std::size_t i = 0; i < layout.category_item_bounds.size(); ++i) {
-    if (layout.category_item_bounds[i].contains(x, y)) {
-      m_hovered_category_index = i;
-      break;
+  if (layout.category_pane_bounds.contains(x, y)) {
+    for (std::size_t i = 0; i < layout.category_item_bounds.size(); ++i) {
+      if (layout.category_item_bounds[i].contains(x, y)) {
+        m_hovered_category_index = i;
+        break;
+      }
     }
   }
 
   m_hovered_template_index.reset();
-  for (std::size_t i = 0; i < layout.template_item_bounds.size(); ++i) {
-    if (layout.template_item_bounds[i].contains(x, y)) {
-      m_hovered_template_index = i;
-      break;
+  if (layout.template_pane_bounds.contains(x, y)) {
+    for (std::size_t i = 0; i < layout.template_item_bounds.size(); ++i) {
+      if (layout.template_item_bounds[i].contains(x, y)) {
+        m_hovered_template_index = i;
+        break;
+      }
     }
   }
 
@@ -1347,6 +1444,24 @@ bool AddNewItemDialog::handle_pointer_press(float x, float y,
 
   if (layout.add_button_bounds.contains(x, y)) {
     submit();
+    return true;
+  }
+
+  // Scrollbar click on category pane
+  if (layout.category_scroll_visible && layout.category_scrollbar_thumb.contains(x, y)) {
+    m_category_scroll_dragging = true;
+    m_drag_start_y = y;
+    m_drag_start_offset = m_category_scroll_offset;
+    if (m_hwnd) SetCapture(m_hwnd);
+    return true;
+  }
+
+  // Scrollbar click on template pane
+  if (layout.template_scroll_visible && layout.template_scrollbar_thumb.contains(x, y)) {
+    m_template_scroll_dragging = true;
+    m_drag_start_y = y;
+    m_drag_start_offset = m_template_scroll_offset;
+    if (m_hwnd) SetCapture(m_hwnd);
     return true;
   }
 
@@ -1371,24 +1486,61 @@ bool AddNewItemDialog::handle_pointer_press(float x, float y,
     return true;
   }
 
-  // Category click
-  for (std::size_t i = 0; i < layout.category_item_bounds.size(); ++i) {
-    if (layout.category_item_bounds[i].contains(x, y)) {
-      m_selected_category_index = i;
-      m_template_scroll_offset = 0;
-      select_template(0);
+  // Category click (only within category pane)
+  if (layout.category_pane_bounds.contains(x, y)) {
+    for (std::size_t i = 0; i < layout.category_item_bounds.size(); ++i) {
+      if (layout.category_item_bounds[i].contains(x, y)) {
+        m_selected_category_index = i;
+        m_template_scroll_offset = 0.0F;
+        select_template(0);
+        return true;
+      }
+    }
+  }
+
+  // Template click (only within template pane)
+  if (layout.template_pane_bounds.contains(x, y)) {
+    for (std::size_t i = 0; i < layout.template_item_bounds.size(); ++i) {
+      if (layout.template_item_bounds[i].contains(x, y)) {
+        select_template(i);
+        return true;
+      }
+    }
+  }
+
+  return true;
+}
+
+bool AddNewItemDialog::handle_pointer_drag(float x, float y,
+                                           const LayoutResult &layout) {
+  if (m_category_scroll_dragging && layout.category_scroll_visible) {
+    const float dy = y - m_drag_start_y;
+    const float track_usable_h = layout.category_scrollbar_track.height - layout.category_scrollbar_thumb.height;
+    if (track_usable_h > 0.0F) {
+      const float cat_total_h = static_cast<float>(m_categories.size()) * (28.0F * (static_cast<float>(m_dpi) / 96.0F));
+      const float cat_max_scroll = std::max(0.0F, cat_total_h - layout.category_pane_bounds.height);
+      m_category_scroll_offset = std::clamp(m_drag_start_offset + (dy / track_usable_h) * cat_max_scroll, 0.0F, cat_max_scroll);
       return true;
     }
   }
 
-  // Template click
-  for (std::size_t i = 0; i < layout.template_item_bounds.size(); ++i) {
-    if (layout.template_item_bounds[i].contains(x, y)) {
-      select_template(i);
+  if (m_template_scroll_dragging && layout.template_scroll_visible) {
+    const float dy = y - m_drag_start_y;
+    const float track_usable_h = layout.template_scrollbar_track.height - layout.template_scrollbar_thumb.height;
+    if (track_usable_h > 0.0F && m_selected_category_index < m_categories.size()) {
+      const float tpl_total_h = static_cast<float>(m_categories[m_selected_category_index].templates.size()) * (28.0F * (static_cast<float>(m_dpi) / 96.0F));
+      const float tpl_max_scroll = std::max(0.0F, tpl_total_h - layout.template_pane_bounds.height);
+      m_template_scroll_offset = std::clamp(m_drag_start_offset + (dy / track_usable_h) * tpl_max_scroll, 0.0F, tpl_max_scroll);
       return true;
     }
   }
 
+  return false;
+}
+
+bool AddNewItemDialog::handle_pointer_release() {
+  m_category_scroll_dragging = false;
+  m_template_scroll_dragging = false;
   return true;
 }
 
@@ -1401,24 +1553,50 @@ bool AddNewItemDialog::handle_double_click(float x, float y,
   }
 
   // Double click on template immediately submits
-  for (std::size_t i = 0; i < layout.template_item_bounds.size(); ++i) {
-    if (layout.template_item_bounds[i].contains(x, y)) {
-      select_template(i);
-      submit();
-      return true;
+  if (layout.template_pane_bounds.contains(x, y)) {
+    for (std::size_t i = 0; i < layout.template_item_bounds.size(); ++i) {
+      if (layout.template_item_bounds[i].contains(x, y)) {
+        select_template(i);
+        submit();
+        return true;
+      }
     }
   }
   return false;
 }
 
-bool AddNewItemDialog::handle_scroll(int delta) {
-  const int step = 30;
-  if (delta > 0) {
-    m_template_scroll_offset = std::max(0, m_template_scroll_offset - step);
-  } else {
-    m_template_scroll_offset = std::min(400, m_template_scroll_offset + step);
+bool AddNewItemDialog::handle_scroll(int delta, float mouse_x, float mouse_y,
+                                     const LayoutResult &layout) {
+  const float step = 32.0F;
+
+  // Category pane scroll
+  if (layout.category_pane_bounds.contains(mouse_x, mouse_y)) {
+    if (!layout.category_scroll_visible) {
+      return false; // Jangan scroll jika kategori masih sedikit
+    }
+    if (delta > 0) {
+      m_category_scroll_offset = std::max(0.0F, m_category_scroll_offset - step);
+    } else {
+      m_category_scroll_offset += step;
+    }
+    return true;
   }
-  return true;
+
+  // Template / middle pane scroll
+  if (layout.template_pane_bounds.contains(mouse_x, mouse_y) ||
+      layout.details_pane_bounds.contains(mouse_x, mouse_y)) {
+    if (!layout.template_scroll_visible) {
+      return false; // Jangan scroll jika template masih sedikit
+    }
+    if (delta > 0) {
+      m_template_scroll_offset = std::max(0.0F, m_template_scroll_offset - step);
+    } else {
+      m_template_scroll_offset += step;
+    }
+    return true;
+  }
+
+  return false;
 }
 
 bool AddNewItemDialog::handle_text_input(std::string_view text) {

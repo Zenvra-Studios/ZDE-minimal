@@ -537,8 +537,25 @@ bool StudioWorkspaceRenderer::handle_editor_action(UI::Editor::EditorAction acti
     return res;
 }
 
+void StudioWorkspaceRenderer::reset_layout() noexcept
+{
+    m_tool_sidebar.get_model().set_visible(true);
+    static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::Project));
+    if (m_terminal_panel.is_visible())
+    {
+        static_cast<void>(m_terminal_panel.toggle());
+    }
+    m_shader_sandbox_panel.set_visible(false);
+    m_text_editor.reset_split();
+}
+
 std::optional<bool> StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id)
 {
+    if (command_id == Commands::CommandIds::window_reset_layout)
+    {
+        reset_layout();
+        return true;
+    }
     if (command_id == Commands::CommandIds::view_toggle_right_dock ||
         command_id == "zde.view.shaderPanel" ||
         command_id == "zde.view.shader_sandbox")
@@ -549,6 +566,52 @@ std::optional<bool> StudioWorkspaceRenderer::handle_editor_command(std::string_v
             sync_shader_sandbox();
         }
         return res;
+    }
+    if (command_id == Commands::CommandIds::view_toggle_bottom_dock ||
+        command_id == Commands::CommandIds::view_terminal_panel ||
+        command_id == Commands::CommandIds::view_output ||
+        command_id == Commands::CommandIds::view_problems ||
+        command_id == Commands::CommandIds::view_diagnostics)
+    {
+        return toggle_terminal();
+    }
+    if (command_id == Commands::CommandIds::view_toggle_left_dock)
+    {
+        const bool vis = !m_tool_sidebar.is_visible();
+        m_tool_sidebar.get_model().set_visible(vis);
+        return true;
+    }
+    if (command_id == Commands::CommandIds::view_explorer ||
+        command_id == Commands::CommandIds::view_project_panel ||
+        command_id == Commands::CommandIds::view_outline_panel)
+    {
+        m_tool_sidebar.get_model().set_visible(true);
+        static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::Project));
+        return true;
+    }
+    if (command_id == Commands::CommandIds::view_search)
+    {
+        m_tool_sidebar.get_model().set_visible(true);
+        static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::Search));
+        return true;
+    }
+    if (command_id == Commands::CommandIds::view_git_panel)
+    {
+        m_tool_sidebar.get_model().set_visible(true);
+        static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::VersionControl));
+        return true;
+    }
+    if (command_id == Commands::CommandIds::view_debugger_panel)
+    {
+        m_tool_sidebar.get_model().set_visible(true);
+        static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::Run));
+        return true;
+    }
+    if (command_id == Commands::CommandIds::open_plugins)
+    {
+        m_tool_sidebar.get_model().set_visible(true);
+        static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::Services));
+        return true;
     }
     const auto res = m_text_editor.handle_command(command_id);
     if (res.has_value() && *res)
@@ -561,9 +624,23 @@ std::optional<bool> StudioWorkspaceRenderer::handle_editor_command(std::string_v
 std::optional<bool> StudioWorkspaceRenderer::is_editor_command_enabled(
     std::string_view command_id) const noexcept
 {
-    if (command_id == Commands::CommandIds::view_toggle_right_dock ||
+    if (command_id == Commands::CommandIds::window_reset_layout ||
+        command_id == Commands::CommandIds::view_toggle_right_dock ||
         command_id == "zde.view.shaderPanel" ||
-        command_id == "zde.view.shader_sandbox")
+        command_id == "zde.view.shader_sandbox" ||
+        command_id == Commands::CommandIds::view_toggle_bottom_dock ||
+        command_id == Commands::CommandIds::view_terminal_panel ||
+        command_id == Commands::CommandIds::view_output ||
+        command_id == Commands::CommandIds::view_problems ||
+        command_id == Commands::CommandIds::view_diagnostics ||
+        command_id == Commands::CommandIds::view_toggle_left_dock ||
+        command_id == Commands::CommandIds::view_explorer ||
+        command_id == Commands::CommandIds::view_project_panel ||
+        command_id == Commands::CommandIds::view_outline_panel ||
+        command_id == Commands::CommandIds::view_search ||
+        command_id == Commands::CommandIds::view_git_panel ||
+        command_id == Commands::CommandIds::view_debugger_panel ||
+        command_id == Commands::CommandIds::open_plugins)
     {
         return true;
     }
@@ -1323,7 +1400,8 @@ void StudioWorkspaceRenderer::draw_svg_icon(
         return;
     }
     preserve_source_colors = preserve_source_colors &&
-        resolved_path.parent_path().filename() == "material-icon-theme";
+        (resolved_path.parent_path().filename() == "material-icon-theme" ||
+         resolved_path.string().find("vscode-symbols") != std::string::npos);
 
     const std::string cache_key = resolved_path.string() + "@" + std::to_string(size) + "#" +
         color_to_hex(color) + "/" + color_to_hex(background) + (preserve_source_colors ? "_p" : "");
@@ -1335,6 +1413,14 @@ void StudioWorkspaceRenderer::draw_svg_icon(
     }
     else
     {
+        if (m_image_cache.size() >= 128)
+        {
+            for (auto& [k, img] : m_image_cache)
+            {
+                if (img) CGImageRelease(img);
+            }
+            m_image_cache.clear();
+        }
         auto document = lunasvg::Document::loadFromFile(resolved_path.string());
         if (!document)
         {
