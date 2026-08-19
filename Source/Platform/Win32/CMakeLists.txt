@@ -17,6 +17,9 @@ add_library(ZDEPlatformWin32
     Components/ToolSidebar.cpp
     Components/ShaderSandboxPanel.cpp
     Utility/Win32Dialogs.cpp
+    Utility/Tray.cpp
+    WinRT/WinRTContext.cpp
+    WinRT/WinRTNotification.cpp
 )
 
 target_include_directories(ZDEPlatformWin32 PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../..")
@@ -30,6 +33,6 @@ target_compile_definitions(ZDEPlatformWin32 PRIVATE
 target_link_libraries(ZDEPlatformWin32
     PUBLIC Zenvra::Core Zenvra::PlatformHost
     PRIVATE Zenvra::Commands Zenvra::UI Zenvra::Language Zenvra::Terminal Zenvra::Services lunasvg ZDEUtility
-            user32 gdi32 msimg32 shell32 dwmapi uxtheme usp10 ole32 uuid
+            user32 gdi32 msimg32 shell32 dwmapi uxtheme usp10 ole32 uuid runtimeobject comctl32
 )
 zde_enable_warnings(ZDEPlatformWin32)

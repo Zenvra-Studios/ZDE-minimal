@@ -17,9 +17,16 @@ GrammarRegistry& GrammarRegistry::instance() noexcept
 GrammarRegistry::GrammarRegistry()
 {
     initialize_default_grammars();
+    load_grammars_from_directory("Assets/grammars");
     load_grammars_from_directory("Assets/Grammars");
+    load_grammars_from_directory("../Assets/grammars");
     load_grammars_from_directory("../Assets/Grammars");
+    load_grammars_from_directory("../../Assets/grammars");
     load_grammars_from_directory("../../Assets/Grammars");
+    load_grammars_from_directory("../../../Assets/grammars");
+    load_grammars_from_directory("../../../Assets/Grammars");
+    load_grammars_from_directory("../../../../Assets/grammars");
+    load_grammars_from_directory("../../../../Assets/Grammars");
 }
 
 void GrammarRegistry::register_grammar(GrammarRule rule)
@@ -342,17 +349,75 @@ void GrammarRegistry::initialize_default_grammars()
             "typedef", "typeid", "typename", "union", "using", "virtual",
             "volatile", "while", "xor", "xor_eq"
         };
-        /*
         cpp_rule.types = {
-            "bool", "char", "char8_t", "char16_t", "char32_t", "double", "float", "int", "long", "short",
-            "signed", "unsigned", "void", "wchar_t",
-            "size_t", "int8_t", "int16_t", "int32_t", "int64_t",
+            // Standard Namespace
+            "std",
+
+            // Primitive / Built-in Types
+            "void", "bool", "char", "char8_t", "char16_t", "char32_t", "wchar_t",
+            "short", "int", "long", "signed", "unsigned",
+            "float", "double", "float_t", "double_t", "byte",
+
+            // Fixed-width integer types & pointer types (cstdint / stddef.h)
+            "size_t", "ssize_t", "ptrdiff_t", "intptr_t", "uintptr_t",
+            "nullptr_t", "max_align_t", "intmax_t", "uintmax_t",
+            "int8_t", "int16_t", "int32_t", "int64_t",
             "uint8_t", "uint16_t", "uint32_t", "uint64_t",
-            "intptr_t", "uintptr_t", "ptrdiff_t", "string", "string_view",
-            "vector", "array", "map", "unordered_map", "set", "unordered_set",
-            "unique_ptr", "shared_ptr", "optional", "span", "variant"
+            "int_least8_t", "int_least16_t", "int_least32_t", "int_least64_t",
+            "uint_least8_t", "uint_least16_t", "uint_least32_t", "uint_least64_t",
+            "int_fast8_t", "int_fast16_t", "int_fast32_t", "int_fast64_t",
+            "uint_fast8_t", "uint_fast16_t", "uint_fast32_t", "uint_fast64_t",
+            "time_t", "clock_t", "off_t",
+
+            // C++ Standard Library Strings
+            "string", "string_view", "wstring", "wstring_view",
+            "u8string", "u8string_view", "u16string", "u16string_view",
+            "u32string", "u32string_view", "basic_string", "basic_string_view",
+
+            // C++ Standard Library Containers
+            "vector", "array", "deque", "list", "forward_list",
+            "set", "multiset", "map", "multimap",
+            "unordered_set", "unordered_multiset", "unordered_map", "unordered_multimap",
+            "stack", "queue", "priority_queue", "span", "mdspan",
+            "flat_set", "flat_map", "flat_multiset", "flat_multimap",
+
+            // Utility & Smart Pointers
+            "pair", "tuple", "optional", "variant", "any", "expected",
+            "unique_ptr", "shared_ptr", "weak_ptr", "auto_ptr",
+            "reference_wrapper", "bitset", "complex", "valarray",
+            "initializer_list", "source_location", "type_info", "type_index",
+            "coroutine_handle", "generator", "make_unique", "make_shared",
+
+            // Streams, I/O & Formatting
+            "iostream", "istream", "ostream", "ifstream", "ofstream", "fstream",
+            "stringstream", "istringstream", "ostringstream",
+            "streambuf", "stringbuf", "filebuf",
+            "cin", "cout", "cerr", "clog", "endl", "flush", "format",
+
+            // Threading & Concurrency
+            "thread", "jthread", "mutex", "timed_mutex", "recursive_mutex", "recursive_timed_mutex",
+            "shared_mutex", "shared_timed_mutex",
+            "lock_guard", "unique_lock", "shared_lock", "scoped_lock",
+            "atomic", "atomic_flag", "atomic_bool", "atomic_int", "atomic_uint",
+            "condition_variable", "condition_variable_any",
+            "future", "shared_future", "promise", "packaged_task",
+            "barrier", "latch", "semaphore", "counting_semaphore", "binary_semaphore",
+            "stop_token", "stop_source", "stop_callback",
+
+            // Chrono & Filesystem
+            "chrono", "filesystem", "duration", "time_point", "path",
+            "directory_entry", "directory_iterator", "recursive_directory_iterator",
+
+            // Functional & Memory
+            "function", "move_only_function", "allocator", "allocator_traits",
+
+            // Common Win32 / POSIX Types
+            "DWORD", "WORD", "BYTE", "BOOL", "UINT", "INT", "LONG", "ULONG",
+            "SHORT", "USHORT", "WCHAR", "LPSTR", "LPCSTR", "LPWSTR", "LPCWSTR",
+            "HINSTANCE", "HWND", "HDC", "HICON", "HCURSOR", "HBRUSH", "HBITMAP",
+            "HFONT", "HANDLE", "LPARAM", "WPARAM", "LRESULT", "HRESULT",
+            "DWORD_PTR", "ULONG_PTR", "INT_PTR", "UINT_PTR", "SIZE_T", "SSIZE_T"
         };
-        */
         register_grammar(std::move(cpp_rule));
     }
 
@@ -502,6 +567,137 @@ void GrammarRegistry::initialize_default_grammars()
             "onblur", "onmouseover", "onmouseout", "onmouseenter", "onmouseleave"
         };
         register_grammar(std::move(html_rule));
+    }
+
+    // Built-in for C#
+    {
+        GrammarRule cs_rule;
+        cs_rule.name = "C#";
+        cs_rule.extensions = {".cs", ".csx"};
+        cs_rule.line_comment = "//";
+        cs_rule.block_comment_start = "/*";
+        cs_rule.block_comment_end = "*/";
+        cs_rule.supports_preprocessor = true;
+        cs_rule.keywords = {
+            "abstract", "as", "base", "break", "case", "catch",
+            "checked", "class", "const", "continue", "default", "delegate", "do",
+            "else", "enum", "event", "explicit", "extern", "false", "finally",
+            "fixed", "for", "foreach", "goto", "if", "implicit", "in",
+            "interface", "internal", "is", "lock", "namespace", "new", "null",
+            "operator", "out", "override", "params", "private", "protected",
+            "public", "readonly", "record", "ref", "return", "sealed",
+            "sizeof", "stackalloc", "static", "struct", "switch", "this", "throw",
+            "true", "try", "typeof", "unchecked", "unsafe",
+            "using", "virtual", "volatile", "while", "yield", "var", "dynamic",
+            "async", "await", "get", "set", "init", "value", "when"
+        };
+        cs_rule.types = {
+            "bool", "byte", "sbyte", "char", "decimal", "double", "float", "int", "uint",
+            "nint", "nuint", "long", "ulong", "short", "ushort", "object", "string", "void",
+            "Task", "ValueTask", "List", "Dictionary", "HashSet", "IEnumerable", "ICollection",
+            "IList", "IDictionary", "IQueryable", "Action", "Func", "Predicate", "Span",
+            "ReadOnlySpan", "Memory", "ReadOnlyMemory", "Guid", "DateTime", "DateTimeOffset",
+            "TimeSpan", "Nullable", "IActionResult", "ActionResult", "ControllerBase"
+        };
+        register_grammar(std::move(cs_rule));
+    }
+
+    // Built-in for Go
+    {
+        GrammarRule go_rule;
+        go_rule.name = "Go";
+        go_rule.extensions = {".go"};
+        go_rule.line_comment = "//";
+        go_rule.block_comment_start = "/*";
+        go_rule.block_comment_end = "*/";
+        go_rule.keywords = {
+            "break", "case", "chan", "const", "continue", "default", "defer", "else",
+            "fallthrough", "for", "func", "go", "goto", "if", "import", "interface",
+            "map", "package", "range", "return", "select", "struct", "switch", "type",
+            "var", "true", "false", "iota", "nil"
+        };
+        go_rule.types = {
+            "bool", "byte", "complex64", "complex128", "error", "float32", "float64",
+            "int", "int8", "int16", "int32", "int64", "rune", "string",
+            "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "any"
+        };
+        register_grammar(std::move(go_rule));
+    }
+
+    // Built-in for Kotlin
+    {
+        GrammarRule kotlin_rule;
+        kotlin_rule.name = "Kotlin";
+        kotlin_rule.extensions = {".kt", ".kts"};
+        kotlin_rule.line_comment = "//";
+        kotlin_rule.block_comment_start = "/*";
+        kotlin_rule.block_comment_end = "*/";
+        kotlin_rule.keywords = {
+            "as", "as?", "break", "class", "continue", "do", "else", "false", "for", "fun",
+            "if", "in", "!in", "is", "!is", "null", "object", "package", "return", "super",
+            "this", "throw", "true", "try", "typealias", "val", "var", "when", "while",
+            "by", "catch", "constructor", "delegate", "dynamic", "field", "file", "finally",
+            "get", "import", "init", "param", "property", "receiver", "set", "setparam",
+            "where", "actual", "abstract", "annotation", "companion", "const", "crossinline",
+            "data", "enum", "expect", "external", "final", "infix", "inline", "inner",
+            "internal", "lateinit", "noinline", "open", "operator", "out", "override",
+            "private", "protected", "public", "reified", "sealed", "suspend", "tailrec",
+            "vararg", "value"
+        };
+        kotlin_rule.types = {
+            "Byte", "Short", "Int", "Long", "Float", "Double", "Boolean", "Char", "String",
+            "Array", "List", "MutableList", "ArrayList", "Set", "MutableSet", "HashSet",
+            "Map", "MutableMap", "HashMap", "Pair", "Triple", "Sequence", "Any", "Unit",
+            "Nothing", "CoroutineScope", "Job", "Deferred", "Flow", "StateFlow", "SharedFlow"
+        };
+        register_grammar(std::move(kotlin_rule));
+    }
+
+    // Built-in for Shell Script
+    {
+        GrammarRule shell_rule;
+        shell_rule.name = "Shell Script";
+        shell_rule.extensions = {".sh", ".bash", ".zsh", ".ps1", ".bat", ".cmd"};
+        shell_rule.line_comment = "#";
+        shell_rule.keywords = {
+            "if", "then", "else", "elif", "fi", "case", "esac", "for", "while", "until",
+            "do", "done", "in", "function", "select", "time", "return", "exit", "export",
+            "local", "readonly", "set", "unset", "echo", "printf", "cd", "pwd", "source"
+        };
+        register_grammar(std::move(shell_rule));
+    }
+
+    // Built-in for JSON
+    {
+        GrammarRule json_rule;
+        json_rule.name = "JSON";
+        json_rule.extensions = {".json", ".jsonc", ".geojson"};
+        json_rule.line_comment = "//";
+        json_rule.block_comment_start = "/*";
+        json_rule.block_comment_end = "*/";
+        json_rule.keywords = {"true", "false", "null"};
+        register_grammar(std::move(json_rule));
+    }
+
+    // Built-in for Markdown
+    {
+        GrammarRule md_rule;
+        md_rule.name = "Markdown";
+        md_rule.extensions = {".md", ".markdown", ".mdown", ".mkd"};
+        md_rule.block_comment_start = "<!--";
+        md_rule.block_comment_end = "-->";
+        md_rule.keywords = {"TODO", "FIXME", "NOTE", "IMPORTANT", "WARNING", "TIP", "CAUTION"};
+        register_grammar(std::move(md_rule));
+    }
+
+    // Built-in for YAML
+    {
+        GrammarRule yaml_rule;
+        yaml_rule.name = "YAML";
+        yaml_rule.extensions = {".yaml", ".yml"};
+        yaml_rule.line_comment = "#";
+        yaml_rule.keywords = {"true", "false", "yes", "no", "on", "off", "null", "~"};
+        register_grammar(std::move(yaml_rule));
     }
 }
 

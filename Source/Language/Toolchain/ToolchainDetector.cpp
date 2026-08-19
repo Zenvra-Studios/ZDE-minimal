@@ -76,16 +76,243 @@ std::string ToolchainDetector::get_tooltip_guidance() const
     return m_info.warning_message + "\n\nInstallation Guide:\n" + m_info.installation_guide;
 }
 
+#ifdef _WIN32
+static std::vector<std::filesystem::path> discover_windows_sdk_includes()
+{
+    std::vector<std::filesystem::path> includes;
+    const std::filesystem::path kits_roots[] = {
+        "C:/Program Files (x86)/Windows Kits/10/Include",
+        "C:/Program Files/Windows Kits/10/Include",
+    };
+
+    std::vector<std::filesystem::path> version_dirs;
+    std::error_code ec;
+
+    for (const auto& root : kits_roots)
+    {
+        if (std::filesystem::exists(root, ec) && std::filesystem::is_directory(root, ec))
+        {
+            for (const auto& entry : std::filesystem::directory_iterator(root, ec))
+            {
+                if (entry.is_directory(ec))
+                {
+                    const auto ucrt_path = entry.path() / "ucrt";
+                    const auto um_path = entry.path() / "um";
+                    if (std::filesystem::exists(ucrt_path, ec) || std::filesystem::exists(um_path, ec))
+                    {
+                        version_dirs.push_back(entry.path());
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort descending so the highest SDK version (e.g. 10.0.26100.0 > 10.0.22621.0 > 10.0.19041.0) is selected
+    std::sort(version_dirs.begin(), version_dirs.end(), [](const auto& a, const auto& b) {
+        return a.filename().string() > b.filename().string();
+    });
+
+    if (!version_dirs.empty())
+    {
+        const auto& best_sdk = version_dirs.front();
+        const std::string subdirs[] = { "ucrt", "shared", "um", "winrt", "cppwinrt" };
+        for (const auto& sub : subdirs)
+        {
+            const auto p = best_sdk / sub;
+            if (std::filesystem::exists(p, ec))
+            {
+                includes.push_back(p);
+            }
+        }
+    }
+
+    return includes;
+}
+
+static std::vector<std::filesystem::path> discover_msvc_includes(std::string* out_msvc_version = nullptr, std::filesystem::path* out_cl_path = nullptr)
+{
+    std::vector<std::filesystem::path> includes;
+    const std::filesystem::path vs_base_dirs[] = {
+        "C:/Program Files/Microsoft Visual Studio",
+        "C:/Program Files (x86)/Microsoft Visual Studio",
+    };
+
+    std::vector<std::filesystem::path> msvc_dirs;
+    std::error_code ec;
+
+    for (const auto& base : vs_base_dirs)
+    {
+        if (std::filesystem::exists(base, ec) && std::filesystem::is_directory(base, ec))
+        {
+            for (const auto& year_entry : std::filesystem::directory_iterator(base, ec))
+            {
+                if (!year_entry.is_directory(ec)) continue;
+                for (const auto& edition_entry : std::filesystem::directory_iterator(year_entry.path(), ec))
+                {
+                    if (!edition_entry.is_directory(ec)) continue;
+                    const auto msvc_root = edition_entry.path() / "VC/Tools/MSVC";
+                    if (std::filesystem::exists(msvc_root, ec) && std::filesystem::is_directory(msvc_root, ec))
+                    {
+                        for (const auto& ver_entry : std::filesystem::directory_iterator(msvc_root, ec))
+                        {
+                            if (ver_entry.is_directory(ec))
+                            {
+                                const auto inc = ver_entry.path() / "include";
+                                if (std::filesystem::exists(inc / "iostream", ec))
+                                {
+                                    msvc_dirs.push_back(ver_entry.path());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    std::sort(msvc_dirs.begin(), msvc_dirs.end(), [](const auto& a, const auto& b) {
+        return a.filename().string() > b.filename().string();
+    });
+
+    if (!msvc_dirs.empty())
+    {
+        const auto& best_msvc = msvc_dirs.front();
+        const auto inc = best_msvc / "include";
+        const auto atlmfc = best_msvc / "atlmfc/include";
+        if (std::filesystem::exists(inc, ec)) includes.push_back(inc);
+        if (std::filesystem::exists(atlmfc, ec)) includes.push_back(atlmfc);
+
+        if (out_msvc_version != nullptr) {
+            *out_msvc_version = best_msvc.filename().string();
+        }
+        if (out_cl_path != nullptr) {
+            const auto cl_x64 = best_msvc / "bin/Hostx64/x64/cl.exe";
+            if (std::filesystem::exists(cl_x64, ec)) {
+                *out_cl_path = cl_x64;
+            }
+        }
+    }
+
+    return includes;
+}
+
+static std::vector<std::filesystem::path> discover_clang_resource_includes(const std::string& user_profile)
+{
+    std::vector<std::filesystem::path> includes;
+    std::vector<std::filesystem::path> search_roots = {
+        "C:/Program Files/LLVM/lib/clang",
+        "C:/Program Files (x86)/LLVM/lib/clang",
+    };
+    if (!user_profile.empty())
+    {
+        search_roots.push_back(std::filesystem::path(user_profile) / "scoop/apps/llvm/current/lib/clang");
+    }
+
+    std::error_code ec;
+    std::vector<std::filesystem::path> clang_ver_dirs;
+    for (const auto& root : search_roots)
+    {
+        if (std::filesystem::exists(root, ec) && std::filesystem::is_directory(root, ec))
+        {
+            for (const auto& entry : std::filesystem::directory_iterator(root, ec))
+            {
+                if (entry.is_directory(ec))
+                {
+                    const auto inc = entry.path() / "include";
+                    if (std::filesystem::exists(inc, ec))
+                    {
+                        clang_ver_dirs.push_back(inc);
+                    }
+                }
+            }
+        }
+    }
+
+    std::sort(clang_ver_dirs.begin(), clang_ver_dirs.end(), [](const auto& a, const auto& b) {
+        return a.string() > b.string();
+    });
+
+    if (!clang_ver_dirs.empty())
+    {
+        includes.push_back(clang_ver_dirs.front());
+    }
+
+    return includes;
+}
+#endif
+
 void ToolchainDetector::detect_environment()
 {
     m_info = ToolchainInfo{};
     m_detected = true;
 
 #ifdef _WIN32
-    // 1. Check GCC / MinGW (Scoop, MSYS2, MinGW)
-    const char* user_profile = std::getenv("USERPROFILE");
+    std::string user_profile;
+    char user_profile_buf[MAX_PATH] = {};
+    std::size_t user_profile_len = 0;
+    if (getenv_s(&user_profile_len, user_profile_buf, sizeof(user_profile_buf), "USERPROFILE") == 0 && user_profile_len > 0)
+    {
+        user_profile = user_profile_buf;
+    }
+
+    // Discover all system includes dynamically across Windows SDK versions and MSVC editions
+    const auto sdk_includes = discover_windows_sdk_includes();
+    std::string msvc_version;
+    std::filesystem::path msvc_cl_path;
+    const auto msvc_includes = discover_msvc_includes(&msvc_version, &msvc_cl_path);
+    const auto clang_res_includes = discover_clang_resource_includes(user_profile);
+
+    // Combine all standard include paths
+    std::vector<std::filesystem::path> all_system_includes;
+    for (const auto& p : msvc_includes) all_system_includes.push_back(p);
+    for (const auto& p : sdk_includes) all_system_includes.push_back(p);
+    for (const auto& p : clang_res_includes) all_system_includes.push_back(p);
+
+    m_info.system_include_paths = all_system_includes;
+
+    // 1. Check Clang / LLVM (Scoop, Standard, or ThirdParty)
+    std::vector<std::filesystem::path> llvm_candidates = {
+        "C:/Program Files/LLVM/bin/clang++.exe",
+        "C:/Program Files/LLVM/bin/clang-cl.exe",
+        "C:/Program Files (x86)/LLVM/bin/clang++.exe",
+    };
+    if (!user_profile.empty())
+    {
+        llvm_candidates.push_back(std::filesystem::path(user_profile) / "scoop/apps/llvm/current/bin/clang-cl.exe");
+        llvm_candidates.push_back(std::filesystem::path(user_profile) / "scoop/apps/llvm/current/bin/clang++.exe");
+    }
+    for (const auto& candidate : llvm_candidates)
+    {
+        if (file_exists(candidate))
+        {
+            m_info.kind = ToolchainKind::Clang;
+            m_info.compiler_path = candidate;
+            m_info.name = "Clang / LLVM";
+            m_info.status = ToolchainStatus::Ready;
+            m_info.has_standard_headers = !msvc_includes.empty() || !sdk_includes.empty();
+            if (!msvc_includes.empty()) m_info.sdk_include_path = msvc_includes.front();
+            m_info.user_status_text = "Ready";
+            return;
+        }
+    }
+
+    // 2. Check MSVC (Visual Studio 2026/18, 2022, 2019, BuildTools, Preview)
+    if (!msvc_cl_path.empty() && !msvc_includes.empty())
+    {
+        m_info.kind = ToolchainKind::MSVC;
+        m_info.compiler_path = msvc_cl_path;
+        m_info.sdk_include_path = msvc_includes.front();
+        m_info.compiler_version = msvc_version;
+        m_info.name = "MSVC " + msvc_version;
+        m_info.has_standard_headers = true;
+        m_info.status = ToolchainStatus::Ready;
+        m_info.user_status_text = "Ready";
+        return;
+    }
+
+    // 3. Check GCC / MinGW (Scoop, MSYS2, MinGW)
     std::vector<std::filesystem::path> gcc_candidates;
-    if (user_profile != nullptr)
+    if (!user_profile.empty())
     {
         gcc_candidates.push_back(std::filesystem::path(user_profile) / "scoop/apps/gcc/current/bin/g++.exe");
         gcc_candidates.push_back(std::filesystem::path(user_profile) / "scoop/apps/gcc/current/bin/gcc.exe");
@@ -136,61 +363,6 @@ void ToolchainDetector::detect_environment()
             }
         }
     }
-
-    // 2. Check MSVC (Visual Studio / Build Tools)
-    const std::filesystem::path msvc_roots[] = {
-        "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC",
-        "C:/Program Files/Microsoft Visual Studio/2022/Professional/VC/Tools/MSVC",
-        "C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC",
-        "C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/VC/Tools/MSVC",
-        "C:/Program Files (x86)/Microsoft Visual Studio/2019/BuildTools/VC/Tools/MSVC",
-    };
-
-    for (const auto& root : msvc_roots)
-    {
-        std::error_code ec;
-        if (std::filesystem::exists(root, ec) && std::filesystem::is_directory(root, ec))
-        {
-            for (const auto& entry : std::filesystem::directory_iterator(root, ec))
-            {
-                const auto cl_path = entry.path() / "bin/Hostx64/x64/cl.exe";
-                const auto include_path = entry.path() / "include";
-                if (file_exists(cl_path) && file_exists(include_path / "iostream"))
-                {
-                    m_info.kind = ToolchainKind::MSVC;
-                    m_info.compiler_path = cl_path;
-                    m_info.sdk_include_path = include_path;
-                    m_info.compiler_version = entry.path().filename().string();
-                    m_info.name = "MSVC " + m_info.compiler_version;
-                    m_info.has_standard_headers = true;
-                    m_info.status = ToolchainStatus::Ready;
-                    m_info.user_status_text = "Ready";
-                    return;
-                }
-            }
-        }
-    }
-
-    // 3. Check Clang / LLVM
-    const std::filesystem::path llvm_candidates[] = {
-        "ThirdParty/clangd/bin/clangd.exe",
-        "C:/Program Files/LLVM/bin/clang++.exe",
-        "C:/Program Files (x86)/LLVM/bin/clang++.exe",
-    };
-    for (const auto& candidate : llvm_candidates)
-    {
-        if (file_exists(candidate))
-        {
-            m_info.kind = ToolchainKind::Clang;
-            m_info.compiler_path = candidate;
-            m_info.name = "Clang / LLVM";
-            m_info.status = ToolchainStatus::Ready;
-            m_info.has_standard_headers = true;
-            m_info.user_status_text = "Ready";
-            return;
-        }
-    }
-
 #else
     // Comprehensive macOS & Linux Compiler / SDK Discovery
     const std::filesystem::path unix_compilers[] = {

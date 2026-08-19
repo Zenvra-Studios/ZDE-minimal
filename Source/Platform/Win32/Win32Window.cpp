@@ -1,4 +1,5 @@
 #include "Platform/Win32/Win32Window.h"
+#include "Platform/Win32/WinRT/WinRTContext.h"
 #include "Commands/CommandIds.h"
 #include "Config/resource.h"
 #include "Language/LanguageServerManager.h"
@@ -12,11 +13,13 @@
 #include "Utility/Shadows.h"
 #include "Utility/TextEncoding.h"
 
+#include <commctrl.h>
 #include <dwmapi.h>
 #include <uxtheme.h>
 #include <vssym32.h>
 #include <windowsx.h>
 #pragma comment(lib, "Msimg32.lib")
+#pragma comment(lib, "comctl32.lib")
 
 #include <algorithm>
 #include <array>
@@ -318,6 +321,8 @@ Win32Window::Win32Window(const WindowSpecification &specification)
 }
 
 Win32Window::~Win32Window() {
+  m_tray.destroy();
+  Runtime::WinRTContext::shutdown();
   if (m_window_handle != nullptr && IsWindow(m_window_handle) != FALSE) {
     DestroyWindow(m_window_handle);
   }
@@ -329,18 +334,44 @@ Win32Window::~Win32Window() {
 bool Win32Window::initialize() {
   SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
+  INITCOMMONCONTROLSEX icex{};
+  icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
+  icex.dwICC = ICC_STANDARD_CLASSES | ICC_WIN95_CLASSES | ICC_USEREX_CLASSES;
+  InitCommonControlsEx(&icex);
+
+  const int icon_big_cx = GetSystemMetrics(SM_CXICON);
+  const int icon_big_cy = GetSystemMetrics(SM_CYICON);
+  const int icon_sm_cx = GetSystemMetrics(SM_CXSMICON);
+  const int icon_sm_cy = GetSystemMetrics(SM_CYSMICON);
+
+  HICON h_icon_big = static_cast<HICON>(LoadImageW(
+      m_instance_handle, MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON,
+      icon_big_cx > 0 ? icon_big_cx : 32,
+      icon_big_cy > 0 ? icon_big_cy : 32,
+      LR_DEFAULTCOLOR));
+  if (!h_icon_big) {
+    h_icon_big = LoadIconW(m_instance_handle, MAKEINTRESOURCEW(IDI_APP_ICON));
+  }
+
+  HICON h_icon_sm = static_cast<HICON>(LoadImageW(
+      m_instance_handle, MAKEINTRESOURCEW(IDI_APP_ICON), IMAGE_ICON,
+      icon_sm_cx > 0 ? icon_sm_cx : 16,
+      icon_sm_cy > 0 ? icon_sm_cy : 16,
+      LR_DEFAULTCOLOR));
+  if (!h_icon_sm) {
+    h_icon_sm = LoadIconW(m_instance_handle, MAKEINTRESOURCEW(IDI_APP_ICON));
+  }
+
   WNDCLASSEXW window_class{};
   window_class.cbSize = sizeof(window_class);
   window_class.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
   window_class.lpfnWndProc = window_proc;
   window_class.hInstance = m_instance_handle;
-  window_class.hIcon =
-      LoadIconW(m_instance_handle, MAKEINTRESOURCEW(IDI_APP_ICON));
+  window_class.hIcon = h_icon_big;
   window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
   window_class.hbrBackground = nullptr;
   window_class.lpszClassName = window_class_name;
-  window_class.hIconSm =
-      LoadIconW(m_instance_handle, MAKEINTRESOURCEW(IDI_APP_ICON));
+  window_class.hIconSm = h_icon_sm;
 
   if (RegisterClassExW(&window_class) == 0 &&
       GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
@@ -356,6 +387,9 @@ bool Win32Window::initialize() {
   if (m_window_handle == nullptr) {
     return false;
   }
+
+  SendMessageW(m_window_handle, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(h_icon_big));
+  SendMessageW(m_window_handle, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(h_icon_sm));
 
   const BOOL dark_mode_enabled = TRUE;
   DwmSetWindowAttribute(m_window_handle, dwm_immersive_dark_mode_attribute,
@@ -389,6 +423,10 @@ bool Win32Window::initialize() {
   refresh_chrome_layout();
   set_custom_chrome_enabled(m_specification.custom_chrome_enabled);
   apply_system_corner_preference();
+
+  Runtime::WinRTContext::initialize();
+  m_tray.create(m_window_handle, WM_TRAYICON, L"ZDE - Zenvra Development Environment");
+
   return true;
 }
 
@@ -445,6 +483,28 @@ void Win32Window::restore() {
   refresh_chrome_layout();
   InvalidateRect(m_window_handle, nullptr, TRUE);
   UpdateWindow(m_window_handle);
+}
+
+void Win32Window::minimize_to_tray() {
+  if (m_window_handle != nullptr) {
+    ShowWindow(m_window_handle, SW_HIDE);
+    m_tray.show_notification(L"ZDE", L"ZDE is running in the background. Click the tray icon to restore.");
+  }
+}
+
+void Win32Window::restore_from_tray() {
+  if (m_window_handle != nullptr) {
+    ShowWindow(m_window_handle, SW_SHOW);
+    if (IsIconic(m_window_handle)) {
+      ShowWindow(m_window_handle, SW_RESTORE);
+    }
+    apply_system_corner_preference();
+    refresh_chrome_layout();
+    SetForegroundWindow(m_window_handle);
+    SetFocus(m_window_handle);
+    InvalidateRect(m_window_handle, nullptr, TRUE);
+    UpdateWindow(m_window_handle);
+  }
 }
 
 void Win32Window::request_close() {
@@ -986,8 +1046,10 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           point_x, point_y, client_width, client_height, content_top);
 
       const short wheel_delta = GET_WHEEL_DELTA_WPARAM(w_param);
-      const std::ptrdiff_t line_delta =
-          wheel_delta == 0 ? 0 : (wheel_delta > 0 ? -3 : 3);
+      const std::ptrdiff_t steps = (std::abs(wheel_delta) >= WHEEL_DELTA)
+          ? (static_cast<std::ptrdiff_t>(wheel_delta) / WHEEL_DELTA) * 3
+          : (wheel_delta > 0 ? 1 : (wheel_delta < 0 ? -1 : 0));
+      const std::ptrdiff_t line_delta = -steps;
       Event::ScrollEvent scroll_event;
       scroll_event.is_mouse_wheel = true;
       scroll_event.point_x = point_x;
@@ -998,15 +1060,18 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         scroll_event.delta_y = line_delta;
       }
 
-      if (over_tool_sidebar && scroll_event.delta_y != 0 &&
-          m_workspace_renderer.handle_tool_sidebar_scroll(
-              scroll_event.delta_y, client_width, client_height, content_top)) {
-        static_cast<void>(m_workspace_renderer.handle_pointer_move(
-            point_x, point_y, client_width, client_height, content_top));
-        const int ct = round_to_int(content_top);
-        RECT content_rect{client_bounds.left, ct, client_bounds.right,
-                          client_bounds.bottom};
-        InvalidateRect(window_handle, &content_rect, FALSE);
+      if (over_tool_sidebar) {
+        const std::ptrdiff_t sidebar_delta = (scroll_event.delta_y != 0) ? scroll_event.delta_y : line_delta;
+        if (sidebar_delta != 0 &&
+            m_workspace_renderer.handle_tool_sidebar_scroll(
+                sidebar_delta, client_width, client_height, content_top)) {
+          static_cast<void>(m_workspace_renderer.handle_pointer_move(
+              point_x, point_y, client_width, client_height, content_top));
+          const int ct = round_to_int(content_top);
+          RECT content_rect{client_bounds.left, ct, client_bounds.right,
+                            client_bounds.bottom};
+          InvalidateRect(window_handle, &content_rect, FALSE);
+        }
         return 0;
       }
       if (over_terminal &&
@@ -1290,24 +1355,25 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
             static_cast<void>(open_project_folder());
           }
         }
-        if (editor_point || scrollbar_point || minimap_point || tab_bar_point ||
-            m_workspace_renderer.is_editor_split_resizing() ||
-            m_workspace_renderer.is_terminal_resizing() ||
-            m_workspace_renderer.is_sidebar_resizing() ||
-            m_workspace_renderer.is_sidebar_dragging_item() ||
-            m_workspace_renderer.is_shader_sandbox_resizing() ||
-            m_workspace_renderer.is_shader_sandbox_point(
-                point_x, point_y, client_bounds.right - client_bounds.left,
-                client_bounds.bottom - client_bounds.top,
-                m_chrome_layout.titlebar_bounds.bottom()) ||
-            m_workspace_renderer.is_tool_sidebar_point(
-                point_x, point_y, client_bounds.right - client_bounds.left,
-                client_bounds.bottom - client_bounds.top,
-                m_chrome_layout.titlebar_bounds.bottom())) {
-          m_workspace_pointer_captured = true;
-          SetCapture(window_handle);
+        if (!m_workspace_renderer.is_prompt_modal_visible() &&
+            !m_workspace_renderer.get_add_item_dialog().is_visible() &&
+            !m_about_modal.is_visible()) {
+          if (editor_point || scrollbar_point || minimap_point || tab_bar_point ||
+              m_workspace_renderer.is_editor_split_resizing() ||
+              m_workspace_renderer.is_terminal_resizing() ||
+              m_workspace_renderer.is_sidebar_resizing() ||
+              m_workspace_renderer.is_sidebar_dragging_item() ||
+              m_workspace_renderer.is_sidebar_dragging_scrollbar() ||
+              m_workspace_renderer.is_shader_sandbox_resizing() ||
+              m_workspace_renderer.is_shader_sandbox_point(
+                  point_x, point_y, client_bounds.right - client_bounds.left,
+                  client_bounds.bottom - client_bounds.top,
+                  m_chrome_layout.titlebar_bounds.bottom())) {
+            m_workspace_pointer_captured = true;
+            SetCapture(window_handle);
+          }
+          SetFocus(window_handle);
         }
-        SetFocus(window_handle);
         InvalidateRect(window_handle, nullptr, FALSE);
         return 0;
       }
@@ -1336,6 +1402,15 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     break;
 
   case WM_LBUTTONUP:
+    if (m_custom_chrome_enabled) {
+      m_workspace_pointer_captured = false;
+      static_cast<void>(m_workspace_renderer.handle_pointer_release());
+      if (GetCapture() == window_handle) {
+        ReleaseCapture();
+      }
+    } else if (GetCapture() == window_handle) {
+      ReleaseCapture();
+    }
     if (m_custom_chrome_enabled && m_workspace_renderer.is_prompt_modal_visible()) {
       const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
       const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
@@ -1359,15 +1434,6 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       static_cast<void>(m_about_modal.handle_pointer_release(point_x, point_y, layout, [this](const std::string& text) {
         copy_to_clipboard(text);
       }));
-      InvalidateRect(window_handle, nullptr, FALSE);
-      return 0;
-    }
-    if (m_custom_chrome_enabled && m_workspace_pointer_captured) {
-      m_workspace_pointer_captured = false;
-      static_cast<void>(m_workspace_renderer.handle_pointer_release());
-      if (GetCapture() == window_handle) {
-        ReleaseCapture();
-      }
       InvalidateRect(window_handle, nullptr, FALSE);
       return 0;
     }
@@ -1907,6 +1973,13 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         case VK_OEM_2:
           action = UI::Editor::EditorAction::ToggleComment;
           break;
+        case VK_SPACE:
+          if (m_workspace_renderer.trigger_editor_autocomplete()) {
+            const int ct = round_to_int(m_chrome_layout.titlebar_bounds.bottom());
+            RECT cr{0, ct, 32767, 32767};
+            InvalidateRect(window_handle, &cr, FALSE);
+          }
+          return 0;
         default:
           break;
         }
@@ -2083,11 +2156,53 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     }
     break;
 
-  case WM_COMMAND:
-    if (m_menubar.handle_command(LOWORD(w_param))) {
+  case WM_COMMAND: {
+    const UINT cmd_id = LOWORD(w_param);
+    if (m_menubar.handle_command(cmd_id)) {
       return 0;
     }
+    switch (cmd_id) {
+    case TrayCmdShow:
+      restore_from_tray();
+      return 0;
+    case TrayCmdHide:
+      minimize_to_tray();
+      return 0;
+    case TrayCmdNewFile: {
+      restore_from_tray();
+      const auto root = m_workspace_renderer.m_tool_sidebar.get_model().get_workspace_root();
+      const std::string proj_name = root.filename().string();
+      const auto target_dir = m_workspace_renderer.m_tool_sidebar.get_model().get_target_directory_for_creation();
+      m_workspace_renderer.get_add_item_dialog().open(m_window_handle, target_dir, proj_name, [this](const std::string& name, const std::string& initial_content) {
+        std::filesystem::path created_p;
+        if (m_workspace_renderer.m_tool_sidebar.get_model().create_file(name, created_p)) {
+          if (!initial_content.empty()) {
+            std::ofstream out(created_p, std::ios::binary);
+            if (out.is_open()) {
+              out.write(initial_content.data(), initial_content.size());
+              out.close();
+            }
+          }
+          static_cast<void>(m_workspace_renderer.open_file(created_p));
+        }
+        InvalidateRect(m_window_handle, nullptr, FALSE);
+      });
+      InvalidateRect(m_window_handle, nullptr, FALSE);
+      return 0;
+    }
+    case TrayCmdOpenFolder:
+      restore_from_tray();
+      static_cast<void>(open_project_folder());
+      return 0;
+    case TrayCmdExit:
+      m_tray.destroy();
+      PostMessageW(window_handle, WM_CLOSE, 0, 0);
+      return 0;
+    default:
+      break;
+    }
     break;
+  }
 
   case WM_TIMER:
     if (w_param == editor_caret_timer_id) {
@@ -2258,14 +2373,31 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     break;
   }
 
+  case WM_TRAYICON: {
+    const UINT event_msg = LOWORD(l_param);
+    if (event_msg == WM_LBUTTONUP || event_msg == WM_LBUTTONDBLCLK || event_msg == NIN_SELECT || event_msg == NIN_KEYSELECT) {
+      restore_from_tray();
+      return 0;
+    }
+    if (event_msg == WM_RBUTTONUP || event_msg == WM_CONTEXTMENU) {
+      POINT pt{};
+      GetCursorPos(&pt);
+      m_tray.show_context_menu(window_handle, pt);
+      return 0;
+    }
+    return 0;
+  }
+
   case WM_CLOSE:
     DestroyWindow(window_handle);
     return 0;
 
   case WM_DESTROY:
+    m_tray.destroy();
     Components::FileDropTarget::set_enabled(window_handle, false);
     KillTimer(window_handle, editor_caret_timer_id);
     m_should_close = true;
+    PostQuitMessage(0);
     return 0;
 
   case WM_NCDESTROY:

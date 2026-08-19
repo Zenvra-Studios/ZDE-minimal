@@ -38,6 +38,7 @@ public:
     virtual void did_change(const std::string& uri, int version, std::string_view text) = 0;
     virtual void did_save(const std::string& uri) = 0;
     virtual void did_close(const std::string& uri) = 0;
+    [[nodiscard]] virtual bool is_document_open(const std::string& uri) const noexcept = 0;
 
     // LSP features
     virtual void request_completion(

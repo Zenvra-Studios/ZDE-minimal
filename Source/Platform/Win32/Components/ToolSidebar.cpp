@@ -626,6 +626,9 @@ bool ToolSidebar::handle_pointer_move(
         next_scrollbar =
             scrollbar_bounds(layout).contains(point_x, point_y) &&
             m_model.get_project_items().size() > viewport_row_count(layout);
+        if (next_scrollbar) {
+            next_row.reset();
+        }
     }
     
     bool header_changed = false;
@@ -693,6 +696,10 @@ bool ToolSidebar::is_interactive_point(
       if (sticky_index < sticky.size()) {
         return true;
       }
+    }
+    if (scrollbar_bounds(layout).contains(point_x, point_y) &&
+        m_model.get_project_items().size() > viewport_row_count(layout)) {
+      return true;
     }
     if (point_y >= tree_top && row_from_point(layout, point_y).has_value()) {
       return true;
@@ -852,6 +859,8 @@ bool ToolSidebar::handle_pointer_drag(
     }
 
     if (m_project_scrollbar.is_dragging()) {
+        m_project_scrollbar.set_track_bounds(scrollbar_bounds(layout));
+        m_project_scrollbar.set_metrics(m_model.get_project_items().size(), viewport_row_count(layout));
         if (m_project_scrollbar.handle_pointer_drag(point_x, point_y)) {
             m_model.set_scroll_offset(m_project_scrollbar.get_scroll_offset());
         }
@@ -1524,206 +1533,217 @@ void ToolSidebar::render(
     } else {
       const std::size_t first = m_model.get_scroll_offset();
       const std::size_t row_count = viewport_row_count(layout);
-      const std::size_t end = std::min(items.size(), first + row_count);
+      const std::size_t end = std::min(items.size(), first + row_count + 1);
       const float tree_top = panel.y + header_height * scale;
-  for (std::size_t item_index = first; item_index < end; ++item_index) {
-    const std::size_t visible_row = item_index - first;
-    const UI::Editor::ProjectTreeItem &item = items[item_index];
-    const UI::Rect row_bounds{
-        panel.x,
-        tree_top + static_cast<float>(visible_row) * row_height * scale,
-        panel.width,
-        row_height * scale,
-    };
-    const bool is_selected = m_model.is_selected(item.path);
-    const bool is_hovered = (m_hovered_row && *m_hovered_row == visible_row);
-    const bool is_drag_source = m_is_dragging_item && m_drag_source_row.has_value() && *m_drag_source_row == visible_row;
-    const bool is_drop_target = m_is_dragging_item && m_drag_target_row.has_value() && *m_drag_target_row == visible_row;
 
-    const UI::Rect highlight_rect{
-        panel.x + 4.0F * scale,
-        row_bounds.y + 1.0F * scale,
-        panel.width - 8.0F * scale,
-        row_height * scale - 2.0F * scale
-    };
+      // Clip tree view strictly to sidebar bounds so scrolling rows don't overflow
+      const int clip_saved = SaveDC(device_context);
+      IntersectClipRect(device_context,
+                        round_to_int(panel.x),
+                        round_to_int(tree_top),
+                        round_to_int(panel.right()),
+                        round_to_int(panel.bottom()));
 
-    if (is_drop_target) {
-      surface.fill_rectangle(device_context, row_bounds, UI::Theme::Color{255, 255, 255, 36});
-      surface.draw_rectangle(device_context, row_bounds, UI::Theme::Color{255, 255, 255, 90});
-    } else if (is_drag_source) {
-      surface.fill_rectangle(device_context, row_bounds, UI::Theme::Color{255, 255, 255, 16});
-    } else if (is_selected) {
-      surface.fill_rectangle(device_context, row_bounds, surface.m_palette.tab_active_background);
-      const UI::Rect left_bar{
-          panel.x, row_bounds.y + 2.0F * scale,
-          3.0F * scale, row_bounds.height - 4.0F * scale
-      };
-      surface.fill_rectangle(device_context, left_bar, surface.m_palette.accent);
-    } else if (is_hovered) {
-      surface.fill_rectangle(device_context, row_bounds, surface.m_palette.hover_background);
-    }
+      for (std::size_t item_index = first; item_index < end; ++item_index) {
+        const std::size_t visible_row = item_index - first;
+        const UI::Editor::ProjectTreeItem &item = items[item_index];
+        const UI::Rect row_bounds{
+            panel.x,
+            tree_top + static_cast<float>(visible_row) * row_height * scale,
+            panel.width,
+            row_height * scale,
+        };
+        const bool is_selected = m_model.is_selected(item.path);
+        const bool is_hovered = (m_hovered_row && *m_hovered_row == visible_row);
+        const bool is_drag_source = m_is_dragging_item && m_drag_source_row.has_value() && *m_drag_source_row == visible_row;
+        const bool is_drop_target = m_is_dragging_item && m_drag_target_row.has_value() && *m_drag_target_row == visible_row;
 
-    const UI::Theme::Color current_row_bg = is_selected
-        ? surface.m_palette.tab_active_background
-        : (is_hovered ? surface.m_palette.hover_background : surface.m_palette.sidebar_background);
+        const UI::Rect highlight_rect{
+            panel.x + 4.0F * scale,
+            row_bounds.y + 1.0F * scale,
+            panel.width - 8.0F * scale,
+            row_height * scale - 2.0F * scale
+        };
 
-    const float indent_x = panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
-    const int guide_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
+        if (is_drop_target) {
+          surface.fill_rectangle(device_context, row_bounds, UI::Theme::Color{255, 255, 255, 36});
+          surface.draw_rectangle(device_context, row_bounds, UI::Theme::Color{255, 255, 255, 90});
+        } else if (is_drag_source) {
+          surface.fill_rectangle(device_context, row_bounds, UI::Theme::Color{255, 255, 255, 16});
+        } else if (is_selected) {
+          surface.fill_rectangle(device_context, row_bounds, surface.m_palette.tab_active_background);
+          const UI::Rect left_bar{
+              panel.x, row_bounds.y + 2.0F * scale,
+              3.0F * scale, row_bounds.height - 4.0F * scale
+          };
+          surface.fill_rectangle(device_context, left_bar, surface.m_palette.accent);
+        } else if (is_hovered) {
+          surface.fill_rectangle(device_context, row_bounds, surface.m_palette.hover_background);
+        }
 
-    for (std::size_t level = 0; level < item.depth; ++level) {
-      const int guide_x = round_to_int(
-          panel.x + (17.0F + static_cast<float>(level) * 16.0F) * scale);
+        const UI::Theme::Color current_row_bg = is_selected
+            ? surface.m_palette.tab_active_background
+            : (is_hovered ? surface.m_palette.hover_background : surface.m_palette.sidebar_background);
 
-      bool line_active = false;
-      for (std::size_t next = item_index + 1; next < items.size(); ++next) {
-        if (items[next].depth <= level + 1) {
-          line_active = (items[next].depth == level + 1);
-          break;
+        const float indent_x = panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
+        const int guide_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
+
+        for (std::size_t level = 0; level < item.depth; ++level) {
+          const int guide_x = round_to_int(
+              panel.x + (17.0F + static_cast<float>(level) * 16.0F) * scale);
+
+          bool line_active = false;
+          for (std::size_t next = item_index + 1; next < items.size(); ++next) {
+            if (items[next].depth <= level + 1) {
+              line_active = (items[next].depth == level + 1);
+              break;
+            }
+          }
+
+          if (level == item.depth - 1) {
+            surface.draw_line(
+                device_context, guide_x, round_to_int(row_bounds.y), guide_x,
+                line_active ? round_to_int(row_bounds.bottom()) : guide_y,
+                surface.m_palette.border);
+          } else if (line_active) {
+            surface.draw_line(device_context, guide_x, round_to_int(row_bounds.y),
+                              guide_x, round_to_int(row_bounds.bottom()),
+                              surface.m_palette.border);
+          }
+        }
+        if (item.depth > 0) {
+          const int parent_x = round_to_int(
+              panel.x + (17.0F + static_cast<float>(item.depth - 1) * 16.0F) * scale);
+          const int child_x = round_to_int(indent_x + 3.0F * scale);
+          surface.draw_line(device_context, parent_x, guide_y, child_x, guide_y,
+                            surface.m_palette.border);
+        }
+
+        if (item.directory) {
+          const int arrow_x = round_to_int(indent_x + 3.0F * scale);
+          const int arrow_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
+          if (arrow_x + 8.0F * scale < panel.right()) {
+            const std::string chevron_path = item.expanded
+                                                 ? "chevron-down.svg"
+                                                 : "chevron-right.svg";
+            surface.draw_svg_icon(
+                device_context, chevron_path, arrow_x, arrow_y,
+                std::max(round_to_int(8.0F * scale), 7),
+                surface.m_palette.text_muted,
+                current_row_bg);
+          }
+          const int folder_x = round_to_int(indent_x + 19.0F * scale);
+          if (folder_x + 16.0F * scale < panel.right()) {
+            const std::string folder_path = item.expanded
+                                                ? "folder-open.svg"
+                                                : "folder.svg";
+            const int folder_size = std::max(round_to_int(14.0F * scale), 11);
+            surface.draw_svg_icon(
+                device_context, folder_path, folder_x, arrow_y,
+                folder_size,
+                surface.m_palette.text_muted,
+                current_row_bg);
+          }
+        } else {
+          const int icon_x = round_to_int(indent_x + 19.0F * scale);
+          const int icon_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
+          if (icon_x + 14.0F * scale < panel.right()) {
+            const std::string icon_asset =
+                UI::Editor::file_icon_asset_for_path(item.path);
+            surface.draw_svg_icon(
+                device_context, icon_asset, icon_x, icon_y,
+                std::max(round_to_int(14.0F * scale), 11),
+                surface.m_palette.text_muted,
+                current_row_bg,
+                true);
+          }
+        }
+
+        const float label_x = indent_x + (item.directory ? 30.0F : 36.0F) * scale;
+        if (label_x < panel.right()) {
+          const float available_width = panel.right() - label_x - 10.0F * scale;
+          if (available_width > 0.0F) {
+            const std::string label = ellipsize(
+                device_context, *surface.m_small_font, item.label,
+                round_to_int(available_width));
+            surface.draw_text(device_context, *surface.m_small_font, label, label_x,
+                              row_bounds.y + row_bounds.height * 0.5F,
+                              is_selected ? surface.m_palette.text_primary
+                                          : surface.m_palette.text_primary);
+          }
         }
       }
 
-      if (level == item.depth - 1) {
-        surface.draw_line(
-            device_context, guide_x, round_to_int(row_bounds.y), guide_x,
-            line_active ? round_to_int(row_bounds.bottom()) : guide_y,
-            surface.m_palette.border);
-      } else if (line_active) {
-        surface.draw_line(device_context, guide_x, round_to_int(row_bounds.y),
-                          guide_x, round_to_int(row_bounds.bottom()),
-                          surface.m_palette.border);
-      }
-    }
-    if (item.depth > 0) {
-      const int parent_x = round_to_int(
-          panel.x + (17.0F + static_cast<float>(item.depth - 1) * 16.0F) * scale);
-      const int child_x = round_to_int(indent_x + 3.0F * scale);
-      surface.draw_line(device_context, parent_x, guide_y, child_x, guide_y,
-                        surface.m_palette.border);
-    }
+      // Sticky Explorer Headers
+      const auto sticky_indices = get_sticky_items();
+      for (std::size_t i = 0; i < sticky_indices.size(); ++i) {
+          const std::size_t item_index = sticky_indices[i];
+          if (item_index >= items.size()) continue;
 
-    if (item.directory) {
-      const int arrow_x = round_to_int(indent_x + 3.0F * scale);
-      const int arrow_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
-      if (arrow_x + 8.0F * scale < panel.right()) {
-        const std::string chevron_path = item.expanded
-                                             ? "chevron-down.svg"
-                                             : "chevron-right.svg";
-        surface.draw_svg_icon(
-            device_context, chevron_path, arrow_x, arrow_y,
-            std::max(round_to_int(8.0F * scale), 7),
-            surface.m_palette.text_muted,
-            current_row_bg);
-      }
-      const int folder_x = round_to_int(indent_x + 19.0F * scale);
-      if (folder_x + 16.0F * scale < panel.right()) {
-        const std::string folder_path = item.expanded
-                                            ? "folder-open.svg"
-                                            : "folder.svg";
-        const int folder_size = std::max(round_to_int(14.0F * scale), 11);
-        surface.draw_svg_icon(
-            device_context, folder_path, folder_x, arrow_y,
-            folder_size,
-            surface.m_palette.text_muted,
-            current_row_bg);
-      }
-    } else {
-      const int icon_x = round_to_int(indent_x + 19.0F * scale);
-      const int icon_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
-      if (icon_x + 14.0F * scale < panel.right()) {
-        const std::string icon_asset =
-            UI::Editor::file_icon_asset_for_path(item.path);
-        surface.draw_svg_icon(
-            device_context, icon_asset, icon_x, icon_y,
-            std::max(round_to_int(14.0F * scale), 11),
-            surface.m_palette.text_muted,
-            current_row_bg,
-            true);
-      }
-    }
+          const UI::Editor::ProjectTreeItem &item = items[item_index];
+          const float sticky_y = tree_top + static_cast<float>(i) * row_height * scale;
+          const UI::Rect sticky_bounds{
+              panel.x,
+              sticky_y,
+              panel.width,
+              row_height * scale,
+          };
 
-    const float label_x = indent_x + (item.directory ? 30.0F : 36.0F) * scale;
-    if (label_x < panel.right()) {
-      const float available_width = panel.right() - label_x - 10.0F * scale;
-      if (available_width > 0.0F) {
-        const std::string label = ellipsize(
-            device_context, *surface.m_small_font, item.label,
-            round_to_int(available_width));
-        surface.draw_text(device_context, *surface.m_small_font, label, label_x,
-                          row_bounds.y + row_bounds.height * 0.5F,
-                          is_selected ? surface.m_palette.text_primary
-                                      : surface.m_palette.text_primary);
-      }
-    }
-  }
+          const bool is_sticky_hovered = (m_hovered_sticky_index && *m_hovered_sticky_index == item_index);
+          const UI::Theme::Color sticky_bg = is_sticky_hovered 
+              ? surface.m_palette.hover_background 
+              : surface.m_palette.sidebar_background;
 
-  // Sticky Explorer Headers
-  const auto sticky_indices = get_sticky_items();
-  for (std::size_t i = 0; i < sticky_indices.size(); ++i) {
-      const std::size_t item_index = sticky_indices[i];
-      if (item_index >= items.size()) continue;
+          surface.fill_rectangle(device_context, sticky_bounds, sticky_bg);
+          if (i == sticky_indices.size() - 1) {
+            surface.draw_line(device_context, round_to_int(panel.x), round_to_int(sticky_bounds.bottom()),
+                              round_to_int(panel.right()), round_to_int(sticky_bounds.bottom()),
+                              surface.m_palette.border);
+          }
 
-      const UI::Editor::ProjectTreeItem &item = items[item_index];
-      const float sticky_y = tree_top + static_cast<float>(i) * row_height * scale;
-      const UI::Rect sticky_bounds{
-          panel.x,
-          sticky_y,
-          panel.width,
-          row_height * scale,
-      };
+          const float indent_x = panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
+          const int arrow_x = round_to_int(indent_x + 3.0F * scale);
+          const int arrow_y = round_to_int(sticky_bounds.y + row_height * 0.5F * scale);
 
-      const bool is_sticky_hovered = (m_hovered_sticky_index && *m_hovered_sticky_index == item_index);
-      const UI::Theme::Color sticky_bg = is_sticky_hovered 
-          ? surface.m_palette.hover_background 
-          : surface.m_palette.sidebar_background;
+          surface.draw_svg_icon(
+              device_context, "chevron-down.svg",
+              arrow_x,
+              arrow_y,
+              std::max(round_to_int(8.0F * scale), 7),
+              surface.m_palette.text_muted,
+              sticky_bg);
 
-      surface.fill_rectangle(device_context, sticky_bounds, sticky_bg);
-      if (i == sticky_indices.size() - 1) {
-        surface.draw_line(device_context, round_to_int(panel.x), round_to_int(sticky_bounds.bottom()),
-                          round_to_int(panel.right()), round_to_int(sticky_bounds.bottom()),
-                          surface.m_palette.border);
+          const int folder_x = round_to_int(indent_x + 19.0F * scale);
+          surface.draw_svg_icon(
+              device_context, "folder-open.svg",
+              folder_x,
+              arrow_y,
+              std::max(round_to_int(14.0F * scale), 11),
+              surface.m_palette.text_muted,
+              sticky_bg);
+
+          const float label_x = indent_x + 30.0F * scale;
+          const std::string label = ellipsize(
+              device_context, *surface.m_small_font, item.label,
+              std::max(round_to_int(panel.right() - label_x - 8.0F * scale), 1));
+          surface.draw_text(device_context, *surface.m_small_font, label, label_x,
+                            arrow_y,
+                            surface.m_palette.text_primary);
       }
 
-      const float indent_x = panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
-      const int arrow_x = round_to_int(indent_x + 3.0F * scale);
-      const int arrow_y = round_to_int(sticky_bounds.y + row_height * 0.5F * scale);
+      RestoreDC(device_context, clip_saved);
 
-      surface.draw_svg_icon(
-          device_context, "chevron-down.svg",
-          arrow_x,
-          arrow_y,
-          std::max(round_to_int(8.0F * scale), 7),
-          surface.m_palette.text_muted,
-          sticky_bg);
-
-      const int folder_x = round_to_int(indent_x + 19.0F * scale);
-      surface.draw_svg_icon(
-          device_context, "folder-open.svg",
-          folder_x,
-          arrow_y,
-          std::max(round_to_int(14.0F * scale), 11),
-          surface.m_palette.text_muted,
-          sticky_bg);
-
-      const float label_x = indent_x + 30.0F * scale;
-      const std::string label = ellipsize(
-          device_context, *surface.m_small_font, item.label,
-          std::max(round_to_int(panel.right() - label_x - 8.0F * scale), 1));
-      surface.draw_text(device_context, *surface.m_small_font, label, label_x,
-                        arrow_y,
-                        surface.m_palette.text_primary);
-  }
-
-  // Project Scrollbar
-  m_project_scrollbar.set_track_bounds(scrollbar_bounds(layout));
-  m_project_scrollbar.set_metrics(items.size(), row_count);
-  m_project_scrollbar.scroll_to(first);
-  if (m_project_scrollbar.is_needed()) {
-    const UI::Rect thumb_bounds = m_project_scrollbar.get_thumb_bounds();
-    const UI::Theme::Color thumb_color = m_project_scrollbar.is_dragging()
-        ? UI::Theme::Color{255, 255, 255, 115}
-        : (m_hovered_scrollbar ? UI::Theme::Color{255, 255, 255, 75} : UI::Theme::Color{255, 255, 255, 40});
-    surface.fill_rectangle(device_context, thumb_bounds, thumb_color);
-  }
+      // Project Scrollbar
+      m_project_scrollbar.set_track_bounds(scrollbar_bounds(layout));
+      m_project_scrollbar.set_metrics(items.size(), row_count);
+      m_project_scrollbar.scroll_to(first);
+      if (m_project_scrollbar.is_needed()) {
+        const UI::Rect thumb_bounds = m_project_scrollbar.get_thumb_bounds();
+        const UI::Theme::Color thumb_color = m_project_scrollbar.is_dragging()
+            ? UI::Theme::Color{255, 255, 255, 115}
+            : (m_hovered_scrollbar ? UI::Theme::Color{255, 255, 255, 75} : UI::Theme::Color{255, 255, 255, 40});
+        surface.fill_rectangle(device_context, thumb_bounds, thumb_color);
+      }
     }
   }
 

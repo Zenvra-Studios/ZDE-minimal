@@ -368,6 +368,64 @@ TEST(LanguageServerTests, CppSyntaxHighlightingNamespacesFunctionsClasses)
         EXPECT_TRUE(found_public_kw);
         EXPECT_TRUE(found_base_component);
     }
+
+    // 4. Data types and std namespace
+    {
+        std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+        const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+            "const std::string text = \"Hello\";", *grammar, tokens);
+        ASSERT_GT(count, 0u);
+
+        bool found_const_kw = false;
+        bool found_std_type = false;
+        bool found_string_type = false;
+        bool found_text_plain = false;
+        bool found_str_literal = false;
+
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            if (tokens[i].text == "const" && tokens[i].kind == UI::Editor::EditorTokenKind::Keyword) found_const_kw = true;
+            if (tokens[i].text == "std" && tokens[i].kind == UI::Editor::EditorTokenKind::Type) found_std_type = true;
+            if (tokens[i].text == "string" && tokens[i].kind == UI::Editor::EditorTokenKind::Type) found_string_type = true;
+            if (tokens[i].text == "text" && tokens[i].kind == UI::Editor::EditorTokenKind::Plain) found_text_plain = true;
+            if (tokens[i].text == "\"Hello\"" && tokens[i].kind == UI::Editor::EditorTokenKind::String) found_str_literal = true;
+        }
+
+        EXPECT_TRUE(found_const_kw);
+        EXPECT_TRUE(found_std_type);
+        EXPECT_TRUE(found_string_type);
+        EXPECT_TRUE(found_text_plain);
+        EXPECT_TRUE(found_str_literal);
+    }
+
+    // 5. STL template containers, fixed-width ints, and smart pointers
+    {
+        std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+        const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+            "std::vector<uint32_t> items = std::make_unique<uint32_t>(10);", *grammar, tokens);
+        ASSERT_GT(count, 0u);
+
+        bool found_std_type = false;
+        bool found_vector_type = false;
+        bool found_uint32_type = false;
+        bool found_make_unique_type = false;
+        bool found_num = false;
+
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            if (tokens[i].text == "std" && tokens[i].kind == UI::Editor::EditorTokenKind::Type) found_std_type = true;
+            if (tokens[i].text == "vector" && tokens[i].kind == UI::Editor::EditorTokenKind::Type) found_vector_type = true;
+            if (tokens[i].text == "uint32_t" && tokens[i].kind == UI::Editor::EditorTokenKind::Type) found_uint32_type = true;
+            if (tokens[i].text == "make_unique" && tokens[i].kind == UI::Editor::EditorTokenKind::Type) found_make_unique_type = true;
+            if (tokens[i].text == "10" && tokens[i].kind == UI::Editor::EditorTokenKind::Number) found_num = true;
+        }
+
+        EXPECT_TRUE(found_std_type);
+        EXPECT_TRUE(found_vector_type);
+        EXPECT_TRUE(found_uint32_type);
+        EXPECT_TRUE(found_make_unique_type);
+        EXPECT_TRUE(found_num);
+    }
 }
 
 TEST(LanguageServerTests, SemanticTokensColorMapping)
@@ -497,5 +555,40 @@ TEST(LanguageServerTests, ActivityPanelModelFileFolderManipulationAndMove)
 
     std::filesystem::remove_all(temp_dir);
 }
+
+TEST(LanguageServerTests, ActivityPanelModelScrollingAndClamping)
+{
+    UI::Editor::ActivityPanelModel model;
+    EXPECT_TRUE(model.initialize(std::filesystem::current_path()));
+    EXPECT_TRUE(model.is_visible());
+    EXPECT_TRUE(model.is_active(UI::Editor::SidebarIcon::Project));
+
+    const auto items = model.get_project_items();
+    if (items.size() > 5)
+    {
+        const std::size_t viewport_rows = 5;
+        const std::size_t max_offset = items.size() - viewport_rows;
+
+        EXPECT_EQ(model.get_scroll_offset(), 0u);
+        EXPECT_FALSE(model.scroll(0, viewport_rows));
+
+        // Scroll down
+        EXPECT_TRUE(model.scroll(3, viewport_rows));
+        EXPECT_EQ(model.get_scroll_offset(), std::min(max_offset, std::size_t{3}));
+
+        // Scroll up
+        EXPECT_TRUE(model.scroll(-2, viewport_rows));
+        EXPECT_EQ(model.get_scroll_offset(), std::size_t{1});
+
+        // Scroll way past maximum offset
+        EXPECT_TRUE(model.scroll(10000, viewport_rows));
+        EXPECT_EQ(model.get_scroll_offset(), max_offset);
+
+        // Scroll way past top (0)
+        EXPECT_TRUE(model.scroll(-10000, viewport_rows));
+        EXPECT_EQ(model.get_scroll_offset(), 0u);
+    }
+}
+
 
 

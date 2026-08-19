@@ -280,6 +280,7 @@ std::size_t GenericGrammarEngine::tokenize_line(
             }
 
             const bool followed_by_paren = (next_idx < line.size() && line[next_idx] == '(');
+            const bool followed_by_scope = (next_idx + 1 < line.size() && line[next_idx] == ':' && line[next_idx + 1] == ':');
 
             if (grammar.is_keyword(identifier))
             {
@@ -342,6 +343,10 @@ std::size_t GenericGrammarEngine::tokenize_line(
                     is_label = (grammar.name == "CMake");
                 }
                 else if (grammar.name != "CMake" && std::isupper(static_cast<unsigned char>(identifier.front())) != 0)
+                {
+                    is_label = true;
+                }
+                else if (grammar.name != "CMake" && followed_by_scope)
                 {
                     is_label = true;
                 }

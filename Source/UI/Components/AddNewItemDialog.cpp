@@ -434,6 +434,10 @@ void AddNewItemDialog::open(HWND parent_hwnd,
                       width, height, parent_hwnd, nullptr, instance, this);
 
   if (m_hwnd != nullptr) {
+    if (m_parent_hwnd && IsWindow(m_parent_hwnd)) {
+      EnableWindow(m_parent_hwnd, FALSE);
+    }
+
     // 1. Enable immersive dark mode
     BOOL dark = TRUE;
     DwmSetWindowAttribute(m_hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark,
@@ -460,6 +464,7 @@ void AddNewItemDialog::open(HWND parent_hwnd,
     SetTimer(m_hwnd, 1, 500, nullptr);
     ShowWindow(m_hwnd, SW_SHOW);
     UpdateWindow(m_hwnd);
+    SetForegroundWindow(m_hwnd);
     SetFocus(m_hwnd);
   }
 }
@@ -470,6 +475,13 @@ void AddNewItemDialog::close() {
     HWND hwnd = m_hwnd;
     m_hwnd = nullptr;
     DestroyWindow(hwnd);
+  }
+  if (m_parent_hwnd != nullptr && IsWindow(m_parent_hwnd)) {
+    EnableWindow(m_parent_hwnd, TRUE);
+    SetForegroundWindow(m_parent_hwnd);
+    SetFocus(m_parent_hwnd);
+    SetActiveWindow(m_parent_hwnd);
+    InvalidateRect(m_parent_hwnd, nullptr, FALSE);
   }
   m_close_hovered = false;
   m_add_hovered = false;
@@ -1379,6 +1391,13 @@ LRESULT AddNewItemDialog::handle_message(HWND hwnd, UINT message,
   case WM_DESTROY:
     KillTimer(hwnd, 1);
     m_hwnd = nullptr;
+    if (m_parent_hwnd != nullptr && IsWindow(m_parent_hwnd)) {
+      EnableWindow(m_parent_hwnd, TRUE);
+      SetForegroundWindow(m_parent_hwnd);
+      SetFocus(m_parent_hwnd);
+      SetActiveWindow(m_parent_hwnd);
+      InvalidateRect(m_parent_hwnd, nullptr, FALSE);
+    }
     return 0;
 
   default:

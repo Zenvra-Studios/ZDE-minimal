@@ -156,8 +156,17 @@ bool LanguageClient::is_active() const noexcept
     return m_state.load() == ClientState::Active;
 }
 
+bool LanguageClient::is_document_open(const std::string& uri) const noexcept
+{
+    return m_sync_manager.is_tracked(uri);
+}
+
 void LanguageClient::did_open(const std::string& uri, std::string_view language_id, int version, std::string_view text)
 {
+    if (m_sync_manager.is_tracked(uri))
+    {
+        return;
+    }
     const auto notif = m_sync_manager.create_did_open(uri, language_id, version, text);
     send_notification(notif.method, notif.params);
 }

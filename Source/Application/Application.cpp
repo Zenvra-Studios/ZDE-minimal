@@ -64,6 +64,9 @@ int Application::run()
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
 
+    m_execution_service->stop();
+    Language::LanguageServerManager::instance().shutdown_all();
+
     return 0;
 }
 

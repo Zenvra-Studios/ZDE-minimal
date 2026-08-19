@@ -92,6 +92,7 @@ public:
     [[nodiscard]] std::optional<bool> is_editor_command_enabled(
         std::string_view command_id) const noexcept;
     [[nodiscard]] bool handle_text_input(std::string_view utf8_text);
+    [[nodiscard]] bool trigger_editor_autocomplete();
     [[nodiscard]] bool handle_terminal_key(Terminal::TerminalInputKey key);
     [[nodiscard]] bool handle_terminal_control(char letter);
     [[nodiscard]] bool handle_terminal_scroll(const Event::ScrollEvent& event) noexcept;
@@ -190,6 +191,7 @@ public:
         float content_top) const noexcept;
     [[nodiscard]] bool is_sidebar_resizing() const noexcept;
     [[nodiscard]] bool is_sidebar_dragging_item() const noexcept;
+    [[nodiscard]] bool is_sidebar_dragging_scrollbar() const noexcept;
     [[nodiscard]] bool is_shader_sandbox_point(
         float point_x,
         float point_y,

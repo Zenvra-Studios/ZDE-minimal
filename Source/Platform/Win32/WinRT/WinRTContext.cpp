@@ -5,10 +5,7 @@
 // Menggunakan modern C++/WinRT headers bawaan Windows SDK (Visual Studio)
 #include <winrt/Windows.Foundation.h>
 
-namespace Zenvra {
-namespace Platform {
-namespace Win32 {
-namespace Runtime {
+namespace Zenvra::Platform::Win32::Runtime {
 
 bool WinRTContext::s_is_initialized = false;
 
@@ -47,7 +44,4 @@ void WinRTContext::shutdown()
     }
 }
 
-} // namespace Runtime
-} // namespace Win32
-} // namespace Platform
-} // namespace Zenvra
+} // namespace Zenvra::Platform::Win32::Runtime

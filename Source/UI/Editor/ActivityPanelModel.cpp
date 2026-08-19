@@ -200,7 +200,8 @@ bool ActivityPanelModel::scroll(
     else
     {
         const std::size_t amount = static_cast<std::size_t>(-line_delta);
-        m_scroll_offset = amount > m_scroll_offset ? 0 : m_scroll_offset - amount;
+        const std::size_t unclamped = amount > m_scroll_offset ? 0 : m_scroll_offset - amount;
+        m_scroll_offset = std::min(unclamped, maximum_offset);
     }
     return m_scroll_offset != previous;
 }

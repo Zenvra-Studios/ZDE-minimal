@@ -592,6 +592,10 @@ bool StudioWorkspaceRenderer::handle_text_input(std::string_view utf8_text) {
   return res;
 }
 
+bool StudioWorkspaceRenderer::trigger_editor_autocomplete() {
+  return m_text_editor.trigger_completion();
+}
+
 bool StudioWorkspaceRenderer::handle_terminal_key(
     Terminal::TerminalInputKey key) {
   return m_terminal_panel.handle_key(key);
@@ -768,6 +772,10 @@ bool StudioWorkspaceRenderer::is_sidebar_resizing() const noexcept {
 
 bool StudioWorkspaceRenderer::is_sidebar_dragging_item() const noexcept {
   return m_tool_sidebar.is_dragging_item();
+}
+
+bool StudioWorkspaceRenderer::is_sidebar_dragging_scrollbar() const noexcept {
+  return m_tool_sidebar.is_dragging_scrollbar();
 }
 
 bool StudioWorkspaceRenderer::is_shader_sandbox_point(

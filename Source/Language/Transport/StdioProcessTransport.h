@@ -35,6 +35,7 @@ private:
     struct ProcessHandle;
 
     void reader_thread_loop();
+    void stderr_thread_loop();
 
     std::filesystem::path m_executable_path;
     std::vector<std::string> m_arguments;
@@ -42,6 +43,7 @@ private:
 
     std::unique_ptr<ProcessHandle> m_process;
     std::thread m_reader_thread;
+    std::thread m_stderr_thread;
     std::atomic<bool> m_running{false};
     std::mutex m_write_mutex;
 

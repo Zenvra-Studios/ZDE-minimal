@@ -154,7 +154,14 @@ if(WIN32)
     )
 
     # Deploy TextMate Grammars to Assets/Grammars
-    if(EXISTS "${CMAKE_SOURCE_DIR}/Assets/Grammars")
+    if(EXISTS "${CMAKE_SOURCE_DIR}/Assets/grammars")
+        add_custom_command(TARGET ZDE POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_SOURCE_DIR}/Assets/grammars"
+                "$<TARGET_FILE_DIR:ZDE>/Assets/grammars"
+            COMMENT "Deploying TextMate Grammars to Assets/grammars..."
+        )
+    elseif(EXISTS "${CMAKE_SOURCE_DIR}/Assets/Grammars")
         add_custom_command(TARGET ZDE POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${CMAKE_SOURCE_DIR}/Assets/Grammars"
@@ -176,7 +183,14 @@ if(NOT WIN32)
         COMMENT "Deploying Resources folder (icons and fonts only)..."
     )
 
-    if(EXISTS "${CMAKE_SOURCE_DIR}/Assets/Grammars")
+    if(EXISTS "${CMAKE_SOURCE_DIR}/Assets/grammars")
+        add_custom_command(TARGET ZDE POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_SOURCE_DIR}/Assets/grammars"
+                "$<TARGET_FILE_DIR:ZDE>/Assets/grammars"
+            COMMENT "Deploying TextMate Grammars to Assets/grammars..."
+        )
+    elseif(EXISTS "${CMAKE_SOURCE_DIR}/Assets/Grammars")
         add_custom_command(TARGET ZDE POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${CMAKE_SOURCE_DIR}/Assets/Grammars"

@@ -19,6 +19,9 @@ using Zenvra::Utility::round_to_int;
 
 } // namespace
 
+/**
+ * 
+ **/
 void ActivitySidebar::render(
     const StudioWorkspaceRenderer& surface,
     HDC device_context,
@@ -117,6 +120,9 @@ void ActivitySidebar::render(
         surface.m_palette.border);
 }
 
+/**
+ * 
+ **/
 void ActivitySidebar::draw_icon(
     const StudioWorkspaceRenderer& surface,
     HDC device_context,

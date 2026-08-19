@@ -1,9 +1,6 @@
 #pragma once
 
-namespace Zenvra {
-namespace Platform {
-namespace Win32 {
-namespace Runtime {
+namespace Zenvra::Platform::Win32::Runtime {
 
 class WinRTContext {
 public:
@@ -14,7 +11,4 @@ private:
     static bool s_is_initialized;
 };
 
-} // namespace Runtime
-} // namespace Win32
-} // namespace Platform
-} // namespace Zenvra
+} // namespace Zenvra::Platform::Win32::Runtime

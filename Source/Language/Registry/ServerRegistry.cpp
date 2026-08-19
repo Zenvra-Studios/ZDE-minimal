@@ -575,8 +575,14 @@ void ServerRegistry::initialize_default_profiles()
     cpp_profile.extensions = {".cpp", ".c", ".h", ".hpp", ".cc", ".cxx", ".hh", ".hxx", ".inl", ".m", ".mm"};
     cpp_profile.executable_name = "clangd";
     cpp_profile.default_args = {
+        "-j=2",
         "--background-index",
-        "--clang-tidy",
+        "--background-index-priority=low",
+        "--pch-storage=disk",
+        "--limit-results=100",
+        "--limit-references=500",
+        "--clang-tidy=false",
+        "--enable-config",
         "--header-insertion-decorators=false",
         "--query-driver=**",
         "--compile-commands-dir=build",

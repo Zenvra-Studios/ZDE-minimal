@@ -37,6 +37,7 @@ public:
     void did_change(const std::string& uri, int version, std::string_view text) override;
     void did_save(const std::string& uri) override;
     void did_close(const std::string& uri) override;
+    [[nodiscard]] bool is_document_open(const std::string& uri) const noexcept override;
 
     // LSP features
     void request_completion(

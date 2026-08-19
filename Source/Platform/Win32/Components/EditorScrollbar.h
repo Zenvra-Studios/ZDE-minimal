@@ -7,6 +7,10 @@
 
 #include <cstddef>
 
+/**
+ * 
+ * 
+ **/
 namespace Zenvra::Platform::Win32::Components
 {
 

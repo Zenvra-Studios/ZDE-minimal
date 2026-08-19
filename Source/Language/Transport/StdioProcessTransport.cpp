@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdlib>
+#include <fstream>
 #include <iostream>
 
 #if defined(_WIN32)
@@ -18,6 +20,24 @@
 namespace Zenvra::Language::Transport
 {
 
+namespace
+{
+void transport_debug_log(const std::string& msg)
+{
+    std::error_code ec;
+    const char* tmp = std::getenv("TEMP");
+    const std::filesystem::path log_path =
+        (tmp != nullptr ? std::filesystem::path(tmp)
+                        : std::filesystem::current_path(ec)) /
+        "zde-lsp.log";
+    std::ofstream out(log_path, std::ios::app);
+    if (out)
+    {
+        out << msg << '\n';
+    }
+}
+} // namespace
+
 struct StdioProcessTransport::ProcessHandle
 {
 #if defined(_WIN32)
@@ -25,10 +45,12 @@ struct StdioProcessTransport::ProcessHandle
     HANDLE thread = nullptr;
     HANDLE stdin_write = nullptr;
     HANDLE stdout_read = nullptr;
+    HANDLE stderr_read = nullptr;
 #else
     pid_t pid = -1;
     int stdin_write = -1;
     int stdout_read = -1;
+    int stderr_read = -1;
 #endif
 };
 
@@ -79,19 +101,21 @@ bool StdioProcessTransport::start()
     }
     SetHandleInformation(stdin_write_pipe, HANDLE_FLAG_INHERIT, 0);
 
-    HANDLE nul_stderr = CreateFileW(
-        L"NUL",
-        GENERIC_WRITE,
-        FILE_SHARE_READ | FILE_SHARE_WRITE,
-        &sa_attr,
-        OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL,
-        nullptr
-    );
+    HANDLE stderr_read_pipe = nullptr;
+    HANDLE stderr_write_pipe = nullptr;
+    if (!CreatePipe(&stderr_read_pipe, &stderr_write_pipe, &sa_attr, 0))
+    {
+        CloseHandle(stdout_read_pipe);
+        CloseHandle(stdout_write_pipe);
+        CloseHandle(stdin_read_pipe);
+        CloseHandle(stdin_write_pipe);
+        return false;
+    }
+    SetHandleInformation(stderr_read_pipe, HANDLE_FLAG_INHERIT, 0);
 
     STARTUPINFOW si{};
     si.cb = sizeof(STARTUPINFOW);
-    si.hStdError = (nul_stderr != INVALID_HANDLE_VALUE) ? nul_stderr : stdout_write_pipe;
+    si.hStdError = stderr_write_pipe;
     si.hStdOutput = stdout_write_pipe;
     si.hStdInput = stdin_read_pipe;
     si.dwFlags |= STARTF_USESTDHANDLES;
@@ -141,28 +165,35 @@ bool StdioProcessTransport::start()
 
     CloseHandle(stdout_write_pipe);
     CloseHandle(stdin_read_pipe);
-    if (nul_stderr != INVALID_HANDLE_VALUE)
-    {
-        CloseHandle(nul_stderr);
-    }
+    CloseHandle(stderr_write_pipe);
 
     if (!success)
     {
+        const DWORD err = GetLastError();
+        transport_debug_log("[zde-lsp] CreateProcessW FAILED err=" +
+                            std::to_string(err) + " cmd=" +
+                            std::string(cmd_line.begin(), cmd_line.end()));
         CloseHandle(stdout_read_pipe);
         CloseHandle(stdin_write_pipe);
+        CloseHandle(stderr_read_pipe);
         return false;
     }
+
+    transport_debug_log("[zde-lsp] CreateProcessW OK pid=" +
+                        std::to_string(pi.dwProcessId));
 
     m_process->process = pi.hProcess;
     m_process->thread = pi.hThread;
     m_process->stdin_write = stdin_write_pipe;
     m_process->stdout_read = stdout_read_pipe;
+    m_process->stderr_read = stderr_read_pipe;
 
 #else
     int stdin_pipes[2];
     int stdout_pipes[2];
+    int stderr_pipes[2];
 
-    if (pipe(stdin_pipes) < 0 || pipe(stdout_pipes) < 0)
+    if (pipe(stdin_pipes) < 0 || pipe(stdout_pipes) < 0 || pipe(stderr_pipes) < 0)
     {
         return false;
     }
@@ -178,12 +209,14 @@ bool StdioProcessTransport::start()
         // Child process
         dup2(stdin_pipes[0], STDIN_FILENO);
         dup2(stdout_pipes[1], STDOUT_FILENO);
-        dup2(stdout_pipes[1], STDERR_FILENO);
+        dup2(stderr_pipes[1], STDERR_FILENO);
 
         close(stdin_pipes[0]);
         close(stdin_pipes[1]);
         close(stdout_pipes[0]);
         close(stdout_pipes[1]);
+        close(stderr_pipes[0]);
+        close(stderr_pipes[1]);
 
         if (!m_working_directory.empty())
         {
@@ -205,14 +238,17 @@ bool StdioProcessTransport::start()
 
     close(stdin_pipes[0]);
     close(stdout_pipes[1]);
+    close(stderr_pipes[1]);
 
     m_process->pid = pid;
     m_process->stdin_write = stdin_pipes[1];
     m_process->stdout_read = stdout_pipes[0];
+    m_process->stderr_read = stderr_pipes[0];
 #endif
 
     m_running.store(true);
     m_reader_thread = std::thread(&StdioProcessTransport::reader_thread_loop, this);
+    m_stderr_thread = std::thread(&StdioProcessTransport::stderr_thread_loop, this);
 
     return true;
 }
@@ -227,20 +263,24 @@ void StdioProcessTransport::stop()
         CloseHandle(m_process->stdin_write);
         m_process->stdin_write = nullptr;
     }
-    if (m_process->stdout_read != nullptr)
-    {
-        CancelIoEx(m_process->stdout_read, nullptr);
-        CloseHandle(m_process->stdout_read);
-        m_process->stdout_read = nullptr;
-    }
     if (m_process->process != nullptr)
     {
-        if (WaitForSingleObject(m_process->process, 50) == WAIT_TIMEOUT)
+        if (WaitForSingleObject(m_process->process, 100) == WAIT_TIMEOUT)
         {
             TerminateProcess(m_process->process, 0);
         }
         CloseHandle(m_process->process);
         m_process->process = nullptr;
+    }
+    if (m_process->stdout_read != nullptr)
+    {
+        CloseHandle(m_process->stdout_read);
+        m_process->stdout_read = nullptr;
+    }
+    if (m_process->stderr_read != nullptr)
+    {
+        CloseHandle(m_process->stderr_read);
+        m_process->stderr_read = nullptr;
     }
     if (m_process->thread != nullptr)
     {
@@ -253,16 +293,21 @@ void StdioProcessTransport::stop()
         close(m_process->stdin_write);
         m_process->stdin_write = -1;
     }
-    if (m_process->stdout_read >= 0)
-    {
-        close(m_process->stdout_read);
-        m_process->stdout_read = -1;
-    }
     if (m_process->pid > 0)
     {
         kill(m_process->pid, SIGTERM);
         waitpid(m_process->pid, nullptr, WNOHANG);
         m_process->pid = -1;
+    }
+    if (m_process->stdout_read >= 0)
+    {
+        close(m_process->stdout_read);
+        m_process->stdout_read = -1;
+    }
+    if (m_process->stderr_read >= 0)
+    {
+        close(m_process->stderr_read);
+        m_process->stderr_read = -1;
     }
 #endif
 
@@ -275,6 +320,17 @@ void StdioProcessTransport::stop()
         else
         {
             m_reader_thread.detach();
+        }
+    }
+    if (m_stderr_thread.joinable())
+    {
+        if (m_stderr_thread.get_id() != std::this_thread::get_id())
+        {
+            m_stderr_thread.join();
+        }
+        else
+        {
+            m_stderr_thread.detach();
         }
     }
 }
@@ -444,6 +500,48 @@ void StdioProcessTransport::reader_thread_loop()
     }
 
     m_running.store(false);
+}
+
+void StdioProcessTransport::stderr_thread_loop()
+{
+    std::array<char, 2048> chunk{};
+    while (m_running.load())
+    {
+#if defined(_WIN32)
+        if (m_process->stderr_read == nullptr)
+        {
+            break;
+        }
+        DWORD bytes_read = 0;
+        const BOOL success = ReadFile(m_process->stderr_read, chunk.data(), static_cast<DWORD>(chunk.size()), &bytes_read, nullptr);
+        if (!success || bytes_read == 0)
+        {
+            break;
+        }
+        const std::string_view err_view(chunk.data(), bytes_read);
+        transport_debug_log("[zde-lsp stderr] " + std::string(err_view));
+        if (m_error_handler)
+        {
+            m_error_handler(err_view);
+        }
+#else
+        if (m_process->stderr_read < 0)
+        {
+            break;
+        }
+        ssize_t bytes_read = read(m_process->stderr_read, chunk.data(), chunk.size());
+        if (bytes_read <= 0)
+        {
+            break;
+        }
+        const std::string_view err_view(chunk.data(), static_cast<std::size_t>(bytes_read));
+        transport_debug_log("[zde-lsp stderr] " + std::string(err_view));
+        if (m_error_handler)
+        {
+            m_error_handler(err_view);
+        }
+#endif
+    }
 }
 
 } // namespace Zenvra::Language::Transport

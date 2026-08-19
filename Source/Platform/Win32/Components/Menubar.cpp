@@ -11,6 +11,9 @@
 namespace Zenvra::Platform::Win32::Components
 {
 
+/**
+ * 
+ **/
 Menubar::~Menubar()
 {
     if (m_menu_handle != nullptr && IsMenu(m_menu_handle) != FALSE)
@@ -19,18 +22,29 @@ Menubar::~Menubar()
     }
 }
 
+/**
+ * 
+ **/
 bool Menubar::load(HINSTANCE instance_handle)
 {
     m_menu_handle = LoadMenuW(instance_handle, MAKEINTRESOURCEW(IDR_MAINMENU));
     return m_menu_handle != nullptr;
 }
 
+/**
+ * 
+ * 
+ **/
 bool Menubar::attach(HWND window_handle)
 {
     m_window_handle = window_handle;
     return m_window_handle != nullptr && SetMenu(m_window_handle, m_menu_handle) != FALSE;
 }
 
+/**
+ * 
+ * 
+ **/
 bool Menubar::detach()
 {
     if (m_window_handle == nullptr)
@@ -43,6 +57,10 @@ bool Menubar::detach()
     return detached;
 }
 
+/**
+ * 
+ * 
+ **/
 bool Menubar::show_popup(std::size_t menu_index, int screen_x, int screen_y) const
 {
     if (m_menu_handle == nullptr || m_window_handle == nullptr)
@@ -72,6 +90,10 @@ bool Menubar::show_popup(std::size_t menu_index, int screen_x, int screen_y) con
     return true;
 }
 
+/**
+ * 
+ * 
+ **/
 bool Menubar::show_overflow_popup(
     std::size_t first_menu_index,
     int screen_x,

@@ -84,6 +84,7 @@ public:
     [[nodiscard]] std::optional<bool> is_command_enabled(
         std::string_view command_id) const noexcept;
     [[nodiscard]] bool handle_text_input(std::string_view utf8_text);
+    [[nodiscard]] bool trigger_completion();
     [[nodiscard]] bool is_focused() const noexcept;
     [[nodiscard]] bool is_scrollbar_point(
         const UI::Editor::StudioEditorLayoutResult& layout,

@@ -2746,7 +2746,7 @@ bool TextEditor::handle_text_input(std::string_view utf8_text)
                             while (start > 0)
                             {
                                 const char ch = line[start - 1];
-                                if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '#' || ch == '~')
+                                if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '#' || ch == '~' || ch == '/' || ch == '.' || ch == '-')
                                 {
                                     --start;
                                 }
@@ -3011,7 +3011,7 @@ bool TextEditor::handle_text_input(std::string_view utf8_text)
                                 while (start > 0)
                                 {
                                     const char ch = line[start - 1];
-                                    if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '#' || ch == '~')
+                                    if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '#' || ch == '~' || ch == '/' || ch == '.' || ch == '-')
                                     {
                                         --start;
                                     }
@@ -3047,6 +3047,71 @@ bool TextEditor::handle_text_input(std::string_view utf8_text)
         }
     }
     return changed;
+}
+
+bool TextEditor::trigger_completion()
+{
+    if (auto* doc = m_controller.get_active_document(); doc != nullptr)
+    {
+        const std::string uri = get_active_document_uri();
+        const std::string fname = get_active_document_filename();
+        const Language::Protocol::Position pos{
+            .line = doc->get_caret_line(),
+            .character = doc->get_caret_column()
+        };
+        const std::string_view current_line = doc->get_line(doc->get_caret_line());
+
+        Language::LanguageServerManager::instance().request_completion(
+            uri, fname, pos, current_line,
+            [this](std::vector<Language::Protocol::CompletionItem> items) {
+                std::lock_guard<std::mutex> lock(m_lsp_mutex);
+                if (!items.empty())
+                {
+                    m_completion_popup.show(std::move(items), 100.0F, 100.0F);
+
+                    if (const auto* current_doc = m_controller.get_active_document())
+                    {
+                        const std::string_view line = current_doc->get_line(current_doc->get_caret_line());
+                        const std::size_t col = current_doc->get_caret_column();
+                        std::size_t start = std::min(col, line.size());
+                        while (start > 0)
+                        {
+                            const char ch = line[start - 1];
+                            if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '#' || ch == '~' || ch == '/' || ch == '.' || ch == '-')
+                            {
+                                --start;
+                            }
+                            else
+                            {
+                                break;
+                            }
+                        }
+                        const std::string_view latest_word = line.substr(start, col - start);
+                        if (!latest_word.empty())
+                        {
+                            m_completion_popup.set_filter(latest_word);
+                        }
+                    }
+
+                    if (m_completion_popup.get_item_count() == 0)
+                    {
+                        m_completion_popup.hide();
+                    }
+                }
+                else
+                {
+                    m_completion_popup.hide();
+                }
+
+                if (m_window_handle != nullptr)
+                {
+                    InvalidateRect(m_window_handle, nullptr, FALSE);
+                }
+            }
+        );
+        return true;
+    }
+    return false;
 }
 
 bool TextEditor::is_focused() const noexcept
