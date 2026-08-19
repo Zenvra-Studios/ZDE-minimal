@@ -1147,8 +1147,10 @@ void StudioWorkspaceRenderer::draw_svg_icon(
 
     const std::filesystem::path filename = resolved_path.filename();
     const std::filesystem::path direct_path = m_icon_asset_root / rel_str;
-    const std::filesystem::path symbol_file = m_icon_asset_root / "vscode-symbols" / "files" / filename;
-    const std::filesystem::path symbol_folder = m_icon_asset_root / "vscode-symbols" / "folders" / filename;
+    const std::filesystem::path symbol_file_1 = m_icon_asset_root / "vscode-symbols" / "icons" / "files" / filename;
+    const std::filesystem::path symbol_folder_1 = m_icon_asset_root / "vscode-symbols" / "icons" / "folders" / filename;
+    const std::filesystem::path symbol_file_2 = m_icon_asset_root / "vscode-symbols" / "files" / filename;
+    const std::filesystem::path symbol_folder_2 = m_icon_asset_root / "vscode-symbols" / "folders" / filename;
     const std::filesystem::path codicon_direct = m_icon_asset_root / "vscode-codicons" / "icons" / rel_str;
     const std::filesystem::path codicon_file = m_icon_asset_root / "vscode-codicons" / "icons" / filename;
     const std::filesystem::path vsicon_file = m_icon_asset_root / "vscode-icons" / "icons" / filename;
@@ -1156,10 +1158,14 @@ void StudioWorkspaceRenderer::draw_svg_icon(
 
     if (std::filesystem::is_regular_file(direct_path, path_error)) {
       resolved_path = direct_path;
-    } else if (std::filesystem::is_regular_file(symbol_file, path_error)) {
-      resolved_path = symbol_file;
-    } else if (std::filesystem::is_regular_file(symbol_folder, path_error)) {
-      resolved_path = symbol_folder;
+    } else if (std::filesystem::is_regular_file(symbol_file_1, path_error)) {
+      resolved_path = symbol_file_1;
+    } else if (std::filesystem::is_regular_file(symbol_folder_1, path_error)) {
+      resolved_path = symbol_folder_1;
+    } else if (std::filesystem::is_regular_file(symbol_file_2, path_error)) {
+      resolved_path = symbol_file_2;
+    } else if (std::filesystem::is_regular_file(symbol_folder_2, path_error)) {
+      resolved_path = symbol_folder_2;
     } else if (std::filesystem::is_regular_file(codicon_direct, path_error)) {
       resolved_path = codicon_direct;
     } else if (std::filesystem::is_regular_file(codicon_file, path_error)) {

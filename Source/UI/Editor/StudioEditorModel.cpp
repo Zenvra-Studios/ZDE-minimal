@@ -45,16 +45,16 @@ StudioEditorPalette StudioEditorPalette::jetbrains_dark() noexcept {
       .selection_background = {48, 70, 101, 255},
       .status_background = {30, 31, 34, 255},
       .border = {48, 50, 55, 255},
-      .text_primary = {188, 190, 196, 255},
-      .text_muted = {104, 107, 115, 255},
-      .keyword = {207, 145, 105, 255},
-      .number = {86, 181, 172, 255},
-      .label = {210, 126, 164, 255},
-      .type = {110, 174, 194, 255},
-      .comment = {98, 102, 110, 255},
+      .text_primary = {220, 222, 228, 255},
+      .text_muted = {128, 133, 144, 255},
+      .keyword = {207, 142, 109, 255},
+      .number = {42, 172, 184, 255},
+      .label = {218, 126, 168, 255},
+      .type = {96, 184, 206, 255},
+      .comment = {122, 128, 138, 255},
       .accent = {53, 132, 228, 255},
-      .warning = {219, 139, 72, 255},
-      .success = {83, 157, 84, 255},
+      .warning = {229, 160, 80, 255},
+      .success = {106, 171, 115, 255},
       .tooltip_background = {43, 45, 49, 255},
       .hover_background = {58, 62, 72, 255},
       .indent_guide = {48, 50, 56, 255},
@@ -140,23 +140,9 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
              : StudioEditorMetrics::titlebar_navigation_width * safe_scale)
       : 0.0F;
 
-  // Responsive right toolbar controls width calculation:
-  // On macOS: traffic lights are on the LEFT, so the right side only holds the action toolbar (~550px * scale) + padding.
-  const bool is_compact_window = safe_width < (960.0F * safe_scale);
-  const bool is_ultra_compact_window = safe_width < (760.0F * safe_scale);
-
-  const float base_toolbar_width = is_ultra_compact_window
-      ? (410.0F * safe_scale)
-      : (is_compact_window ? (486.0F * safe_scale) : (564.0F * safe_scale));
-
-  const float platform_controls_width =
-#if defined(__APPLE__)
-      base_toolbar_width;
-#else
-      base_toolbar_width + (138.0F * safe_scale);
-#endif
-
-  const float ctrl_width = (safe_top > 0.0F) ? platform_controls_width : 0.0F;
+  const float ctrl_width = (safe_top > 0.0F)
+      ? (StudioEditorMetrics::titlebar_window_controls_width * safe_scale)
+      : 0.0F;
   
   const float integrated_tab_x = std::min(nav_width, safe_width);
   const float integrated_tab_right = (safe_width > (integrated_tab_x + ctrl_width))
@@ -337,9 +323,10 @@ hit_test_studio_sidebar(const StudioEditorLayoutResult &layout, float point_x,
 
 float calculate_editor_tab_width(float text_width, float dpi_scale) noexcept {
   const float scale = std::max(dpi_scale, 0.5F);
-  return std::max(StudioEditorMetrics::editor_tab_minimum_width * scale,
-                  std::max(text_width, 0.0F) +
-                      StudioEditorMetrics::editor_tab_chrome_width * scale);
+  return std::clamp(std::max(text_width, 0.0F) +
+                        StudioEditorMetrics::editor_tab_chrome_width * scale,
+                    StudioEditorMetrics::editor_tab_minimum_width * scale,
+                    StudioEditorMetrics::editor_tab_maximum_width * scale);
 }
 
 std::size_t tokenize_editor_line(

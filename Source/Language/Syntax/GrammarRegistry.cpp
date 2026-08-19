@@ -342,6 +342,7 @@ void GrammarRegistry::initialize_default_grammars()
             "typedef", "typeid", "typename", "union", "using", "virtual",
             "volatile", "while", "xor", "xor_eq"
         };
+        /*
         cpp_rule.types = {
             "bool", "char", "char8_t", "char16_t", "char32_t", "double", "float", "int", "long", "short",
             "signed", "unsigned", "void", "wchar_t",
@@ -351,6 +352,7 @@ void GrammarRegistry::initialize_default_grammars()
             "vector", "array", "map", "unordered_map", "set", "unordered_set",
             "unique_ptr", "shared_ptr", "optional", "span", "variant"
         };
+        */
         register_grammar(std::move(cpp_rule));
     }
 

@@ -3,6 +3,7 @@
 #include "Platform/Cocoa/Components/StudioWorkspaceRenderer.h"
 #include "Utility/Fonts.h"
 #include "UI/Editor/EditorFileSystem.h"
+#include "Commands/CommandIds.h"
 
 #include <lunasvg.h>
 
@@ -207,11 +208,6 @@ bool StudioWorkspaceRenderer::initialize(float dpi_scale)
         : (UI::Editor::StudioEditorMetrics::titlebar_navigation_width * m_dpi_scale);
     m_last_titlebar_tick_ms = 0;
     return true;
-}
-
-bool StudioWorkspaceRenderer::toggle_shader_sandbox()
-{
-    return m_shader_sandbox_panel.toggle();
 }
 
 void StudioWorkspaceRenderer::set_fullscreen(bool fullscreen) noexcept
@@ -783,6 +779,26 @@ bool StudioWorkspaceRenderer::is_tool_sidebar_point(
     return m_tool_sidebar.contains(layout, point_x, point_y);
 }
 
+bool StudioWorkspaceRenderer::is_editor_split_resize_handle(
+    float point_x, float point_y,
+    int client_width, int client_height,
+    float content_top) const noexcept
+{
+    const UI::Editor::StudioEditorLayoutResult layout =
+        calculate_layout(client_width, client_height, content_top);
+    return m_text_editor.is_split_resize_handle_point(layout, point_x, point_y);
+}
+
+bool StudioWorkspaceRenderer::is_editor_split_resizing() const noexcept
+{
+    return m_text_editor.is_split_resizing();
+}
+
+bool StudioWorkspaceRenderer::is_editor_split_active() const noexcept
+{
+    return m_text_editor.is_split_active();
+}
+
 bool StudioWorkspaceRenderer::is_terminal_resize_handle_point(
     float point_x, float point_y,
     int client_width, int client_height,
@@ -1034,7 +1050,7 @@ void StudioWorkspaceRenderer::execute_explorer_command(
     } else if (command_id == "zde.explorer.newFolder") {
         m_prompt_dialog.open_new_folder(target_path, [this](const std::string& name) {
             std::filesystem::path created_p;
-            m_tool_sidebar.get_model().create_directory(name, created_p);
+            static_cast<void>(m_tool_sidebar.get_model().create_directory(name, created_p));
         });
     } else if (command_id == "zde.explorer.openToSide") {
         if (!target_path.empty() && !std::filesystem::is_directory(target_path)) {
@@ -1049,7 +1065,7 @@ void StudioWorkspaceRenderer::execute_explorer_command(
         const std::filesystem::path term_dir = std::filesystem::is_directory(target_path) ? target_path : target_path.parent_path();
         m_terminal_panel.set_working_directory(term_dir);
         if (!m_terminal_panel.is_visible()) {
-            m_terminal_panel.toggle();
+            static_cast<void>(m_terminal_panel.toggle());
         }
     } else if (command_id == "zde.explorer.copyPath") {
         if (!target_path.empty()) {
@@ -1069,11 +1085,11 @@ void StudioWorkspaceRenderer::execute_explorer_command(
     } else if (command_id == "zde.explorer.rename") {
         m_prompt_dialog.open_rename(target_path, [this, target_path](const std::string& new_name) {
             std::filesystem::path out_p;
-            m_tool_sidebar.get_model().rename_item(target_path, new_name, out_p);
+            static_cast<void>(m_tool_sidebar.get_model().rename_item(target_path, new_name, out_p));
         });
     } else if (command_id == "zde.explorer.delete") {
         m_prompt_dialog.open_delete(target_path, [this, target_path]() {
-            m_tool_sidebar.get_model().delete_item(target_path);
+            static_cast<void>(m_tool_sidebar.get_model().delete_item(target_path));
         });
     }
 }
@@ -1274,22 +1290,35 @@ std::filesystem::path StudioWorkspaceRenderer::resolve_icon_path(
             relative.erase(0, icon_prefix.size());
             resolved_path = relative;
         }
+        const std::filesystem::path filename = resolved_path.filename();
         const std::filesystem::path themed_path = m_icon_asset_root / resolved_path;
-        const std::filesystem::path symbol_file = m_icon_asset_root / "vscode-symbols" / "files" / resolved_path.filename();
-        const std::filesystem::path symbol_folder = m_icon_asset_root / "vscode-symbols" / "folders" / resolved_path.filename();
+        const std::filesystem::path symbol_file_1 = m_icon_asset_root / "vscode-symbols" / "icons" / "files" / filename;
+        const std::filesystem::path symbol_folder_1 = m_icon_asset_root / "vscode-symbols" / "icons" / "folders" / filename;
+        const std::filesystem::path symbol_file_2 = m_icon_asset_root / "vscode-symbols" / "files" / filename;
+        const std::filesystem::path symbol_folder_2 = m_icon_asset_root / "vscode-symbols" / "folders" / filename;
         const std::filesystem::path codicon_direct = m_icon_asset_root / "vscode-codicons" / "icons" / relative;
-        const std::filesystem::path codicon_file = m_icon_asset_root / "vscode-codicons" / "icons" / resolved_path.filename();
+        const std::filesystem::path codicon_file = m_icon_asset_root / "vscode-codicons" / "icons" / filename;
+        const std::filesystem::path material_file = m_icon_asset_root / "material-icon-theme" / filename;
+
         if (std::filesystem::is_regular_file(themed_path, path_error))
         {
             resolved_path = themed_path;
         }
-        else if (std::filesystem::is_regular_file(symbol_file, path_error))
+        else if (std::filesystem::is_regular_file(symbol_file_1, path_error))
         {
-            resolved_path = symbol_file;
+            resolved_path = symbol_file_1;
         }
-        else if (std::filesystem::is_regular_file(symbol_folder, path_error))
+        else if (std::filesystem::is_regular_file(symbol_folder_1, path_error))
         {
-            resolved_path = symbol_folder;
+            resolved_path = symbol_folder_1;
+        }
+        else if (std::filesystem::is_regular_file(symbol_file_2, path_error))
+        {
+            resolved_path = symbol_file_2;
+        }
+        else if (std::filesystem::is_regular_file(symbol_folder_2, path_error))
+        {
+            resolved_path = symbol_folder_2;
         }
         else if (std::filesystem::is_regular_file(codicon_direct, path_error))
         {
@@ -1298,6 +1327,10 @@ std::filesystem::path StudioWorkspaceRenderer::resolve_icon_path(
         else if (std::filesystem::is_regular_file(codicon_file, path_error))
         {
             resolved_path = codicon_file;
+        }
+        else if (std::filesystem::is_regular_file(material_file, path_error))
+        {
+            resolved_path = material_file;
         }
         else
         {
@@ -1417,9 +1450,15 @@ void StudioWorkspaceRenderer::draw_svg_icon(
     {
         return;
     }
-    preserve_source_colors = preserve_source_colors &&
-        (resolved_path.parent_path().filename() == "material-icon-theme" ||
-         resolved_path.string().find("vscode-symbols") != std::string::npos);
+    if (!preserve_source_colors)
+    {
+        const std::string path_str = resolved_path.string();
+        if (path_str.find("vscode-symbols/icons/files") != std::string::npos ||
+            path_str.find("vscode-symbols/files") != std::string::npos)
+        {
+            preserve_source_colors = true;
+        }
+    }
 
     const std::string cache_key = resolved_path.string() + "@" + std::to_string(size) + "#" +
         color_to_hex(color) + "/" + color_to_hex(background) + (preserve_source_colors ? "_p" : "");

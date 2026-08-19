@@ -172,7 +172,7 @@ bool ShaderSandboxPanel::handle_pointer_press(
     const UI::Rect snap_btn{ctrl.right() - 34.0F * scale, btn_y, btn_w, btn_h};
     if (snap_btn.contains(point_x, point_y))
     {
-        m_engine.export_snapshot_bmp("shader_artwork.bmp");
+        static_cast<void>(m_engine.export_snapshot_bmp("shader_artwork.bmp"));
         return true;
     }
 
@@ -252,7 +252,7 @@ bool ShaderSandboxPanel::handle_pointer_drag(
         const float delta = m_drag_start_x - point_x;
         const float scale = layout.dpi_scale;
         m_width = std::clamp(m_drag_start_width + delta, 180.0F * scale, 800.0F * scale);
-        m_engine.update_and_render();
+        static_cast<void>(m_engine.update_and_render());
         return true;
     }
 
@@ -261,7 +261,7 @@ bool ShaderSandboxPanel::handle_pointer_drag(
         const float vx = point_x - layout.shader_panel_viewport_bounds.x;
         const float vy = point_y - layout.shader_panel_viewport_bounds.y;
         m_engine.set_mouse(vx, vy, true);
-        m_engine.update_and_render();
+        static_cast<void>(m_engine.update_and_render());
         return true;
     }
 
@@ -606,7 +606,7 @@ void ShaderSandboxPanel::render_controls(
     surface.draw_rectangle(context, backend_btn, surface.m_colors.border);
     surface.draw_text(context, *surface.m_small_font, is_gpu ? "GPU" : "CPU",
         backend_btn.x + 8.0F * scale, btn_y + btn_h * 0.5F,
-        is_gpu ? UI::Theme::Color{80, 220, 140, 255} : (m_hover_backend ? surface.m_text.accent : surface.m_text.muted),
+        is_gpu ? std::string("#50DC8C") : (m_hover_backend ? surface.m_text.accent : surface.m_text.muted),
         &backend_btn);
 
     // Time & Frame indicator

@@ -89,7 +89,7 @@ void ExplorerHeader::render(
             surface.fill_rounded_rectangle(context, hover_bg, surface.m_colors.hover_background, 4.0F * scale);
         }
         
-        surface.draw_svg_icon(context, path, round_to_int(center_x), header_center_y, icon_size, color, surface.m_palette.sidebar_background);
+        surface.draw_svg_icon(context, path, round_to_int(center_x), header_center_y, icon_size, color, surface.m_palette.sidebar_background, false);
     };
 
     float current_x = panel.right() - right_margin * scale;

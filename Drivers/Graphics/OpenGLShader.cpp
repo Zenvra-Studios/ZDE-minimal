@@ -27,9 +27,11 @@ OpenGLShader& OpenGLShader::operator=(OpenGLShader&& other) noexcept {
 
 void OpenGLShader::destroy() {
     if (m_program != 0) {
-        auto& gl = get_gl_api();
-        if (gl.DeleteProgram != nullptr) {
-            gl.DeleteProgram(m_program);
+        if (has_active_gl_context()) {
+            auto& gl = get_gl_api();
+            if (gl.DeleteProgram != nullptr) {
+                gl.DeleteProgram(m_program);
+            }
         }
         m_program = 0;
     }
@@ -134,7 +136,7 @@ bool OpenGLShader::compile_from_source(std::string_view vertex_source, std::stri
 }
 
 void OpenGLShader::bind() const {
-    if (m_program != 0) {
+    if (m_program != 0 && has_active_gl_context()) {
         auto& gl = get_gl_api();
         if (gl.UseProgram != nullptr) {
             gl.UseProgram(m_program);
@@ -143,9 +145,11 @@ void OpenGLShader::bind() const {
 }
 
 void OpenGLShader::unbind() const {
-    auto& gl = get_gl_api();
-    if (gl.UseProgram != nullptr) {
-        gl.UseProgram(0);
+    if (has_active_gl_context()) {
+        auto& gl = get_gl_api();
+        if (gl.UseProgram != nullptr) {
+            gl.UseProgram(0);
+        }
     }
 }
 

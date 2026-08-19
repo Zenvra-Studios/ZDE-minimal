@@ -1174,6 +1174,7 @@ bool TextEditor::handle_pointer_press(
 
   // Single view: Handle Minimap Click
   if (m_minimap.is_point(layout, point_x, point_y)) {
+    m_reveal_caret_pending = false;
     const auto *doc = get_focused_document();
     if (doc) {
       const float line_h = 20.0F * surface.m_dpi_scale;
@@ -1191,6 +1192,7 @@ bool TextEditor::handle_pointer_press(
 
   // Single view: Handle Scrollbar Click
   if (m_scrollbar.is_point(layout, point_x, point_y)) {
+    m_reveal_caret_pending = false;
     const auto *doc = get_focused_document();
     if (doc) {
       const float line_h = 20.0F * surface.m_dpi_scale;
@@ -1535,6 +1537,8 @@ bool TextEditor::handle_pointer_drag(
 bool TextEditor::handle_pointer_release() noexcept {
   const bool was_resizing = m_is_resizing_split;
   const bool was_selecting = m_pointer_selecting;
+  const bool minimap_released = m_minimap.handle_pointer_release();
+  const bool split_minimap_released = m_split_minimap.handle_pointer_release();
   const bool sb_released = m_scrollbar.handle_pointer_release();
   const bool split_sb_released = m_split_scrollbar.handle_pointer_release();
   m_is_resizing_split = false;
@@ -1555,7 +1559,8 @@ bool TextEditor::handle_pointer_release() noexcept {
     return true;
   }
 
-  return was_resizing || was_selecting || sb_released || split_sb_released;
+  return was_resizing || was_selecting || minimap_released ||
+         split_minimap_released || sb_released || split_sb_released;
 }
 
 bool TextEditor::handle_scroll(
@@ -1596,6 +1601,7 @@ bool TextEditor::handle_scroll(
         m_split_scrollbar.synchronize(
             count_visible_lines(m_split_folding, split_doc->get_line_count()),
             vis_lines);
+        m_reveal_caret_pending = false;
         return m_split_scrollbar.scroll_lines(line_delta);
       }
     }
@@ -1611,6 +1617,7 @@ bool TextEditor::handle_scroll(
     }
     m_scrollbar.synchronize(
         count_visible_lines(m_folding, doc->get_line_count()), vis_lines);
+    m_reveal_caret_pending = false;
     return m_scrollbar.scroll_lines(line_delta);
   }
 
@@ -3299,6 +3306,7 @@ void TextEditor::render_pane(
 
   // Pass 2: Text rendering with syntax highlighting, diagnostics squiggles, and caret
   std::size_t row_pass2 = 0;
+  float max_line_w = 0.0F;
   for (std::size_t line_index = first_line;
        row_pass2 < render_count && line_index < total_lines; ++line_index) {
     if (folding.is_line_hidden(line_index))
@@ -3308,6 +3316,10 @@ void TextEditor::render_pane(
     const float line_y = code_rect.y + static_cast<float>(row_pass2) * line_h;
     const float center_y = line_y + line_h * 0.5F;
     ++row_pass2;
+
+    const float line_width =
+        static_cast<float>(surface.m_editor_font->getTextWidth(line));
+    max_line_w = std::max(max_line_w, line_width);
 
     // Text rendering with syntax highlighting and clip rect
     if (syntax_highlighting) {
@@ -3370,6 +3382,14 @@ void TextEditor::render_pane(
       }
     }
   }
+
+  if (!is_split_pane) {
+    const_cast<TextEditor *>(this)->m_max_text_scroll =
+        std::max(0.0F, max_line_w + 80.0F * scale - code_clip.width);
+    if (m_text_scroll_offset > m_max_text_scroll) {
+      const_cast<TextEditor *>(this)->m_text_scroll_offset = m_max_text_scroll;
+    }
+  }
 }
 
 UI::Editor::TextPosition TextEditor::position_from_point(
@@ -3422,7 +3442,9 @@ UI::Editor::TextPosition TextEditor::position_from_point(
     float current_x = 0.0F;
     while (column < line.size()) {
       const std::size_t next_col = next_character_column(line, column);
-      const float glyph_w = (line[column] == '\t') ? tab_w : char_w;
+      const float glyph_w = (line[column] == '\t')
+                                ? tab_w
+                                : std::max(static_cast<float>(surface.m_editor_font->getTextWidth(line.substr(column, next_col - column))), 1.0F);
       if (target_x < current_x + glyph_w * 0.5F) {
         break;
       }
@@ -3466,7 +3488,9 @@ UI::Editor::TextPosition TextEditor::position_from_point(
   float current_x = 0.0F;
   while (column < line.size()) {
     const std::size_t next_col = next_character_column(line, column);
-    const float glyph_w = (line[column] == '\t') ? tab_w : char_w;
+    const float glyph_w = (line[column] == '\t')
+                              ? tab_w
+                              : std::max(static_cast<float>(surface.m_editor_font->getTextWidth(line.substr(column, next_col - column))), 1.0F);
     if (target_x < current_x + glyph_w * 0.5F) {
       break;
     }

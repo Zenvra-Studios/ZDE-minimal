@@ -13,7 +13,11 @@
 #include <windows.h>
 #include <GL/gl.h>
 #elif defined(__APPLE__)
+#include <OpenGL/OpenGL.h>
 #include <OpenGL/gl.h>
+#elif defined(__linux__)
+#include <GL/gl.h>
+#include <GL/glx.h>
 #else
 #include <GL/gl.h>
 #endif
@@ -137,5 +141,18 @@ bool initialize_opengl_functions() noexcept;
 
 /// Checks whether the OpenGL shader pipeline is supported and loaded.
 bool is_opengl_shader_supported() noexcept;
+
+/// Checks whether an OpenGL rendering context is currently active on the calling thread.
+[[nodiscard]] inline bool has_active_gl_context() noexcept {
+#if defined(__APPLE__)
+    return CGLGetCurrentContext() != nullptr;
+#elif defined(_WIN32)
+    return wglGetCurrentContext() != nullptr;
+#elif defined(__linux__)
+    return glXGetCurrentContext() != nullptr;
+#else
+    return true;
+#endif
+}
 
 } // namespace Zenvra::Graphics

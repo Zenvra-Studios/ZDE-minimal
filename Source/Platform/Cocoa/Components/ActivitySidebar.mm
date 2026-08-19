@@ -96,7 +96,7 @@ void ActivitySidebar::render(
                 },
                 surface.m_colors.accent);
         }
-        draw_icon(surface, context, item.icon, center_x, round_to_int(center_y), active);
+        draw_icon(surface, context, item.icon, center_x, round_to_int(center_y), active, hovered);
     }
 
     surface.draw_line(
@@ -113,7 +113,8 @@ void ActivitySidebar::draw_icon(
     CGContextRef context,
     UI::Editor::SidebarIcon icon,
     int center_x, int center_y,
-    bool active) const
+    bool active,
+    bool hovered) const
 {
     const int size = std::max(static_cast<int>(std::lround(
         UI::Editor::StudioEditorMetrics::sidebar_icon_size * surface.m_dpi_scale)), 14);

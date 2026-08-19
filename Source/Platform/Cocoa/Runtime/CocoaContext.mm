@@ -16,6 +16,13 @@ namespace Zenvra::Platform::Cocoa::Runtime {
 
 bool CocoaContext::initialize()
 {
+    static bool s_initialized = false;
+    if (s_initialized)
+    {
+        return true;
+    }
+    s_initialized = true;
+
     // Initialize NSApplication
     [NSApplication sharedApplication];
     

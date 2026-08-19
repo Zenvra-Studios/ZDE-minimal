@@ -217,10 +217,88 @@ struct GpuShaderRasterizer::ContextImpl
         }
     }
 };
+#elif defined(__APPLE__)
+#include <OpenGL/OpenGL.h>
+#include <OpenGL/gl.h>
+
+struct GpuShaderRasterizer::ContextImpl
+{
+    CGLContextObj cgl_context = nullptr;
+
+    ~ContextImpl()
+    {
+        destroy();
+    }
+
+    bool ensure_context()
+    {
+        if (cgl_context != nullptr)
+        {
+            return CGLSetCurrentContext(cgl_context) == kCGLNoError;
+        }
+
+        CGLPixelFormatAttribute attribs[] = {
+            kCGLPFAAccelerated,
+            kCGLPFAColorSize, static_cast<CGLPixelFormatAttribute>(24),
+            kCGLPFAAlphaSize, static_cast<CGLPixelFormatAttribute>(8),
+            kCGLPFADepthSize, static_cast<CGLPixelFormatAttribute>(24),
+            static_cast<CGLPixelFormatAttribute>(0)
+        };
+
+        CGLPixelFormatObj pixel_format = nullptr;
+        GLint num_formats = 0;
+        CGLError err = CGLChoosePixelFormat(attribs, &pixel_format, &num_formats);
+        if (err != kCGLNoError || pixel_format == nullptr)
+        {
+            CGLPixelFormatAttribute fallback_attribs[] = {
+                kCGLPFAColorSize, static_cast<CGLPixelFormatAttribute>(24),
+                kCGLPFAAlphaSize, static_cast<CGLPixelFormatAttribute>(8),
+                kCGLPFADepthSize, static_cast<CGLPixelFormatAttribute>(24),
+                static_cast<CGLPixelFormatAttribute>(0)
+            };
+            err = CGLChoosePixelFormat(fallback_attribs, &pixel_format, &num_formats);
+            if (err != kCGLNoError || pixel_format == nullptr)
+            {
+                return false;
+            }
+        }
+
+        err = CGLCreateContext(pixel_format, nullptr, &cgl_context);
+        CGLDestroyPixelFormat(pixel_format);
+
+        if (err != kCGLNoError || cgl_context == nullptr)
+        {
+            return false;
+        }
+
+        return CGLSetCurrentContext(cgl_context) == kCGLNoError;
+    }
+
+    void make_current()
+    {
+        if (cgl_context != nullptr)
+        {
+            CGLSetCurrentContext(cgl_context);
+        }
+    }
+
+    void destroy()
+    {
+        if (cgl_context != nullptr)
+        {
+            if (CGLGetCurrentContext() == cgl_context)
+            {
+                CGLSetCurrentContext(nullptr);
+            }
+            CGLDestroyContext(cgl_context);
+            cgl_context = nullptr;
+        }
+    }
+};
 #else
 struct GpuShaderRasterizer::ContextImpl
 {
-    bool ensure_context() { return true; }
+    bool ensure_context() { return false; }
     void make_current() {}
     void destroy() {}
 };
@@ -586,6 +664,11 @@ void GpuShaderRasterizer::ensure_fbo(int width, int height)
         m_context->make_current();
     }
 
+    if (!Graphics::has_active_gl_context())
+    {
+        return;
+    }
+
     auto& gl = Graphics::get_gl_api();
     if (gl.GenFramebuffers == nullptr || gl.BindFramebuffer == nullptr)
     {
@@ -631,6 +714,18 @@ void GpuShaderRasterizer::destroy_fbo()
         m_context->make_current();
     }
 
+    if (!Graphics::has_active_gl_context())
+    {
+        m_color_texture = 0;
+        m_fbo = 0;
+        m_channel_textures.fill(0);
+        m_loaded_channel_kinds.fill(ChannelTextureKind::Empty);
+        m_loaded_channel_sizes.fill(0);
+        m_fbo_width = 0;
+        m_fbo_height = 0;
+        return;
+    }
+
     auto& gl = Graphics::get_gl_api();
     if (m_color_texture != 0)
     {
@@ -661,6 +756,10 @@ void GpuShaderRasterizer::destroy_fbo()
 
 void GpuShaderRasterizer::update_channel_textures(const std::array<ShaderChannel, 4>& channels)
 {
+    if (!Graphics::has_active_gl_context())
+    {
+        return;
+    }
     auto& gl = Graphics::get_gl_api();
     for (std::size_t i = 0; i < 4; ++i)
     {
@@ -710,6 +809,11 @@ bool GpuShaderRasterizer::render(
         return false;
     }
     m_context->make_current();
+
+    if (!Graphics::has_active_gl_context())
+    {
+        return false;
+    }
 
     auto& gl = Graphics::get_gl_api();
     if (gl.BindFramebuffer == nullptr)

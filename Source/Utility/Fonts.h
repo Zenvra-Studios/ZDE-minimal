@@ -657,7 +657,6 @@ public:
     if (!str) {
       return 0;
     }
-    CFRange range = CFRangeMake(0, CFStringGetLength(str));
     CFMutableDictionaryRef attrs = CFDictionaryCreateMutable(
         nullptr, 1, &kCFTypeDictionaryKeyCallBacks,
         &kCFTypeDictionaryValueCallBacks);
@@ -737,12 +736,40 @@ private:
   static void parseHexColor(const std::string &hex, CGFloat &r, CGFloat &g,
                             CGFloat &b, CGFloat &a) {
     a = 1.0;
-    if (hex.size() >= 7 && hex[0] == '#') {
-      unsigned int rv = 0, gv = 0, bv = 0;
-      std::sscanf(hex.c_str(), "#%02x%02x%02x", &rv, &gv, &bv);
-      r = static_cast<CGFloat>(rv) / 255.0;
-      g = static_cast<CGFloat>(gv) / 255.0;
-      b = static_cast<CGFloat>(bv) / 255.0;
+    if (hex.empty()) {
+      r = g = b = 1.0;
+      return;
+    }
+    if (hex[0] == '#') {
+      if (hex.size() >= 9) {
+        unsigned int rv = 0, gv = 0, bv = 0, av = 255;
+        std::sscanf(hex.c_str(), "#%02x%02x%02x%02x", &rv, &gv, &bv, &av);
+        r = static_cast<CGFloat>(rv) / 255.0;
+        g = static_cast<CGFloat>(gv) / 255.0;
+        b = static_cast<CGFloat>(bv) / 255.0;
+        a = static_cast<CGFloat>(av) / 255.0;
+      } else if (hex.size() >= 7) {
+        unsigned int rv = 0, gv = 0, bv = 0;
+        std::sscanf(hex.c_str(), "#%02x%02x%02x", &rv, &gv, &bv);
+        r = static_cast<CGFloat>(rv) / 255.0;
+        g = static_cast<CGFloat>(gv) / 255.0;
+        b = static_cast<CGFloat>(bv) / 255.0;
+      } else if (hex.size() == 5) {
+        unsigned int rv = 0, gv = 0, bv = 0, av = 15;
+        std::sscanf(hex.c_str(), "#%1x%1x%1x%1x", &rv, &gv, &bv, &av);
+        r = static_cast<CGFloat>(rv * 17) / 255.0;
+        g = static_cast<CGFloat>(gv * 17) / 255.0;
+        b = static_cast<CGFloat>(bv * 17) / 255.0;
+        a = static_cast<CGFloat>(av * 17) / 255.0;
+      } else if (hex.size() == 4) {
+        unsigned int rv = 0, gv = 0, bv = 0;
+        std::sscanf(hex.c_str(), "#%1x%1x%1x", &rv, &gv, &bv);
+        r = static_cast<CGFloat>(rv * 17) / 255.0;
+        g = static_cast<CGFloat>(gv * 17) / 255.0;
+        b = static_cast<CGFloat>(bv * 17) / 255.0;
+      } else {
+        r = g = b = 1.0;
+      }
     } else if (hex == "white") {
       r = g = b = 1.0;
     } else if (hex == "black") {

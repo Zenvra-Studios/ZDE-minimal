@@ -1,3 +1,5 @@
+#include <gtest/gtest.h>
+
 #include "Application/ViewModels/StudioViewModel.h"
 #include "Commands/CommandIds.h"
 #include "Commands/CommandRegistry.h"
@@ -295,7 +297,7 @@ void test_studio_editor_layout_and_tokenization()
     const StudioEditorLayoutResult layout = layout_engine.calculate(860.0F, 640.0F, 35.0F, 1.0F);
     expect(layout.tab_bar_bounds.y == 0.0F && layout.tab_bar_bounds.bottom() == 35.0F,
         "editor tabs must be integrated into the custom titlebar");
-    expect(layout.editor_bounds.y == 35.0F, "the editor must begin directly below the titlebar");
+    expect(layout.editor_header_bounds.y == 35.0F && layout.editor_bounds.y == 61.0F, "the editor must begin directly below the titlebar");
     expect(layout.status_bar_bounds.y == 616.0F, "the status bar must remain pinned to the bottom");
     expect(layout.activity_bar_bounds.width == 38.0F,
         "the activity rail must use the medium workspace scale");
@@ -404,7 +406,7 @@ void test_studio_editor_layout_and_tokenization()
     expect(scroll.begin_pointer_drag(1.0F, scroll_track, 20.0F) && scroll.is_dragging(),
         "clicking the scrollbar track must start manual thumb control");
     expect(scroll.drag_pointer(99.0F, scroll_track, 20.0F) &&
-            scroll.get_first_visible_line() == 99,
+            scroll.get_first_visible_line() == 90,
         "dragging the scrollbar thumb must reach the end of the document");
     expect(scroll.end_pointer_drag() && !scroll.is_dragging(),
         "releasing the pointer must finish manual scrollbar control");
@@ -788,6 +790,12 @@ void test_terminal_layout_and_host_session()
             terminal_panel.create_session(std::filesystem::current_path()) &&
             terminal_panel.get_sessions().size() == 2,
         "the terminal panel must create independent live sessions");
+    // Give child shell processes time to start and initialize readline before sending commands
+    for (int init_attempt = 0; init_attempt < 30; ++init_attempt)
+    {
+        static_cast<void>(terminal_panel.poll());
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     expect(terminal_panel.send_text("exit\r"),
         "the active terminal session must accept the exit command");
     for (int attempt = 0;
@@ -795,7 +803,7 @@ void test_terminal_layout_and_host_session()
          ++attempt)
     {
         static_cast<void>(terminal_panel.poll());
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     expect(terminal_panel.get_sessions().size() == 1 &&
             terminal_panel.get_active_index() == 0 &&
@@ -806,7 +814,7 @@ void test_terminal_layout_and_host_session()
     for (int attempt = 0; attempt < 100 && terminal_panel.is_visible(); ++attempt)
     {
         static_cast<void>(terminal_panel.poll());
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     expect(terminal_panel.get_sessions().empty() &&
             !terminal_panel.get_active_index().has_value() &&
@@ -1305,8 +1313,6 @@ void test_graphics_driver_and_ui_modal()
 }
 
 } // namespace
-
-#include <gtest/gtest.h>
 
 int main(int argc, char** argv)
 {

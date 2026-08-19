@@ -453,6 +453,21 @@ using namespace Zenvra::Platform::Cocoa::Components;
             needs_display = true;
         }
     }
+
+    // Dynamic cursor feedback for resizers
+    const float content_top = _chrome_layout.titlebar_bounds.bottom();
+    auto& ws = _renderer->get_workspace_renderer();
+    if (ws.is_editor_split_resize_handle(px, py, cw, ch, content_top) ||
+        ws.is_editor_split_resizing() ||
+        ws.is_sidebar_resize_handle_point(px, py, cw, ch, content_top) ||
+        ws.is_sidebar_resizing()) {
+        [[NSCursor resizeLeftRightCursor] set];
+    } else if (ws.is_terminal_resize_handle_point(px, py, cw, ch, content_top) ||
+               ws.is_terminal_resizing()) {
+        [[NSCursor resizeUpDownCursor] set];
+    } else {
+        [[NSCursor arrowCursor] set];
+    }
     
     if (needs_display) {
         [self setNeedsDisplay:YES];
@@ -480,6 +495,14 @@ using namespace Zenvra::Platform::Cocoa::Components;
     
     if (_renderer->handle_workspace_pointer_drag(px, py, cw, ch, _chrome_layout.titlebar_bounds.bottom())) {
         [self setNeedsDisplay:YES];
+    }
+
+    const float content_top = _chrome_layout.titlebar_bounds.bottom();
+    auto& ws = _renderer->get_workspace_renderer();
+    if (ws.is_editor_split_resizing() || ws.is_sidebar_resizing()) {
+        [[NSCursor resizeLeftRightCursor] set];
+    } else if (ws.is_terminal_resizing()) {
+        [[NSCursor resizeUpDownCursor] set];
     }
 }
 
@@ -509,7 +532,7 @@ using namespace Zenvra::Platform::Cocoa::Components;
             const auto& items = ws.get_tool_sidebar().get_model().get_project_items();
             if (*row < items.size()) {
                 target_path = items[*row].path;
-                ws.get_tool_sidebar().get_model().activate_project_item(*row);
+                static_cast<void>(ws.get_tool_sidebar().get_model().activate_project_item(*row));
             }
         }
         [self showNativeExplorerMenuForPath:target_path withEvent:event];

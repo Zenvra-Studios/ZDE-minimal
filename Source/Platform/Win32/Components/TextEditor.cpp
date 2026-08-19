@@ -2689,8 +2689,8 @@ bool TextEditor::handle_text_input(std::string_view utf8_text)
             m_reveal_caret_pending = true;
             m_caret_blink.reset();
 
-            const std::string fname = std::string(doc->get_file_name());
-            const std::string uri = "file:///" + fname;
+            const std::string fname = get_active_document_filename();
+            const std::string uri = get_active_document_uri();
             std::string content;
             for (std::size_t i = 0; i < doc->get_line_count(); ++i)
             {
@@ -2784,8 +2784,8 @@ bool TextEditor::handle_text_input(std::string_view utf8_text)
         m_caret_blink.reset();
 
         {
-            const std::string fname = std::string(doc->get_file_name());
-            const std::string uri = "file:///" + fname;
+            const std::string fname = get_active_document_filename();
+            const std::string uri = get_active_document_uri();
             std::string content;
             for (std::size_t i = 0; i < doc->get_line_count(); ++i)
             {

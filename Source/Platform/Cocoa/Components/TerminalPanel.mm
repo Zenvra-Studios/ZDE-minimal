@@ -302,6 +302,30 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
       round_to_int(layout.terminal_panel_bounds.y),
       splitter_color);
 
+  // Bottom border (connecting cleanly to status bar)
+  surface.draw_line(context,
+      round_to_int(layout.terminal_panel_bounds.x),
+      round_to_int(layout.terminal_panel_bounds.bottom() - 1.0F),
+      round_to_int(layout.terminal_panel_bounds.right()),
+      round_to_int(layout.terminal_panel_bounds.bottom() - 1.0F),
+      surface.m_colors.border);
+
+  // Left border (connecting cleanly to sidebar/activity bar)
+  surface.draw_line(context,
+      round_to_int(layout.terminal_panel_bounds.x),
+      round_to_int(layout.terminal_panel_bounds.y),
+      round_to_int(layout.terminal_panel_bounds.x),
+      round_to_int(layout.terminal_panel_bounds.bottom()),
+      surface.m_colors.border);
+
+  // Right border
+  surface.draw_line(context,
+      round_to_int(layout.terminal_panel_bounds.right() - 1.0F),
+      round_to_int(layout.terminal_panel_bounds.y),
+      round_to_int(layout.terminal_panel_bounds.right() - 1.0F),
+      round_to_int(layout.terminal_panel_bounds.bottom()),
+      surface.m_colors.border);
+
   if (m_resize_model.is_hovered() || m_resize_model.is_resizing()) {
     surface.fill_rectangle(context,
         UI::Rect{layout.terminal_panel_bounds.x,
@@ -386,7 +410,17 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
     const bool active = active_index && *active_index == index;
     if (active) {
       surface.fill_rectangle(context, tab, surface.m_colors.tab_active_background);
+      surface.draw_line(context,
+          round_to_int(tab.x), round_to_int(tab.bottom() - 1.0F),
+          round_to_int(tab.right()), round_to_int(tab.bottom() - 1.0F),
+          surface.m_colors.tab_active_background);
     }
+
+    // Tab right separator
+    surface.draw_line(context,
+        round_to_int(tab.right() - 1.0F), round_to_int(tab.y + 4.0F * surface.m_dpi_scale),
+        round_to_int(tab.right() - 1.0F), round_to_int(tab.bottom() - 4.0F * surface.m_dpi_scale),
+        surface.m_colors.border);
 
     surface.draw_svg_icon(context, "Assets/icons/vscode-codicons/icons/terminal.svg",
         round_to_int(tab.x + 12.0F * surface.m_dpi_scale),

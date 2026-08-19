@@ -16,9 +16,11 @@ bool BackdropBlurPipeline::initialize() {
 
 void BackdropBlurPipeline::destroy() {
     if (m_vbo != 0) {
-        auto& gl = get_gl_api();
-        if (gl.DeleteBuffers != nullptr) {
-            gl.DeleteBuffers(1, &m_vbo);
+        if (has_active_gl_context()) {
+            auto& gl = get_gl_api();
+            if (gl.DeleteBuffers != nullptr) {
+                gl.DeleteBuffers(1, &m_vbo);
+            }
         }
         m_vbo = 0;
     }
@@ -27,7 +29,7 @@ void BackdropBlurPipeline::destroy() {
 }
 
 void BackdropBlurPipeline::apply_uniforms(const BlurUniforms& uniforms, int texture_unit) {
-    if (!m_shader.is_valid()) {
+    if (!m_shader.is_valid() || !has_active_gl_context()) {
         return;
     }
 
@@ -41,7 +43,7 @@ void BackdropBlurPipeline::apply_uniforms(const BlurUniforms& uniforms, int text
 }
 
 void BackdropBlurPipeline::render_fullscreen_quad() {
-    if (!m_shader.is_valid()) {
+    if (!m_shader.is_valid() || !has_active_gl_context()) {
         return;
     }
 

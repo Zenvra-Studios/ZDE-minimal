@@ -28,7 +28,7 @@ Commands::Command create_unavailable_command(
         .execute = [id = std::string(command_id)] {
             std::clog << "[ZDE] " << id << " requested (not yet implemented)\n";
         },
-        .is_enabled = [] { return true; },
+        .is_enabled = [] { return false; },
         .is_checked = {},
     };
 }
@@ -678,6 +678,37 @@ bool StudioViewModel::register_future_commands()
         Commands::CommandIds::edit_profiles, "Configuration Manager", "Edit build profiles.", "Build"));
     add_command(create_unavailable_command(
         Commands::CommandIds::more_tools, "More Tools", "Open more developer tools.", "Tools"));
+
+    // Tab and Window Navigation
+    add_command(create_unavailable_command(
+        Commands::CommandIds::window_next_tab, "Next Editor Tab", "Switch to next editor tab.", "Window",
+        Shortcut{KeyCode::Tab, true, false, false}));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::window_prev_tab, "Previous Editor Tab", "Switch to previous editor tab.", "Window",
+        Shortcut{KeyCode::Tab, true, true, false}));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::file_close_all, "Close All Editors", "Close all open editor tabs.", "File",
+        Shortcut{KeyCode::W, true, false, false}));
+
+    // Additional unused command definitions
+    add_command(create_unavailable_command(
+        Commands::CommandIds::edit_copy_trim, "Copy Trimmed", "Copy trimmed selection.", "Edit"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_reset_all_zoom, "Reset All Zoom", "Reset all zoom levels.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_toggle_all_docks, "Toggle All Docks", "Toggle all dock panels.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_project_panel, "Project Panel", "Show Project panel.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_outline_panel, "Outline Panel", "Show Outline panel.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_collab_panel, "Collaboration Panel", "Show Collaboration panel.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_agent_panel, "Agent Panel", "Show Agent panel.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::view_diagnostics, "Diagnostics", "Show Diagnostics.", "View"));
+    add_command(create_unavailable_command(
+        Commands::CommandIds::help_download_diagnostics, "Download Diagnostics", "Download diagnostics report.", "Help"));
 
     return registered;
 }

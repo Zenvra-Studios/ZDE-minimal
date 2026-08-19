@@ -7,6 +7,7 @@
 
 #include <span>
 #include <string>
+#include <iostream>
 
 namespace Zenvra::Platform::X11::Components
 {

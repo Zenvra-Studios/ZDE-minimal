@@ -18,6 +18,7 @@ include(CTest)
 # every compiler breaks MinGW/GCC, which cannot compile Objective-C++.
 if(APPLE)
     enable_language(OBJCXX)
+    add_compile_definitions(GL_SILENCE_DEPRECATION)
 endif()
 
 set(CMAKE_C_STANDARD 11)
@@ -53,8 +54,6 @@ endif()
 # It is vendored in Cmake/CPM.cmake (v0.40.2, see https://github.com/cpm-cmake/CPM.cmake).
 include("${CMAKE_CURRENT_SOURCE_DIR}/Cmake/CPM.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/Cmake/Depedencies.cmake")
-
-
 
 # --- Compiler Flags per Target & Configuration -----------------------------
 function(zde_enable_warnings target_name)

@@ -79,9 +79,12 @@ void FooterToolbar::render(
         const int icon_cy =
             round_to_int(seg.icon_bounds.y + seg.icon_bounds.height * 0.5F);
         const int icon_sz = round_to_int(seg.icon_bounds.width);
+        const bool preserve = seg.icon_svg.find("vscode-symbols") != std::string::npos ||
+                              seg.icon_svg.find("material-icon-theme") != std::string::npos;
         surface.draw_svg_icon(
             context, seg.icon_svg, icon_cx, icon_cy, icon_sz,
-            surface.m_palette.text_muted, surface.m_palette.status_background);
+            surface.m_palette.text_muted, surface.m_palette.status_background,
+            preserve);
       }
 
       if (surface.m_small_font) {

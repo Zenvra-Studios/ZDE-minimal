@@ -1511,25 +1511,21 @@ void ToolSidebar::render(
     surface.draw_text(device_context, *surface.m_small_font, detail,
                       panel.x + 14.0F * scale, content_y + 24.0F * scale,
                       surface.m_palette.text_muted);
-    return;
-  }
-
-  const std::span<const UI::Editor::ProjectTreeItem> items = m_model.get_project_items();
-  if (items.empty()) {
-    const float msg_y = panel.y + (header_height + 30.0F) * scale;
-    surface.draw_text(device_context, *surface.m_ui_font,
-                      "No Folder Opened", panel.x + 16.0F * scale,
-                      msg_y, surface.m_palette.text_primary);
-    surface.draw_text(device_context, *surface.m_small_font,
-                      "You have not yet opened a folder.", panel.x + 16.0F * scale,
-                      msg_y + 24.0F * scale, surface.m_palette.text_muted);
-    return;
-  }
-
-  const std::size_t first = m_model.get_scroll_offset();
-  const std::size_t row_count = viewport_row_count(layout);
-  const std::size_t end = std::min(items.size(), first + row_count);
-  const float tree_top = panel.y + header_height * scale;
+  } else {
+    const std::span<const UI::Editor::ProjectTreeItem> items = m_model.get_project_items();
+    if (items.empty()) {
+      const float msg_y = panel.y + (header_height + 30.0F) * scale;
+      surface.draw_text(device_context, *surface.m_ui_font,
+                        "No Folder Opened", panel.x + 16.0F * scale,
+                        msg_y, surface.m_palette.text_primary);
+      surface.draw_text(device_context, *surface.m_small_font,
+                        "You have not yet opened a folder.", panel.x + 16.0F * scale,
+                        msg_y + 24.0F * scale, surface.m_palette.text_muted);
+    } else {
+      const std::size_t first = m_model.get_scroll_offset();
+      const std::size_t row_count = viewport_row_count(layout);
+      const std::size_t end = std::min(items.size(), first + row_count);
+      const float tree_top = panel.y + header_height * scale;
   for (std::size_t item_index = first; item_index < end; ++item_index) {
     const std::size_t visible_row = item_index - first;
     const UI::Editor::ProjectTreeItem &item = items[item_index];
@@ -1727,6 +1723,8 @@ void ToolSidebar::render(
         ? UI::Theme::Color{255, 255, 255, 115}
         : (m_hovered_scrollbar ? UI::Theme::Color{255, 255, 255, 75} : UI::Theme::Color{255, 255, 255, 40});
     surface.fill_rectangle(device_context, thumb_bounds, thumb_color);
+  }
+    }
   }
 
   // Draw Right Border separating sidebar from editor with blue accent highlight when hovered or resizing

@@ -24,6 +24,7 @@ enum class KeyCode
     Delete,
     Up,
     Down,
+    Tab,
     F11,
 };
 

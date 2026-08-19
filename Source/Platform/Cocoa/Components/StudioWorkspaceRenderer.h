@@ -100,6 +100,12 @@ public:
         float point_x, float point_y,
         int client_width, int client_height,
         float content_top) const noexcept;
+    [[nodiscard]] bool is_editor_split_resize_handle(
+        float point_x, float point_y,
+        int client_width, int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_editor_split_resizing() const noexcept;
+    [[nodiscard]] bool is_editor_split_active() const noexcept;
     [[nodiscard]] bool is_minimap_point(
         float point_x, float point_y,
         int client_width, int client_height,
@@ -240,7 +246,7 @@ private:
                        int center_x, int center_y, int size,
                        const UI::Theme::Color& color,
                        const UI::Theme::Color& background,
-                       bool preserve_source_colors = true) const;
+                       bool preserve_source_colors = false) const;
     bool draw_png_image(CGContextRef context, const std::string& asset_path,
                         int center_x, int center_y, int size) const;
     [[nodiscard]] std::filesystem::path resolve_icon_path(

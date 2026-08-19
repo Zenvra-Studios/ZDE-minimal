@@ -57,7 +57,11 @@ std::optional<std::size_t> EditorMinimap::handle_pointer_press(
     }
     m_model.synchronize(total_lines, visible_lines, first_visible_line);
     m_pointer_dragging = true;
-    return m_model.get_first_visible_line_for_point(point_y, layout.minimap_bounds);
+    const float row_height = 2.0F * layout.dpi_scale;
+    UI::Rect content_bounds = layout.minimap_bounds;
+    content_bounds.height = std::min(layout.minimap_bounds.height, static_cast<float>(total_lines) * row_height);
+    if (content_bounds.height <= 0.0F) content_bounds = layout.minimap_bounds;
+    return m_model.get_first_visible_line_for_point(point_y, content_bounds);
 }
 
 std::optional<std::size_t> EditorMinimap::handle_pointer_drag(
@@ -72,7 +76,11 @@ std::optional<std::size_t> EditorMinimap::handle_pointer_drag(
         return std::nullopt;
     }
     m_model.synchronize(total_lines, visible_lines, first_visible_line);
-    return m_model.get_first_visible_line_for_point(point_y, layout.minimap_bounds);
+    const float row_height = 2.0F * layout.dpi_scale;
+    UI::Rect content_bounds = layout.minimap_bounds;
+    content_bounds.height = std::min(layout.minimap_bounds.height, static_cast<float>(total_lines) * row_height);
+    if (content_bounds.height <= 0.0F) content_bounds = layout.minimap_bounds;
+    return m_model.get_first_visible_line_for_point(point_y, content_bounds);
 }
 
 bool EditorMinimap::handle_pointer_release() noexcept

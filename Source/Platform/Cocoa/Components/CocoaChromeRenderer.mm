@@ -398,17 +398,17 @@ void CocoaChromeRenderer::render(
       const int center_y = round_to_int(bounds.y + bounds.height * 0.5F);
       const int size = std::max(round_to_int(icon_sz * scale), 14);
       m_workspace_renderer.draw_svg_icon(context, "Assets/icons/" + icon_name, center_x, center_y, size,
-          icon_color, hovered ? m_theme.hover : m_theme.titlebar_background);
+          icon_color, hovered ? m_theme.hover : m_theme.titlebar_background, false);
   };
 
   const bool gear_hovered = interaction_state.gear_button_hovered || (interaction_state.open_menu_index && *interaction_state.open_menu_index == 13);
   const bool ellipsis_hovered = interaction_state.ellipsis_button_hovered || (interaction_state.open_menu_index && *interaction_state.open_menu_index == 14);
 
-  draw_toolbar_icon(chrome_layout.build_bounds, interaction_state.build_button_hovered, "build.svg", m_theme.text_primary);
-  draw_toolbar_icon(chrome_layout.run_bounds, interaction_state.run_button_hovered, "play.svg", UI::Theme::Color{152, 195, 121, 255}, 20.0F);
-  draw_toolbar_icon(chrome_layout.debug_bounds, interaction_state.debug_button_hovered, "bug.svg", UI::Theme::Color{229, 192, 123, 255}, 18.0F);
-  draw_toolbar_icon(chrome_layout.gear_bounds, gear_hovered, "gear.svg", m_theme.text_primary);
-  draw_toolbar_icon(chrome_layout.ellipsis_bounds, ellipsis_hovered, "ellipsis.svg", m_theme.text_primary);
+  draw_toolbar_icon(chrome_layout.build_bounds, interaction_state.build_button_hovered, "build.svg", m_workspace_renderer.m_palette.text_primary);
+  draw_toolbar_icon(chrome_layout.run_bounds, interaction_state.run_button_hovered, "play.svg", m_workspace_renderer.m_palette.success, 20.0F);
+  draw_toolbar_icon(chrome_layout.debug_bounds, interaction_state.debug_button_hovered, "bug.svg", m_workspace_renderer.m_palette.warning, 18.0F);
+  draw_toolbar_icon(chrome_layout.gear_bounds, gear_hovered, "gear.svg", m_workspace_renderer.m_palette.text_primary);
+  draw_toolbar_icon(chrome_layout.ellipsis_bounds, ellipsis_hovered, "ellipsis.svg", m_workspace_renderer.m_palette.text_primary);
 
   // Combo Boxes
   auto draw_combo = [&](const UI::Rect &bounds, bool hovered, std::string_view text, bool is_binary) {
@@ -422,7 +422,7 @@ void CocoaChromeRenderer::render(
               round_to_int(bounds.x + 14.0F * scale),
               round_to_int(bounds.y + bounds.height * 0.5F),
               binary_icon_size, m_theme.text_primary,
-              hovered ? m_theme.hover : m_theme.titlebar_background);
+              hovered ? m_theme.hover : m_theme.titlebar_background, false);
           text_left = 32.0F * scale;
       }
       
@@ -434,7 +434,7 @@ void CocoaChromeRenderer::render(
           m_workspace_renderer.draw_svg_icon(context, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
               std::max(round_to_int(10.0F * scale), 8),
               m_workspace_renderer.m_palette.text_muted,
-              hovered ? m_theme.hover : m_theme.titlebar_background);
+              hovered ? m_theme.hover : m_theme.titlebar_background, false);
       }
   };
   

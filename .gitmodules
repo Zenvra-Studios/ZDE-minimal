@@ -1,0 +1,11 @@
+[submodule "Assets/icons/vscode-codicons"]
+	path = Assets/icons/vscode-codicons
+	url = https://github.com/microsoft/vscode-codicons.git
+
+[submodule "Assets/icons/vscode-icons"]
+	path = Assets/icons/vscode-icons
+	url = https://github.com/microsoft/vscode-icons.git
+
+[submodule "Assets/icons/vscode-symbols"]
+	path = Assets/icons/vscode-symbols
+	url = https://github.com/miguelsolorio/vscode-symbols.git
