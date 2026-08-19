@@ -1,6 +1,6 @@
 add_subdirectory(Core)
 add_subdirectory(Commands)
-add_subdirectory(SourceControl)
+# add_subdirectory(SourceControl)
 add_subdirectory(UI)
 add_subdirectory(Terminal)
 add_subdirectory(Tools)

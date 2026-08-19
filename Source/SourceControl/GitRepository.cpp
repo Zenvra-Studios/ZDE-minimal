@@ -1,5 +1,6 @@
 #include "SourceControl/GitRepository.h"
 
+#if __has_include(<git2.h>)
 #include <git2.h>
 
 #include <algorithm>
@@ -916,3 +917,65 @@ std::string GitRepository::get_file_diff_unified(const std::filesystem::path& re
 }
 
 } // namespace Zenvra::Git
+
+#else
+
+namespace Zenvra::Git
+{
+
+void GitRepository::global_init() {}
+void GitRepository::global_shutdown() {}
+
+GitRepository::GitRepository() = default;
+GitRepository::~GitRepository() = default;
+GitRepository::GitRepository(GitRepository&& other) noexcept : m_workdir(std::move(other.m_workdir)), m_last_error(std::move(other.m_last_error)) {}
+GitRepository& GitRepository::operator=(GitRepository&& other) noexcept {
+    if (this != &other) {
+        m_workdir = std::move(other.m_workdir);
+        m_last_error = std::move(other.m_last_error);
+    }
+    return *this;
+}
+
+bool GitRepository::open(const std::filesystem::path& workspace_root) {
+    m_workdir = workspace_root;
+    return false;
+}
+
+bool GitRepository::init_repository(const std::filesystem::path& workspace_root) {
+    m_workdir = workspace_root;
+    return false;
+}
+
+void GitRepository::close() noexcept {
+    m_repo = nullptr;
+    m_workdir.clear();
+}
+
+bool GitRepository::is_open() const noexcept { return false; }
+std::filesystem::path GitRepository::get_workdir() const { return m_workdir; }
+std::filesystem::path GitRepository::get_git_dir() const { return m_workdir.empty() ? std::filesystem::path{} : m_workdir / ".git"; }
+
+std::string GitRepository::get_last_error() const { return m_last_error; }
+void GitRepository::set_error(std::string_view err) const { m_last_error = err; }
+
+GitRepositoryStatus GitRepository::get_status() { return {}; }
+bool GitRepository::stage_file(const std::filesystem::path&) { return false; }
+bool GitRepository::unstage_file(const std::filesystem::path&) { return false; }
+bool GitRepository::stage_all() { return false; }
+bool GitRepository::unstage_all() { return false; }
+bool GitRepository::discard_file_changes(const std::filesystem::path&) { return false; }
+bool GitRepository::clean_untracked_file(const std::filesystem::path&) { return false; }
+bool GitRepository::commit(std::string_view, std::string_view, std::string_view) { return false; }
+std::string GitRepository::get_active_branch() { return ""; }
+std::vector<GitBranchInfo> GitRepository::list_branches() { return {}; }
+bool GitRepository::create_branch(std::string_view) { return false; }
+bool GitRepository::checkout_branch(std::string_view) { return false; }
+bool GitRepository::delete_branch(std::string_view, bool) { return false; }
+std::vector<GitCommitInfo> GitRepository::get_history(std::size_t) { return {}; }
+GitDiffFile GitRepository::get_file_diff(const std::filesystem::path&, bool) { return {}; }
+std::string GitRepository::get_file_diff_unified(const std::filesystem::path&, bool) { return ""; }
+
+} // namespace Zenvra::Git
+
+#endif

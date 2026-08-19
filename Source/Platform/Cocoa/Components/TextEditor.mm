@@ -1602,7 +1602,7 @@ bool TextEditor::handle_text_input(std::string_view utf8)
                     }
                 }
 
-                const std::string& active_query = is_include_context ? header_query : current_word;
+                const std::string active_query = is_include_context ? header_query : std::string(current_word);
 
                 // Synchronously update filter immediately with zero latency
                 if (m_completion_popup.is_visible())
@@ -1616,7 +1616,7 @@ bool TextEditor::handle_text_input(std::string_view utf8)
                     if (is_include_context)
                     {
                         // In #include / #import context, prioritize header libraries & workspace files
-                        local_items = Language::LanguageServerManager::get_header_completions(line_prefix, m_working_directory);
+                        local_items = Language::LanguageServerManager::get_header_completions(line_prefix, std::filesystem::current_path());
                     }
                     else
                     {

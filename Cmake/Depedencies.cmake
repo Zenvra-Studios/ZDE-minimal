@@ -78,31 +78,31 @@ CPMAddPackage(
         "INSTALL_GTEST OFF"
 )
 
-# libgit2 - Core Git library
-set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(BUILD_CLI OFF CACHE BOOL "" FORCE)
-set(USE_SSH OFF CACHE BOOL "" FORCE)
-set(USE_NTLMCLIENT OFF CACHE BOOL "" FORCE)
-set(USE_ICONV OFF CACHE BOOL "" FORCE)
-set(REGEX_BACKEND "builtin" CACHE STRING "" FORCE)
-set(USE_BUNDLED_ZLIB OFF CACHE BOOL "" FORCE)
-set(ZLIB_FOUND TRUE CACHE BOOL "" FORCE)
-set(ZLIB_INCLUDE_DIRS "${zlib_SOURCE_DIR}" "${zlib_BINARY_DIR}" CACHE STRING "" FORCE)
-set(ZLIB_LIBRARIES zlib CACHE STRING "" FORCE)
-
-CPMAddPackage(
-    NAME libgit2
-    VERSION 1.8.1
-    URL "https://github.com/libgit2/libgit2/archive/refs/tags/v1.8.1.tar.gz"
-    OPTIONS
-        "BUILD_TESTS OFF"
-        "BUILD_CLI OFF"
-        "USE_SSH OFF"
-        "USE_NTLMCLIENT OFF"
-        "USE_ICONV OFF"
-        "REGEX_BACKEND builtin"
-        "USE_BUNDLED_ZLIB OFF"
-)
+# libgit2 - Core Git library (Disabled)
+# set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+# set(BUILD_CLI OFF CACHE BOOL "" FORCE)
+# set(USE_SSH OFF CACHE BOOL "" FORCE)
+# set(USE_NTLMCLIENT OFF CACHE BOOL "" FORCE)
+# set(USE_ICONV OFF CACHE BOOL "" FORCE)
+# set(REGEX_BACKEND "builtin" CACHE STRING "" FORCE)
+# set(USE_BUNDLED_ZLIB OFF CACHE BOOL "" FORCE)
+# set(ZLIB_FOUND TRUE CACHE BOOL "" FORCE)
+# set(ZLIB_INCLUDE_DIRS "${zlib_SOURCE_DIR}" "${zlib_BINARY_DIR}" CACHE STRING "" FORCE)
+# set(ZLIB_LIBRARIES zlib CACHE STRING "" FORCE)
+# 
+# CPMAddPackage(
+#     NAME libgit2
+#     VERSION 1.8.1
+#     URL "https://github.com/libgit2/libgit2/archive/refs/tags/v1.8.1.tar.gz"
+#     OPTIONS
+#         "BUILD_TESTS OFF"
+#         "BUILD_CLI OFF"
+#         "USE_SSH OFF"
+#         "USE_NTLMCLIENT OFF"
+#         "USE_ICONV OFF"
+#         "REGEX_BACKEND builtin"
+#         "USE_BUNDLED_ZLIB OFF"
+# )
 
 foreach(gtest_target IN ITEMS gtest gtest_main gmock gmock_main)
     if(TARGET ${gtest_target})

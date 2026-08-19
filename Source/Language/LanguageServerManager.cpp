@@ -580,6 +580,163 @@ LanguageServerManager::get_templates_for_filename(std::string_view filename) {
   return {};
 }
 
+std::vector<Protocol::CompletionItem>
+LanguageServerManager::get_header_completions(std::string_view line_prefix, const std::filesystem::path& workspace_root) {
+  (void)line_prefix;
+  std::vector<Protocol::CompletionItem> items;
+  std::unordered_set<std::string> seen;
+
+  static const std::vector<std::pair<const char*, const char*>> s_std_cpp_headers = {
+      {"iostream", "Standard Input/Output Stream"},
+      {"vector", "Dynamic contiguous array container"},
+      {"string", "Standard character string container"},
+      {"string_view", "Non-owning view over a character string"},
+      {"memory", "Smart pointers (unique_ptr, shared_ptr, weak_ptr)"},
+      {"algorithm", "Standard algorithms (sort, find, transform, etc.)"},
+      {"array", "Fixed-size sequential array container"},
+      {"chrono", "Date and time library"},
+      {"cmath", "C-style mathematical functions"},
+      {"cstdint", "Fixed-width integer types"},
+      {"cstdio", "C-style input/output operations"},
+      {"cstdlib", "General purpose utilities (malloc, free, rand, etc.)"},
+      {"cstring", "C-style string manipulation functions"},
+      {"filesystem", "Filesystem navigation and file queries"},
+      {"fstream", "File streams (ifstream, ofstream, fstream)"},
+      {"functional", "Function objects and std::function wrappers"},
+      {"map", "Ordered associative key-value container"},
+      {"set", "Ordered associative unique key container"},
+      {"unordered_map", "Hash-table based key-value container"},
+      {"unordered_set", "Hash-table based unique key container"},
+      {"utility", "General utilities (std::pair, std::move, std::forward)"},
+      {"variant", "Type-safe discriminated union"},
+      {"optional", "Optional value wrapper"},
+      {"tuple", "Fixed-size collection of heterogeneous values"},
+      {"thread", "Standard thread management"},
+      {"mutex", "Mutual exclusion primitives"},
+      {"future", "Asynchronous operation primitives"},
+      {"atomic", "Atomic operations library"},
+      {"sstream", "String stream buffer objects"},
+      {"ranges", "Ranges and view adapters"},
+      {"concepts", "Fundamental language concepts"},
+      {"format", "Formatting library (std::format)"},
+      {"deque", "Double-ended queue container"},
+      {"queue", "Queue and priority_queue adapter"},
+      {"stack", "LIFO stack container adapter"},
+      {"list", "Doubly-linked list container"},
+      {"forward_list", "Singly-linked list container"},
+      {"bit", "Bit manipulation utilities"},
+      {"type_traits", "Compile-time type traits and inspection"},
+      {"regex", "Regular expression library"},
+      {"exception", "Base exception classes"},
+      {"stdexcept", "Standard domain and logic exception classes"},
+      {"system_error", "System error codes and categories"},
+      {"cassert", "Macro for compile/runtime assertions"},
+      {"climits", "Limits of integral types"},
+      {"cfloat", "Limits of floating-point types"},
+      {"cctype", "Character classification functions"},
+      {"numeric", "Generalized numeric operations (accumulate, iota)"},
+      {"complex", "Complex numbers class"},
+      {"random", "Pseudo-random number generators"},
+      {"numbers", "Mathematical constants (pi, e, sqrt2)"},
+      {"span", "Non-owning view over contiguous sequence"},
+      {"source_location", "Source code location reflection"}
+  };
+
+  static const std::vector<std::pair<const char*, const char*>> s_c_headers = {
+      {"stdio.h", "Standard C Input/Output"},
+      {"stdlib.h", "Standard C General Utilities"},
+      {"string.h", "Standard C String Manipulation"},
+      {"math.h", "Standard C Mathematics"},
+      {"time.h", "Standard C Time Functions"},
+      {"assert.h", "Standard C Assertions"},
+      {"ctype.h", "Standard C Character Classification"},
+      {"errno.h", "Standard C Error Numbers"},
+      {"fcntl.h", "File control options (POSIX)"},
+      {"unistd.h", "Standard symbolic constants & types (POSIX)"},
+      {"pthread.h", "POSIX Threads library"},
+      {"stdint.h", "Integer Types"},
+      {"stdbool.h", "Boolean Type"},
+      {"stddef.h", "Standard Type Definitions"}
+  };
+
+  static const std::vector<std::pair<const char*, const char*>> s_apple_headers = {
+      {"Cocoa/Cocoa.h", "macOS Cocoa Application Kit & Foundation umbrella"},
+      {"Foundation/Foundation.h", "macOS Objective-C Foundation framework"},
+      {"AppKit/AppKit.h", "macOS Application Kit UI framework"},
+      {"CoreGraphics/CoreGraphics.h", "macOS 2D vector drawing & Quartz engine"},
+      {"Metal/Metal.h", "macOS Low-overhead hardware-accelerated GPU 3D graphics"},
+      {"MetalKit/MetalKit.h", "macOS Metal utilities and MTKView helpers"},
+      {"QuartzCore/QuartzCore.h", "macOS CoreAnimation and layer graphics"},
+      {"CoreFoundation/CoreFoundation.h", "macOS CoreFoundation C API"}
+  };
+
+  for (const auto& [hdr, desc] : s_std_cpp_headers) {
+    if (seen.insert(hdr).second) {
+      Protocol::CompletionItem it{};
+      it.label = hdr;
+      it.kind = Protocol::CompletionItemKind::Module;
+      it.detail = "Standard C++ Header";
+      it.documentation = desc;
+      it.insert_text = hdr;
+      it.filter_text = hdr;
+      items.push_back(std::move(it));
+    }
+  }
+
+  for (const auto& [hdr, desc] : s_apple_headers) {
+    if (seen.insert(hdr).second) {
+      Protocol::CompletionItem it{};
+      it.label = hdr;
+      it.kind = Protocol::CompletionItemKind::Module;
+      it.detail = "Apple macOS Framework";
+      it.documentation = desc;
+      it.insert_text = hdr;
+      it.filter_text = hdr;
+      items.push_back(std::move(it));
+    }
+  }
+
+  for (const auto& [hdr, desc] : s_c_headers) {
+    if (seen.insert(hdr).second) {
+      Protocol::CompletionItem it{};
+      it.label = hdr;
+      it.kind = Protocol::CompletionItemKind::File;
+      it.detail = "C Standard Library";
+      it.documentation = desc;
+      it.insert_text = hdr;
+      it.filter_text = hdr;
+      items.push_back(std::move(it));
+    }
+  }
+
+  // Scan workspace for project header files
+  if (!workspace_root.empty() && std::filesystem::exists(workspace_root)) {
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(workspace_root, std::filesystem::directory_options::skip_permission_denied, ec)) {
+      if (entry.is_regular_file(ec)) {
+        const auto p = entry.path();
+        const std::string ext = p.extension().string();
+        if (ext == ".h" || ext == ".hpp" || ext == ".hxx" || ext == ".inl") {
+          auto rel_path = std::filesystem::relative(p, workspace_root, ec).string();
+          std::replace(rel_path.begin(), rel_path.end(), '\\', '/');
+          if (seen.insert(rel_path).second) {
+            Protocol::CompletionItem it{};
+            it.label = rel_path;
+            it.kind = Protocol::CompletionItemKind::File;
+            it.detail = "Project Header";
+            it.documentation = "Workspace relative header file";
+            it.insert_text = rel_path;
+            it.filter_text = rel_path;
+            items.push_back(std::move(it));
+          }
+        }
+      }
+    }
+  }
+
+  return items;
+}
+
 LanguageServerManager &LanguageServerManager::instance() noexcept {
   static LanguageServerManager manager;
   return manager;

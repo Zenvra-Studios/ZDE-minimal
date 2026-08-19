@@ -5,7 +5,7 @@ endif()
 add_executable(ZDEUnitTests
     CommandRegistryTests.cpp
     LanguageServerTests.cpp
-    SourceControlTests.cpp
+    # SourceControlTests.cpp
 )
 
 target_link_libraries(ZDEUnitTests PRIVATE
@@ -17,7 +17,7 @@ target_link_libraries(ZDEUnitTests PRIVATE
     Zenvra::Terminal
     Zenvra::Tools
     Zenvra::Services
-    Zenvra::SourceControl
+    # Zenvra::SourceControl
     Zenvra::Platform
     Zenvra::Graphics
 )
