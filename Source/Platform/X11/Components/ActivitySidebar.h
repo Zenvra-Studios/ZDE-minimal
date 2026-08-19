@@ -4,6 +4,10 @@
 
 #include <X11/Xlib.h>
 
+/**
+ * 
+ * 
+ **/
 namespace Zenvra::Platform::X11::Components
 {
 

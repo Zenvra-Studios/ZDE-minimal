@@ -1,6 +1,7 @@
 #include "Platform/Cocoa/Components/ShaderSandboxPanel.h"
 #include "Platform/Cocoa/Components/StudioWorkspaceRenderer.h"
 #include "Services/Shader/ShaderCompiler.h"
+#include "Utility/Fonts.h"
 
 #include <algorithm>
 #include <cmath>
@@ -543,9 +544,9 @@ void ShaderSandboxPanel::render_controls(
             const float bar_w = 2.5F * scale;
             const float bar_h = 9.0F * scale;
             const float bar_gap = 2.0F * scale;
-            const UI::Theme::Color bar_color = m_hover_play
-                ? surface.m_palette.accent
-                : UI::Theme::Color{255, 255, 255, 255};
+            const CGFloat* bar_color = m_hover_play
+                ? surface.m_colors.accent
+                : surface.m_colors.text_primary;
             surface.fill_rounded_rectangle(context,
                 UI::Rect{cx - bar_gap - bar_w, cy - bar_h * 0.5F, bar_w, bar_h},
                 bar_color, 1.0F * scale);

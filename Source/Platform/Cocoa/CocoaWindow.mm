@@ -335,6 +335,19 @@ bool CocoaWindow::open_project_folder()
     return true;
 }
 
+bool CocoaWindow::close_project()
+{
+    Language::LanguageServerManager::instance().set_workspace_root({});
+    Language::LanguageServerManager::instance().shutdown_all();
+    m_renderer.close_project();
+    if (m_content_view != nullptr)
+    {
+        ZenvraContentView* view = (__bridge ZenvraContentView*)m_content_view;
+        [view setNeedsDisplay:YES];
+    }
+    return true;
+}
+
 void CocoaWindow::minimize()
 {
     [(__bridge NSWindow*)m_window_handle miniaturize:nil];

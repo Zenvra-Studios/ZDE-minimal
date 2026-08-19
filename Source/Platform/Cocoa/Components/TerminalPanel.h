@@ -21,6 +21,7 @@ class TerminalPanel
 {
 public:
     [[nodiscard]] bool toggle();
+    [[nodiscard]] bool create_terminal();
     [[nodiscard]] bool handle_pointer_press(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x, float point_y, double event_time);

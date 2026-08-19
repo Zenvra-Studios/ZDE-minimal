@@ -36,7 +36,8 @@ void lsp_debug_log(std::string_view msg) {
   }
 }
 
-// Built-in Language Snippets and Templates (JetBrains / VS Code standard snippets)
+// Built-in Language Snippets and Templates (JetBrains / VS Code standard
+// snippets)
 std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
   return {
       Protocol::CompletionItem{
@@ -169,8 +170,8 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
                     "std::exception& e) { ... }",
           .documentation =
               "Generates a try-catch block catching std::exception.",
-          .insert_text =
-              "try\n{\n    $0\n}\ncatch (const std::exception& ${1:e})\n{\n    $0\n}",
+          .insert_text = "try\n{\n    $0\n}\ncatch (const std::exception& "
+                         "${1:e})\n{\n    $0\n}",
           .filter_text = "try"},
       Protocol::CompletionItem{
           .label = "lambda",
@@ -230,6 +231,129 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
               "Creates and wraps object in modern std::shared_ptr.",
           .insert_text = "std::make_shared<${1:Type}>(${2})$0",
           .filter_text = "casts"},
+
+      // Preprocessor Directives
+      Protocol::CompletionItem{.label = "#define",
+                               .kind = Protocol::CompletionItemKind::Keyword,
+                               .detail = "Preprocessor Macro Definition",
+                               .documentation =
+                                   "Defines a preprocessor macro or constant.",
+                               .insert_text = "#define ${1:NAME} ${2:VALUE}",
+                               .filter_text = "#define"},
+      Protocol::CompletionItem{.label = "#elif",
+                               .kind = Protocol::CompletionItemKind::Keyword,
+                               .detail = "Preprocessor Else-If",
+                               .documentation =
+                                   "Conditional compilation branch.",
+                               .insert_text = "#elif ${1:CONDITION}",
+                               .filter_text = "#elif"},
+      Protocol::CompletionItem{.label = "#elifdef",
+                               .kind = Protocol::CompletionItemKind::Keyword,
+                               .detail = "Preprocessor Else-Ifdef (C++23)",
+                               .documentation =
+                                   "Conditional compilation if defined.",
+                               .insert_text = "#elifdef ${1:MACRO}",
+                               .filter_text = "#elifdef"},
+      Protocol::CompletionItem{.label = "#elifndef",
+                               .kind = Protocol::CompletionItemKind::Keyword,
+                               .detail = "Preprocessor Else-Ifndef (C++23)",
+                               .documentation =
+                                   "Conditional compilation if not defined.",
+                               .insert_text = "#elifndef ${1:MACRO}",
+                               .filter_text = "#elifndef"},
+      Protocol::CompletionItem{
+          .label = "#else",
+          .kind = Protocol::CompletionItemKind::Keyword,
+          .detail = "Preprocessor Else",
+          .documentation = "Alternative conditional compilation branch.",
+          .insert_text = "#else",
+          .filter_text = "#else"},
+      Protocol::CompletionItem{
+          .label = "#embed",
+          .kind = Protocol::CompletionItemKind::Keyword,
+          .detail = "Preprocessor Binary Embed (C++26)",
+          .documentation = "Embeds binary resources directly into source.",
+          .insert_text = "#embed \"${1:file}\"",
+          .filter_text = "#embed"},
+      Protocol::CompletionItem{.label = "#endif",
+                               .kind = Protocol::CompletionItemKind::Keyword,
+                               .detail = "Preprocessor End-If",
+                               .documentation =
+                                   "Ends a conditional compilation block.",
+                               .insert_text = "#endif",
+                               .filter_text = "#endif"},
+      Protocol::CompletionItem{.label = "#error",
+                               .kind = Protocol::CompletionItemKind::Keyword,
+                               .detail = "Preprocessor Compile Error",
+                               .documentation =
+                                   "Emits a compile-time error diagnostic.",
+                               .insert_text = "#error \"${1:message}\"",
+                               .filter_text = "#error"},
+      Protocol::CompletionItem{.label = "#ifdef",
+                               .kind = Protocol::CompletionItemKind::Keyword,
+                               .detail = "Preprocessor If Defined",
+                               .documentation =
+                                   "Compiles block if macro is defined.",
+                               .insert_text = "#ifdef ${1:MACRO}\n$0\n#endif",
+                               .filter_text = "#ifdef"},
+      Protocol::CompletionItem{
+          .label = "#ifndef",
+          .kind = Protocol::CompletionItemKind::Keyword,
+          .detail = "Preprocessor If Not Defined",
+          .documentation = "Compiles block if macro is not defined.",
+          .insert_text =
+              "#ifndef ${1:MACRO}\n#define ${1:MACRO}\n\n$0\n\n#endif",
+          .filter_text = "#ifndef"},
+      Protocol::CompletionItem{
+          .label = "#import",
+          .kind = Protocol::CompletionItemKind::Keyword,
+          .detail = "Preprocessor Header Import",
+          .documentation = "Imports header file (Obj-C / C++ extension).",
+          .insert_text = "#import <${1:header}>",
+          .filter_text = "#import"},
+      Protocol::CompletionItem{.label = "#include",
+                               .kind = Protocol::CompletionItemKind::Keyword,
+                               .detail = "Preprocessor Header Inclusion",
+                               .documentation =
+                                   "Includes standard or user header file.",
+                               .insert_text = "#include <${1:header}>",
+                               .filter_text = "#include"},
+      Protocol::CompletionItem{.label = "#line",
+                               .kind = Protocol::CompletionItemKind::Keyword,
+                               .detail = "Preprocessor Line Numbering",
+                               .documentation =
+                                   "Sets source line number and filename.",
+                               .insert_text = "#line ${1:number}",
+                               .filter_text = "#line"},
+      Protocol::CompletionItem{
+          .label = "#pragma",
+          .kind = Protocol::CompletionItemKind::Keyword,
+          .detail = "Preprocessor Compiler Pragma",
+          .documentation = "Issues implementation-defined compiler directive.",
+          .insert_text = "#pragma ${1:directive}",
+          .filter_text = "#pragma"},
+      Protocol::CompletionItem{
+          .label = "#pragma once",
+          .kind = Protocol::CompletionItemKind::Keyword,
+          .detail = "Preprocessor Modern Include Guard",
+          .documentation =
+              "Ensures the file is included only once during compilation.",
+          .insert_text = "#pragma once\n\n$0",
+          .filter_text = "#pragma once"},
+      Protocol::CompletionItem{.label = "#undef",
+                               .kind = Protocol::CompletionItemKind::Keyword,
+                               .detail = "Preprocessor Undefine Macro",
+                               .documentation =
+                                   "Undefines a previously defined macro.",
+                               .insert_text = "#undef ${1:MACRO}",
+                               .filter_text = "#undef"},
+      Protocol::CompletionItem{.label = "#warning",
+                               .kind = Protocol::CompletionItemKind::Keyword,
+                               .detail = "Preprocessor Compile Warning",
+                               .documentation =
+                                   "Emits a compile-time warning diagnostic.",
+                               .insert_text = "#warning \"${1:message}\"",
+                               .filter_text = "#warning"},
   };
 }
 
@@ -240,7 +364,8 @@ std::vector<Protocol::CompletionItem> get_jetbrains_rust_templates() {
           .kind = Protocol::CompletionItemKind::Function,
           .detail = "(JetBrains Template) fn name(...) -> ... { ... }",
           .documentation = "Generates standard Rust function with body.",
-          .insert_text = "fn ${1:name}(${2:/*params*/}) -> ${3:()} {\n    $0\n}",
+          .insert_text =
+              "fn ${1:name}(${2:/*params*/}) -> ${3:()} {\n    $0\n}",
           .filter_text = "fn"},
       Protocol::CompletionItem{
           .label = "pfn",
@@ -316,7 +441,8 @@ std::vector<Protocol::CompletionItem> get_jetbrains_python_templates() {
           .label = "class",
           .kind = Protocol::CompletionItemKind::Class,
           .detail = "(JetBrains Template) class ClassName:",
-          .documentation = "Generates Python class definition with constructor.",
+          .documentation =
+              "Generates Python class definition with constructor.",
           .insert_text = "class ${1:ClassName}:\n    def __init__(self, "
                          "${2:/*args*/}):\n        $0",
           .filter_text = "class"},
@@ -332,8 +458,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_python_templates() {
           .kind = Protocol::CompletionItemKind::Snippet,
           .detail = "(JetBrains Template) try ... except Exception as e:",
           .documentation = "Generates Python try-except error handling block.",
-          .insert_text =
-              "try:\n    $0\nexcept Exception as ${1:e}:\n    raise",
+          .insert_text = "try:\n    $0\nexcept Exception as ${1:e}:\n    raise",
           .filter_text = "try"}};
 }
 
@@ -428,8 +553,10 @@ std::vector<Protocol::CompletionItem> get_jetbrains_html_templates() {
           .filter_text = "button"}};
 }
 
+} // namespace
+
 std::vector<Protocol::CompletionItem>
-get_templates_for_filename(std::string_view filename) {
+LanguageServerManager::get_templates_for_filename(std::string_view filename) {
   const std::filesystem::path p(filename);
   const std::string ext = p.extension().string();
 
@@ -452,8 +579,6 @@ get_templates_for_filename(std::string_view filename) {
   }
   return {};
 }
-
-} // namespace
 
 LanguageServerManager &LanguageServerManager::instance() noexcept {
   static LanguageServerManager manager;
@@ -490,7 +615,8 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
     return it->second.get();
   }
 
-  // Locate the language server executable (e.g. clangd.exe, rust-analyzer.exe, etc.)
+  // Locate the language server executable (e.g. clangd.exe, rust-analyzer.exe,
+  // etc.)
   const std::filesystem::path exe_path =
       Registry::ServerRegistry::instance().find_executable_in_system(
           profile->executable_name);
@@ -649,9 +775,10 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
                      found_compile_dir.generic_string());
     }
 
-    // Auto-inject system include directories discovered by ToolchainDetector so STL and Windows SDK headers always resolve
-    // const auto &toolchain = Toolchain::ToolchainDetector::instance().get_active_toolchain();
-    // for (const auto &inc : toolchain.system_include_paths) {
+    // Auto-inject system include directories discovered by ToolchainDetector so
+    // STL and Windows SDK headers always resolve const auto &toolchain =
+    // Toolchain::ToolchainDetector::instance().get_active_toolchain(); for
+    // (const auto &inc : toolchain.system_include_paths) {
     //   if (!inc.empty()) {
     //     args.push_back("--extra-arg=-isystem" + inc.generic_string());
     //   }
@@ -818,8 +945,7 @@ void LanguageServerManager::request_completion(
        client->get_state() == Client::ClientState::Initializing)) {
     client->request_completion(
         uri, pos,
-        [callback = std::move(callback),
-         templates = std::move(templates)](
+        [callback = std::move(callback), templates = std::move(templates)](
             std::vector<Protocol::CompletionItem> lsp_items) mutable {
           std::unordered_set<std::string> seen_labels;
           std::vector<Protocol::CompletionItem> combined;

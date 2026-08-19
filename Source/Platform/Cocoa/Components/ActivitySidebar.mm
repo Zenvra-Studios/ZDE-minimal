@@ -1,5 +1,6 @@
 #include "Platform/Cocoa/Components/ActivitySidebar.h"
 #include "Platform/Cocoa/Components/StudioWorkspaceRenderer.h"
+#include "Utility/Fonts.h"
 
 #include <algorithm>
 #include <cmath>
@@ -97,6 +98,33 @@ void ActivitySidebar::render(
                 surface.m_colors.accent);
         }
         draw_icon(surface, context, item.icon, center_x, round_to_int(center_y), active, hovered);
+
+        if (item.icon == UI::Editor::SidebarIcon::VersionControl)
+        {
+            const std::size_t count = surface.m_tool_sidebar.get_source_control_model().get_total_changes_count();
+            if (count > 0)
+            {
+                const std::string badge_str = count > 999 ? (std::to_string(count / 1000) + "K+") : std::to_string(count);
+                const int str_w = surface.m_small_font ? surface.m_small_font->getTextWidth(badge_str) : 12;
+                const float pill_w = std::max(static_cast<float>(str_w) + 6.0F * surface.m_dpi_scale, 14.0F * surface.m_dpi_scale);
+                const float pill_h = 13.0F * surface.m_dpi_scale;
+                const UI::Rect badge_rect{
+                    static_cast<float>(center_x) + 2.0F * surface.m_dpi_scale,
+                    center_y - 12.0F * surface.m_dpi_scale,
+                    pill_w,
+                    pill_h
+                };
+                const CGFloat badge_bg[4] = {0.0, 122.0/255.0, 204.0/255.0, 1.0};
+                surface.fill_rounded_rectangle(context, badge_rect, badge_bg, pill_h * 0.5F);
+                if (surface.m_small_font)
+                {
+                    surface.draw_text(context, *surface.m_small_font, badge_str,
+                                      badge_rect.x + (pill_w - static_cast<float>(str_w)) * 0.5F,
+                                      badge_rect.y + pill_h * 0.5F,
+                                      "#ffffff");
+                }
+            }
+        }
     }
 
     surface.draw_line(
@@ -122,23 +150,32 @@ void ActivitySidebar::draw_icon(
     switch (icon)
     {
     case UI::Editor::SidebarIcon::Project:
-        svg_path = "Assets/icons/vscode-codicons/icons/folder.svg"; break;
+        svg_path = "vscode-codicons/icons/folder.svg";
+        break;
     case UI::Editor::SidebarIcon::VersionControl:
-        svg_path = "Assets/icons/vscode-codicons/icons/source-control.svg"; break;
+        svg_path = "vscode-codicons/icons/source-control.svg";
+        break;
     case UI::Editor::SidebarIcon::Search:
-        svg_path = "Assets/icons/vscode-codicons/icons/search.svg"; break;
+        svg_path = "vscode-codicons/icons/search.svg";
+        break;
     case UI::Editor::SidebarIcon::Services:
-        svg_path = "Assets/icons/vscode-codicons/icons/extensions.svg"; break;
+        svg_path = "vscode-codicons/icons/extensions.svg";
+        break;
     case UI::Editor::SidebarIcon::Shader:
-        svg_path = "Assets/icons/material-icon-theme/shader.svg"; break;
+        svg_path = "material-icon-theme/shader.svg";
+        break;
     case UI::Editor::SidebarIcon::Run:
-        svg_path = "Assets/icons/play.svg"; break;
+        svg_path = "Assets/icons/play.svg";
+        break;
     case UI::Editor::SidebarIcon::Terminal:
-        svg_path = "Assets/icons/terminal.svg"; break;
+        svg_path = "Assets/icons/terminal.svg";
+        break;
     case UI::Editor::SidebarIcon::Problems:
-        svg_path = "Assets/icons/bug.svg"; break;
+        svg_path = "Assets/icons/bug.svg";
+        break;
     case UI::Editor::SidebarIcon::More:
-        svg_path = "Assets/icons/vscode-codicons/icons/ellipsis.svg"; break;
+        svg_path = "vscode-codicons/icons/ellipsis.svg";
+        break;
     }
 
     if (!svg_path.empty())

@@ -1,3 +1,4 @@
+#import <Cocoa/Cocoa.h>
 #include "Commands/CommandIds.h"
 #include "Language/LanguageServerManager.h"
 #include "Platform/Cocoa/Components/TextEditor.h"
@@ -9,6 +10,43 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+
+@interface ZDETabActionMenuHandler : NSObject
+@property (nonatomic, assign) Zenvra::Platform::Cocoa::Components::TextEditor* editor;
+- (void)onSplitUp:(id)sender;
+- (void)onSplitDown:(id)sender;
+- (void)onSplitLeft:(id)sender;
+- (void)onSplitRight:(id)sender;
+- (void)onCloseAll:(id)sender;
+- (void)onCloseSaved:(id)sender;
+@end
+
+@implementation ZDETabActionMenuHandler
+- (void)onSplitUp:(id)sender {
+    (void)sender;
+    if (self.editor) self.editor->split_editor();
+}
+- (void)onSplitDown:(id)sender {
+    (void)sender;
+    if (self.editor) self.editor->split_editor();
+}
+- (void)onSplitLeft:(id)sender {
+    (void)sender;
+    if (self.editor) self.editor->split_editor();
+}
+- (void)onSplitRight:(id)sender {
+    (void)sender;
+    if (self.editor) self.editor->split_editor();
+}
+- (void)onCloseAll:(id)sender {
+    (void)sender;
+    if (self.editor) self.editor->close_all_documents();
+}
+- (void)onCloseSaved:(id)sender {
+    (void)sender;
+    if (self.editor) self.editor->close_saved_documents();
+}
+@end
 
 namespace Zenvra::Platform::Cocoa::Components
 {
@@ -263,6 +301,147 @@ void TextEditor::reset_split() noexcept
     m_split_scrollbar.reset();
 }
 
+void TextEditor::split_editor() noexcept
+{
+    if (m_controller.get_active_document() != nullptr)
+    {
+        m_is_split = true;
+        m_split_document_index = m_controller.get_active_index();
+        m_focused_pane = SplitPaneFocus::Right;
+    }
+}
+
+void TextEditor::close_all_documents()
+{
+    static_cast<void>(m_controller.close_all_files());
+    reset_split();
+    m_hovered_tab_index.reset();
+    m_hovered_tab_close_index.reset();
+}
+
+void TextEditor::close_saved_documents()
+{
+    const auto docs = m_controller.get_documents();
+    for (std::size_t i = docs.size(); i > 0; --i)
+    {
+        if (!docs[i - 1].text.is_dirty())
+        {
+            static_cast<void>(m_controller.close_file(i - 1));
+        }
+    }
+    m_scrollbar.reset();
+    m_reveal_caret_pending = true;
+    m_hovered_tab_index.reset();
+    m_hovered_tab_close_index.reset();
+}
+
+bool TextEditor::switch_header_source()
+{
+    const auto docs = m_controller.get_documents();
+    auto cur_idx = m_controller.get_active_index();
+    if (!cur_idx || *cur_idx >= docs.size()) return false;
+
+    const std::filesystem::path current_path = docs[*cur_idx].path;
+    if (current_path.empty()) return false;
+
+    const std::string ext = current_path.extension().string();
+    const std::string stem = current_path.stem().string();
+    const std::filesystem::path parent = current_path.parent_path();
+
+    std::vector<std::string> candidate_exts;
+    if (ext == ".cpp" || ext == ".cc" || ext == ".c" || ext == ".cxx" || ext == ".mm" || ext == ".m") {
+        candidate_exts = {".h", ".hpp", ".hxx", ".hh"};
+    } else if (ext == ".h" || ext == ".hpp" || ext == ".hxx" || ext == ".hh") {
+        candidate_exts = {".cpp", ".cc", ".c", ".cxx", ".mm", ".m"};
+    } else {
+        return false;
+    }
+
+    for (const auto& cand_ext : candidate_exts) {
+        std::filesystem::path test_path = parent / (stem + cand_ext);
+        if (std::filesystem::exists(test_path)) {
+            return open_file(test_path);
+        }
+    }
+
+    if (parent.filename() == "Source" || parent.filename() == "src") {
+        for (const auto& cand_ext : candidate_exts) {
+            std::filesystem::path test_path = parent.parent_path() / "Include" / (stem + cand_ext);
+            if (std::filesystem::exists(test_path)) return open_file(test_path);
+            test_path = parent.parent_path() / "include" / (stem + cand_ext);
+            if (std::filesystem::exists(test_path)) return open_file(test_path);
+        }
+    } else if (parent.filename() == "Include" || parent.filename() == "include") {
+        for (const auto& cand_ext : candidate_exts) {
+            std::filesystem::path test_path = parent.parent_path() / "Source" / (stem + cand_ext);
+            if (std::filesystem::exists(test_path)) return open_file(test_path);
+            test_path = parent.parent_path() / "src" / (stem + cand_ext);
+            if (std::filesystem::exists(test_path)) return open_file(test_path);
+        }
+    }
+
+    return false;
+}
+
+bool TextEditor::format_document()
+{
+    auto* doc = get_focused_document();
+    if (!doc || doc->is_read_only()) return false;
+
+    std::vector<std::string> new_lines;
+    new_lines.reserve(doc->get_line_count());
+    for (std::size_t i = 0; i < doc->get_line_count(); ++i) {
+        std::string line = std::string(doc->get_line(i));
+        while (!line.empty() && (line.back() == ' ' || line.back() == '\t' || line.back() == '\r')) {
+            line.pop_back();
+        }
+        new_lines.push_back(std::move(line));
+    }
+    doc->reload_contents(std::move(new_lines), "LF");
+    return true;
+}
+
+bool TextEditor::go_to_definition()
+{
+    const auto* doc = get_focused_document();
+    if (!doc) return false;
+
+    const std::string uri = get_active_document_uri();
+    const std::string fname = get_active_document_filename();
+    const Language::Protocol::Position pos{
+        doc->get_caret_line(),
+        doc->get_caret_column()
+    };
+
+    Language::LanguageServerManager::instance().request_definition(
+        uri, fname, pos,
+        [this](std::vector<Language::Protocol::Location> locations) {
+            if (locations.empty()) return;
+            const auto& loc = locations[0];
+            std::string path_str = loc.uri;
+            if (path_str.rfind("file://", 0) == 0) {
+                path_str = path_str.substr(7);
+            }
+            std::filesystem::path target_path(path_str);
+            if (std::filesystem::exists(target_path)) {
+                static_cast<void>(this->open_file(target_path));
+                if (auto* target_doc = this->get_focused_document()) {
+                    target_doc->set_caret(loc.range.start.line, loc.range.start.character);
+                    this->m_reveal_caret_pending = true;
+                }
+            }
+        });
+    return true;
+}
+
+bool TextEditor::select_all_occurrences()
+{
+    auto* doc = get_focused_document();
+    if (!doc) return false;
+
+    return doc->select_word_at(doc->get_caret_line(), doc->get_caret_column());
+}
+
 UI::Editor::TextDocumentModel* TextEditor::get_focused_document() noexcept
 {
     if (m_is_split && m_focused_pane == SplitPaneFocus::Right && m_split_document_index.has_value())
@@ -413,38 +592,6 @@ bool TextEditor::handle_pointer_press(
     float px, float py, bool extend, int clicks,
     std::string& cmd_out)
 {
-    // Tab Action Menu click
-    if (m_tab_action_menu.visible)
-    {
-        if (m_tab_action_menu.bounds.contains(px, py))
-        {
-            for (std::size_t i = 0; i < m_tab_action_menu.item_bounds.size(); ++i)
-            {
-                if (m_tab_action_menu.item_bounds[i].contains(px, py))
-                {
-                    if (i == 0 || i == 1 || i == 2 || i == 3)
-                    {
-                        if (m_controller.get_active_document() != nullptr)
-                        {
-                            m_is_split = true;
-                            m_split_document_index = m_controller.get_active_index();
-                            m_focused_pane = SplitPaneFocus::Right;
-                        }
-                    }
-                    else if (i == 5)
-                    {
-                        static_cast<void>(m_controller.close_all_files());
-                        reset_split();
-                    }
-                    m_tab_action_menu.visible = false;
-                    return true;
-                }
-            }
-        }
-        m_tab_action_menu.visible = false;
-        return true;
-    }
-
     // Split close button click
     if (m_is_split && m_split_close_btn_bounds.contains(px, py))
     {
@@ -1321,6 +1468,19 @@ std::optional<bool> TextEditor::handle_command(std::string_view id) {
         return false;
     }
 
+    if (id == "zde.editor.goToDefinition" || id == "zde.editor.goToDeclaration" || id == "zde.editor.goToImplementation") {
+        return go_to_definition();
+    }
+    if (id == "zde.editor.switchHeaderSource") {
+        return switch_header_source();
+    }
+    if (id == "zde.editor.formatDocument" || id == "zde.editor.formatDocumentWith") {
+        return format_document();
+    }
+    if (id == "zde.selection.selectAllOccurrences") {
+        return select_all_occurrences();
+    }
+
     auto action = UI::Editor::EditorController::action_from_command_id(id);
     if (!action) return std::nullopt;
     return handle_action(*action);
@@ -1414,6 +1574,95 @@ bool TextEditor::handle_text_input(std::string_view utf8)
             }
             else if (is_trigger_char || m_completion_popup.is_visible())
             {
+                std::lock_guard<std::mutex> lock(m_lsp_mutex);
+                const std::string_view full_line = doc->get_line(doc->get_caret_line());
+                const std::size_t col = doc->get_caret_column();
+                const std::string_view line_prefix = full_line.substr(0, std::min(col, full_line.size()));
+
+                bool is_include_context = false;
+                std::string header_query;
+
+                std::size_t inc_pos = line_prefix.find("#include");
+                if (inc_pos == std::string_view::npos) inc_pos = line_prefix.find("#import");
+
+                if (inc_pos != std::string_view::npos)
+                {
+                    const std::string_view after_inc = line_prefix.substr(inc_pos);
+                    auto lt = after_inc.rfind('<');
+                    auto qt = after_inc.rfind('"');
+                    if (lt != std::string_view::npos)
+                    {
+                        is_include_context = true;
+                        header_query = std::string(after_inc.substr(lt + 1));
+                    }
+                    else if (qt != std::string_view::npos)
+                    {
+                        is_include_context = true;
+                        header_query = std::string(after_inc.substr(qt + 1));
+                    }
+                }
+
+                const std::string& active_query = is_include_context ? header_query : current_word;
+
+                // Synchronously update filter immediately with zero latency
+                if (m_completion_popup.is_visible())
+                {
+                    m_completion_popup.set_filter(active_query);
+                }
+                else
+                {
+                    std::vector<Language::Protocol::CompletionItem> local_items;
+
+                    if (is_include_context)
+                    {
+                        // In #include / #import context, prioritize header libraries & workspace files
+                        local_items = Language::LanguageServerManager::get_header_completions(line_prefix, m_working_directory);
+                    }
+                    else
+                    {
+                        // Instant Local Suggestions (Language Templates & Buffer Identifiers)
+                        auto templates = Language::LanguageServerManager::get_templates_for_filename(fname);
+                        for (auto& tpl : templates)
+                        {
+                            local_items.push_back(std::move(tpl));
+                        }
+
+                        // Extract tokens from current document
+                        std::unordered_set<std::string> doc_words;
+                        for (std::size_t li = 0; li < doc->get_line_count(); ++li)
+                        {
+                            const std::string_view l = doc->get_line(li);
+                            std::size_t w_start = 0;
+                            for (std::size_t ci = 0; ci <= l.size(); ++ci)
+                            {
+                                const bool is_wc = (ci < l.size() && (std::isalnum(static_cast<unsigned char>(l[ci])) || l[ci] == '_'));
+                                if (!is_wc)
+                                {
+                                    if (ci > w_start + 2)
+                                    {
+                                        const std::string word(l.substr(w_start, ci - w_start));
+                                        if (word != current_word && doc_words.insert(word).second)
+                                        {
+                                            Language::Protocol::CompletionItem item{};
+                                            item.label = word;
+                                            item.kind = Language::Protocol::CompletionItemKind::Variable;
+                                            local_items.push_back(std::move(item));
+                                        }
+                                    }
+                                    w_start = ci + 1;
+                                }
+                            }
+                        }
+                    }
+
+                    if (!local_items.empty())
+                    {
+                        m_completion_popup.show(std::move(local_items), 0.0F, 0.0F);
+                        m_completion_popup.set_filter(active_query);
+                    }
+                }
+
+                // Asynchronously query LSP for rich compiler-level completions
                 Language::Protocol::Position pos{
                     .line = doc->get_caret_line(),
                     .character = doc->get_caret_column()
@@ -1421,10 +1670,17 @@ bool TextEditor::handle_text_input(std::string_view utf8)
                 Language::LanguageServerManager::instance().request_completion(
                     uri, fname, pos, doc->get_line(doc->get_caret_line()),
                     [this](std::vector<Language::Protocol::CompletionItem> items) {
-                        std::lock_guard<std::mutex> lock(m_lsp_mutex);
+                        std::lock_guard<std::mutex> lk(m_lsp_mutex);
                         if (!items.empty())
                         {
-                            m_completion_popup.show(std::move(items), 100.0F, 100.0F);
+                            if (m_completion_popup.is_visible())
+                            {
+                                m_completion_popup.merge_items(std::move(items));
+                            }
+                            else
+                            {
+                                m_completion_popup.show(std::move(items), 0.0F, 0.0F);
+                            }
 
                             if (const auto* current_doc = m_controller.get_active_document())
                             {
@@ -1444,20 +1700,13 @@ bool TextEditor::handle_text_input(std::string_view utf8)
                                     }
                                 }
                                 const std::string_view latest_word = line.substr(start, col - start);
-                                if (!latest_word.empty())
-                                {
-                                    m_completion_popup.set_filter(latest_word);
-                                }
+                                m_completion_popup.set_filter(latest_word);
                             }
 
                             if (m_completion_popup.get_item_count() == 0)
                             {
                                 m_completion_popup.hide();
                             }
-                        }
-                        else
-                        {
-                            m_completion_popup.hide();
                         }
                     }
                 );
@@ -1900,10 +2149,6 @@ void TextEditor::draw_editor_header(
 
 void TextEditor::show_tab_action_menu(const UI::Editor::StudioEditorLayoutResult& layout)
 {
-    const float scale = layout.dpi_scale;
-    m_tab_action_menu.visible = true;
-    m_tab_action_menu.hovered_index.reset();
-
     const float btn_right = (!m_tab_action_bounds[3].is_empty())
         ? m_tab_action_bounds[3].right()
         : layout.editor_header_bounds.right();
@@ -1911,37 +2156,38 @@ void TextEditor::show_tab_action_menu(const UI::Editor::StudioEditorLayoutResult
         ? m_tab_action_bounds[3].bottom()
         : layout.editor_header_bounds.bottom();
 
-    const float menu_width = 240.0F * scale;
-    const float item_height = 26.0F * scale;
+    NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Editor Actions"];
+    [menu setAutoenablesItems:NO];
 
-    m_tab_action_menu.items = {
-        {"Split Up", "Cmd+K Cmd+\\", false, false, false},
-        {"Split Down", "Cmd+K Cmd+\\", false, false, false},
-        {"Split Left", "Cmd+K Cmd+\\", false, false, false},
-        {"Split Right", "Cmd+\\", false, false, false},
-        {"", "", true, false, false},
-        {"Close All Editors", "Cmd+K Cmd+W", false, false, false},
-        {"Close Saved Editors", "Cmd+K U", false, false, false},
+    ZDETabActionMenuHandler* handler = [[ZDETabActionMenuHandler alloc] init];
+    handler.editor = this;
+
+    auto add_item = [&](NSString* title, SEL action, NSString* key_equiv, NSEventModifierFlags mods) {
+        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title action:action keyEquivalent:key_equiv ? key_equiv : @""];
+        item.target = handler;
+        if (key_equiv && [key_equiv length] > 0) {
+            item.keyEquivalentModifierMask = mods;
+        }
+        [menu addItem:item];
+        [item release];
     };
 
-    float total_height = 10.0F * scale;
-    m_tab_action_menu.item_bounds.clear();
+    add_item(@"Split Up", @selector(onSplitUp:), @"\\", NSEventModifierFlagCommand);
+    add_item(@"Split Down", @selector(onSplitDown:), @"\\", NSEventModifierFlagCommand);
+    add_item(@"Split Left", @selector(onSplitLeft:), @"\\", NSEventModifierFlagCommand);
+    add_item(@"Split Right", @selector(onSplitRight:), @"\\", NSEventModifierFlagCommand);
+    [menu addItem:[NSMenuItem separatorItem]];
+    add_item(@"Close All Editors", @selector(onCloseAll:), @"w", NSEventModifierFlagCommand | NSEventModifierFlagOption);
+    add_item(@"Close Saved Editors", @selector(onCloseSaved:), @"u", NSEventModifierFlagCommand | NSEventModifierFlagOption);
 
-    for (const auto& item : m_tab_action_menu.items) {
-        const float h = item.is_separator ? (7.0F * scale) : item_height;
-        total_height += h;
+    NSView* view = [NSApp keyWindow].contentView;
+    if (view) {
+        NSPoint loc = NSMakePoint(btn_right - 140.0f, btn_bottom + 2.0f);
+        [menu popUpMenuPositioningItem:nil atLocation:loc inView:view];
     }
 
-    const float menu_x = std::max(layout.editor_bounds.x + 4.0F, btn_right - menu_width);
-    const float menu_y = btn_bottom + 4.0F * scale;
-    m_tab_action_menu.bounds = {menu_x, menu_y, menu_width, total_height};
-
-    float curr_y = menu_y + 5.0F * scale;
-    for (const auto& item : m_tab_action_menu.items) {
-        const float h = item.is_separator ? (7.0F * scale) : item_height;
-        m_tab_action_menu.item_bounds.push_back(UI::Rect{menu_x, curr_y, menu_width, h});
-        curr_y += h;
-    }
+    [menu release];
+    [handler release];
 }
 
 void TextEditor::draw_tab_action_menu(
@@ -1949,59 +2195,9 @@ void TextEditor::draw_tab_action_menu(
     CGContextRef context,
     const UI::Editor::StudioEditorLayoutResult& layout) const
 {
+    static_cast<void>(surface);
+    static_cast<void>(context);
     static_cast<void>(layout);
-    if (!m_tab_action_menu.visible) {
-        return;
-    }
-
-    const float scale = surface.m_dpi_scale;
-    const auto& menu = m_tab_action_menu;
-    const float radius = 6.0F * scale;
-
-    // Card background
-    const CGFloat popup_bg[4] = {30.0 / 255.0, 31.0 / 255.0, 38.0 / 255.0, 0.98};
-    const CGFloat popup_border[4] = {70.0 / 255.0, 72.0 / 255.0, 80.0 / 255.0, 1.0};
-
-    surface.fill_rounded_rectangle(context, menu.bounds, popup_bg, radius);
-    surface.draw_rectangle(context, menu.bounds, popup_border);
-
-    for (std::size_t i = 0; i < menu.items.size() && i < menu.item_bounds.size(); ++i) {
-        const auto& item = menu.items[i];
-        const auto& rect = menu.item_bounds[i];
-
-        if (item.is_separator) {
-            const float sep_y = rect.y + rect.height * 0.5F;
-            surface.draw_line(context,
-                round_to_int(rect.x + 10.0F * scale), round_to_int(sep_y),
-                round_to_int(rect.right() - 10.0F * scale), round_to_int(sep_y),
-                surface.m_colors.border);
-            continue;
-        }
-
-        const bool hovered = (menu.hovered_index && *menu.hovered_index == i);
-        if (hovered) {
-            UI::Rect hover_bounds = rect;
-            hover_bounds.x += 4.0F * scale;
-            hover_bounds.width -= 8.0F * scale;
-            hover_bounds.y += 1.0F * scale;
-            hover_bounds.height -= 2.0F * scale;
-            surface.fill_rounded_rectangle(context, hover_bounds, surface.m_colors.hover_background, 4.0F * scale);
-        }
-
-        const float text_y = rect.y + rect.height * 0.5F;
-        if (surface.m_ui_font) {
-            surface.draw_text(context, *surface.m_ui_font, item.label,
-                rect.x + 14.0F * scale, text_y,
-                hovered ? surface.m_text.primary : surface.m_text.muted);
-
-            if (!item.shortcut.empty() && surface.m_small_font) {
-                const int sc_w = surface.m_small_font->getTextWidth(item.shortcut);
-                surface.draw_text(context, *surface.m_small_font, item.shortcut,
-                    rect.right() - 14.0F * scale - static_cast<float>(sc_w), text_y,
-                    surface.m_text.muted);
-            }
-        }
-    }
 }
 
 void TextEditor::draw_document(
@@ -2810,183 +3006,186 @@ void TextEditor::render_pane(
         }
     }
 
-    // Render completion popup overlay if active (VS Code Style)
+    // Render completion popup overlay if active (Sleek Minimalist Modal Popup Style)
     if (m_completion_popup.is_visible() && m_completion_popup.get_item_count() > 0 && document != nullptr)
     {
         const std::string_view current_line = document->get_line(document->get_caret_line());
         const std::string_view prefix = current_line.substr(0, std::min(document->get_caret_column(), current_line.size()));
         const float caret_screen_x = code_x + static_cast<float>(surface.m_editor_font->getTextWidth(std::string{prefix}));
-        const float caret_line_y = layout.editor_bounds.y + static_cast<float>(physical_line_to_visual_row(m_folding, document->get_caret_line(), document->get_line_count()) - m_scrollbar.get_first_visible_line() + 1) * (20.0F * dpi);
+        const float line_h = 20.0F * dpi;
+        const float caret_line_y = layout.editor_bounds.y + static_cast<float>(physical_line_to_visual_row(m_folding, document->get_caret_line(), document->get_line_count()) - m_scrollbar.get_first_visible_line() + 1) * line_h;
 
-        const float item_h = 22.0F * dpi;
+        const float item_h = 24.0F * dpi;
+        const float footer_h = 26.0F * dpi;
         const std::size_t count = m_completion_popup.get_item_count();
         const std::size_t scroll_offset = m_completion_popup.get_scroll_offset();
-        const std::size_t max_visible = m_completion_popup.get_max_visible_items();
+        const std::size_t max_visible = std::min<std::size_t>(m_completion_popup.get_max_visible_items(), 12);
         const std::size_t visible_count = std::min<std::size_t>(count, max_visible);
-        const float popup_h = static_cast<float>(visible_count) * item_h + 4.0F * dpi;
+        const float popup_h = static_cast<float>(visible_count) * item_h + footer_h + 10.0F * dpi;
 
         // Calculate dynamic popup width
-        float max_label_w = 220.0F * dpi;
+        float max_label_w = 280.0F * dpi;
         for (std::size_t i = 0; i < max_visible && (scroll_offset + i) < count; ++i)
         {
             if (const auto* it = m_completion_popup.get_item(scroll_offset + i))
             {
-                const int w = surface.m_ui_font->getTextWidth(it->label);
-                max_label_w = std::max(max_label_w, static_cast<float>(w) + 64.0F * dpi);
+                const int w = surface.m_editor_font->getTextWidth(it->label);
+                max_label_w = std::max(max_label_w, static_cast<float>(w) + 80.0F * dpi);
             }
         }
-        const float popup_w = std::clamp(max_label_w, 220.0F * dpi, 380.0F * dpi);
-        const float popup_x = std::clamp(caret_screen_x, layout.editor_bounds.x + 10.0F, std::max(layout.editor_bounds.x + 10.0F, layout.editor_bounds.right() - (popup_w + 20.0F)));
-        const float popup_y = std::clamp(caret_line_y, layout.editor_bounds.y + 10.0F, std::max(layout.editor_bounds.y + 10.0F, layout.editor_bounds.bottom() - (popup_h + 20.0F)));
+        const float popup_w = std::clamp(max_label_w, 380.0F * dpi, 540.0F * dpi);
+        const float popup_x = std::clamp(caret_screen_x, layout.editor_bounds.x + 8.0F, std::max(layout.editor_bounds.x + 8.0F, layout.editor_bounds.right() - (popup_w + 12.0F)));
+
+        float popup_y = caret_line_y;
+        if (popup_y + popup_h > layout.editor_bounds.bottom() - 10.0F)
+        {
+            popup_y = std::max(layout.editor_bounds.y + 4.0F, caret_line_y - line_h - popup_h);
+        }
 
         const UI::Rect actual_bounds{popup_x, popup_y, popup_w, popup_h};
+        const float card_radius = 10.0F * dpi;
 
-        const CGFloat popup_bg[4] = {24.0 / 255.0, 24.0 / 255.0, 28.0 / 255.0, 0.98};
-        const CGFloat popup_border[4] = {55.0 / 255.0, 55.0 / 255.0, 62.0 / 255.0, 1.0};
-        const CGFloat popup_sel_bg[4] = {0.0 / 255.0, 95.0 / 255.0, 184.0 / 255.0, 1.0};
-        const CGFloat popup_thumb_bg[4] = {90.0 / 255.0, 90.0 / 255.0, 96.0 / 255.0, 1.0};
+        // 1. Native macOS Cocoa Window/Popover Drop Shadow
+        CGContextSaveGState(context);
+        CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+        const CGFloat shadowColorComps[4] = {0.0, 0.0, 0.0, 0.55};
+        CGColorRef cgShadowColor = CGColorCreate(colorSpace, shadowColorComps);
+        CGContextSetShadowWithColor(context, CGSizeMake(0, -6.0 * dpi), 20.0 * dpi, cgShadowColor);
 
-        surface.fill_rounded_rectangle(context, actual_bounds, popup_bg, 4.0F * dpi);
-        surface.draw_rectangle(context, actual_bounds, popup_border);
+        // 2. Native macOS Rounded Dark Card Fill (30, 31, 34)
+        const NSRect nsCardRect = NSMakeRect(actual_bounds.x, actual_bounds.y, actual_bounds.width, actual_bounds.height);
+        NSBezierPath* bgPath = [NSBezierPath bezierPathWithRoundedRect:nsCardRect xRadius:card_radius yRadius:card_radius];
+        [[NSColor colorWithSRGBRed:30.0/255.0 green:31.0/255.0 blue:34.0/255.0 alpha:0.98] setFill];
+        [bgPath fill];
+
+        CGColorRelease(cgShadowColor);
+        CGColorSpaceRelease(colorSpace);
+        CGContextRestoreGState(context);
+
+        // 3. Native macOS Cocoa 1px Rounded Outer Border (58, 60, 68)
+        CGContextSaveGState(context);
+        NSBezierPath* strokePath = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(nsCardRect, 0.5, 0.5) xRadius:card_radius yRadius:card_radius];
+        [[NSColor colorWithSRGBRed:58.0/255.0 green:60.0/255.0 blue:68.0/255.0 alpha:1.0] setStroke];
+        [strokePath setLineWidth:1.0];
+        [strokePath stroke];
+        CGContextRestoreGState(context);
 
         const std::size_t selected = m_completion_popup.get_selected_index();
+        const std::string& query = m_completion_popup.get_filter();
 
+        // 4. Item Rows with Rounded 6.0px Selection Pills
         for (std::size_t i = 0; i < max_visible && (scroll_offset + i) < count; ++i)
         {
             const std::size_t item_idx = scroll_offset + i;
             const auto* item = m_completion_popup.get_item(item_idx);
             if (item == nullptr) continue;
 
-            const float row_y = actual_bounds.y + 2.0F * dpi + static_cast<float>(i) * item_h;
-            const float item_w = actual_bounds.width - (count > max_visible ? 10.0F : 4.0F) * dpi;
-            const UI::Rect item_rect{actual_bounds.x + 2.0F * dpi, row_y, item_w, item_h};
+            const float row_y = actual_bounds.y + 6.0F * dpi + static_cast<float>(i) * item_h;
+            const float item_w = actual_bounds.width - (count > max_visible ? 14.0F : 10.0F) * dpi;
+            const UI::Rect item_rect{actual_bounds.x + 5.0F * dpi, row_y, item_w, item_h};
 
             if (item_idx == selected)
             {
-                surface.fill_rounded_rectangle(context, item_rect, popup_sel_bg, 2.0F * dpi);
+                const NSRect itemNSRect = NSMakeRect(item_rect.x, item_rect.y, item_rect.width, item_rect.height);
+                NSBezierPath* selPath = [NSBezierPath bezierPathWithRoundedRect:itemNSRect xRadius:6.0 yRadius:6.0];
+                [[NSColor colorWithSRGBRed:50.0/255.0 green:56.0/255.0 blue:68.0/255.0 alpha:0.95] setFill];
+                [selPath fill];
             }
 
-            std::string kind_badge = " ";
-            std::string badge_color = surface.m_text.accent;
-            bool is_snippet = false;
-
-            switch (item->kind)
+            // Minimalist Syntax Color
+            std::string label_color = "#4fc1ff"; // Bright preprocessor/keyword blue
+            if (item->kind == Language::Protocol::CompletionItemKind::Function ||
+                item->kind == Language::Protocol::CompletionItemKind::Method)
             {
-            case Language::Protocol::CompletionItemKind::Snippet:
-                kind_badge = "[]";
-                badge_color = "#4fc1ff";
-                is_snippet = true;
-                break;
-            case Language::Protocol::CompletionItemKind::Keyword:
-                kind_badge = "{}";
-                badge_color = "#c586c0";
-                break;
-            case Language::Protocol::CompletionItemKind::Function:
-            case Language::Protocol::CompletionItemKind::Method:
-                kind_badge = "f";
-                badge_color = "#b180d7";
-                break;
-            case Language::Protocol::CompletionItemKind::Variable:
-            case Language::Protocol::CompletionItemKind::Field:
-                kind_badge = "v";
-                badge_color = "#9cdcfe";
-                break;
-            case Language::Protocol::CompletionItemKind::Property:
-                kind_badge = "p";
-                badge_color = "#4fc1ff";
-                break;
-            case Language::Protocol::CompletionItemKind::Class:
-            case Language::Protocol::CompletionItemKind::Struct:
-            case Language::Protocol::CompletionItemKind::Interface:
-                kind_badge = "c";
-                badge_color = "#4ec9b0";
-                break;
-            case Language::Protocol::CompletionItemKind::File:
-                kind_badge = "h";
-                badge_color = "#9cdcfe";
-                break;
-            case Language::Protocol::CompletionItemKind::Module:
-                kind_badge = "m";
-                badge_color = "#dcdcaa";
-                break;
-            default:
-                kind_badge = "abc";
-                badge_color = surface.m_text.muted;
-                break;
+                label_color = "#dcdcaa";
+            }
+            else if (item->kind == Language::Protocol::CompletionItemKind::Variable ||
+                     item->kind == Language::Protocol::CompletionItemKind::Field)
+            {
+                label_color = "#9cdcfe";
+            }
+            else if (item->kind == Language::Protocol::CompletionItemKind::Class ||
+                     item->kind == Language::Protocol::CompletionItemKind::Struct ||
+                     item->kind == Language::Protocol::CompletionItemKind::Interface)
+            {
+                label_color = "#4ec9b0";
+            }
+            else if (item->kind == Language::Protocol::CompletionItemKind::Snippet)
+            {
+                label_color = "#f59e0b";
             }
 
-            surface.draw_text(context, *surface.m_ui_font, kind_badge, item_rect.x + 6.0F * dpi, row_y + item_h * 0.5F, badge_color);
+            const float text_x = item_rect.x + 12.0F * dpi;
+            surface.draw_text(context, *surface.m_editor_font, item->label, text_x, row_y + item_h * 0.5F, label_color, &item_rect);
 
-            std::string label_color = surface.m_text.primary;
-            if (item_idx == selected)
+            // Highlight matched query letters in bright white
+            if (!query.empty() && item->label.size() >= query.size())
             {
-                label_color = "#ffffff";
+                std::string l_lower = item->label;
+                std::string q_lower = query;
+                for (char& c : l_lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                for (char& c : q_lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                const auto m_pos = l_lower.find(q_lower);
+                if (m_pos != std::string::npos)
+                {
+                    const int w_before = surface.m_editor_font->getTextWidth(item->label.substr(0, m_pos));
+                    const std::string matched_sub = item->label.substr(m_pos, query.size());
+                    surface.draw_text(context, *surface.m_editor_font, matched_sub, text_x + static_cast<float>(w_before), row_y + item_h * 0.5F, "#ffffff", &item_rect);
+                }
             }
-            else if (is_snippet)
-            {
-                label_color = "#4fc1ff";
-            }
-            surface.draw_text(context, *surface.m_ui_font, item->label, item_rect.x + 28.0F * dpi, row_y + item_h * 0.5F, label_color, &item_rect);
 
-            if (is_snippet)
+            // Right side detail / type hint
+            if (!item->detail.empty())
             {
-                surface.draw_text(context, *surface.m_ui_font, "<-", item_rect.right() - 18.0F * dpi, row_y + item_h * 0.5F, (item_idx == selected) ? "#ffffff" : surface.m_text.muted);
-            }
-            else if (!item->detail.empty())
-            {
-                const int detail_w = surface.m_ui_font->getTextWidth(item->detail);
-                const float detail_x = std::max(item_rect.x + 180.0F * dpi, item_rect.right() - static_cast<float>(detail_w) - 6.0F * dpi);
-                surface.draw_text(context, *surface.m_ui_font, item->detail, detail_x, row_y + item_h * 0.5F, surface.m_text.muted, &item_rect);
+                const int detail_w = surface.m_small_font ? surface.m_small_font->getTextWidth(item->detail) : 0;
+                const float detail_x = std::max(item_rect.x + 220.0F * dpi, item_rect.right() - static_cast<float>(detail_w) - 10.0F * dpi);
+                if (surface.m_small_font)
+                {
+                    surface.draw_text(context, *surface.m_small_font, item->detail, detail_x, row_y + item_h * 0.5F, "#888890", &item_rect);
+                }
             }
         }
 
-        // Scrollbar thumb for popup
+        // 5. Minimalist Scrollbar Pill
         if (count > max_visible)
         {
-            const float track_x = actual_bounds.right() - 4.0F * dpi;
-            const float track_y = actual_bounds.y + 2.0F * dpi;
+            const float track_x = actual_bounds.right() - 5.0F * dpi;
+            const float track_y = actual_bounds.y + 6.0F * dpi;
             const float track_h = static_cast<float>(visible_count) * item_h;
-            const float thumb_h = std::max(12.0F * dpi, track_h * (static_cast<float>(max_visible) / static_cast<float>(count)));
+            const float thumb_h = std::max(14.0F * dpi, track_h * (static_cast<float>(max_visible) / static_cast<float>(count)));
             const float max_scroll = static_cast<float>(count - max_visible);
             const float thumb_y = track_y + (static_cast<float>(scroll_offset) / max_scroll) * (track_h - thumb_h);
 
+            const CGFloat popup_thumb_bg[4] = {110.0 / 255.0, 110.0 / 255.0, 110.0 / 255.0, 0.6};
             const UI::Rect thumb_rect{track_x, thumb_y, 3.0F * dpi, thumb_h};
             surface.fill_rounded_rectangle(context, thumb_rect, popup_thumb_bg, 1.5F * dpi);
         }
 
-        // Detail Flyout Card
-        const auto* selected_item = m_completion_popup.get_selected_item();
-        if (selected_item != nullptr && (!selected_item->detail.empty() || !selected_item->documentation.empty()))
+        // 6. Bottom Modal Footer (Tips & Help)
+        const float footer_y = actual_bounds.bottom() - footer_h;
+        const CGFloat footer_line_col[4] = {48.0 / 255.0, 50.0 / 255.0, 55.0 / 255.0, 1.0};
+        surface.draw_line(context, actual_bounds.x, footer_y, actual_bounds.right(), footer_y, footer_line_col);
+
+        if (surface.m_small_font)
         {
-            const float detail_w = 320.0F * dpi;
-            float detail_x = actual_bounds.right() + 4.0F * dpi;
-            if (detail_x + detail_w > layout.editor_bounds.right() - 8.0F)
+            const std::string tip_text = "Press ^. to choose the selected (or first) suggestion and insert a dot afterwards";
+            surface.draw_text(context, *surface.m_small_font, tip_text,
+                              actual_bounds.x + 12.0F * dpi, footer_y + footer_h * 0.5F,
+                              "#888890");
+
+            const int tip_w = surface.m_small_font->getTextWidth(tip_text);
+            const float next_tip_x = actual_bounds.x + 18.0F * dpi + static_cast<float>(tip_w);
+            if (next_tip_x + 60.0F * dpi < actual_bounds.right() - 24.0F * dpi)
             {
-                detail_x = actual_bounds.x - detail_w - 4.0F * dpi;
-                if (detail_x < layout.editor_bounds.x + 8.0F)
-                {
-                    detail_x = std::max(layout.editor_bounds.x + 8.0F, layout.editor_bounds.right() - detail_w - 8.0F);
-                }
+                surface.draw_text(context, *surface.m_small_font, "Next Tip",
+                                  next_tip_x, footer_y + footer_h * 0.5F,
+                                  "#5384e4");
             }
 
-            const float detail_h = std::clamp(actual_bounds.height, 60.0F * dpi, 160.0F * dpi);
-            const UI::Rect detail_card{detail_x, actual_bounds.y, detail_w, detail_h};
-
-            surface.fill_rounded_rectangle(context, detail_card, popup_bg, 4.0F * dpi);
-            surface.draw_rectangle(context, detail_card, popup_border);
-
-            float cur_y = detail_card.y + 12.0F * dpi;
-            if (!selected_item->detail.empty())
-            {
-                surface.draw_text(context, *surface.m_ui_font, selected_item->detail, detail_card.x + 8.0F * dpi, cur_y, surface.m_text.accent, &detail_card);
-                cur_y += 18.0F * dpi;
-            }
-            if (!selected_item->documentation.empty())
-            {
-                std::string doc_preview = selected_item->documentation;
-                if (doc_preview.size() > 120) doc_preview = doc_preview.substr(0, 117) + "...";
-                surface.draw_text(context, *surface.m_small_font, doc_preview, detail_card.x + 8.0F * dpi, cur_y, surface.m_text.muted, &detail_card);
-            }
+            // Vertical 3-dots ⋮ on right
+            surface.draw_text(context, *surface.m_small_font, "⋮",
+                              actual_bounds.right() - 16.0F * dpi, footer_y + footer_h * 0.5F,
+                              "#888890");
         }
     }
 }

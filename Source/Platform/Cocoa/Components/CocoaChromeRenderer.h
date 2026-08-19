@@ -94,6 +94,7 @@ public:
 
     [[nodiscard]] bool open_workspace_file(const std::filesystem::path& path);
     [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root);
+    [[nodiscard]] bool close_project();
     [[nodiscard]] std::size_t open_dropped_paths(
         std::span<const std::filesystem::path> dropped_paths);
     [[nodiscard]] bool create_workspace_buffer();
@@ -151,6 +152,14 @@ public:
         float content_top) noexcept;
     [[nodiscard]] bool is_editor_focused() const noexcept;
     [[nodiscard]] bool is_terminal_focused() const noexcept;
+    [[nodiscard]] bool is_search_focused() const noexcept;
+    [[nodiscard]] bool handle_search_text(std::string_view text);
+    [[nodiscard]] bool handle_search_command(UI::Editor::EditorInputCommand cmd, bool extend);
+    [[nodiscard]] bool handle_search_action(UI::Editor::EditorAction action);
+    [[nodiscard]] bool is_source_control_focused() const noexcept;
+    [[nodiscard]] bool handle_source_control_text(std::string_view text);
+    [[nodiscard]] bool handle_source_control_command(UI::Editor::EditorInputCommand cmd, bool extend);
+    [[nodiscard]] bool handle_source_control_action(UI::Editor::EditorAction action);
     [[nodiscard]] bool is_activity_bar_point(float px, float py, int cw, int ch, float ct) const noexcept;
     [[nodiscard]] bool is_tab_bar_point(float px, float py, int cw, int ch, float ct) const noexcept;
     [[nodiscard]] bool is_tab_bar_area_point(float px, float py, int cw, int ch, float ct) const noexcept;

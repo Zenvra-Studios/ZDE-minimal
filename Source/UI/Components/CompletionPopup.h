@@ -18,10 +18,12 @@ public:
     CompletionPopup() = default;
 
     void show(std::vector<Language::Protocol::CompletionItem> items, float anchor_x, float anchor_y);
+    void merge_items(std::vector<Language::Protocol::CompletionItem> items);
     void hide() noexcept;
     [[nodiscard]] bool is_visible() const noexcept { return m_visible && !m_filtered_indices.empty(); }
 
     void set_filter(std::string_view query);
+    [[nodiscard]] const std::string& get_filter() const noexcept { return m_filter_query; }
     void select_previous() noexcept;
     void select_next() noexcept;
     void select_first() noexcept;

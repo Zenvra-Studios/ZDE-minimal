@@ -29,6 +29,7 @@ add_library(ZDEUI
     Editor/StudioEditorModel.cpp
     Editor/TextDocumentModel.cpp
     Editor/WorkspaceSearchModel.cpp
+    Editor/WorkspaceSourceControlModel.cpp
     Theme/StudioTheme.cpp
     Toolbar/ToolbarLayout.cpp
     Toolbar/StudioMainToolbar.cpp
@@ -43,7 +44,7 @@ target_include_directories(ZDEUI PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/.."
     "${PROJECT_SOURCE_DIR}"
 )
-target_link_libraries(ZDEUI PUBLIC Zenvra::Core Zenvra::Graphics Zenvra::Language lunasvg PRIVATE Zenvra::Commands)
+target_link_libraries(ZDEUI PUBLIC Zenvra::Core Zenvra::Graphics Zenvra::Language Zenvra::SourceControl lunasvg PRIVATE Zenvra::Commands)
 if(WIN32)
     target_link_libraries(ZDEUI PRIVATE gdi32 msimg32 user32 dwmapi)
 endif()

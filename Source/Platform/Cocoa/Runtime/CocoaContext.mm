@@ -41,14 +41,37 @@ bool CocoaContext::initialize()
     if (!app_icon) {
         NSString* res_path = [[NSBundle mainBundle] resourcePath];
         if (res_path) {
-            NSString* fallback_icon = [res_path stringByAppendingPathComponent:@"Assets/icons/AppIcon.icns"];
-            if ([[NSFileManager defaultManager] fileExistsAtPath:fallback_icon]) {
-                app_icon = [[NSImage alloc] initWithContentsOfFile:fallback_icon];
-            } else {
-                NSString* png_icon = [res_path stringByAppendingPathComponent:@"Assets/icons/zenvra_logo_512x512.png"];
-                if ([[NSFileManager defaultManager] fileExistsAtPath:png_icon]) {
-                    app_icon = [[NSImage alloc] initWithContentsOfFile:png_icon];
+            NSArray<NSString*>* search_paths = @[
+                [res_path stringByAppendingPathComponent:@"AppIcon.icns"],
+                [res_path stringByAppendingPathComponent:@"Assets/icons/AppIcon.icns"],
+                [res_path stringByAppendingPathComponent:@"icons/AppIcon.icns"],
+                [res_path stringByAppendingPathComponent:@"Assets/icons/zenvra_logo_512x512.png"],
+                [res_path stringByAppendingPathComponent:@"Assets/icons/zenvra_logo.png"]
+            ];
+            for (NSString* p in search_paths) {
+                if ([[NSFileManager defaultManager] fileExistsAtPath:p]) {
+                    app_icon = [[NSImage alloc] initWithContentsOfFile:p];
+                    if (app_icon) break;
                 }
+            }
+        }
+    }
+    if (!app_icon) {
+        NSString* exec_path = [[NSBundle mainBundle] executablePath];
+        if (exec_path) {
+            NSString* dir = [exec_path stringByDeletingLastPathComponent];
+            for (int i = 0; i < 6 && dir.length > 1; ++i) {
+                NSString* test_icns = [dir stringByAppendingPathComponent:@"Assets/icons/AppIcon.icns"];
+                if ([[NSFileManager defaultManager] fileExistsAtPath:test_icns]) {
+                    app_icon = [[NSImage alloc] initWithContentsOfFile:test_icns];
+                    if (app_icon) break;
+                }
+                NSString* test_png = [dir stringByAppendingPathComponent:@"Assets/icons/zenvra_logo_512x512.png"];
+                if ([[NSFileManager defaultManager] fileExistsAtPath:test_png]) {
+                    app_icon = [[NSImage alloc] initWithContentsOfFile:test_png];
+                    if (app_icon) break;
+                }
+                dir = [dir stringByDeletingLastPathComponent];
             }
         }
     }

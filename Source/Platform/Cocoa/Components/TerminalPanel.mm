@@ -90,6 +90,19 @@ bool TerminalPanel::toggle() {
   return changed;
 }
 
+bool TerminalPanel::create_terminal() {
+  if (!m_model.is_visible()) {
+    m_model.toggle(current_terminal_directory(m_working_directory));
+    m_resize_model.reset();
+  } else {
+    m_model.create_session(current_terminal_directory(m_working_directory));
+  }
+  m_active_channel = PanelChannel::Terminal;
+  m_model.set_focused(true);
+  m_cursor_blink.reset();
+  return true;
+}
+
 bool TerminalPanel::handle_pointer_press(
     const UI::Editor::StudioEditorLayoutResult &layout, float px, float py,
     double event_time) {
@@ -422,7 +435,7 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
         round_to_int(tab.right() - 1.0F), round_to_int(tab.bottom() - 4.0F * surface.m_dpi_scale),
         surface.m_colors.border);
 
-    surface.draw_svg_icon(context, "Assets/icons/vscode-codicons/icons/terminal.svg",
+    surface.draw_svg_icon(context, "Assets/icons/terminal.svg",
         round_to_int(tab.x + 12.0F * surface.m_dpi_scale),
         round_to_int(tab.y + tab.height * 0.5F),
         std::max(round_to_int(13.0F * surface.m_dpi_scale), 10),

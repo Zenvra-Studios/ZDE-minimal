@@ -4,6 +4,7 @@
 #include "Platform/Cocoa/Components/FileDropTarget.h"
 #include "UI/Components/MenuModel.h"
 #include "Commands/CommandIds.h"
+#include "Language/LanguageServerManager.h"
 
 #import <Cocoa/Cocoa.h>
 
@@ -319,6 +320,9 @@ using namespace Zenvra::Platform::Cocoa::Components;
     if (command_id && [command_id length] > 0) {
         std::string cmd = [command_id UTF8String];
         if (_renderer) {
+            auto& ws = _renderer->get_workspace_renderer();
+            auto& editor = ws.get_text_editor();
+
             if (cmd == Zenvra::Commands::CommandIds::build_debug) {
                 _renderer->set_active_mode(Zenvra::UI::Toolbar::BuildConfigurationMode::Debug);
             } else if (cmd == Zenvra::Commands::CommandIds::build_release) {
@@ -332,6 +336,61 @@ using namespace Zenvra::Platform::Cocoa::Components;
                 _renderer->set_active_target("ZDE");
             } else if (cmd == Zenvra::Commands::CommandIds::run_tests) {
                 _renderer->set_active_target("ZDEUnitTests");
+            } else if (cmd == Zenvra::Commands::CommandIds::project_close || cmd == "zde.project.close" || cmd == "zde.folder.close") {
+                _renderer->close_project();
+                Zenvra::Language::LanguageServerManager::instance().set_workspace_root({});
+                Zenvra::Language::LanguageServerManager::instance().shutdown_all();
+                [self setNeedsDisplay:YES];
+                if (_command_invoked_callback) {
+                    _command_invoked_callback(cmd);
+                }
+                return;
+            } else if (cmd == Zenvra::Commands::CommandIds::folder_open || cmd == Zenvra::Commands::CommandIds::project_open) {
+                NSOpenPanel* panel = [NSOpenPanel openPanel];
+                [panel setTitle:@"Open Project Folder"];
+                [panel setPrompt:@"Open"];
+                [panel setCanChooseFiles:NO];
+                [panel setCanChooseDirectories:YES];
+                [panel setAllowsMultipleSelection:NO];
+                if ([panel runModal] == NSModalResponseOK) {
+                    NSURL* url = [[panel URLs] firstObject];
+                    if (url && [url isFileURL]) {
+                        std::filesystem::path root = [[url path] UTF8String];
+                        Zenvra::Language::LanguageServerManager::instance().set_workspace_root(root);
+                        _renderer->set_workspace_root(root);
+                        [self setNeedsDisplay:YES];
+                    }
+                }
+                return;
+            } else if (cmd == Zenvra::Commands::CommandIds::file_open) {
+                NSOpenPanel* panel = [NSOpenPanel openPanel];
+                [panel setTitle:@"Open File"];
+                [panel setPrompt:@"Open"];
+                [panel setCanChooseFiles:YES];
+                [panel setCanChooseDirectories:NO];
+                [panel setAllowsMultipleSelection:YES];
+                if ([panel runModal] == NSModalResponseOK) {
+                    for (NSURL* url in [panel URLs]) {
+                        if (url && [url isFileURL]) {
+                            std::filesystem::path filePath = [[url path] UTF8String];
+                            editor.open_file(filePath);
+                        }
+                    }
+                    [self setNeedsDisplay:YES];
+                }
+                return;
+            } else if (cmd == Zenvra::Commands::CommandIds::file_new) {
+                editor.create_buffer();
+                [self setNeedsDisplay:YES];
+                return;
+            } else if (cmd == "zde.terminal.new" || cmd == Zenvra::Commands::CommandIds::view_terminal_panel) {
+                ws.create_terminal();
+                [self setNeedsDisplay:YES];
+                return;
+            } else if (cmd == Zenvra::Commands::CommandIds::file_close_all) {
+                editor.close_all_documents();
+                [self setNeedsDisplay:YES];
+                return;
             }
         }
         if (_command_invoked_callback) {
@@ -525,6 +584,8 @@ using namespace Zenvra::Platform::Cocoa::Components;
     const float content_top = _chrome_layout.titlebar_bounds.bottom();
 
     auto& ws = _renderer->get_workspace_renderer();
+    auto& editor = ws.get_text_editor();
+
     if (ws.is_tool_sidebar_point(px, py, cw, ch, content_top)) {
         const auto layout = ws.calculate_layout(cw, ch, content_top);
         std::filesystem::path target_path = ws.get_tool_sidebar().get_model().get_workspace_root();
@@ -537,7 +598,191 @@ using namespace Zenvra::Platform::Cocoa::Components;
         }
         [self showNativeExplorerMenuForPath:target_path withEvent:event];
         [self setNeedsDisplay:YES];
+        return;
     }
+
+    if (ws.is_editor_point(px, py, cw, ch, content_top)) {
+        const auto layout = ws.calculate_layout(cw, ch, content_top);
+        std::string cmd_out;
+
+        if (editor.get_document() != nullptr) {
+            editor.handle_pointer_press(ws, layout, px, py, false, 1, cmd_out);
+            [self showNativeEditorContextMenuWithEvent:event];
+        } else {
+            [self showNativeEmptyStateContextMenuWithEvent:event];
+        }
+        [self setNeedsDisplay:YES];
+        return;
+    }
+}
+
+- (void)showNativeEditorContextMenuWithEvent:(NSEvent*)event {
+    NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Editor Context"];
+    [menu setAutoenablesItems:NO];
+
+    auto add_item = [&](NSString* title, NSString* key_equiv, NSEventModifierFlags modifiers, std::string_view cmd) {
+        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title
+                                                      action:@selector(onEditorContextMenuItemClicked:)
+                                               keyEquivalent:key_equiv ? key_equiv : @""];
+        item.target = self;
+        if (key_equiv && [key_equiv length] > 0) {
+            item.keyEquivalentModifierMask = modifiers;
+        }
+        item.representedObject = [NSString stringWithUTF8String:std::string(cmd).c_str()];
+        [menu addItem:item];
+        [item release];
+    };
+
+    auto add_separator = [&]() {
+        [menu addItem:[NSMenuItem separatorItem]];
+    };
+
+    NSString* f12Str = [NSString stringWithFormat:@"%C", (unichar)NSF12FunctionKey];
+    NSString* f2Str = [NSString stringWithFormat:@"%C", (unichar)NSF2FunctionKey];
+
+    add_item(@"Go to Definition", f12Str, 0, "zde.editor.goToDefinition");
+    add_item(@"Go to Declaration", @"", 0, "zde.editor.goToDeclaration");
+    add_item(@"Go to Implementations", f12Str, NSEventModifierFlagCommand, "zde.editor.goToImplementation");
+    add_item(@"Go to References", f12Str, NSEventModifierFlagShift, "zde.editor.goToReferences");
+    add_separator();
+    add_item(@"Find All References", f12Str, NSEventModifierFlagShift | NSEventModifierFlagOption, "zde.editor.findAllReferences");
+    add_item(@"Find All Implementations", @"", 0, "zde.editor.findAllImplementations");
+    add_item(@"Show Call Hierarchy", @"h", NSEventModifierFlagShift | NSEventModifierFlagOption, "zde.editor.showCallHierarchy");
+    add_item(@"Switch Between Source/Header", @"o", NSEventModifierFlagCommand | NSEventModifierFlagOption, "zde.editor.switchHeaderSource");
+    add_separator();
+    add_item(@"Rename Symbol", f2Str, 0, "zde.editor.renameSymbol");
+    add_item(@"Change All Occurrences", f2Str, NSEventModifierFlagCommand, "zde.selection.selectAllOccurrences");
+    add_item(@"Format Document", @"f", NSEventModifierFlagShift | NSEventModifierFlagOption, "zde.editor.formatDocument");
+    add_item(@"Format Document With...", @"", 0, "zde.editor.formatDocumentWith");
+    add_item(@"Refactor...", @"r", NSEventModifierFlagControl | NSEventModifierFlagShift, "zde.editor.refactor");
+    add_separator();
+    add_item(@"Cut", @"x", NSEventModifierFlagCommand, "zde.edit.cut");
+    add_item(@"Copy", @"c", NSEventModifierFlagCommand, "zde.edit.copy");
+    add_item(@"Paste", @"v", NSEventModifierFlagCommand, "zde.edit.paste");
+    add_separator();
+    add_item(@"Command Palette...", @"p", NSEventModifierFlagShift | NSEventModifierFlagCommand, "zde.help.showAllCommands");
+
+    [NSMenu popUpContextMenu:menu withEvent:event forView:self];
+    [menu release];
+}
+
+- (void)showNativeEmptyStateContextMenuWithEvent:(NSEvent*)event {
+    NSMenu* menu = [[NSMenu alloc] initWithTitle:@"Empty State Context"];
+    [menu setAutoenablesItems:NO];
+
+    auto add_item = [&](NSString* title, NSString* key_equiv, NSEventModifierFlags modifiers, std::string_view cmd) {
+        NSMenuItem* item = [[NSMenuItem alloc] initWithTitle:title
+                                                      action:@selector(onEditorContextMenuItemClicked:)
+                                               keyEquivalent:key_equiv ? key_equiv : @""];
+        item.target = self;
+        if (key_equiv && [key_equiv length] > 0) {
+            item.keyEquivalentModifierMask = modifiers;
+        }
+        item.representedObject = [NSString stringWithUTF8String:std::string(cmd).c_str()];
+        [menu addItem:item];
+        [item release];
+    };
+
+    auto add_separator = [&]() {
+        [menu addItem:[NSMenuItem separatorItem]];
+    };
+
+    add_item(@"New Text File", @"n", NSEventModifierFlagCommand, "zde.file.new");
+    add_item(@"Open File...", @"o", NSEventModifierFlagCommand, "zde.file.open");
+    add_separator();
+    add_item(@"New Terminal", @"`", NSEventModifierFlagControl, "zde.view.terminalPanel");
+    add_separator();
+    add_item(@"Split Up", @"\\", NSEventModifierFlagCommand, "zde.view.splitUp");
+    add_item(@"Split Down", @"\\", NSEventModifierFlagCommand, "zde.view.splitDown");
+    add_item(@"Split Left", @"\\", NSEventModifierFlagCommand, "zde.view.splitLeft");
+    add_item(@"Split Right", @"\\", NSEventModifierFlagCommand, "zde.view.splitRight");
+    add_separator();
+    add_item(@"New Window", @"n", NSEventModifierFlagCommand | NSEventModifierFlagShift, "zde.window.new");
+
+    [NSMenu popUpContextMenu:menu withEvent:event forView:self];
+    [menu release];
+}
+
+- (void)onEditorContextMenuItemClicked:(NSMenuItem*)sender {
+    NSString* command_id = sender.representedObject;
+    if (!command_id || [command_id length] == 0) return;
+    std::string cmd = [command_id UTF8String];
+
+    if (_renderer) {
+        auto& ws = _renderer->get_workspace_renderer();
+        auto& editor = ws.get_text_editor();
+
+        if (cmd == Zenvra::Commands::CommandIds::view_split_up ||
+            cmd == Zenvra::Commands::CommandIds::view_split_down ||
+            cmd == Zenvra::Commands::CommandIds::view_split_left ||
+            cmd == Zenvra::Commands::CommandIds::view_split_right) {
+            editor.split_editor();
+            [self setNeedsDisplay:YES];
+            return;
+        }
+
+        if (cmd == Zenvra::Commands::CommandIds::file_new) {
+            editor.create_buffer();
+            [self setNeedsDisplay:YES];
+            return;
+        }
+
+        if (cmd == Zenvra::Commands::CommandIds::file_open) {
+            NSOpenPanel* panel = [NSOpenPanel openPanel];
+            [panel setTitle:@"Open File"];
+            [panel setPrompt:@"Open"];
+            [panel setCanChooseFiles:YES];
+            [panel setCanChooseDirectories:NO];
+            [panel setAllowsMultipleSelection:YES];
+            if ([panel runModal] == NSModalResponseOK) {
+                for (NSURL* url in [panel URLs]) {
+                    if (url && [url isFileURL]) {
+                        std::filesystem::path filePath = [[url path] UTF8String];
+                        editor.open_file(filePath);
+                    }
+                }
+                [self setNeedsDisplay:YES];
+            }
+            return;
+        }
+
+        if (cmd == "zde.terminal.new" || cmd == Zenvra::Commands::CommandIds::view_terminal_panel) {
+            ws.create_terminal();
+            [self setNeedsDisplay:YES];
+            return;
+        }
+
+        if (cmd == Zenvra::Commands::CommandIds::file_close_all) {
+            editor.close_all_documents();
+            [self setNeedsDisplay:YES];
+            return;
+        }
+
+        if (cmd == Zenvra::Commands::CommandIds::project_close || cmd == "zde.project.close" || cmd == "zde.folder.close") {
+            _renderer->close_project();
+            Zenvra::Language::LanguageServerManager::instance().set_workspace_root({});
+            Zenvra::Language::LanguageServerManager::instance().shutdown_all();
+            [self setNeedsDisplay:YES];
+            return;
+        }
+
+        auto res = ws.handle_editor_command(cmd);
+        if (res.has_value() && *res) {
+            [self setNeedsDisplay:YES];
+            return;
+        }
+
+        auto ed_res = editor.handle_command(cmd);
+        if (ed_res.has_value() && *ed_res) {
+            [self setNeedsDisplay:YES];
+            return;
+        }
+    }
+
+    if (_command_invoked_callback) {
+        _command_invoked_callback(cmd);
+    }
+    [self setNeedsDisplay:YES];
 }
 
 - (void)showNativeExplorerMenuForPath:(const std::filesystem::path&)target_path withEvent:(NSEvent*)event {
@@ -1068,7 +1313,7 @@ using namespace Zenvra::Platform::Cocoa::Components;
 }
 
 - (void)doCommandBySelector:(SEL)selector {
-    if (!_renderer || !_renderer->is_editor_focused()) return;
+    if (!_renderer || (!_renderer->is_editor_focused() && !_renderer->is_search_focused() && !_renderer->is_source_control_focused())) return;
     
     if (selector == @selector(deleteBackward:)) {
         (void)_renderer->handle_editor_input(Zenvra::UI::Editor::EditorInputCommand::DeleteBackward, false);

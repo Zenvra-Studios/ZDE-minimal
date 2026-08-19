@@ -97,6 +97,9 @@ bool CocoaChromeRenderer::set_workspace_root(
     const std::filesystem::path &root) {
   return m_workspace_renderer.set_workspace_root(root);
 }
+bool CocoaChromeRenderer::close_project() {
+  return m_workspace_renderer.close_project();
+}
 std::size_t CocoaChromeRenderer::open_dropped_paths(
     std::span<const std::filesystem::path> paths) {
   return m_workspace_renderer.open_dropped_paths(paths);
@@ -184,6 +187,30 @@ bool CocoaChromeRenderer::is_editor_focused() const noexcept {
 }
 bool CocoaChromeRenderer::is_terminal_focused() const noexcept {
   return m_workspace_renderer.is_terminal_focused();
+}
+bool CocoaChromeRenderer::is_search_focused() const noexcept {
+  return m_workspace_renderer.is_search_focused();
+}
+bool CocoaChromeRenderer::handle_search_text(std::string_view text) {
+  return m_workspace_renderer.handle_search_text(text);
+}
+bool CocoaChromeRenderer::handle_search_command(UI::Editor::EditorInputCommand cmd, bool extend) {
+  return m_workspace_renderer.handle_search_command(cmd, extend);
+}
+bool CocoaChromeRenderer::handle_search_action(UI::Editor::EditorAction action) {
+  return m_workspace_renderer.handle_search_action(action);
+}
+bool CocoaChromeRenderer::is_source_control_focused() const noexcept {
+  return m_workspace_renderer.is_source_control_focused();
+}
+bool CocoaChromeRenderer::handle_source_control_text(std::string_view text) {
+  return m_workspace_renderer.handle_source_control_text(text);
+}
+bool CocoaChromeRenderer::handle_source_control_command(UI::Editor::EditorInputCommand cmd, bool extend) {
+  return m_workspace_renderer.handle_source_control_command(cmd, extend);
+}
+bool CocoaChromeRenderer::handle_source_control_action(UI::Editor::EditorAction action) {
+  return m_workspace_renderer.handle_source_control_action(action);
 }
 bool CocoaChromeRenderer::is_activity_bar_point(float px, float py, int cw,
                                                 int ch,

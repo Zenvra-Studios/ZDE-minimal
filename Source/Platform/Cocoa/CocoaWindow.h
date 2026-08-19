@@ -47,6 +47,7 @@ public:
     void set_command_state_query_callback(CommandStateQueryCallback callback) override;
 
     [[nodiscard]] bool open_project_folder() override;
+    [[nodiscard]] bool close_project() override;
     void toggle_terminal() override;
     void toggle_shader_sandbox() override;
 

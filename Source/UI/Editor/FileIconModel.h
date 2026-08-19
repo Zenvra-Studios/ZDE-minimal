@@ -22,7 +22,7 @@ inline std::string lowercase_ascii(std::string value)
 
 inline std::string symbol_icon(std::string_view icon_name)
 {
-    std::string asset = "vscode-symbols/files/";
+    std::string asset = "vscode-symbols/icons/files/";
     asset.append(icon_name);
     asset.append(".svg");
     return asset;
@@ -36,7 +36,7 @@ inline std::string shader_icon()
 } // namespace Detail
 
 // Returns a path relative to Assets/icons. UI chrome and folder icons continue
-// to use the legacy assets at the root of that directory.
+// to use standard folder assets.
 [[nodiscard]] inline std::string file_icon_asset_for_path(
     const std::filesystem::path& path)
 {
@@ -186,7 +186,7 @@ inline std::string shader_icon()
         return Detail::symbol_icon("gear");
     }
 
-    // --- Shaders: Kept unchanged (material-icon-theme/shader.svg) as instructed ---
+    // --- Shaders: Kept unchanged (material-icon-theme/shader.svg) ---
     if (extension == ".glsl" || extension == ".hlsl" || extension == ".wgsl" ||
         extension == ".vert" || extension == ".frag" || extension == ".geom" ||
         extension == ".comp" || extension == ".tesc" || extension == ".tese" ||

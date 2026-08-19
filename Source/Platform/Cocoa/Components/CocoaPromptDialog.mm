@@ -160,6 +160,12 @@ static void init_templates(std::vector<TemplateCategory>& categories)
         self.owner->notify_window_closed();
     }
 }
+- (void)windowDidResignKey:(NSNotification *)notification {
+    (void)notification;
+    if (self.owner) {
+        self.owner->close();
+    }
+}
 @end
 
 @interface ZDEPromptWindowContentView : NSView <NSTextInputClient>
@@ -186,6 +192,8 @@ static void init_templates(std::vector<TemplateCategory>& categories)
 
     bool showCaret;
     NSTimer* blinkTimer;
+    id localClickMonitor;
+    id globalClickMonitor;
 
     std::function<void(const std::string&, const std::string&)> onConfirmNewItem;
     std::function<void(const std::string&)> onConfirmString;
@@ -197,6 +205,7 @@ static void init_templates(std::vector<TemplateCategory>& categories)
 - (void)closeWindow;
 - (void)startBlinkTimer;
 - (void)stopBlinkTimer;
+- (void)cleanupMonitors;
 - (void)blinkCaret:(NSTimer*)timer;
 - (void)drawSvgIcon:(CGContextRef)context path:(const std::string&)path cx:(int)cx cy:(int)cy size:(int)size;
 @end
@@ -225,8 +234,42 @@ static void init_templates(std::vector<TemplateCategory>& categories)
     [super viewDidMoveToWindow];
     if ([self window]) {
         [self startBlinkTimer];
+        if (!localClickMonitor) {
+            __block ZDEPromptWindowContentView* selfPtr = self;
+            localClickMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:(NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown) handler:^NSEvent *(NSEvent *event) {
+                if (selfPtr && [selfPtr window]) {
+                    if ([event window] != [selfPtr window]) {
+                        [selfPtr closeWindow];
+                    }
+                }
+                return event;
+            }];
+        }
+        if (!globalClickMonitor) {
+            __block ZDEPromptWindowContentView* selfPtr = self;
+            globalClickMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:(NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown) handler:^(NSEvent *event) {
+                (void)event;
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (selfPtr && [selfPtr window]) {
+                        [selfPtr closeWindow];
+                    }
+                });
+            }];
+        }
     } else {
         [self stopBlinkTimer];
+        [self cleanupMonitors];
+    }
+}
+
+- (void)cleanupMonitors {
+    if (localClickMonitor) {
+        [NSEvent removeMonitor:localClickMonitor];
+        localClickMonitor = nil;
+    }
+    if (globalClickMonitor) {
+        [NSEvent removeMonitor:globalClickMonitor];
+        globalClickMonitor = nil;
     }
 }
 
@@ -252,6 +295,7 @@ static void init_templates(std::vector<TemplateCategory>& categories)
 }
 
 - (void)dealloc {
+    [self cleanupMonitors];
     [self stopBlinkTimer];
     for (auto& [path, img] : svgImageCache) {
         if (img) CGImageRelease(img);
@@ -261,6 +305,7 @@ static void init_templates(std::vector<TemplateCategory>& categories)
 }
 
 - (void)closeWindow {
+    [self cleanupMonitors];
     [self stopBlinkTimer];
     if (owner) {
         owner->close();
@@ -372,34 +417,17 @@ static void init_templates(std::vector<TemplateCategory>& categories)
     const float w = static_cast<float>(b.size.width);
     const float h = static_cast<float>(b.size.height);
 
-    // 1. Native Window Background (Win32/X11 Standard: RGB(30, 31, 34) #1e1f22)
+    CGContextSaveGState(context);
+
+    // 1. Sleek Floating Solid Dark Card Background (Standard macOS 10.0 Radius)
+    NSBezierPath* bgPath = [NSBezierPath bezierPathWithRoundedRect:b xRadius:10.0 yRadius:10.0];
+    [bgPath addClip];
+
     CGContextSetRGBFillColor(context, 30.0/255.0, 31.0/255.0, 34.0/255.0, 1.0);
     CGContextFillRect(context, CGRectMake(0, 0, w, h));
 
-    // 2. Native Titlebar Background (Win32/X11 Standard: RGB(27, 28, 31) #1b1c1f) & Separator RGB(48, 50, 55)
-    const float titlebarH = 32.0f;
-    CGContextSetRGBFillColor(context, 27.0/255.0, 28.0/255.0, 31.0/255.0, 1.0);
-    CGContextFillRect(context, CGRectMake(0, 0, w, titlebarH));
-
-    CGContextSetRGBStrokeColor(context, 48.0/255.0, 50.0/255.0, 55.0/255.0, 1.0);
-    CGContextSetLineWidth(context, 1.0);
-    CGContextBeginPath(context);
-    CGContextMoveToPoint(context, 0, titlebarH + 0.5);
-    CGContextAddLineToPoint(context, w, titlebarH + 0.5);
-    CGContextStrokePath(context);
-
-    // 3. Centered Title Typography (Win32/X11 Standard: RGB(204, 204, 204))
-    NSString* titleStr = [NSString stringWithUTF8String:title.c_str()];
-    NSDictionary* titleAttrs = @{
-        NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightMedium],
-        NSForegroundColorAttributeName: [NSColor colorWithSRGBRed:204.0/255.0 green:204.0/255.0 blue:204.0/255.0 alpha:1.0]
-    };
-    NSSize titleSz = [titleStr sizeWithAttributes:titleAttrs];
-    const float titleX = (w - titleSz.width) * 0.5f;
-    const float titleY = (titlebarH - titleSz.height) * 0.5f;
-    [titleStr drawAtPoint:NSMakePoint(titleX, titleY) withAttributes:titleAttrs];
-
     if (mode == Zenvra::Platform::Cocoa::Components::PromptDialogMode::AddNewItem) {
+        const float titlebarH = 36.0f;
         const float footerH = 74.0f;
         const float paneH = h - titlebarH - footerH;
         const float catW = 160.0f;
@@ -407,11 +435,31 @@ static void init_templates(std::vector<TemplateCategory>& categories)
         const float detailsX = catW + tplW;
         const float detailsW = w - detailsX;
 
-        // Left Category Pane Background (Win32/X11: RGB(25, 26, 29) #191a1d)
-        CGContextSetRGBFillColor(context, 25.0/255.0, 26.0/255.0, 29.0/255.0, 1.0);
+        // Titlebar Background
+        CGContextSetRGBFillColor(context, 26.0/255.0, 27.0/255.0, 30.0/255.0, 1.0);
+        CGContextFillRect(context, CGRectMake(0, 0, w, titlebarH));
+
+        CGContextSetRGBStrokeColor(context, 48.0/255.0, 50.0/255.0, 55.0/255.0, 1.0);
+        CGContextSetLineWidth(context, 1.0);
+        CGContextBeginPath(context);
+        CGContextMoveToPoint(context, 0, titlebarH + 0.5);
+        CGContextAddLineToPoint(context, w, titlebarH + 0.5);
+        CGContextStrokePath(context);
+
+        // Centered Title
+        NSString* titleStr = [NSString stringWithUTF8String:title.c_str()];
+        NSDictionary* titleAttrs = @{
+            NSFontAttributeName: [NSFont systemFontOfSize:13.0 weight:NSFontWeightBold],
+            NSForegroundColorAttributeName: [NSColor colorWithSRGBRed:235.0/255.0 green:238.0/255.0 blue:242.0/255.0 alpha:1.0]
+        };
+        NSSize titleSz = [titleStr sizeWithAttributes:titleAttrs];
+        [titleStr drawAtPoint:NSMakePoint((w - titleSz.width) * 0.5f, (titlebarH - titleSz.height) * 0.5f) withAttributes:titleAttrs];
+
+        // Left Category Pane Background
+        CGContextSetRGBFillColor(context, 24.0/255.0, 25.0/255.0, 28.0/255.0, 1.0);
         CGContextFillRect(context, CGRectMake(0, titlebarH, catW, paneH));
 
-        // Vertical Pane Separators (Win32/X11: RGB(48, 50, 55))
+        // Separators
         CGContextSetRGBStrokeColor(context, 48.0/255.0, 50.0/255.0, 55.0/255.0, 1.0);
         CGContextBeginPath(context);
         CGContextMoveToPoint(context, catW + 0.5, titlebarH);
@@ -420,7 +468,7 @@ static void init_templates(std::vector<TemplateCategory>& categories)
         CGContextAddLineToPoint(context, detailsX + 0.5, titlebarH + paneH);
         CGContextStrokePath(context);
 
-        // A. Left Categories Pane
+        // Categories
         const float itemH = 28.0f;
         for (std::size_t i = 0; i < categories.size(); ++i) {
             const auto& cat = categories[i];
@@ -429,10 +477,10 @@ static void init_templates(std::vector<TemplateCategory>& categories)
             const bool isHov = (hoveredCategory && *hoveredCategory == i);
 
             if (isSel) {
-                CGContextSetRGBFillColor(context, 53.0/255.0, 132.0/255.0, 228.0/255.0, 1.0); // Blue #3584e4
+                CGContextSetRGBFillColor(context, 53.0/255.0, 132.0/255.0, 228.0/255.0, 1.0);
                 CGContextFillRect(context, NSRectToCGRect(itemRect));
             } else if (isHov) {
-                CGContextSetRGBFillColor(context, 45.0/255.0, 47.0/255.0, 52.0/255.0, 1.0); // Hover #2d2f34
+                CGContextSetRGBFillColor(context, 45.0/255.0, 47.0/255.0, 52.0/255.0, 1.0);
                 CGContextFillRect(context, NSRectToCGRect(itemRect));
             }
 
@@ -446,7 +494,7 @@ static void init_templates(std::vector<TemplateCategory>& categories)
             [catStr drawAtPoint:NSMakePoint(itemRect.origin.x + 34, itemRect.origin.y + 6) withAttributes:catAttrs];
         }
 
-        // B. Middle Templates Pane
+        // Templates
         if (selectedCategory < categories.size()) {
             const auto& tpls = categories[selectedCategory].templates;
             for (std::size_t i = 0; i < tpls.size(); ++i) {
@@ -482,7 +530,7 @@ static void init_templates(std::vector<TemplateCategory>& categories)
             }
         }
 
-        // C. Right Details Pane
+        // Details
         if (selectedCategory < categories.size()) {
             const auto& tpls = categories[selectedCategory].templates;
             if (selectedTemplate < tpls.size()) {
@@ -507,7 +555,7 @@ static void init_templates(std::vector<TemplateCategory>& categories)
             }
         }
 
-        // D. Footer Panel & Name Input (Win32/X11: RGB(30, 31, 34))
+        // Footer
         const float footerY = h - footerH;
         CGContextSetRGBStrokeColor(context, 48.0/255.0, 50.0/255.0, 55.0/255.0, 1.0);
         CGContextBeginPath(context);
@@ -522,12 +570,12 @@ static void init_templates(std::vector<TemplateCategory>& categories)
         };
         [nameLbl drawAtPoint:NSMakePoint(16, footerY + 18) withAttributes:lblAttrs];
 
-        // Input Box (Win32/X11: RGB(24, 25, 28) with Border RGB(53, 132, 228), Exact height = 28)
+        // Input Box
         const NSRect inputRect = NSMakeRect(64, footerY + 12, w - 248, 28);
-        NSBezierPath* inputPath = [NSBezierPath bezierPathWithRoundedRect:inputRect xRadius:4 yRadius:4];
-        [[NSColor colorWithSRGBRed:24.0/255.0 green:25.0/255.0 blue:28.0/255.0 alpha:1.0] setFill];
+        NSBezierPath* inputPath = [NSBezierPath bezierPathWithRoundedRect:inputRect xRadius:6 yRadius:6];
+        [[NSColor colorWithSRGBRed:20.0/255.0 green:22.0/255.0 blue:25.0/255.0 alpha:0.5] setFill];
         [inputPath fill];
-        [[NSColor colorWithSRGBRed:53.0/255.0 green:132.0/255.0 blue:228.0/255.0 alpha:1.0] setStroke];
+        [[NSColor colorWithSRGBRed:53.0/255.0 green:132.0/255.0 blue:228.0/255.0 alpha:0.9] setStroke];
         [inputPath stroke];
 
         NSString* valStr = [NSString stringWithUTF8String:textValue.c_str()];
@@ -537,7 +585,6 @@ static void init_templates(std::vector<TemplateCategory>& categories)
         };
         [valStr drawAtPoint:NSMakePoint(inputRect.origin.x + 8, inputRect.origin.y + 6) withAttributes:valAttrs];
 
-        // Animated Caret
         std::size_t cp = std::min(caretPos, textValue.size());
         NSString* prefStr = [NSString stringWithUTF8String:textValue.substr(0, cp).c_str()];
         NSSize prefSz = [prefStr sizeWithAttributes:valAttrs];
@@ -551,16 +598,14 @@ static void init_templates(std::vector<TemplateCategory>& categories)
             CGContextStrokePath(context);
         }
 
-        // Buttons: [ Add ] [ Cancel ] (Exact height = 28.0f matching input)
         const NSRect okRect = NSMakeRect(w - 170, footerY + 12, 75, 28);
-        NSBezierPath* okPath = [NSBezierPath bezierPathWithRoundedRect:okRect xRadius:4 yRadius:4];
+        NSBezierPath* okPath = [NSBezierPath bezierPathWithRoundedRect:okRect xRadius:6 yRadius:6];
         if (okHovered) {
             [[NSColor colorWithSRGBRed:66.0/255.0 green:148.0/255.0 blue:246.0/255.0 alpha:1.0] setFill];
         } else {
             [[NSColor colorWithSRGBRed:53.0/255.0 green:132.0/255.0 blue:228.0/255.0 alpha:1.0] setFill];
         }
         [okPath fill];
-
         NSString* okStr = [NSString stringWithUTF8String:confirmLabel.c_str()];
         NSDictionary* okAttrs = @{
             NSFontAttributeName: [NSFont systemFontOfSize:11.5 weight:NSFontWeightMedium],
@@ -570,14 +615,13 @@ static void init_templates(std::vector<TemplateCategory>& categories)
         [okStr drawAtPoint:NSMakePoint(okRect.origin.x + (okRect.size.width - okSz.width) * 0.5, okRect.origin.y + 6) withAttributes:okAttrs];
 
         const NSRect cancelRect = NSMakeRect(w - 88, footerY + 12, 75, 28);
-        NSBezierPath* cancelPath = [NSBezierPath bezierPathWithRoundedRect:cancelRect xRadius:4 yRadius:4];
+        NSBezierPath* cancelPath = [NSBezierPath bezierPathWithRoundedRect:cancelRect xRadius:6 yRadius:6];
         if (cancelHovered) {
             [[NSColor colorWithSRGBRed:58.0/255.0 green:61.0/255.0 blue:68.0/255.0 alpha:1.0] setFill];
         } else {
             [[NSColor colorWithSRGBRed:45.0/255.0 green:47.0/255.0 blue:52.0/255.0 alpha:1.0] setFill];
         }
         [cancelPath fill];
-
         NSString* cnStr = @"Cancel";
         NSDictionary* cnAttrs = @{
             NSFontAttributeName: [NSFont systemFontOfSize:11.5 weight:NSFontWeightRegular],
@@ -586,110 +630,111 @@ static void init_templates(std::vector<TemplateCategory>& categories)
         NSSize cnSz = [cnStr sizeWithAttributes:cnAttrs];
         [cnStr drawAtPoint:NSMakePoint(cancelRect.origin.x + (cancelRect.size.width - cnSz.width) * 0.5, cancelRect.origin.y + 6) withAttributes:cnAttrs];
 
-        // Location Path Info (matching Win32 and X11: RGB(136, 136, 144) & RGB(160, 160, 176))
         NSString* locLbl = @"Location:";
         NSDictionary* locLblAttrs = @{
             NSFontAttributeName: [NSFont systemFontOfSize:10.5 weight:NSFontWeightRegular],
             NSForegroundColorAttributeName: [NSColor colorWithSRGBRed:136.0/255.0 green:136.0/255.0 blue:144.0/255.0 alpha:1.0]
         };
         [locLbl drawAtPoint:NSMakePoint(16, footerY + 47) withAttributes:locLblAttrs];
-
         std::string locStr = targetFolder.empty() ? "Project Root" : targetFolder.string();
         NSString* locValStr = [NSString stringWithUTF8String:locStr.c_str()];
         NSDictionary* locValAttrs = @{
             NSFontAttributeName: [NSFont systemFontOfSize:10.5 weight:NSFontWeightRegular],
-            NSForegroundColorAttributeName: [NSColor colorWithSRGBRed:160.0/255.0 green:160.0/255.0 blue:176.0/255.0 alpha:1.0]
+            NSForegroundColorAttributeName: [NSColor colorWithSRGBRed:160.0/255.0 green:160.0/255.0 blue:170.0/255.0 alpha:1.0]
         };
         [locValStr drawAtPoint:NSMakePoint(76, footerY + 47) withAttributes:locValAttrs];
 
     } else {
-        // Small Prompt Mode
-        NSString* subStr = [NSString stringWithUTF8String:subtitle.c_str()];
-        NSDictionary* subAttrs = @{
-            NSFontAttributeName: [NSFont systemFontOfSize:11.5 weight:NSFontWeightRegular],
-            NSForegroundColorAttributeName: [NSColor colorWithSRGBRed:180.0/255.0 green:180.0/255.0 blue:180.0/255.0 alpha:1.0]
+        // --- Sleek Minimalist Quick Modal Card (New Folder, Rename, Delete) ---
+        // 2. Centered Bold Title (matching screenshot)
+        NSString* titleStr = [NSString stringWithUTF8String:title.c_str()];
+        NSDictionary* titleAttrs = @{
+            NSFontAttributeName: [NSFont systemFontOfSize:13.5 weight:NSFontWeightBold],
+            NSForegroundColorAttributeName: [NSColor colorWithSRGBRed:235.0/255.0 green:238.0/255.0 blue:242.0/255.0 alpha:1.0]
         };
-        [subStr drawAtPoint:NSMakePoint(20, titlebarH + 18) withAttributes:subAttrs];
+        NSSize titleSz = [titleStr sizeWithAttributes:titleAttrs];
+        const float titleX = (w - titleSz.width) * 0.5f;
+        const float titleY = 16.0f;
+        [titleStr drawAtPoint:NSMakePoint(titleX, titleY) withAttributes:titleAttrs];
 
-        if (mode != Zenvra::Platform::Cocoa::Components::PromptDialogMode::ConfirmDelete) {
-            const NSRect inputRect = NSMakeRect(20, titlebarH + 46, w - 40, 28);
-            NSBezierPath* inputPath = [NSBezierPath bezierPathWithRoundedRect:inputRect xRadius:4 yRadius:4];
-            [[NSColor colorWithSRGBRed:24.0/255.0 green:25.0/255.0 blue:28.0/255.0 alpha:1.0] setFill];
-            [inputPath fill];
-            [[NSColor colorWithSRGBRed:53.0/255.0 green:132.0/255.0 blue:228.0/255.0 alpha:1.0] setStroke];
-            [inputPath stroke];
+        if (mode == Zenvra::Platform::Cocoa::Components::PromptDialogMode::ConfirmDelete) {
+            NSString* subStr = [NSString stringWithUTF8String:subtitle.c_str()];
+            NSDictionary* subAttrs = @{
+                NSFontAttributeName: [NSFont systemFontOfSize:11.0 weight:NSFontWeightRegular],
+                NSForegroundColorAttributeName: [NSColor colorWithSRGBRed:160.0/255.0 green:160.0/255.0 blue:170.0/255.0 alpha:1.0]
+            };
+            NSSize subSz = [subStr sizeWithAttributes:subAttrs];
+            [subStr drawAtPoint:NSMakePoint((w - subSz.width) * 0.5f, 42.0f) withAttributes:subAttrs];
+
+            const NSRect cancelRect = NSMakeRect(w * 0.5f - 85, h - 36, 75, 26);
+            const NSRect okRect = NSMakeRect(w * 0.5f + 10, h - 36, 75, 26);
+
+            NSBezierPath* cancelPath = [NSBezierPath bezierPathWithRoundedRect:cancelRect xRadius:6 yRadius:6];
+            [[NSColor colorWithSRGBRed:cancelHovered ? 58.0/255.0 : 45.0/255.0 green:cancelHovered ? 61.0/255.0 : 47.0/255.0 blue:cancelHovered ? 68.0/255.0 : 52.0/255.0 alpha:1.0] setFill];
+            [cancelPath fill];
+            [@"Cancel" drawAtPoint:NSMakePoint(cancelRect.origin.x + 18, cancelRect.origin.y + 5) withAttributes:@{
+                NSFontAttributeName: [NSFont systemFontOfSize:11.5],
+                NSForegroundColorAttributeName: [NSColor colorWithSRGBRed:204.0/255.0 green:204.0/255.0 blue:204.0/255.0 alpha:1.0]
+            }];
+
+            NSBezierPath* okPath = [NSBezierPath bezierPathWithRoundedRect:okRect xRadius:6 yRadius:6];
+            [[NSColor colorWithSRGBRed:okHovered ? 235.0/255.0 : 218.0/255.0 green:okHovered ? 65.0/255.0 : 45.0/255.0 blue:okHovered ? 70.0/255.0 : 50.0/255.0 alpha:1.0] setFill];
+            [okPath fill];
+            [@"Delete" drawAtPoint:NSMakePoint(okRect.origin.x + 18, okRect.origin.y + 5) withAttributes:@{
+                NSFontAttributeName: [NSFont systemFontOfSize:11.5 weight:NSFontWeightMedium],
+                NSForegroundColorAttributeName: [NSColor whiteColor]
+            }];
+        } else {
+            // 3. Pure Transparent Borderless Input Field (matching screenshot)
+            const NSRect inputRect = NSMakeRect(22, 46, w - 44, 32);
 
             NSString* valStr = textValue.empty() ? [NSString stringWithUTF8String:placeholder.c_str()] : [NSString stringWithUTF8String:textValue.c_str()];
             NSDictionary* valAttrs = @{
-                NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightRegular],
-                NSForegroundColorAttributeName: textValue.empty() ? [NSColor colorWithSRGBRed:120.0/255.0 green:120.0/255.0 blue:130.0/255.0 alpha:1.0] : [NSColor whiteColor]
+                NSFontAttributeName: [NSFont systemFontOfSize:13.0 weight:NSFontWeightRegular],
+                NSForegroundColorAttributeName: textValue.empty() 
+                    ? [NSColor colorWithSRGBRed:110.0/255.0 green:115.0/255.0 blue:130.0/255.0 alpha:1.0] 
+                    : [NSColor colorWithSRGBRed:240.0/255.0 green:242.0/255.0 blue:245.0/255.0 alpha:1.0]
             };
-            [valStr drawAtPoint:NSMakePoint(inputRect.origin.x + 8, inputRect.origin.y + 6) withAttributes:valAttrs];
+            [valStr drawAtPoint:NSMakePoint(inputRect.origin.x + 4, inputRect.origin.y + 7) withAttributes:valAttrs];
 
             // Animated Caret
             std::size_t cp = std::min(caretPos, textValue.size());
             NSString* prefStr = textValue.empty() ? @"" : [NSString stringWithUTF8String:textValue.substr(0, cp).c_str()];
             NSDictionary* activeAttrs = @{
-                NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightRegular],
+                NSFontAttributeName: [NSFont systemFontOfSize:13.0 weight:NSFontWeightRegular],
                 NSForegroundColorAttributeName: [NSColor whiteColor]
             };
             NSSize prefSz = [prefStr sizeWithAttributes:activeAttrs];
-            const float caretX = inputRect.origin.x + 8 + prefSz.width;
+            const float caretX = inputRect.origin.x + 4 + prefSz.width;
             if (showCaret) {
-                CGContextSetRGBStrokeColor(context, 1.0, 1.0, 1.0, 1.0);
-                CGContextSetLineWidth(context, 1.2);
+                CGContextSetRGBStrokeColor(context, 1.0, 1.0, 1.0, 0.9);
+                CGContextSetLineWidth(context, 1.4);
                 CGContextBeginPath(context);
-                CGContextMoveToPoint(context, caretX + 0.5, inputRect.origin.y + 5);
-                CGContextAddLineToPoint(context, caretX + 0.5, inputRect.origin.y + 23);
+                CGContextMoveToPoint(context, caretX + 0.5, inputRect.origin.y + 6);
+                CGContextAddLineToPoint(context, caretX + 0.5, inputRect.origin.y + 26);
                 CGContextStrokePath(context);
             }
-
-            if (!targetFolder.empty()) {
-                NSString* locInfo = [NSString stringWithFormat:@"Location: %s", targetFolder.string().c_str()];
-                NSDictionary* locInfoAttrs = @{
-                    NSFontAttributeName: [NSFont systemFontOfSize:10.5 weight:NSFontWeightRegular],
-                    NSForegroundColorAttributeName: [NSColor colorWithSRGBRed:136.0/255.0 green:136.0/255.0 blue:144.0/255.0 alpha:1.0]
-                };
-                [locInfo drawAtPoint:NSMakePoint(20, titlebarH + 82) withAttributes:locInfoAttrs];
-            }
         }
-
-        const NSRect okRect = NSMakeRect(w - 88, h - 42, 75, 28);
-        const NSRect cancelRect = NSMakeRect(w - 170, h - 42, 75, 28);
-
-        NSBezierPath* cancelPath = [NSBezierPath bezierPathWithRoundedRect:cancelRect xRadius:4 yRadius:4];
-        [[NSColor colorWithSRGBRed:cancelHovered ? 58.0/255.0 : 45.0/255.0 green:cancelHovered ? 61.0/255.0 : 47.0/255.0 blue:cancelHovered ? 68.0/255.0 : 52.0/255.0 alpha:1.0] setFill];
-        [cancelPath fill];
-        [@"Cancel" drawAtPoint:NSMakePoint(cancelRect.origin.x + 18, cancelRect.origin.y + 6) withAttributes:@{
-            NSFontAttributeName: [NSFont systemFontOfSize:11.5],
-            NSForegroundColorAttributeName: [NSColor colorWithSRGBRed:204.0/255.0 green:204.0/255.0 blue:204.0/255.0 alpha:1.0]
-        }];
-
-        const bool isDel = (mode == Zenvra::Platform::Cocoa::Components::PromptDialogMode::ConfirmDelete);
-        NSBezierPath* okPath = [NSBezierPath bezierPathWithRoundedRect:okRect xRadius:4 yRadius:4];
-        if (isDel) {
-            [[NSColor colorWithSRGBRed:okHovered ? 235.0/255.0 : 218.0/255.0 green:okHovered ? 65.0/255.0 : 45.0/255.0 blue:okHovered ? 70.0/255.0 : 50.0/255.0 alpha:1.0] setFill];
-        } else {
-            [[NSColor colorWithSRGBRed:okHovered ? 66.0/255.0 : 53.0/255.0 green:okHovered ? 148.0/255.0 : 132.0/255.0 blue:okHovered ? 246.0/255.0 : 228.0/255.0 alpha:1.0] setFill];
-        }
-        [okPath fill];
-
-        NSString* okStr = [NSString stringWithUTF8String:confirmLabel.c_str()];
-        [okStr drawAtPoint:NSMakePoint(okRect.origin.x + 18, okRect.origin.y + 6) withAttributes:@{
-            NSFontAttributeName: [NSFont systemFontOfSize:11.5 weight:NSFontWeightMedium],
-            NSForegroundColorAttributeName: [NSColor whiteColor]
-        }];
     }
+
+    CGContextRestoreGState(context);
+
+    // Subtle 1px Outer Border on Card (Standard macOS 10.0 Radius, Solid)
+    NSBezierPath* strokePath = [NSBezierPath bezierPathWithRoundedRect:NSInsetRect(b, 0.5, 0.5) xRadius:10.0 yRadius:10.0];
+    [[NSColor colorWithSRGBRed:58.0/255.0 green:60.0/255.0 blue:68.0/255.0 alpha:1.0] setStroke];
+    [strokePath setLineWidth:1.0];
+    [strokePath stroke];
 }
 
 - (void)mouseDown:(NSEvent *)event {
+    [[self window] makeFirstResponder:self];
     NSPoint loc = [self convertPoint:[event locationInWindow] fromView:nil];
     const NSRect b = [self bounds];
     const float w = static_cast<float>(b.size.width);
     const float h = static_cast<float>(b.size.height);
 
     if (mode == Zenvra::Platform::Cocoa::Components::PromptDialogMode::AddNewItem) {
-        const float titlebarH = 32.0f;
+        const float titlebarH = 36.0f;
         const float footerH = 74.0f;
         const float paneH = h - titlebarH - footerH;
         const float catW = 160.0f;
@@ -704,6 +749,7 @@ static void init_templates(std::vector<TemplateCategory>& categories)
                 if (!categories[idx].templates.empty()) {
                     textValue = categories[idx].templates[0].default_filename;
                 }
+                caretPos = textValue.size();
                 [self setNeedsDisplay:YES];
                 return;
             }
@@ -717,6 +763,7 @@ static void init_templates(std::vector<TemplateCategory>& categories)
                 if (idx < tpls.size()) {
                     selectedTemplate = idx;
                     textValue = tpls[idx].default_filename;
+                    caretPos = textValue.size();
                     [self setNeedsDisplay:YES];
                     return;
                 }
@@ -724,6 +771,31 @@ static void init_templates(std::vector<TemplateCategory>& categories)
         }
 
         const float footerY = h - footerH;
+        const NSRect inputRect = NSMakeRect(64, footerY + 12, w - 248, 28);
+        if (NSPointInRect(loc, inputRect)) {
+            float clickOffset = loc.x - (inputRect.origin.x + 8);
+            if (clickOffset <= 0 || textValue.empty()) {
+                caretPos = 0;
+            } else {
+                NSDictionary* valAttrs = @{
+                    NSFontAttributeName: [NSFont systemFontOfSize:12.0 weight:NSFontWeightRegular]
+                };
+                caretPos = textValue.size();
+                for (std::size_t i = 1; i <= textValue.size(); ++i) {
+                    NSString* sub = [NSString stringWithUTF8String:textValue.substr(0, i).c_str()];
+                    NSSize sz = [sub sizeWithAttributes:valAttrs];
+                    if (sz.width >= clickOffset) {
+                        caretPos = i - 1;
+                        break;
+                    }
+                }
+            }
+            showCaret = true;
+            [self startBlinkTimer];
+            [self setNeedsDisplay:YES];
+            return;
+        }
+
         const NSRect okRect = NSMakeRect(w - 170, footerY + 12, 75, 28);
         const NSRect cancelRect = NSMakeRect(w - 88, footerY + 12, 75, 28);
 
@@ -736,16 +808,43 @@ static void init_templates(std::vector<TemplateCategory>& categories)
             return;
         }
     } else {
-        const NSRect okRect = NSMakeRect(w - 88, h - 42, 75, 28);
-        const NSRect cancelRect = NSMakeRect(w - 170, h - 42, 75, 28);
-
-        if (NSPointInRect(loc, okRect)) {
-            [self submit];
+        const NSRect inputRect = NSMakeRect(22, 46, w - 44, 32);
+        if (mode != Zenvra::Platform::Cocoa::Components::PromptDialogMode::ConfirmDelete && NSPointInRect(loc, inputRect)) {
+            float clickOffset = loc.x - (inputRect.origin.x + 4);
+            if (clickOffset <= 0 || textValue.empty()) {
+                caretPos = 0;
+            } else {
+                NSDictionary* valAttrs = @{
+                    NSFontAttributeName: [NSFont systemFontOfSize:13.0 weight:NSFontWeightRegular]
+                };
+                caretPos = textValue.size();
+                for (std::size_t i = 1; i <= textValue.size(); ++i) {
+                    NSString* sub = [NSString stringWithUTF8String:textValue.substr(0, i).c_str()];
+                    NSSize sz = [sub sizeWithAttributes:valAttrs];
+                    if (sz.width >= clickOffset) {
+                        caretPos = i - 1;
+                        break;
+                    }
+                }
+            }
+            showCaret = true;
+            [self startBlinkTimer];
+            [self setNeedsDisplay:YES];
             return;
         }
-        if (NSPointInRect(loc, cancelRect)) {
-            [self closeWindow];
-            return;
+
+        if (mode == Zenvra::Platform::Cocoa::Components::PromptDialogMode::ConfirmDelete) {
+            const NSRect cancelRect = NSMakeRect(w * 0.5f - 85, h - 36, 75, 26);
+            const NSRect okRect = NSMakeRect(w * 0.5f + 10, h - 36, 75, 26);
+
+            if (NSPointInRect(loc, okRect)) {
+                [self submit];
+                return;
+            }
+            if (NSPointInRect(loc, cancelRect)) {
+                [self closeWindow];
+                return;
+            }
         }
     }
 }
@@ -760,7 +859,7 @@ static void init_templates(std::vector<TemplateCategory>& categories)
     bool prevCancel = cancelHovered;
 
     if (mode == Zenvra::Platform::Cocoa::Components::PromptDialogMode::AddNewItem) {
-        const float titlebarH = 32.0f;
+        const float titlebarH = 36.0f;
         const float footerH = 74.0f;
         const float paneH = h - titlebarH - footerH;
         const float catW = 160.0f;
@@ -783,9 +882,9 @@ static void init_templates(std::vector<TemplateCategory>& categories)
         const NSRect cancelRect = NSMakeRect(w - 88, footerY + 12, 75, 28);
         okHovered = NSPointInRect(loc, okRect);
         cancelHovered = NSPointInRect(loc, cancelRect);
-    } else {
-        const NSRect okRect = NSMakeRect(w - 88, h - 42, 75, 28);
-        const NSRect cancelRect = NSMakeRect(w - 170, h - 42, 75, 28);
+    } else if (mode == Zenvra::Platform::Cocoa::Components::PromptDialogMode::ConfirmDelete) {
+        const NSRect cancelRect = NSMakeRect(w * 0.5f - 85, h - 36, 75, 26);
+        const NSRect okRect = NSMakeRect(w * 0.5f + 10, h - 36, 75, 26);
         okHovered = NSPointInRect(loc, okRect);
         cancelHovered = NSPointInRect(loc, cancelRect);
     }
@@ -945,8 +1044,9 @@ void CocoaPromptDialog::notify_window_closed() noexcept
     m_native_window = nullptr;
     m_native_view = nullptr;
     if (m_native_delegate) {
-        ZDEPromptWindowDelegate* del = (__bridge_transfer ZDEPromptWindowDelegate*)m_native_delegate;
+        ZDEPromptWindowDelegate* del = (ZDEPromptWindowDelegate*)m_native_delegate;
         del.owner = nullptr;
+        [del release];
         m_native_delegate = nullptr;
     }
 }
@@ -954,7 +1054,7 @@ void CocoaPromptDialog::notify_window_closed() noexcept
 void CocoaPromptDialog::close() noexcept
 {
     if (m_native_window) {
-        NSWindow* win = (__bridge_transfer NSWindow*)m_native_window;
+        NSWindow* win = (NSWindow*)m_native_window;
         m_native_window = nullptr;
         m_native_view = nullptr;
         [win setDelegate:nil];
@@ -962,8 +1062,9 @@ void CocoaPromptDialog::close() noexcept
         [win close];
     }
     if (m_native_delegate) {
-        ZDEPromptWindowDelegate* del = (__bridge_transfer ZDEPromptWindowDelegate*)m_native_delegate;
+        ZDEPromptWindowDelegate* del = (ZDEPromptWindowDelegate*)m_native_delegate;
         del.owner = nullptr;
+        [del release];
         m_native_delegate = nullptr;
     }
 }
@@ -971,7 +1072,7 @@ void CocoaPromptDialog::close() noexcept
 bool CocoaPromptDialog::is_open() const noexcept
 {
     if (!m_native_window) return false;
-    NSWindow* win = (__bridge NSWindow*)m_native_window;
+    NSWindow* win = (NSWindow*)m_native_window;
     return [win isVisible];
 }
 
@@ -985,7 +1086,7 @@ bool CocoaPromptDialog::open_new_file(
     const std::string win_title = "Add New Item - " + dir_name;
 
     const NSRect frame = NSMakeRect(0, 0, 780, 500);
-    NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskFullSizeContentView;
+    NSWindowStyleMask style = NSWindowStyleMaskBorderless;
 
     ZDEPromptWindow* window = [[ZDEPromptWindow alloc] initWithContentRect:frame
                                                                   styleMask:style
@@ -995,11 +1096,9 @@ bool CocoaPromptDialog::open_new_file(
     [window setRestorable:NO];
     [window setHidesOnDeactivate:NO];
     [window setTitle:[NSString stringWithUTF8String:win_title.c_str()]];
-    [window setTitlebarAppearsTransparent:YES];
-    [window setTitleVisibility:NSWindowTitleHidden];
     [window setMovableByWindowBackground:YES];
-    [window setOpaque:YES];
-    [window setBackgroundColor:[NSColor colorWithSRGBRed:30.0/255.0 green:31.0/255.0 blue:34.0/255.0 alpha:1.0]];
+    [window setOpaque:NO];
+    [window setBackgroundColor:[NSColor clearColor]];
     [window setHasShadow:YES];
 
     ZDEPromptWindowDelegate* del = [[ZDEPromptWindowDelegate alloc] init];
@@ -1027,9 +1126,9 @@ bool CocoaPromptDialog::open_new_file(
     [window makeFirstResponder:view];
     [NSApp activateIgnoringOtherApps:YES];
 
-    m_native_window = (__bridge_retained void*)window;
-    m_native_view = (__bridge_retained void*)view;
-    m_native_delegate = (__bridge_retained void*)del;
+    m_native_window = (void*)window;
+    m_native_view = (void*)view;
+    m_native_delegate = (void*)del;
     return true;
 }
 
@@ -1039,11 +1138,11 @@ bool CocoaPromptDialog::open_new_folder(
 {
     close();
 
-    const std::string dir_name = target_dir.empty() ? "Project" : target_dir.filename().string();
+    const std::string dir_name = target_dir.empty() ? "Components" : target_dir.filename().string();
     const std::string win_title = "New Folder - " + dir_name;
 
-    const NSRect frame = NSMakeRect(0, 0, 480, 200);
-    NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskFullSizeContentView;
+    const NSRect frame = NSMakeRect(0, 0, 360, 96);
+    NSWindowStyleMask style = NSWindowStyleMaskBorderless;
 
     ZDEPromptWindow* window = [[ZDEPromptWindow alloc] initWithContentRect:frame
                                                                   styleMask:style
@@ -1053,11 +1152,9 @@ bool CocoaPromptDialog::open_new_folder(
     [window setRestorable:NO];
     [window setHidesOnDeactivate:NO];
     [window setTitle:[NSString stringWithUTF8String:win_title.c_str()]];
-    [window setTitlebarAppearsTransparent:YES];
-    [window setTitleVisibility:NSWindowTitleHidden];
     [window setMovableByWindowBackground:YES];
-    [window setOpaque:YES];
-    [window setBackgroundColor:[NSColor colorWithSRGBRed:30.0/255.0 green:31.0/255.0 blue:34.0/255.0 alpha:1.0]];
+    [window setOpaque:NO];
+    [window setBackgroundColor:[NSColor clearColor]];
     [window setHasShadow:YES];
 
     ZDEPromptWindowDelegate* del = [[ZDEPromptWindowDelegate alloc] init];
@@ -1068,8 +1165,7 @@ bool CocoaPromptDialog::open_new_folder(
     view->owner = this;
     view->mode = PromptDialogMode::NewFolder;
     view->title = win_title;
-    view->subtitle = "Enter folder name inside '" + dir_name + "':";
-    view->placeholder = "e.g. Components, Utils";
+    view->placeholder = "Name";
     view->confirmLabel = "Create";
     view->targetFolder = target_dir;
     view->caretPos = view->textValue.size();
@@ -1081,9 +1177,9 @@ bool CocoaPromptDialog::open_new_folder(
     [window makeFirstResponder:view];
     [NSApp activateIgnoringOtherApps:YES];
 
-    m_native_window = (__bridge_retained void*)window;
-    m_native_view = (__bridge_retained void*)view;
-    m_native_delegate = (__bridge_retained void*)del;
+    m_native_window = (void*)window;
+    m_native_view = (void*)view;
+    m_native_delegate = (void*)del;
     return true;
 }
 
@@ -1094,8 +1190,8 @@ bool CocoaPromptDialog::open_rename(
     close();
 
     const std::string win_title = "Rename - " + item_path.filename().string();
-    const NSRect frame = NSMakeRect(0, 0, 480, 200);
-    NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskFullSizeContentView;
+    const NSRect frame = NSMakeRect(0, 0, 360, 96);
+    NSWindowStyleMask style = NSWindowStyleMaskBorderless;
 
     ZDEPromptWindow* window = [[ZDEPromptWindow alloc] initWithContentRect:frame
                                                                   styleMask:style
@@ -1105,11 +1201,9 @@ bool CocoaPromptDialog::open_rename(
     [window setRestorable:NO];
     [window setHidesOnDeactivate:NO];
     [window setTitle:[NSString stringWithUTF8String:win_title.c_str()]];
-    [window setTitlebarAppearsTransparent:YES];
-    [window setTitleVisibility:NSWindowTitleHidden];
     [window setMovableByWindowBackground:YES];
-    [window setOpaque:YES];
-    [window setBackgroundColor:[NSColor colorWithSRGBRed:30.0/255.0 green:31.0/255.0 blue:34.0/255.0 alpha:1.0]];
+    [window setOpaque:NO];
+    [window setBackgroundColor:[NSColor clearColor]];
     [window setHasShadow:YES];
 
     ZDEPromptWindowDelegate* del = [[ZDEPromptWindowDelegate alloc] init];
@@ -1120,7 +1214,6 @@ bool CocoaPromptDialog::open_rename(
     view->owner = this;
     view->mode = PromptDialogMode::Rename;
     view->title = win_title;
-    view->subtitle = "Enter new name for '" + item_path.filename().string() + "':";
     view->placeholder = item_path.filename().string();
     view->textValue = item_path.filename().string();
     view->caretPos = view->textValue.size();
@@ -1134,9 +1227,9 @@ bool CocoaPromptDialog::open_rename(
     [window makeFirstResponder:view];
     [NSApp activateIgnoringOtherApps:YES];
 
-    m_native_window = (__bridge_retained void*)window;
-    m_native_view = (__bridge_retained void*)view;
-    m_native_delegate = (__bridge_retained void*)del;
+    m_native_window = (void*)window;
+    m_native_view = (void*)view;
+    m_native_delegate = (void*)del;
     return true;
 }
 
@@ -1146,9 +1239,9 @@ bool CocoaPromptDialog::open_delete(
 {
     close();
 
-    const std::string win_title = "Delete - " + item_path.filename().string();
-    const NSRect frame = NSMakeRect(0, 0, 480, 190);
-    NSWindowStyleMask style = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskFullSizeContentView;
+    const std::string win_title = "Delete " + item_path.filename().string() + "?";
+    const NSRect frame = NSMakeRect(0, 0, 360, 110);
+    NSWindowStyleMask style = NSWindowStyleMaskBorderless;
 
     ZDEPromptWindow* window = [[ZDEPromptWindow alloc] initWithContentRect:frame
                                                                   styleMask:style
@@ -1158,11 +1251,9 @@ bool CocoaPromptDialog::open_delete(
     [window setRestorable:NO];
     [window setHidesOnDeactivate:NO];
     [window setTitle:[NSString stringWithUTF8String:win_title.c_str()]];
-    [window setTitlebarAppearsTransparent:YES];
-    [window setTitleVisibility:NSWindowTitleHidden];
     [window setMovableByWindowBackground:YES];
-    [window setOpaque:YES];
-    [window setBackgroundColor:[NSColor colorWithSRGBRed:30.0/255.0 green:31.0/255.0 blue:34.0/255.0 alpha:1.0]];
+    [window setOpaque:NO];
+    [window setBackgroundColor:[NSColor clearColor]];
     [window setHasShadow:YES];
 
     ZDEPromptWindowDelegate* del = [[ZDEPromptWindowDelegate alloc] init];
@@ -1173,7 +1264,7 @@ bool CocoaPromptDialog::open_delete(
     view->owner = this;
     view->mode = PromptDialogMode::ConfirmDelete;
     view->title = win_title;
-    view->subtitle = "Are you sure you want to delete '" + item_path.filename().string() + "'? This action cannot be undone.";
+    view->subtitle = "This action cannot be undone.";
     view->confirmLabel = "Delete";
     view->targetFolder = item_path;
     view->onConfirmAction = std::move(on_confirm);
@@ -1184,9 +1275,9 @@ bool CocoaPromptDialog::open_delete(
     [window makeFirstResponder:view];
     [NSApp activateIgnoringOtherApps:YES];
 
-    m_native_window = (__bridge_retained void*)window;
-    m_native_view = (__bridge_retained void*)view;
-    m_native_delegate = (__bridge_retained void*)del;
+    m_native_window = (void*)window;
+    m_native_view = (void*)view;
+    m_native_delegate = (void*)del;
     return true;
 }
 

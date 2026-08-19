@@ -59,42 +59,46 @@ bool StudioWorkspaceRenderer::initialize(float dpi_scale)
     m_dpi_scale = std::max(dpi_scale, 0.5F);
 
     // Resolve the directory that contains Assets/ (icons + fonts). Order:
-    //   1. CWD project root  (dev run from a terminal at the repo root)
-    //   2. App bundle Resources  (Assets copied there by CMake)
-    //   3. App bundle root
+    //   1. App bundle Resources  (Assets copied there by CMake)
+    //   2. App bundle root
+    //   3. CWD project root  (dev run from a terminal at the repo root)
     //   4. Walk up from the executable directory (dev non-bundle binaries)
     std::optional<std::filesystem::path> asset_root;
     const auto contains_assets = [](const std::filesystem::path& directory) {
         std::error_code error_code;
-        return std::filesystem::is_directory(directory, error_code) &&
-               std::filesystem::is_directory(directory / "Assets" / "icons", error_code);
+        return (std::filesystem::is_directory(directory, error_code) &&
+                std::filesystem::is_directory(directory / "Assets" / "icons", error_code)) ||
+               (std::filesystem::is_directory(directory, error_code) &&
+                std::filesystem::is_directory(directory / "icons", error_code) &&
+                std::filesystem::exists(directory / "icons" / "folder.svg", error_code));
     };
 
-    std::error_code path_error;
-    const std::filesystem::path current_path = std::filesystem::current_path(path_error);
-    if (!path_error)
+    NSBundle* main_bundle = [NSBundle mainBundle];
+    NSString* resource_path = [main_bundle resourcePath];
+    if (resource_path && contains_assets(std::filesystem::path([resource_path UTF8String])))
     {
-        if (std::optional<std::filesystem::path> project_root =
-                UI::Editor::EditorFileSystem::find_project_root(current_path);
-            project_root && contains_assets(*project_root))
+        asset_root = std::filesystem::path([resource_path UTF8String]);
+    }
+    else
+    {
+        NSString* bundle_path = [main_bundle bundlePath];
+        if (bundle_path && contains_assets(std::filesystem::path([bundle_path UTF8String])))
         {
-            asset_root = *project_root;
+            asset_root = std::filesystem::path([bundle_path UTF8String]);
         }
     }
+
     if (!asset_root)
     {
-        NSBundle* main_bundle = [NSBundle mainBundle];
-        NSString* resource_path = [main_bundle resourcePath];
-        if (resource_path && contains_assets(std::filesystem::path([resource_path UTF8String])))
+        std::error_code path_error;
+        const std::filesystem::path current_path = std::filesystem::current_path(path_error);
+        if (!path_error)
         {
-            asset_root = std::filesystem::path([resource_path UTF8String]);
-        }
-        else
-        {
-            NSString* bundle_path = [main_bundle bundlePath];
-            if (bundle_path && contains_assets(std::filesystem::path([bundle_path UTF8String])))
+            if (std::optional<std::filesystem::path> project_root =
+                    UI::Editor::EditorFileSystem::find_project_root(current_path);
+                project_root && contains_assets(*project_root))
             {
-                asset_root = std::filesystem::path([bundle_path UTF8String]);
+                asset_root = *project_root;
             }
         }
     }
@@ -119,7 +123,19 @@ bool StudioWorkspaceRenderer::initialize(float dpi_scale)
     }
     if (asset_root)
     {
-        m_icon_asset_root = *asset_root / "Assets" / "icons";
+        std::error_code ec;
+        if (std::filesystem::is_directory(*asset_root / "Assets" / "icons", ec))
+        {
+            m_icon_asset_root = *asset_root / "Assets" / "icons";
+        }
+        else if (std::filesystem::is_directory(*asset_root / "icons", ec))
+        {
+            m_icon_asset_root = *asset_root / "icons";
+        }
+        else
+        {
+            m_icon_asset_root = *asset_root;
+        }
     }
 
     // Load fonts using CoreText
@@ -306,6 +322,17 @@ bool StudioWorkspaceRenderer::set_workspace_root(const std::filesystem::path& ro
     return true;
 }
 
+bool StudioWorkspaceRenderer::close_project()
+{
+    static_cast<void>(m_tool_sidebar.set_workspace_root({}));
+    m_tool_sidebar.get_model().clear_workspace();
+    m_text_editor.close_all_documents();
+    m_text_editor.reset_split();
+    m_terminal_panel.shutdown();
+    m_shader_sandbox_panel.set_visible(false);
+    return true;
+}
+
 std::size_t StudioWorkspaceRenderer::open_dropped_paths(
     std::span<const std::filesystem::path> dropped_paths)
 {
@@ -340,6 +367,11 @@ bool StudioWorkspaceRenderer::toggle_shader_sandbox()
 bool StudioWorkspaceRenderer::toggle_terminal()
 {
     return m_terminal_panel.toggle();
+}
+
+bool StudioWorkspaceRenderer::create_terminal()
+{
+    return m_terminal_panel.create_terminal();
 }
 
 bool StudioWorkspaceRenderer::handle_pointer_press(
@@ -387,7 +419,9 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
         return m_tool_sidebar.activate(items[*sidebar_index].icon);
     }
     std::optional<std::filesystem::path> sidebar_file;
-    if (m_tool_sidebar.handle_pointer_press(*this, layout, point_x, point_y, sidebar_file))
+    std::optional<std::size_t> target_line;
+    std::optional<std::size_t> target_col;
+    if (m_tool_sidebar.handle_pointer_press(*this, layout, point_x, point_y, sidebar_file, target_line, target_col))
     {
         m_terminal_panel.set_focused(false);
         if (sidebar_file)
@@ -399,6 +433,15 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
             else
             {
                 static_cast<void>(open_file(*sidebar_file));
+                if (target_line.has_value())
+                {
+                    const std::size_t l = target_line.value_or(1);
+                    const std::size_t c = target_col.value_or(0);
+                    if (auto* doc = m_text_editor.get_focused_document())
+                    {
+                        doc->set_caret(l > 0 ? l - 1 : 0, c, false);
+                    }
+                }
             }
         }
         return true;
@@ -515,6 +558,14 @@ bool StudioWorkspaceRenderer::handle_scroll(
 bool StudioWorkspaceRenderer::handle_editor_input(
     UI::Editor::EditorInputCommand command, bool extend_selection)
 {
+    if (m_tool_sidebar.is_search_focused())
+    {
+        return m_tool_sidebar.handle_search_command(command, extend_selection);
+    }
+    if (m_tool_sidebar.is_source_control_focused())
+    {
+        return m_tool_sidebar.handle_source_control_command(command, extend_selection);
+    }
     const bool res = m_text_editor.handle_input(command, extend_selection);
     if (res)
     {
@@ -525,6 +576,14 @@ bool StudioWorkspaceRenderer::handle_editor_input(
 
 bool StudioWorkspaceRenderer::handle_editor_action(UI::Editor::EditorAction action)
 {
+    if (m_tool_sidebar.is_search_focused())
+    {
+        return m_tool_sidebar.handle_search_action(action);
+    }
+    if (m_tool_sidebar.is_source_control_focused())
+    {
+        return m_tool_sidebar.handle_source_control_action(action);
+    }
     const bool res = m_text_editor.handle_action(action);
     if (res)
     {
@@ -589,12 +648,16 @@ std::optional<bool> StudioWorkspaceRenderer::handle_editor_command(std::string_v
     {
         m_tool_sidebar.get_model().set_visible(true);
         static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::Search));
+        m_tool_sidebar.get_search_model().set_focused_input(UI::Editor::SearchInputFocus::Search);
+        m_tool_sidebar.get_search_model().select_all();
         return true;
     }
     if (command_id == Commands::CommandIds::view_git_panel)
     {
         m_tool_sidebar.get_model().set_visible(true);
         static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::VersionControl));
+        m_tool_sidebar.get_source_control_model().refresh_status();
+        m_tool_sidebar.get_source_control_model().set_input_focused(true);
         return true;
     }
     if (command_id == Commands::CommandIds::view_debugger_panel)
@@ -657,6 +720,14 @@ std::optional<bool> StudioWorkspaceRenderer::is_editor_command_enabled(
 
 bool StudioWorkspaceRenderer::handle_text_input(std::string_view utf8_text)
 {
+    if (m_tool_sidebar.is_search_focused())
+    {
+        return m_tool_sidebar.handle_search_text(utf8_text);
+    }
+    if (m_tool_sidebar.is_source_control_focused())
+    {
+        return m_tool_sidebar.handle_source_control_text(utf8_text);
+    }
     const bool res = m_terminal_panel.is_focused()
         ? m_terminal_panel.handle_text_input(utf8_text)
         : m_text_editor.handle_text_input(utf8_text);
@@ -696,6 +767,46 @@ bool StudioWorkspaceRenderer::handle_tool_sidebar_scroll(
 bool StudioWorkspaceRenderer::is_editor_focused() const noexcept
 {
     return m_text_editor.is_focused();
+}
+
+bool StudioWorkspaceRenderer::is_search_focused() const noexcept
+{
+    return m_tool_sidebar.is_search_focused();
+}
+
+bool StudioWorkspaceRenderer::handle_search_text(std::string_view text)
+{
+    return m_tool_sidebar.handle_search_text(text);
+}
+
+bool StudioWorkspaceRenderer::handle_search_command(UI::Editor::EditorInputCommand cmd, bool extend)
+{
+    return m_tool_sidebar.handle_search_command(cmd, extend);
+}
+
+bool StudioWorkspaceRenderer::handle_search_action(UI::Editor::EditorAction action)
+{
+    return m_tool_sidebar.handle_search_action(action);
+}
+
+bool StudioWorkspaceRenderer::is_source_control_focused() const noexcept
+{
+    return m_tool_sidebar.is_source_control_focused();
+}
+
+bool StudioWorkspaceRenderer::handle_source_control_text(std::string_view text)
+{
+    return m_tool_sidebar.handle_source_control_text(text);
+}
+
+bool StudioWorkspaceRenderer::handle_source_control_command(UI::Editor::EditorInputCommand cmd, bool extend)
+{
+    return m_tool_sidebar.handle_source_control_command(cmd, extend);
+}
+
+bool StudioWorkspaceRenderer::handle_source_control_action(UI::Editor::EditorAction action)
+{
+    return m_tool_sidebar.handle_source_control_action(action);
 }
 
 bool StudioWorkspaceRenderer::is_terminal_focused() const noexcept
@@ -880,8 +991,9 @@ bool StudioWorkspaceRenderer::tick_animations() noexcept
     }
 
     const bool shader_changed = m_shader_sandbox_panel.tick_animations();
+    const bool sidebar_changed = m_tool_sidebar.tick_animations();
 
-    return caret_changed || terminal_changed || terminal_blink_changed || titlebar_anim_changed || shader_changed;
+    return caret_changed || terminal_changed || terminal_blink_changed || titlebar_anim_changed || shader_changed || sidebar_changed;
 }
 
 void StudioWorkspaceRenderer::shutdown()
@@ -1288,77 +1400,144 @@ void StudioWorkspaceRenderer::pop_clip(CGContextRef context) const
 std::filesystem::path StudioWorkspaceRenderer::resolve_icon_path(
     const std::string& path) const
 {
-    std::error_code path_error;
-    std::filesystem::path resolved_path{path};
-    if (resolved_path.is_relative() && !m_icon_asset_root.empty())
-    {
-        // m_icon_asset_root already points at the Assets/icons directory, so
-        // strip the redundant prefix used by callers that pass
-        // "Assets/icons/foo.svg" or "Assets/icons/material-icon-theme/foo.svg".
-        std::string relative = resolved_path.generic_string();
-        constexpr std::string_view icon_prefix = "Assets/icons/";
-        if (relative.starts_with(icon_prefix))
-        {
-            relative.erase(0, icon_prefix.size());
-            resolved_path = relative;
-        }
-        const std::filesystem::path filename = resolved_path.filename();
-        const std::filesystem::path themed_path = m_icon_asset_root / resolved_path;
-        const std::filesystem::path symbol_file_1 = m_icon_asset_root / "vscode-symbols" / "icons" / "files" / filename;
-        const std::filesystem::path symbol_folder_1 = m_icon_asset_root / "vscode-symbols" / "icons" / "folders" / filename;
-        const std::filesystem::path symbol_file_2 = m_icon_asset_root / "vscode-symbols" / "files" / filename;
-        const std::filesystem::path symbol_folder_2 = m_icon_asset_root / "vscode-symbols" / "folders" / filename;
-        const std::filesystem::path codicon_direct = m_icon_asset_root / "vscode-codicons" / "icons" / relative;
-        const std::filesystem::path codicon_file = m_icon_asset_root / "vscode-codicons" / "icons" / filename;
-        const std::filesystem::path material_file = m_icon_asset_root / "material-icon-theme" / filename;
-
-        if (std::filesystem::is_regular_file(themed_path, path_error))
-        {
-            resolved_path = themed_path;
-        }
-        else if (std::filesystem::is_regular_file(symbol_file_1, path_error))
-        {
-            resolved_path = symbol_file_1;
-        }
-        else if (std::filesystem::is_regular_file(symbol_folder_1, path_error))
-        {
-            resolved_path = symbol_folder_1;
-        }
-        else if (std::filesystem::is_regular_file(symbol_file_2, path_error))
-        {
-            resolved_path = symbol_file_2;
-        }
-        else if (std::filesystem::is_regular_file(symbol_folder_2, path_error))
-        {
-            resolved_path = symbol_folder_2;
-        }
-        else if (std::filesystem::is_regular_file(codicon_direct, path_error))
-        {
-            resolved_path = codicon_direct;
-        }
-        else if (std::filesystem::is_regular_file(codicon_file, path_error))
-        {
-            resolved_path = codicon_file;
-        }
-        else if (std::filesystem::is_regular_file(material_file, path_error))
-        {
-            resolved_path = material_file;
-        }
-        else
-        {
-            const std::filesystem::path legacy_path =
-                m_icon_asset_root / resolved_path.filename();
-            if (std::filesystem::is_regular_file(legacy_path, path_error))
-            {
-                resolved_path = legacy_path;
-            }
-        }
-    }
-    if (!std::filesystem::is_regular_file(resolved_path, path_error))
+    if (path.empty())
     {
         return {};
     }
-    return resolved_path;
+
+    std::error_code path_error;
+    std::filesystem::path input_path{path};
+    if (input_path.is_absolute() && std::filesystem::is_regular_file(input_path, path_error))
+    {
+        return input_path;
+    }
+
+    if (m_icon_asset_root.empty())
+    {
+        return {};
+    }
+
+    std::string rel_str = input_path.generic_string();
+    constexpr std::string_view p1 = "Assets/icons/";
+    constexpr std::string_view p2 = "Resources/icons/";
+    constexpr std::string_view p3 = "Assets/";
+    constexpr std::string_view p4 = "Resources/";
+    if (rel_str.starts_with(p1))
+    {
+        rel_str.erase(0, p1.size());
+    }
+    else if (rel_str.starts_with(p2))
+    {
+        rel_str.erase(0, p2.size());
+    }
+    else if (rel_str.starts_with(p3))
+    {
+        rel_str.erase(0, p3.size());
+    }
+    else if (rel_str.starts_with(p4))
+    {
+        rel_str.erase(0, p4.size());
+    }
+
+    std::string filename = std::filesystem::path{rel_str}.filename().string();
+    if (filename == "source-control.svg" || filename == "branch.svg" || filename == "git.svg")
+    {
+        filename = "git-branch.svg";
+    }
+    else if (filename == "extensions.svg")
+    {
+        filename = "puzzle.svg";
+    }
+    else if (filename == "settings.svg")
+    {
+        filename = "gear.svg";
+    }
+    else if (filename == "folder-opened.svg")
+    {
+        filename = "folder-open.svg";
+    }
+
+    // 1. Direct path under m_icon_asset_root (e.g. vscode-symbols/icons/files/cplus.svg)
+    const std::filesystem::path direct_path = m_icon_asset_root / rel_str;
+    if (std::filesystem::is_regular_file(direct_path, path_error))
+    {
+        return direct_path;
+    }
+
+    // 1b. Handle vscode-symbols path normalization
+    if (rel_str.starts_with("vscode-symbols/files/"))
+    {
+        std::string sub = rel_str;
+        sub.replace(0, std::string_view("vscode-symbols/files/").size(), "vscode-symbols/icons/files/");
+        const std::filesystem::path p = m_icon_asset_root / sub;
+        if (std::filesystem::is_regular_file(p, path_error))
+        {
+            return p;
+        }
+    }
+    if (rel_str.starts_with("vscode-symbols/folders/"))
+    {
+        std::string sub = rel_str;
+        sub.replace(0, std::string_view("vscode-symbols/folders/").size(), "vscode-symbols/icons/folders/");
+        const std::filesystem::path p = m_icon_asset_root / sub;
+        if (std::filesystem::is_regular_file(p, path_error))
+        {
+            return p;
+        }
+    }
+
+    // 2. Direct filename under m_icon_asset_root (e.g. folder.svg, git-branch.svg)
+    const std::filesystem::path root_file = m_icon_asset_root / filename;
+    if (std::filesystem::is_regular_file(root_file, path_error))
+    {
+        return root_file;
+    }
+
+    // 3. material-icon-theme subdirectory (e.g. shader.svg, cpp.svg)
+    const std::filesystem::path material_file = m_icon_asset_root / "material-icon-theme" / filename;
+    if (std::filesystem::is_regular_file(material_file, path_error))
+    {
+        return material_file;
+    }
+
+    // 4. vscode-symbols subdirectories (with and without icons/)
+    const std::filesystem::path symbol_file = m_icon_asset_root / "vscode-symbols" / "icons" / "files" / filename;
+    if (std::filesystem::is_regular_file(symbol_file, path_error))
+    {
+        return symbol_file;
+    }
+    const std::filesystem::path symbol_folder = m_icon_asset_root / "vscode-symbols" / "icons" / "folders" / filename;
+    if (std::filesystem::is_regular_file(symbol_folder, path_error))
+    {
+        return symbol_folder;
+    }
+    const std::filesystem::path symbol_file_legacy = m_icon_asset_root / "vscode-symbols" / "files" / filename;
+    if (std::filesystem::is_regular_file(symbol_file_legacy, path_error))
+    {
+        return symbol_file_legacy;
+    }
+
+    // 5. vscode-codicons subdirectory
+    const std::filesystem::path codicon_file = m_icon_asset_root / "vscode-codicons" / "icons" / filename;
+    if (std::filesystem::is_regular_file(codicon_file, path_error))
+    {
+        return codicon_file;
+    }
+
+    // 6. vscode-icons subdirectory
+    const std::filesystem::path vsicon_file = m_icon_asset_root / "vscode-icons" / "icons" / filename;
+    if (std::filesystem::is_regular_file(vsicon_file, path_error))
+    {
+        return vsicon_file;
+    }
+
+    // 7. Final fallback check on original path
+    if (std::filesystem::is_regular_file(input_path, path_error))
+    {
+        return input_path;
+    }
+
+    return {};
 }
 
 void StudioWorkspaceRenderer::store_cached_image(const std::string& key, CGImageRef image) const
@@ -1462,15 +1641,12 @@ void StudioWorkspaceRenderer::draw_svg_icon(
     {
         return;
     }
-    if (!preserve_source_colors)
-    {
-        const std::string path_str = resolved_path.string();
-        if (path_str.find("vscode-symbols/icons/files") != std::string::npos ||
-            path_str.find("vscode-symbols/files") != std::string::npos)
-        {
-            preserve_source_colors = true;
-        }
-    }
+    preserve_source_colors =
+        preserve_source_colors &&
+        (resolved_path.parent_path().filename() == "material-icon-theme" ||
+         resolved_path.string().find("material-icon-theme") != std::string::npos ||
+         resolved_path.string().find("vscode-symbols") != std::string::npos ||
+         resolved_path.string().find("vscode-icons") != std::string::npos);
 
     const std::string cache_key = resolved_path.string() + "@" + std::to_string(size) + "#" +
         color_to_hex(color) + "/" + color_to_hex(background) + (preserve_source_colors ? "_p" : "");

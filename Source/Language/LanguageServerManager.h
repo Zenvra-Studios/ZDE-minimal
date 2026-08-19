@@ -32,6 +32,9 @@ public:
     void on_document_saved(const std::string& uri, std::string_view filename);
     void on_document_closed(const std::string& uri, std::string_view filename);
 
+    static std::vector<Protocol::CompletionItem> get_templates_for_filename(std::string_view filename);
+    static std::vector<Protocol::CompletionItem> get_header_completions(std::string_view line_prefix, const std::filesystem::path& workspace_root = {});
+
     /// LSP queries (Powered purely by the real binary LSP e.g. clangd.exe)
     void request_completion(
         const std::string& uri,

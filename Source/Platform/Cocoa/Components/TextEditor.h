@@ -96,6 +96,13 @@ public:
     [[nodiscard]] bool is_split_resizing() const noexcept { return m_is_resizing_split; }
     [[nodiscard]] bool is_split_active() const noexcept { return m_is_split && m_split_document_index.has_value(); }
     void reset_split() noexcept;
+    void split_editor() noexcept;
+    void close_all_documents();
+    void close_saved_documents();
+    bool switch_header_source();
+    bool format_document();
+    bool go_to_definition();
+    bool select_all_occurrences();
     [[nodiscard]] UI::Editor::TextDocumentModel* get_focused_document() noexcept;
     [[nodiscard]] const UI::Editor::TextDocumentModel* get_focused_document() const noexcept;
     [[nodiscard]] SplitPaneFocus get_focused_pane() const noexcept { return m_focused_pane; }
