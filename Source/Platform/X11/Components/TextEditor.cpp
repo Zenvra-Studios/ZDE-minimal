@@ -3321,9 +3321,36 @@ void TextEditor::render_pane(
         static_cast<float>(surface.m_editor_font->getTextWidth(line));
     max_line_w = std::max(max_line_w, line_width);
 
+    const auto line_diags = doc->get_diagnostics_for_line(line_index);
+    auto get_effective_token_color = [&](UI::Editor::EditorTokenKind kind,
+                                         std::size_t tok_start,
+                                         std::size_t tok_len) -> const std::string & {
+      bool is_unnecessary = false;
+      for (const auto &d : line_diags) {
+        if (d.is_unnecessary()) {
+          const std::size_t d_start =
+              (d.range.start.line == line_index) ? d.range.start.character : 0;
+          const std::size_t d_end =
+              (d.range.end.line == line_index)
+                  ? (d.range.end.character == 0 ? line.size()
+                                                : d.range.end.character)
+                  : line.size();
+          if (tok_start < d_end && (tok_start + tok_len) > d_start) {
+            is_unnecessary = true;
+            break;
+          }
+        }
+      }
+      if (is_unnecessary) {
+        return surface.m_text.muted;
+      }
+      return token_color(kind);
+    };
+
     // Text rendering with syntax highlighting and clip rect
     if (syntax_highlighting) {
       float token_x = code_x;
+      std::size_t rendered_bytes = 0;
       std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens>
           tokens{};
       const std::size_t token_count = UI::Editor::tokenize_editor_line(
@@ -3331,34 +3358,196 @@ void TextEditor::render_pane(
       for (std::size_t token_index = 0; token_index < token_count;
            ++token_index) {
         const auto &tok = tokens[token_index];
+        const std::size_t tok_len = tok.text.size();
         if (token_x < code_limit) {
-          surface.draw_text(drawable, *surface.m_editor_font, tok.text,
-                            token_x, center_y, token_color(tok.kind),
-                            &code_clip);
+          surface.draw_text(
+              drawable, *surface.m_editor_font, tok.text, token_x, center_y,
+              get_effective_token_color(tok.kind, rendered_bytes, tok_len),
+              &code_clip);
         }
         token_x += static_cast<float>(
             surface.m_editor_font->getTextWidth(tok.text));
+        rendered_bytes += tok_len;
       }
     } else {
-      surface.draw_text(drawable, *surface.m_editor_font, line, code_x,
-                        center_y, surface.m_text.primary, &code_clip);
+      bool is_unnecessary = false;
+      for (const auto &d : line_diags) {
+        if (d.is_unnecessary()) {
+          is_unnecessary = true;
+          break;
+        }
+      }
+      surface.draw_text(
+          drawable, *surface.m_editor_font, line, code_x, center_y,
+          is_unnecessary ? surface.m_text.muted : surface.m_text.primary,
+          &code_clip);
     }
 
-    // Diagnostics squiggles
-    for (const auto &diag : doc->get_diagnostics()) {
-      if (static_cast<std::size_t>(diag.range.start.line) == line_index) {
-        const unsigned long diag_color =
-            (diag.severity == Language::Protocol::DiagnosticSeverity::Error)
-                ? surface.allocate_color(UI::Theme::Color{247, 84, 100, 255})
-                : surface.allocate_color(UI::Theme::Color{240, 167, 50, 255});
-        const float diag_w = std::min(
-            static_cast<float>(surface.m_editor_font->getTextWidth(line)),
-            std::max(code_limit - code_x, 0.0F));
-        surface.draw_line(
-            drawable, round_to_int(code_x),
-            round_to_int(line_y + line_h - 2.0F),
-            round_to_int(code_x + diag_w),
-            round_to_int(line_y + line_h - 2.0F), diag_color);
+    // Diagnostics squiggles under erroneous tokens (crisp sinusoidal wavy squiggle)
+    for (const auto &diag : line_diags) {
+      if (diag.is_unnecessary()) {
+        continue; // Unnecessary/unused code is dimmed/faded without distracting squiggles
+      }
+      std::size_t start_col =
+          diag.range.start.line == line_index ? diag.range.start.character : 0;
+      std::size_t end_col =
+          diag.range.end.line == line_index ? diag.range.end.character : line.size();
+      if (end_col > line.size())
+        end_col = line.size();
+      if (start_col >= end_col)
+        end_col = std::min(start_col + 1, line.size());
+
+      float diag_start_x = code_x;
+      if (start_col > 0 && start_col <= line.size()) {
+        diag_start_x += static_cast<float>(
+            surface.m_editor_font->getTextWidth(line.substr(0, start_col)));
+      }
+      float diag_width = 8.0F * scale;
+      if (end_col > start_col && start_col < line.size()) {
+        diag_width = static_cast<float>(
+            surface.m_editor_font->getTextWidth(line.substr(start_col, end_col - start_col)));
+      }
+
+      const unsigned long squiggle_color =
+          (diag.severity == Language::Protocol::DiagnosticSeverity::Error)
+              ? surface.allocate_color(UI::Theme::Color{247, 84, 100, 255})
+              : (diag.severity == Language::Protocol::DiagnosticSeverity::Warning
+                     ? surface.allocate_color(UI::Theme::Color{240, 167, 50, 255})
+                     : surface.allocate_color(UI::Theme::Color{86, 182, 194, 255}));
+
+      // Draw crisp sinusoidal wavy squiggle
+      float wave_x = diag_start_x;
+      const float wave_end_x =
+          std::min(diag_start_x + std::max(diag_width, 6.0F * scale), code_limit);
+      const float wave_y = center_y + line_h * 0.42F;
+      const float wave_step = 3.0F * scale;
+      const float wave_amp = 1.5F * scale;
+      bool wave_up = true;
+      while (wave_x < wave_end_x) {
+        const float next_x = std::min(wave_x + wave_step, wave_end_x);
+        const float y1 = wave_up ? (wave_y - wave_amp) : (wave_y + wave_amp);
+        const float y2 = wave_up ? (wave_y + wave_amp) : (wave_y - wave_amp);
+        surface.draw_line(drawable, round_to_int(wave_x), round_to_int(y1),
+                          round_to_int(next_x), round_to_int(y2),
+                          squiggle_color);
+        wave_x = next_x;
+        wave_up = !wave_up;
+      }
+    }
+
+    // Render Modern Flat Inline Diagnostic Lens (flex-centered matching Win32)
+    if (!line_diags.empty()) {
+      const auto *top_diag = &line_diags[0];
+      for (const auto &d : line_diags) {
+        if (d.severity < top_diag->severity) {
+          top_diag = &d;
+        }
+      }
+
+      if (!top_diag->is_unnecessary()) {
+
+      UI::Theme::Color badge_bg{44, 20, 26, 210};
+      UI::Theme::Color badge_border{247, 84, 100, 80};
+      UI::Theme::Color badge_fg{255, 120, 135, 255};
+      UI::Theme::Color icon_color{247, 84, 100, 255};
+      std::string icon_asset = "Assets/icons/diagnostic-error.svg";
+
+      if (top_diag->severity == Language::Protocol::DiagnosticSeverity::Warning) {
+        badge_bg = UI::Theme::Color{44, 32, 14, 210};
+        badge_border = UI::Theme::Color{240, 167, 50, 80};
+        badge_fg = UI::Theme::Color{250, 188, 80, 255};
+        icon_color = UI::Theme::Color{240, 167, 50, 255};
+        icon_asset = "Assets/icons/diagnostic-warning.svg";
+      } else if (top_diag->severity >=
+                 Language::Protocol::DiagnosticSeverity::Information) {
+        badge_bg = UI::Theme::Color{18, 34, 46, 210};
+        badge_border = UI::Theme::Color{86, 182, 194, 80};
+        badge_fg = UI::Theme::Color{105, 210, 225, 255};
+        icon_color = UI::Theme::Color{86, 182, 194, 255};
+        icon_asset = "Assets/icons/diagnostic-info.svg";
+      }
+
+      std::string msg = top_diag->message;
+      for (char &ch : msg) {
+        if (ch == '\r' || ch == '\n')
+          ch = ' ';
+      }
+
+      const bool is_collapsed =
+          (folding.get_marker(line_index) ==
+           UI::Components::FoldMarker::Collapsed);
+      const float lens_start_x =
+          code_x + line_width + (is_collapsed ? 42.0F * scale : 20.0F * scale);
+      const float avail_w =
+          std::max(code_limit - lens_start_x - 16.0F * scale, 80.0F * scale);
+
+      const float pad_x = 8.0F * scale;
+      const float icon_size = 12.0F * scale;
+      const float gap = 6.0F * scale;
+
+      int msg_w = surface.m_ui_font->getTextWidth(msg);
+      const float max_msg_w =
+          std::max(avail_w - (pad_x * 2.0F + icon_size + gap), 40.0F * scale);
+      if (static_cast<float>(msg_w) > max_msg_w && msg.size() > 8) {
+        while (msg.size() > 4 &&
+               static_cast<float>(surface.m_ui_font->getTextWidth(msg + "...")) >
+                   max_msg_w) {
+          msg.pop_back();
+        }
+        msg += "...";
+        msg_w = surface.m_ui_font->getTextWidth(msg);
+      }
+
+      const float badge_w =
+          pad_x + icon_size + gap + static_cast<float>(msg_w) + pad_x;
+      const float badge_h = 18.0F * scale;
+      const UI::Rect badge_rect{lens_start_x, center_y - badge_h * 0.5F,
+                                badge_w, badge_h};
+
+      if (badge_rect.x < code_limit) {
+        // 1. Flat Pill Background + Subtle Border
+        surface.fill_rounded_rectangle(drawable, badge_rect,
+                                       surface.allocate_color(badge_bg),
+                                       4.0F * scale);
+        surface.draw_rounded_rectangle(drawable, badge_rect,
+                                       surface.allocate_color(badge_border),
+                                       4.0F * scale);
+
+        // 2. Vector SVG Icon (flex-centered)
+        const int icon_cx =
+            round_to_int(lens_start_x + pad_x + icon_size * 0.5F);
+        const int icon_cy = round_to_int(center_y);
+        surface.draw_svg_icon(
+            drawable, icon_asset, icon_cx, icon_cy,
+            std::max(round_to_int(icon_size), 10), icon_color, badge_bg);
+
+        // 3. Message Text (flex-centered vertically)
+        const float text_x = lens_start_x + pad_x + icon_size + gap;
+        surface.draw_text(drawable, *surface.m_ui_font, msg, text_x, center_y,
+                          badge_fg, &code_clip);
+      }
+      }
+    }
+
+    // Collapsed code placeholder badge (...)
+    if (folding.get_marker(line_index) == UI::Components::FoldMarker::Collapsed) {
+      const float badge_x = code_x + line_width + 8.0F * scale;
+      const float badge_w = 26.0F * scale;
+      const float badge_h = 16.0F * scale;
+      const UI::Rect badge_rect{badge_x, center_y - badge_h * 0.5F, badge_w,
+                                badge_h};
+      if (badge_rect.x < code_limit) {
+        surface.fill_rounded_rectangle(
+            drawable, badge_rect,
+            surface.allocate_color(UI::Theme::Color{45, 50, 65, 230}),
+            3.0F * scale);
+        surface.draw_rounded_rectangle(
+            drawable, badge_rect,
+            surface.allocate_color(UI::Theme::Color{75, 84, 110, 255}),
+            3.0F * scale);
+        surface.draw_text(drawable, *surface.m_small_font, "...",
+                          badge_x + 6.0F * scale, center_y,
+                          UI::Theme::Color{210, 215, 230, 255}, &code_clip);
       }
     }
 

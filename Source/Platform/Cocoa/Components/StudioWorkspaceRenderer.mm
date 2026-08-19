@@ -609,6 +609,14 @@ std::optional<bool> StudioWorkspaceRenderer::handle_editor_command(std::string_v
         static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::Services));
         return true;
     }
+    if (command_id == Commands::CommandIds::open_settings ||
+        command_id == Commands::CommandIds::open_themes ||
+        command_id == Commands::CommandIds::more_tools)
+    {
+        m_tool_sidebar.get_model().set_visible(true);
+        static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::More));
+        return true;
+    }
     const auto res = m_text_editor.handle_command(command_id);
     if (res.has_value() && *res)
     {
@@ -636,7 +644,11 @@ std::optional<bool> StudioWorkspaceRenderer::is_editor_command_enabled(
         command_id == Commands::CommandIds::view_search ||
         command_id == Commands::CommandIds::view_git_panel ||
         command_id == Commands::CommandIds::view_debugger_panel ||
-        command_id == Commands::CommandIds::open_plugins)
+        command_id == Commands::CommandIds::open_plugins ||
+        command_id == Commands::CommandIds::open_settings ||
+        command_id == Commands::CommandIds::open_themes ||
+        command_id == Commands::CommandIds::more_tools ||
+        command_id == Commands::CommandIds::edit_profiles)
     {
         return true;
     }

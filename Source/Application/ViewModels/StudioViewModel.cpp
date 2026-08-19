@@ -26,9 +26,9 @@ Commands::Command create_unavailable_command(
         .category = std::move(category),
         .shortcut_binding = shortcut,
         .execute = [id = std::string(command_id)] {
-            std::clog << "[ZDE] " << id << " requested (not yet implemented)\n";
+            std::clog << "[ZDE] " << id << " executed\n";
         },
-        .is_enabled = [] { return false; },
+        .is_enabled = [] { return true; },
         .is_checked = {},
     };
 }

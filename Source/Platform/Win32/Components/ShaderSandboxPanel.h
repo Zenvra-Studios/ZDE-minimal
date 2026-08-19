@@ -107,9 +107,14 @@ private:
     bool m_hover_snapshot = false;
     bool m_hover_splitter = false;
     bool m_viewport_mouse_down = false;
+
     mutable UI::Rect m_header_close_bounds{};
     mutable UI::Rect m_header_preset_bounds{};
-    mutable UI::Rect m_controls_backend_bounds{};
+    mutable UI::Rect m_ctrl_play_bounds{};
+    mutable UI::Rect m_ctrl_reset_bounds{};
+    mutable UI::Rect m_ctrl_scale_bounds{};
+    mutable UI::Rect m_ctrl_backend_bounds{};
+    mutable UI::Rect m_ctrl_snapshot_bounds{};
 };
 
 } // namespace Zenvra::Platform::Win32::Components

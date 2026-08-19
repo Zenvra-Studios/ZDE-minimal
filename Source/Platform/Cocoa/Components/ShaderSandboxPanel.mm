@@ -109,68 +109,46 @@ bool ShaderSandboxPanel::handle_pointer_press(
         return true;
     }
 
-    // Header buttons
-    const float scale = layout.dpi_scale;
-    const UI::Rect& header = layout.shader_panel_header_bounds;
-    const UI::Rect close_btn{
-        header.right() - 26.0F * scale,
-        header.y + (header.height - 20.0F * scale) * 0.5F,
-        20.0F * scale,
-        20.0F * scale};
-    if (close_btn.contains(point_x, point_y))
+    // Header buttons (use member bounds set during render)
+    if (m_header_close_bounds.contains(point_x, point_y))
     {
         m_visible = false;
         return true;
     }
 
     // Preset selector button in header
-    const UI::Rect preset_btn{
-        header.right() - 110.0F * scale,
-        header.y + (header.height - 20.0F * scale) * 0.5F,
-        80.0F * scale,
-        20.0F * scale};
-    if (preset_btn.contains(point_x, point_y))
+    if (m_header_preset_bounds.contains(point_x, point_y))
     {
         next_preset();
         return true;
     }
 
-    // Controls toolbar buttons
-    const UI::Rect& ctrl = layout.shader_panel_controls_bounds;
-    const float btn_w = 26.0F * scale;
-    const float btn_h = 24.0F * scale;
-    const float btn_y = ctrl.y + (ctrl.height - btn_h) * 0.5F;
-
-    const UI::Rect play_btn{ctrl.x + 8.0F * scale, btn_y, btn_w, btn_h};
-    if (play_btn.contains(point_x, point_y))
+    // Controls toolbar buttons (use member bounds set during render)
+    if (m_ctrl_play_bounds.contains(point_x, point_y))
     {
         m_engine.toggle_playback();
         return true;
     }
 
-    const UI::Rect reset_btn{ctrl.x + 38.0F * scale, btn_y, btn_w, btn_h};
-    if (reset_btn.contains(point_x, point_y))
+    if (m_ctrl_reset_bounds.contains(point_x, point_y))
     {
         m_engine.reset_time();
         return true;
     }
 
-    const UI::Rect scale_btn{ctrl.x + 68.0F * scale, btn_y, 48.0F * scale, btn_h};
-    if (scale_btn.contains(point_x, point_y))
+    if (m_ctrl_scale_bounds.contains(point_x, point_y))
     {
         m_engine.cycle_resolution_scale();
         return true;
     }
 
-    const UI::Rect backend_btn{ctrl.x + 120.0F * scale, btn_y, 44.0F * scale, btn_h};
-    if (backend_btn.contains(point_x, point_y))
+    if (m_ctrl_backend_bounds.contains(point_x, point_y))
     {
         m_engine.toggle_render_backend();
         return true;
     }
 
-    const UI::Rect snap_btn{ctrl.right() - 34.0F * scale, btn_y, btn_w, btn_h};
-    if (snap_btn.contains(point_x, point_y))
+    if (m_ctrl_snapshot_bounds.contains(point_x, point_y))
     {
         static_cast<void>(m_engine.export_snapshot_bmp("shader_artwork.bmp"));
         return true;
@@ -189,10 +167,6 @@ bool ShaderSandboxPanel::handle_pointer_move(
         return false;
     }
 
-    const float scale = layout.dpi_scale;
-    const UI::Rect& header = layout.shader_panel_header_bounds;
-    const UI::Rect& ctrl = layout.shader_panel_controls_bounds;
-
     const bool prev_close = m_hover_close;
     const bool prev_preset = m_hover_preset;
     const bool prev_play = m_hover_play;
@@ -204,29 +178,15 @@ bool ShaderSandboxPanel::handle_pointer_move(
 
     m_hover_splitter = is_resize_handle_point(layout, point_x, point_y);
 
-    const UI::Rect close_btn{
-        header.right() - 26.0F * scale,
-        header.y + (header.height - 20.0F * scale) * 0.5F,
-        20.0F * scale,
-        20.0F * scale};
-    m_hover_close = close_btn.contains(point_x, point_y);
+    m_hover_close = m_header_close_bounds.contains(point_x, point_y);
+    m_hover_preset = m_header_preset_bounds.contains(point_x, point_y);
 
-    const UI::Rect preset_btn{
-        header.right() - 110.0F * scale,
-        header.y + (header.height - 20.0F * scale) * 0.5F,
-        80.0F * scale,
-        20.0F * scale};
-    m_hover_preset = preset_btn.contains(point_x, point_y);
-
-    const float btn_w = 26.0F * scale;
-    const float btn_h = 24.0F * scale;
-    const float btn_y = ctrl.y + (ctrl.height - btn_h) * 0.5F;
-
-    m_hover_play = UI::Rect{ctrl.x + 8.0F * scale, btn_y, btn_w, btn_h}.contains(point_x, point_y);
-    m_hover_reset = UI::Rect{ctrl.x + 38.0F * scale, btn_y, btn_w, btn_h}.contains(point_x, point_y);
-    m_hover_scale = UI::Rect{ctrl.x + 68.0F * scale, btn_y, 48.0F * scale, btn_h}.contains(point_x, point_y);
-    m_hover_backend = UI::Rect{ctrl.x + 120.0F * scale, btn_y, 44.0F * scale, btn_h}.contains(point_x, point_y);
-    m_hover_snapshot = UI::Rect{ctrl.right() - 34.0F * scale, btn_y, btn_w, btn_h}.contains(point_x, point_y);
+    // Use member bounds set during render for perfect sync
+    m_hover_play = m_ctrl_play_bounds.contains(point_x, point_y);
+    m_hover_reset = m_ctrl_reset_bounds.contains(point_x, point_y);
+    m_hover_scale = m_ctrl_scale_bounds.contains(point_x, point_y);
+    m_hover_backend = m_ctrl_backend_bounds.contains(point_x, point_y);
+    m_hover_snapshot = m_ctrl_snapshot_bounds.contains(point_x, point_y);
 
     if (m_viewport_mouse_down && layout.shader_panel_viewport_bounds.contains(point_x, point_y))
     {
@@ -415,42 +375,60 @@ void ShaderSandboxPanel::render_header(
     surface.draw_text(context, *surface.m_small_font, fps_ss.str(),
         header.x + 130.0F * scale, dot_y, surface.m_text.muted);
 
-    // Preset selector button
+    // Preset selector button (dynamic width)
     const auto presets = Services::Shader::ShaderCompiler::get_starter_presets();
     std::string preset_name = "Presets";
     if (m_engine.get_active_preset_index() < presets.size())
     {
         preset_name = presets[m_engine.get_active_preset_index()].name;
     }
-    const UI::Rect preset_btn{
-        header.right() - 120.0F * scale,
-        header.y + (header.height - 20.0F * scale) * 0.5F,
-        86.0F * scale,
-        20.0F * scale};
-    surface.fill_rounded_rectangle(context, preset_btn,
-        m_hover_preset ? surface.m_colors.hover_background : surface.m_colors.sidebar_background,
-        3.0F * scale);
-    surface.draw_rectangle(context, preset_btn, surface.m_colors.border);
-    surface.draw_text(context, *surface.m_small_font, preset_name,
-        preset_btn.x + 6.0F * scale, dot_y,
-        m_hover_preset ? "#FFFFFF" : surface.m_text.primary, &preset_btn);
+    const int text_w = surface.m_small_font
+        ? surface.m_small_font->getTextWidth(preset_name)
+        : round_to_int(80.0F * scale);
+    const float preset_w = std::clamp(static_cast<float>(text_w) + 26.0F * scale,
+                                      90.0F * scale, 160.0F * scale);
 
-    // Close button
-    const UI::Rect close_btn{
-        header.right() - 26.0F * scale,
-        header.y + (header.height - 20.0F * scale) * 0.5F,
-        20.0F * scale,
-        20.0F * scale};
+    // Close button (far right of header)
+    const float close_btn_w = 22.0F * scale;
+    const float close_btn_h = 22.0F * scale;
+    m_header_close_bounds = UI::Rect{
+        header.right() - close_btn_w - 6.0F * scale,
+        header.y + (header.height - close_btn_h) * 0.5F,
+        close_btn_w,
+        close_btn_h};
     if (m_hover_close)
     {
-        surface.fill_rounded_rectangle(context, close_btn, surface.m_colors.hover_background, 3.0F * scale);
+        surface.fill_rounded_rectangle(context, m_header_close_bounds, surface.m_colors.hover_background, 4.0F * scale);
     }
-    surface.draw_svg_icon(context, "Assets/icons/diagnostic-error.svg",
-        round_to_int(close_btn.x + close_btn.width * 0.5F),
-        round_to_int(close_btn.y + close_btn.height * 0.5F),
-        round_to_int(12.0F * scale),
+    surface.draw_svg_icon(context, "Assets/icons/close-minimal.svg",
+        round_to_int(m_header_close_bounds.x + m_header_close_bounds.width * 0.5F),
+        round_to_int(m_header_close_bounds.y + m_header_close_bounds.height * 0.5F),
+        std::max(round_to_int(10.0F * scale), 8),
         m_hover_close ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
         surface.m_palette.tab_background,
+        false);
+
+    // Preset button (positioned left of close)
+    const float preset_x = m_header_close_bounds.x - preset_w - 6.0F * scale;
+    m_header_preset_bounds = UI::Rect{
+        preset_x,
+        header.y + (header.height - 22.0F * scale) * 0.5F,
+        preset_w,
+        22.0F * scale};
+    surface.fill_rounded_rectangle(context, m_header_preset_bounds,
+        m_hover_preset ? surface.m_colors.hover_background : surface.m_colors.sidebar_background,
+        4.0F * scale);
+    surface.draw_rectangle(context, m_header_preset_bounds, surface.m_colors.border);
+    surface.draw_text(context, *surface.m_small_font, preset_name,
+        m_header_preset_bounds.x + 8.0F * scale, dot_y,
+        m_hover_preset ? "#FFFFFF" : surface.m_text.primary, &m_header_preset_bounds);
+    // Chevron indicator
+    surface.draw_svg_icon(context, "Assets/icons/chevron-down.svg",
+        round_to_int(m_header_preset_bounds.right() - 10.0F * scale),
+        round_to_int(dot_y),
+        std::max(round_to_int(8.0F * scale), 6),
+        surface.m_palette.text_muted,
+        surface.m_palette.sidebar_background,
         false);
 }
 
@@ -547,44 +525,66 @@ void ShaderSandboxPanel::render_controls(
         surface.m_colors.border);
 
     const float btn_w = 26.0F * scale;
-    const float btn_h = 24.0F * scale;
+    const float btn_h = 22.0F * scale;
     const float btn_y = ctrl.y + (ctrl.height - btn_h) * 0.5F;
 
     // Play/Pause button
-    const UI::Rect play_btn{ctrl.x + 8.0F * scale, btn_y, btn_w, btn_h};
-    if (m_hover_play)
+    m_ctrl_play_bounds = UI::Rect{ctrl.x + 8.0F * scale, btn_y, btn_w, btn_h};
+    surface.fill_rounded_rectangle(context, m_ctrl_play_bounds,
+        m_hover_play ? surface.m_colors.hover_background : surface.m_colors.sidebar_background,
+        4.0F * scale);
+    surface.draw_rectangle(context, m_ctrl_play_bounds, surface.m_colors.border);
     {
-        surface.fill_rounded_rectangle(context, play_btn, surface.m_colors.hover_background, 3.0F * scale);
+        const float cx = m_ctrl_play_bounds.x + m_ctrl_play_bounds.width * 0.5F;
+        const float cy = m_ctrl_play_bounds.y + m_ctrl_play_bounds.height * 0.5F;
+        if (m_engine.is_playing())
+        {
+            // Elegant two vertical pause bars
+            const float bar_w = 2.5F * scale;
+            const float bar_h = 9.0F * scale;
+            const float bar_gap = 2.0F * scale;
+            const UI::Theme::Color bar_color = m_hover_play
+                ? surface.m_palette.accent
+                : UI::Theme::Color{255, 255, 255, 255};
+            surface.fill_rounded_rectangle(context,
+                UI::Rect{cx - bar_gap - bar_w, cy - bar_h * 0.5F, bar_w, bar_h},
+                bar_color, 1.0F * scale);
+            surface.fill_rounded_rectangle(context,
+                UI::Rect{cx + bar_gap, cy - bar_h * 0.5F, bar_w, bar_h},
+                bar_color, 1.0F * scale);
+        }
+        else
+        {
+            surface.draw_svg_icon(context,
+                "Assets/icons/play.svg",
+                round_to_int(cx), round_to_int(cy),
+                std::max(round_to_int(11.0F * scale), 9),
+                m_hover_play ? surface.m_palette.accent : UI::Theme::Color{255, 255, 255, 255},
+                surface.m_palette.tab_background,
+                false);
+        }
     }
-    surface.draw_svg_icon(context,
-        m_engine.is_playing() ? "Assets/icons/close-minimal.svg" : "Assets/icons/play.svg",
-        round_to_int(play_btn.x + btn_w * 0.5F),
-        round_to_int(btn_y + btn_h * 0.5F),
-        round_to_int(13.0F * scale),
-        m_hover_play ? surface.m_palette.accent : UI::Theme::Color{255, 255, 255, 255},
-        surface.m_palette.tab_background,
-        false);
 
     // Reset Time button
-    const UI::Rect reset_btn{ctrl.x + 38.0F * scale, btn_y, btn_w, btn_h};
-    if (m_hover_reset)
-    {
-        surface.fill_rounded_rectangle(context, reset_btn, surface.m_colors.hover_background, 3.0F * scale);
-    }
+    m_ctrl_reset_bounds = UI::Rect{m_ctrl_play_bounds.right() + 4.0F * scale, btn_y, btn_w, btn_h};
+    surface.fill_rounded_rectangle(context, m_ctrl_reset_bounds,
+        m_hover_reset ? surface.m_colors.hover_background : surface.m_colors.sidebar_background,
+        4.0F * scale);
+    surface.draw_rectangle(context, m_ctrl_reset_bounds, surface.m_colors.border);
     surface.draw_svg_icon(context, "Assets/icons/refresh.svg",
-        round_to_int(reset_btn.x + btn_w * 0.5F),
-        round_to_int(btn_y + btn_h * 0.5F),
-        round_to_int(13.0F * scale),
-        m_hover_reset ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
+        round_to_int(m_ctrl_reset_bounds.x + m_ctrl_reset_bounds.width * 0.5F),
+        round_to_int(m_ctrl_reset_bounds.y + m_ctrl_reset_bounds.height * 0.5F),
+        std::max(round_to_int(11.0F * scale), 9),
+        m_hover_reset ? surface.m_palette.accent : surface.m_palette.text_muted,
         surface.m_palette.tab_background,
         false);
 
     // Resolution scale badge button (1x, 0.5x, 0.25x)
-    const UI::Rect scale_btn{ctrl.x + 68.0F * scale, btn_y, 48.0F * scale, btn_h};
-    surface.fill_rounded_rectangle(context, scale_btn,
+    m_ctrl_scale_bounds = UI::Rect{m_ctrl_reset_bounds.right() + 4.0F * scale, btn_y, 44.0F * scale, btn_h};
+    surface.fill_rounded_rectangle(context, m_ctrl_scale_bounds,
         m_hover_scale ? surface.m_colors.hover_background : surface.m_colors.sidebar_background,
-        3.0F * scale);
-    surface.draw_rectangle(context, scale_btn, surface.m_colors.border);
+        4.0F * scale);
+    surface.draw_rectangle(context, m_ctrl_scale_bounds, surface.m_colors.border);
     std::string scale_str = "1.0x";
     switch (m_engine.get_resolution_scale())
     {
@@ -592,40 +592,49 @@ void ShaderSandboxPanel::render_controls(
     case Services::Shader::ResolutionScale::Half: scale_str = "0.5x"; break;
     case Services::Shader::ResolutionScale::Quarter: scale_str = "0.25x"; break;
     }
-    surface.draw_text(context, *surface.m_small_font, scale_str,
-        scale_btn.x + 6.0F * scale, btn_y + btn_h * 0.5F,
-        m_hover_scale ? surface.m_text.accent : surface.m_text.muted,
-        &scale_btn);
+    {
+        const int sw = surface.m_small_font ? surface.m_small_font->getTextWidth(scale_str) : round_to_int(24.0F * scale);
+        const float sx = m_ctrl_scale_bounds.x + (m_ctrl_scale_bounds.width - static_cast<float>(sw)) * 0.5F;
+        surface.draw_text(context, *surface.m_small_font, scale_str,
+            sx, btn_y + btn_h * 0.5F,
+            m_hover_scale ? surface.m_text.accent : surface.m_text.muted,
+            &m_ctrl_scale_bounds);
+    }
 
     // Backend toggle badge button (CPU / GPU)
-    const UI::Rect backend_btn{ctrl.x + 120.0F * scale, btn_y, 44.0F * scale, btn_h};
+    m_ctrl_backend_bounds = UI::Rect{m_ctrl_scale_bounds.right() + 4.0F * scale, btn_y, 40.0F * scale, btn_h};
     const bool is_gpu = (m_engine.get_render_backend() == Services::Shader::RenderBackend::Gpu);
-    surface.fill_rounded_rectangle(context, backend_btn,
+    surface.fill_rounded_rectangle(context, m_ctrl_backend_bounds,
         m_hover_backend ? surface.m_colors.hover_background : surface.m_colors.sidebar_background,
-        3.0F * scale);
-    surface.draw_rectangle(context, backend_btn, surface.m_colors.border);
-    surface.draw_text(context, *surface.m_small_font, is_gpu ? "GPU" : "CPU",
-        backend_btn.x + 8.0F * scale, btn_y + btn_h * 0.5F,
-        is_gpu ? std::string("#50DC8C") : (m_hover_backend ? surface.m_text.accent : surface.m_text.muted),
-        &backend_btn);
+        4.0F * scale);
+    surface.draw_rectangle(context, m_ctrl_backend_bounds, surface.m_colors.border);
+    {
+        const std::string backend_str = is_gpu ? "GPU" : "CPU";
+        const int bw = surface.m_small_font ? surface.m_small_font->getTextWidth(backend_str) : round_to_int(20.0F * scale);
+        const float bx = m_ctrl_backend_bounds.x + (m_ctrl_backend_bounds.width - static_cast<float>(bw)) * 0.5F;
+        surface.draw_text(context, *surface.m_small_font, backend_str,
+            bx, btn_y + btn_h * 0.5F,
+            is_gpu ? std::string("#50DC8C") : (m_hover_backend ? surface.m_text.accent : surface.m_text.muted),
+            &m_ctrl_backend_bounds);
+    }
 
     // Time & Frame indicator
     std::ostringstream time_ss;
     time_ss << std::fixed << std::setprecision(1) << m_engine.get_time() << "s | f" << m_engine.get_frame();
     surface.draw_text(context, *surface.m_small_font, time_ss.str(),
-        ctrl.x + 172.0F * scale, btn_y + btn_h * 0.5F, surface.m_text.muted);
+        m_ctrl_backend_bounds.right() + 10.0F * scale, btn_y + btn_h * 0.5F, surface.m_text.muted);
 
     // Snapshot button
-    const UI::Rect snap_btn{ctrl.right() - 34.0F * scale, btn_y, btn_w, btn_h};
-    if (m_hover_snapshot)
-    {
-        surface.fill_rounded_rectangle(context, snap_btn, surface.m_colors.hover_background, 3.0F * scale);
-    }
+    m_ctrl_snapshot_bounds = UI::Rect{ctrl.right() - btn_w - 8.0F * scale, btn_y, btn_w, btn_h};
+    surface.fill_rounded_rectangle(context, m_ctrl_snapshot_bounds,
+        m_hover_snapshot ? surface.m_colors.hover_background : surface.m_colors.sidebar_background,
+        4.0F * scale);
+    surface.draw_rectangle(context, m_ctrl_snapshot_bounds, surface.m_colors.border);
     surface.draw_svg_icon(context, "Assets/icons/build.svg",
-        round_to_int(snap_btn.x + btn_w * 0.5F),
-        round_to_int(btn_y + btn_h * 0.5F),
-        round_to_int(13.0F * scale),
-        m_hover_snapshot ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
+        round_to_int(m_ctrl_snapshot_bounds.x + m_ctrl_snapshot_bounds.width * 0.5F),
+        round_to_int(m_ctrl_snapshot_bounds.y + m_ctrl_snapshot_bounds.height * 0.5F),
+        std::max(round_to_int(11.0F * scale), 9),
+        m_hover_snapshot ? surface.m_palette.accent : surface.m_palette.text_muted,
         surface.m_palette.tab_background,
         false);
 }

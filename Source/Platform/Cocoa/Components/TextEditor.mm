@@ -2463,6 +2463,25 @@ void TextEditor::render_pane(
             return surface.m_text.primary;
         };
 
+        const auto line_diags = document->get_diagnostics_for_line(line_index);
+        auto get_effective_token_color = [&](UI::Editor::EditorTokenKind kind, std::size_t tok_start, std::size_t tok_len) -> const std::string & {
+            bool is_unnecessary = false;
+            for (const auto &d : line_diags) {
+                if (d.is_unnecessary()) {
+                    const std::size_t d_start = (d.range.start.line == line_index) ? d.range.start.character : 0;
+                    const std::size_t d_end = (d.range.end.line == line_index) ? (d.range.end.character == 0 ? line.size() : d.range.end.character) : line.size();
+                    if (tok_start < d_end && (tok_start + tok_len) > d_start) {
+                        is_unnecessary = true;
+                        break;
+                    }
+                }
+            }
+            if (is_unnecessary) {
+                return surface.m_text.muted;
+            }
+            return token_color(kind);
+        };
+
         if (syntax_highlighting)
         {
             float token_x = code_x;
@@ -2501,7 +2520,7 @@ void TextEditor::render_pane(
                     if (brace_offset > 0)
                     {
                         const std::string_view pre = token.text.substr(0, brace_offset);
-                        surface.draw_text(context, *surface.m_editor_font, pre, token_x, center_y, token_color(token.kind));
+                        surface.draw_text(context, *surface.m_editor_font, pre, token_x, center_y, get_effective_token_color(token.kind, rendered_bytes, pre.size()));
                         token_x += static_cast<float>(surface.m_editor_font->getTextWidth(std::string{pre}));
                     }
 
@@ -2530,14 +2549,14 @@ void TextEditor::render_pane(
                     if (brace_offset + 1 < token.text.size())
                     {
                         const std::string_view post = token.text.substr(brace_offset + 1);
-                        surface.draw_text(context, *surface.m_editor_font, post, token_x, center_y, token_color(token.kind));
+                        surface.draw_text(context, *surface.m_editor_font, post, token_x, center_y, get_effective_token_color(token.kind, rendered_bytes + brace_offset + 1, post.size()));
                         token_x += static_cast<float>(surface.m_editor_font->getTextWidth(std::string{post}));
                     }
                 }
                 else
                 {
                     surface.draw_text(context, *surface.m_editor_font, token.text,
-                        token_x, center_y, token_color(token.kind));
+                        token_x, center_y, get_effective_token_color(token.kind, rendered_bytes, token.text.size()));
                     token_x += static_cast<float>(surface.m_editor_font->getTextWidth(std::string{token.text}));
                 }
                 rendered_bytes += token.text.size();
@@ -2550,13 +2569,19 @@ void TextEditor::render_pane(
         }
         else
         {
-            surface.draw_text(context, *surface.m_editor_font, line, code_x, center_y, surface.m_text.primary);
+            bool is_unnecessary = false;
+            for (const auto& d : line_diags) {
+                if (d.is_unnecessary()) { is_unnecessary = true; break; }
+            }
+            surface.draw_text(context, *surface.m_editor_font, line, code_x, center_y, is_unnecessary ? surface.m_text.muted : surface.m_text.primary);
         }
 
         // Render diagnostics squiggles under erroneous tokens
-        const auto line_diags = document->get_diagnostics_for_line(line_index);
         for (const auto& diag : line_diags)
         {
+            if (diag.is_unnecessary()) {
+                continue;
+            }
             std::size_t start_col = diag.range.start.line == line_index ? diag.range.start.character : 0;
             std::size_t end_col = diag.range.end.line == line_index ? diag.range.end.character : line.size();
             if (end_col > line.size()) end_col = line.size();

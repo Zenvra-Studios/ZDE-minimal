@@ -109,6 +109,14 @@ private:
     bool m_hover_splitter = false;
     bool m_viewport_mouse_down = false;
 
+    mutable UI::Rect m_header_close_bounds{};
+    mutable UI::Rect m_header_preset_bounds{};
+    mutable UI::Rect m_ctrl_play_bounds{};
+    mutable UI::Rect m_ctrl_reset_bounds{};
+    mutable UI::Rect m_ctrl_scale_bounds{};
+    mutable UI::Rect m_ctrl_backend_bounds{};
+    mutable UI::Rect m_ctrl_snapshot_bounds{};
+
     mutable XImage* m_cached_ximage = nullptr;
     mutable int m_cached_img_w = 0;
     mutable int m_cached_img_h = 0;
