@@ -76,6 +76,16 @@ bool TerminalPanelModel::close_active_session()
     return true;
 }
 
+bool TerminalPanelModel::close_session(std::size_t index)
+{
+    if (index >= m_sessions.size())
+    {
+        return false;
+    }
+    remove_session(index);
+    return true;
+}
+
 /**
  * 
  * 

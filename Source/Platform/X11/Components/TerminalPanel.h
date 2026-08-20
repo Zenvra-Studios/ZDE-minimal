@@ -59,6 +59,7 @@ public:
     [[nodiscard]] bool is_focused() const noexcept;
     [[nodiscard]] bool is_resizing() const noexcept;
     [[nodiscard]] bool is_maximized() const noexcept;
+    [[nodiscard]] bool is_selecting_text() const noexcept { return m_selecting_text || m_cli_mouse_down; }
     [[nodiscard]] float get_height() const noexcept;
     void set_focused(bool focused) noexcept;
     void set_working_directory(const std::filesystem::path& directory) noexcept;
@@ -112,8 +113,7 @@ private:
     Time m_last_resize_click_time = 0;
     float m_last_resize_click_x = 0.0F;
     float m_last_resize_click_y = 0.0F;
-    mutable std::unordered_map<std::size_t, float> m_tab_animated_x;
-    mutable std::unordered_map<std::size_t, float> m_tab_target_x;
+    mutable std::unordered_map<std::size_t, float> m_tab_animated_offset_x;
     std::size_t m_horizontal_scroll_offset = 0;
     bool m_force_horizontal_scroll_to_cursor = false;
     PanelChannel m_active_channel = PanelChannel::Terminal;

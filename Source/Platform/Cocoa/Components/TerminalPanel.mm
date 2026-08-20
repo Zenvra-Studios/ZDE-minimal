@@ -106,6 +106,9 @@ bool TerminalPanel::create_terminal() {
 bool TerminalPanel::handle_pointer_press(
     const UI::Editor::StudioEditorLayoutResult &layout, float px, float py,
     double event_time) {
+  if (!is_visible()) {
+    return false;
+  }
   if (is_resize_handle_point(layout, px, py)) {
     if (event_time - m_last_resize_click_time < 0.35 &&
         std::abs(px - m_last_resize_click_x) < 4.0F &&
@@ -118,7 +121,7 @@ bool TerminalPanel::handle_pointer_press(
     m_last_resize_click_y = py;
     return m_resize_model.begin_resize();
   }
-  if (!is_visible() || !layout.terminal_panel_bounds.contains(px, py)) {
+  if (!layout.terminal_panel_bounds.contains(px, py)) {
     return false;
   }
   m_model.set_focused(true);
@@ -137,15 +140,27 @@ bool TerminalPanel::handle_pointer_press(
     return true;
   }
 
-  if (close_button_bounds(layout).contains(px, py)) {
-    return m_model.close_active_session();
-  }
   if (add_button_bounds(layout).contains(px, py)) {
     return m_model.create_session(current_terminal_directory(m_working_directory));
   }
   const std::span<const Terminal::TerminalSessionEntry> sessions = m_model.get_sessions();
   for (std::size_t index = 0; index < sessions.size(); ++index) {
-    if (session_tab_bounds(layout, index).contains(px, py)) {
+    UI::Rect tab = session_tab_bounds(layout, index);
+    const std::size_t id = sessions[index].identifier;
+    if (m_tab_animated_offset_x.contains(id)) {
+      tab.x += m_tab_animated_offset_x[id];
+    }
+    if (tab.contains(px, py)) {
+      const float close_btn_w = 22.0F * layout.dpi_scale;
+      if (px >= tab.right() - close_btn_w) {
+        const float shift = tab.width;
+        static_cast<void>(m_model.close_session(index));
+        const auto remaining = m_model.get_sessions();
+        for (std::size_t k = index; k < remaining.size(); ++k) {
+          m_tab_animated_offset_x[remaining[k].identifier] += shift;
+        }
+        return true;
+      }
       static_cast<void>(m_model.activate_session(index));
       m_cursor_blink.reset();
       return true;
@@ -233,7 +248,18 @@ bool TerminalPanel::handle_scroll(std::ptrdiff_t delta, bool horiz) noexcept {
   }
 }
 bool TerminalPanel::poll() { return m_model.poll(); }
-bool TerminalPanel::tick_animations() noexcept { return m_cursor_blink.tick(); }
+bool TerminalPanel::tick_animations() noexcept {
+  bool animating = false;
+  for (auto &[id, offset_x] : m_tab_animated_offset_x) {
+    if (std::abs(offset_x) > 0.5F) {
+      offset_x += (0.0F - offset_x) * 0.3F;
+      animating = true;
+    } else {
+      offset_x = 0.0F;
+    }
+  }
+  return m_cursor_blink.tick() || animating;
+}
 void TerminalPanel::shutdown() noexcept { m_model.shutdown(); }
 bool TerminalPanel::is_visible() const noexcept { return m_model.is_visible(); }
 bool TerminalPanel::is_focused() const noexcept { return m_model.is_focused(); }
@@ -304,16 +330,20 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
       round_to_int(layout.terminal_header_bounds.bottom() - 1.0F),
       surface.m_colors.border);
 
-  // Splitter bar top line
-  const CGFloat* splitter_color = (m_resize_model.is_hovered() || m_resize_model.is_resizing())
-      ? surface.m_colors.accent
-      : surface.m_colors.border;
   surface.draw_line(context,
       round_to_int(layout.terminal_panel_bounds.x),
       round_to_int(layout.terminal_panel_bounds.y),
       round_to_int(layout.terminal_panel_bounds.right()),
       round_to_int(layout.terminal_panel_bounds.y),
-      splitter_color);
+      surface.m_colors.border);
+  if (m_resize_model.is_hovered() || m_resize_model.is_resizing()) {
+    surface.fill_rectangle(context,
+        UI::Rect{layout.terminal_panel_bounds.x,
+                 layout.terminal_panel_bounds.y - 1.0F * surface.m_dpi_scale,
+                 layout.terminal_panel_bounds.width,
+                 2.0F * surface.m_dpi_scale},
+        surface.m_colors.accent);
+  }
 
   // Bottom border (connecting cleanly to status bar)
   surface.draw_line(context,
@@ -339,15 +369,6 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
       round_to_int(layout.terminal_panel_bounds.bottom()),
       surface.m_colors.border);
 
-  if (m_resize_model.is_hovered() || m_resize_model.is_resizing()) {
-    surface.fill_rectangle(context,
-        UI::Rect{layout.terminal_panel_bounds.x,
-            layout.terminal_panel_bounds.y - surface.m_dpi_scale,
-            layout.terminal_panel_bounds.width,
-            std::max(2.0F * surface.m_dpi_scale, 2.0F)},
-        surface.m_colors.accent);
-  }
-
   if (layout.terminal_panel_bounds.is_empty()) {
     return;
   }
@@ -355,20 +376,36 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   // Draw Channel Switcher Tabs: [ Terminal ] [ Output ]
   const UI::Rect term_tab = terminal_channel_tab_bounds(layout);
   const UI::Rect out_tab = output_channel_tab_bounds(layout);
+  const float bar_h = std::max(2.0F * surface.m_dpi_scale, 2.0F);
 
-  surface.fill_rounded_rectangle(context, term_tab,
-      (m_active_channel == PanelChannel::Terminal) ? surface.m_colors.tab_active_background : surface.m_colors.tab_background,
-      4.0F * surface.m_dpi_scale);
+  if (m_active_channel == PanelChannel::Terminal) {
+    surface.fill_rectangle(context, term_tab, surface.m_colors.tab_active_background);
+    surface.fill_rectangle(context, UI::Rect{term_tab.x, term_tab.y, term_tab.width, bar_h}, surface.m_colors.accent);
+    surface.draw_line(context, round_to_int(term_tab.x), round_to_int(term_tab.y), round_to_int(term_tab.x), round_to_int(term_tab.bottom()), surface.m_colors.border);
+    surface.draw_line(context, round_to_int(term_tab.right()), round_to_int(term_tab.y), round_to_int(term_tab.right()), round_to_int(term_tab.bottom()), surface.m_colors.border);
+  } else {
+    surface.draw_line(context, round_to_int(term_tab.x), round_to_int(term_tab.bottom() - 1.0F), round_to_int(term_tab.right()), round_to_int(term_tab.bottom() - 1.0F), surface.m_colors.border);
+    surface.draw_line(context, round_to_int(term_tab.right()), round_to_int(term_tab.y), round_to_int(term_tab.right()), round_to_int(term_tab.bottom()), surface.m_colors.border);
+  const int term_text_w = surface.m_small_font->getTextWidth("Terminal");
+  const float term_text_x = term_tab.x + (term_tab.width - static_cast<float>(term_text_w)) * 0.5F;
   surface.draw_text(context, *surface.m_small_font, "Terminal",
-      term_tab.x + 12.0F * surface.m_dpi_scale,
+      term_text_x,
       term_tab.y + term_tab.height * 0.5F,
       (m_active_channel == PanelChannel::Terminal) ? surface.m_text.primary : surface.m_text.muted);
 
-  surface.fill_rounded_rectangle(context, out_tab,
-      (m_active_channel == PanelChannel::Output) ? surface.m_colors.tab_active_background : surface.m_colors.tab_background,
-      4.0F * surface.m_dpi_scale);
+  if (m_active_channel == PanelChannel::Output) {
+    surface.fill_rectangle(context, out_tab, surface.m_colors.tab_active_background);
+    surface.fill_rectangle(context, UI::Rect{out_tab.x, out_tab.y, out_tab.width, bar_h}, surface.m_colors.accent);
+    surface.draw_line(context, round_to_int(out_tab.x), round_to_int(out_tab.y), round_to_int(out_tab.x), round_to_int(out_tab.bottom()), surface.m_colors.border);
+    surface.draw_line(context, round_to_int(out_tab.right()), round_to_int(out_tab.y), round_to_int(out_tab.right()), round_to_int(out_tab.bottom()), surface.m_colors.border);
+  } else {
+    surface.draw_line(context, round_to_int(out_tab.x), round_to_int(out_tab.bottom() - 1.0F), round_to_int(out_tab.right()), round_to_int(out_tab.bottom() - 1.0F), surface.m_colors.border);
+    surface.draw_line(context, round_to_int(out_tab.right()), round_to_int(out_tab.y), round_to_int(out_tab.right()), round_to_int(out_tab.bottom()), surface.m_colors.border);
+  }
+  const int out_text_w = surface.m_small_font->getTextWidth("Output");
+  const float out_text_x = out_tab.x + (out_tab.width - static_cast<float>(out_text_w)) * 0.5F;
   surface.draw_text(context, *surface.m_small_font, "Output",
-      out_tab.x + 14.0F * surface.m_dpi_scale,
+      out_text_x,
       out_tab.y + out_tab.height * 0.5F,
       (m_active_channel == PanelChannel::Output) ? surface.m_text.primary : surface.m_text.muted);
 
@@ -420,20 +457,20 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   const std::optional<std::size_t> active_index = m_model.get_active_index();
   for (std::size_t index = 0; index < sessions.size(); ++index) {
     UI::Rect tab = session_tab_bounds(layout, index);
+    const std::size_t id = sessions[index].identifier;
+    if (m_tab_animated_offset_x.contains(id)) {
+      tab.x += m_tab_animated_offset_x[id];
+    }
     const bool active = active_index && *active_index == index;
     if (active) {
       surface.fill_rectangle(context, tab, surface.m_colors.tab_active_background);
-      surface.draw_line(context,
-          round_to_int(tab.x), round_to_int(tab.bottom() - 1.0F),
-          round_to_int(tab.right()), round_to_int(tab.bottom() - 1.0F),
-          surface.m_colors.tab_active_background);
+      surface.fill_rectangle(context, UI::Rect{tab.x, tab.y, tab.width, bar_h}, surface.m_colors.accent);
+      surface.draw_line(context, round_to_int(tab.x), round_to_int(tab.y), round_to_int(tab.x), round_to_int(tab.bottom()), surface.m_colors.border);
+      surface.draw_line(context, round_to_int(tab.right()), round_to_int(tab.y), round_to_int(tab.right()), round_to_int(tab.bottom()), surface.m_colors.border);
+    } else {
+      surface.draw_line(context, round_to_int(tab.x), round_to_int(tab.bottom() - 1.0F), round_to_int(tab.right()), round_to_int(tab.bottom() - 1.0F), surface.m_colors.border);
+      surface.draw_line(context, round_to_int(tab.right()), round_to_int(tab.y), round_to_int(tab.right()), round_to_int(tab.bottom()), surface.m_colors.border);
     }
-
-    // Tab right separator
-    surface.draw_line(context,
-        round_to_int(tab.right() - 1.0F), round_to_int(tab.y + 4.0F * surface.m_dpi_scale),
-        round_to_int(tab.right() - 1.0F), round_to_int(tab.bottom() - 4.0F * surface.m_dpi_scale),
-        surface.m_colors.border);
 
     surface.draw_svg_icon(context, "Assets/icons/terminal.svg",
         round_to_int(tab.x + 12.0F * surface.m_dpi_scale),
@@ -445,6 +482,14 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
     surface.draw_text(context, *surface.m_small_font, sessions[index].title,
         tab.x + 23.0F * surface.m_dpi_scale, tab.y + tab.height * 0.5F,
         active ? surface.m_text.primary : surface.m_text.muted);
+  }
+
+  if (m_tab_animated_offset_x.size() > sessions.size() + 8) {
+    std::unordered_set<std::size_t> active_ids;
+    for (const auto &s : sessions) {
+      active_ids.insert(s.identifier);
+    }
+    std::erase_if(m_tab_animated_offset_x, [&](const auto &item) { return !active_ids.contains(item.first); });
   }
 
   // Draw Add (+) Button
@@ -619,20 +664,20 @@ UI::Rect TerminalPanel::terminal_channel_tab_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
   return UI::Rect{
-      layout.terminal_header_bounds.x + 6.0F * scale,
-      layout.terminal_header_bounds.y + 3.0F * scale,
-      70.0F * scale,
-      layout.terminal_header_bounds.height - 6.0F * scale};
+      layout.terminal_header_bounds.x,
+      layout.terminal_header_bounds.y,
+      74.0F * scale,
+      layout.terminal_header_bounds.height};
 }
 
 UI::Rect TerminalPanel::output_channel_tab_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
   return UI::Rect{
-      layout.terminal_header_bounds.x + 80.0F * scale,
-      layout.terminal_header_bounds.y + 3.0F * scale,
-      64.0F * scale,
-      layout.terminal_header_bounds.height - 6.0F * scale};
+      layout.terminal_header_bounds.x + 74.0F * scale,
+      layout.terminal_header_bounds.y,
+      68.0F * scale,
+      layout.terminal_header_bounds.height};
 }
 
 UI::Rect TerminalPanel::clear_output_button_bounds(

@@ -130,30 +130,37 @@ void EditorMinimap::render(const StudioWorkspaceRenderer &surface,
       ? std::clamp(static_cast<float>(first_visible_line) / static_cast<float>(max_first_line), 0.0F, 1.0F)
       : 0.0F;
 
-  // Viewport Slider Height
-  const float vp_h = std::clamp(
-      static_cast<float>(visible_lines) * row_height,
-      14.0F * layout.dpi_scale,
-      bounds.height);
-
-  // 1. Proportional vertical scroll offset for minimap text & slider travel
+  float vp_h = 0.0F;
   float minimap_scroll_y = 0.0F;
-  float max_slider_travel = 0.0F;
+  float slider_y = bounds.y;
 
   if (total_content_height <= bounds.height) {
     minimap_scroll_y = 0.0F;
-    max_slider_travel = std::max(total_content_height - vp_h, 0.0F);
+    vp_h = std::clamp(
+        static_cast<float>(visible_lines) * row_height,
+        14.0F * layout.dpi_scale,
+        bounds.height);
+    slider_y = bounds.y + static_cast<float>(first_visible_line) * row_height;
   } else {
+    vp_h = std::clamp(
+        (static_cast<float>(visible_lines) / static_cast<float>(std::max(total_lines, std::size_t{1}))) * bounds.height,
+        18.0F * layout.dpi_scale,
+        bounds.height);
+
+    const float max_doc_scroll = static_cast<float>(std::max(total_lines > visible_lines ? total_lines - visible_lines : std::size_t{0}, std::size_t{1}));
+    const float scroll_progress = std::clamp(static_cast<float>(first_visible_line) / max_doc_scroll, 0.0F, 1.0F);
+
     minimap_scroll_y = scroll_progress * (total_content_height - bounds.height);
-    max_slider_travel = std::max(bounds.height - vp_h, 0.0F);
+    const float max_slider_travel = std::max(bounds.height - vp_h, 0.0F);
+    slider_y = bounds.y + scroll_progress * max_slider_travel;
   }
 
   // 2. Viewport slider bounds (reaches all the way to bottom)
-  const float slider_y = bounds.y + scroll_progress * max_slider_travel;
+  const float inset_x = 2.0F * layout.dpi_scale;
   const UI::Rect viewport{
-      bounds.x,
+      bounds.x + inset_x,
       slider_y,
-      bounds.width,
+      std::max(bounds.width - 2.0F * inset_x, 0.0F),
       vp_h
   };
 

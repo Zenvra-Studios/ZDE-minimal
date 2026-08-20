@@ -40,6 +40,7 @@ public:
   [[nodiscard]] bool
   create_session(const std::filesystem::path &working_directory = {});
   [[nodiscard]] bool close_active_session();
+  [[nodiscard]] bool close_session(std::size_t index);
   [[nodiscard]] bool activate_session(std::size_t index) noexcept;
   void shutdown() noexcept;
 

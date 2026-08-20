@@ -7,6 +7,11 @@
 namespace Zenvra::UI::Editor
 {
 
+namespace
+{
+std::size_t s_document_next_id = 1;
+}
+
 bool EditorSessionModel::open_file(const std::filesystem::path& path)
 {
     const std::optional<TextFileSnapshot> snapshot = m_crud.read(path);
@@ -35,6 +40,7 @@ bool EditorSessionModel::open_file(const std::filesystem::path& path)
     }
 
     EditorSessionDocument item;
+    item.id = s_document_next_id++;
     item.path = snapshot->absolute_path;
     std::error_code ec;
     item.last_write_time = std::filesystem::last_write_time(item.path, ec);
@@ -111,6 +117,7 @@ bool EditorSessionModel::create_buffer()
         : "Untitled-" + std::to_string(m_untitled_counter);
 
     EditorSessionDocument item;
+    item.id = s_document_next_id++;
     item.path = name;
     item.temporary = true;
     item.text.replace_contents({std::string{}}, name, {{name, BreadcrumbIconKind::File}}, "LF");

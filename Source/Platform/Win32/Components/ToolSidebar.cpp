@@ -1831,9 +1831,9 @@ void ToolSidebar::render(
     surface.fill_rectangle(
         device_context,
         UI::Rect{
-            splitter_x - 1.5F * scale,
+            splitter_x - 1.0F * scale,
             panel.y,
-            std::max(3.5F * scale, 3.0F),
+            2.0F * scale,
             panel.height},
         surface.m_palette.accent);
   }

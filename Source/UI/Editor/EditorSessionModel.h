@@ -30,6 +30,7 @@ enum class EditorAction
 
 struct EditorSessionDocument
 {
+    std::size_t id = 0;
     std::filesystem::path path;
     TextDocumentModel text;
     bool temporary = false;

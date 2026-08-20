@@ -336,7 +336,8 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     }
     return true;
   }
-  if (m_terminal_panel.handle_pointer_press(layout, point_x, point_y,
+  if (m_terminal_panel.is_visible() &&
+      m_terminal_panel.handle_pointer_press(layout, point_x, point_y,
                                             event_time, click_count,
                                             extend_selection)) {
     return true;
@@ -379,22 +380,31 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(float point_x, float point_y,
                                                   float content_top) {
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
+  if (m_text_editor.is_pointer_selecting() || m_text_editor.is_resizing_split() ||
+      m_text_editor.is_tab_dragging()) {
+    return m_text_editor.handle_pointer_drag(*this, layout, point_x, point_y);
+  }
   if (m_tool_sidebar.is_resizing() || m_tool_sidebar.is_dragging_item() ||
       m_tool_sidebar.is_dragging_scrollbar()) {
     return m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y);
   }
-  if (m_tool_sidebar.contains(layout, point_x, point_y)) {
+  if (m_terminal_panel.is_resizing() || m_terminal_panel.is_selecting_text()) {
+    return m_terminal_panel.handle_pointer_drag(layout, point_x, point_y);
+  }
+  if (m_shader_sandbox_panel.is_resizing()) {
+    return m_shader_sandbox_panel.handle_pointer_drag(layout, point_x, point_y);
+  }
+  if (m_tool_sidebar.is_visible() && m_tool_sidebar.contains(layout, point_x, point_y)) {
     if (m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y)) {
       return true;
     }
   }
-  if (m_terminal_panel.is_resizing()) {
-    return m_terminal_panel.handle_pointer_drag(layout, point_y);
+  if (m_terminal_panel.is_visible() && m_terminal_panel.contains(layout, point_x, point_y)) {
+    if (m_terminal_panel.handle_pointer_drag(layout, point_x, point_y)) {
+      return true;
+    }
   }
-  if (m_terminal_panel.handle_pointer_drag(layout, point_x, point_y)) {
-    return true;
-  }
-  if (m_shader_sandbox_panel.is_resizing() ||
+  if (m_shader_sandbox_panel.is_visible() &&
       m_shader_sandbox_panel.contains(layout, point_x, point_y)) {
     if (m_shader_sandbox_panel.handle_pointer_drag(layout, point_x, point_y)) {
       return true;
@@ -833,12 +843,7 @@ void StudioWorkspaceRenderer::render(Drawable drawable, int client_width,
 
   m_text_editor.render(*this, drawable, layout);
 
-  // During drag selection, skip terminal rendering (the heaviest component)
-  // since it doesn't change. All other components always render to avoid
-  // visual glitches (disappearing icons) on click/hold.
-  if (!m_text_editor.is_pointer_selecting()) {
-    m_terminal_panel.render(*this, drawable, layout);
-  }
+  m_terminal_panel.render(*this, drawable, layout);
   m_tool_sidebar.render(*this, drawable, layout);
   m_activity_sidebar.render(*this, drawable, layout);
   m_shader_sandbox_panel.render(*this, drawable, layout);

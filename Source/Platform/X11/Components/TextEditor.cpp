@@ -161,8 +161,7 @@ bool TextEditor::open_file(const std::filesystem::path &path) {
   if (opened) {
     m_scrollbar.reset();
     m_tab_scroll_offset = 0.0F;
-    m_tab_animated_x.clear();
-    m_tab_target_x.clear();
+    m_tab_animated_offset_x.clear();
     m_focused = true;
     m_reveal_caret_pending = true;
     m_caret_blink.reset();
@@ -486,14 +485,6 @@ void TextEditor::draw_editor_header(
       }
     }
 
-    // Splitter line in header
-    surface.fill_rectangle(drawable,
-                           UI::Rect{splitter_x, header_bounds.y, 2.0F * scale,
-                                    header_bounds.height},
-                           (m_is_resizing_split || m_hovered_split_resize)
-                               ? surface.m_pixels.accent
-                               : surface.m_pixels.border);
-
     // Split close button on far right of right header
     m_split_close_btn_bounds = UI::Rect{
         right_header.right() - btn_w - 4.0F * scale, btn_y, btn_w, btn_h};
@@ -619,6 +610,12 @@ void TextEditor::draw_editor_header(
         (is_active_menu || is_hovered) ? blended_btn_bg
                                        : surface.m_palette.editor_background);
   }
+
+  // Draw header bottom border
+  const int header_bottom = round_to_int(header_bounds.bottom()) - 1;
+  surface.draw_line(drawable, round_to_int(header_bounds.x), header_bottom,
+                    round_to_int(header_bounds.right()), header_bottom,
+                    surface.m_pixels.border);
 }
 
 void TextEditor::draw_tab_action_menu(
@@ -770,10 +767,20 @@ bool TextEditor::is_split_resize_handle_point(
   }
   const float scale = layout.dpi_scale;
   const float split_x =
-      layout.editor_bounds.x + layout.editor_bounds.width * m_split_ratio;
+      layout.editor_bounds.x +
+      (layout.editor_bounds.width - 2.0F * scale) * m_split_ratio;
   const float handle_w = 6.0F * scale;
-  const UI::Rect handle_rect{split_x - handle_w * 0.5F, layout.editor_bounds.y,
-                             handle_w, layout.editor_bounds.height};
+  const float top_y = (!layout.editor_header_bounds.is_empty() &&
+                       layout.editor_header_bounds.height > 2.0F)
+                          ? layout.editor_header_bounds.y
+                          : layout.editor_bounds.y;
+  const float total_h = (!layout.editor_header_bounds.is_empty() &&
+                         layout.editor_header_bounds.height > 2.0F)
+                            ? (layout.editor_header_bounds.height +
+                               layout.editor_bounds.height)
+                            : layout.editor_bounds.height;
+  const UI::Rect handle_rect{split_x - handle_w * 0.5F, top_y, handle_w,
+                             total_h};
   return handle_rect.contains(point_x, point_y);
 }
 
@@ -1181,7 +1188,12 @@ bool TextEditor::handle_pointer_press(
         if (point_x >= close_btn_x) {
           const auto docs = m_controller.get_documents();
           if (i < docs.size()) {
+            const float shift = m_tab_bounds[i].width + UI::Editor::StudioEditorMetrics::editor_tab_gap * surface.m_dpi_scale;
             static_cast<void>(m_controller.close_file(i));
+            const auto remaining = m_controller.get_documents();
+            for (std::size_t k = i; k < remaining.size(); ++k) {
+              m_tab_animated_offset_x[remaining[k].id] += shift;
+            }
           }
           return true;
         }
@@ -2599,6 +2611,21 @@ bool TextEditor::tick_animations() noexcept {
       needs_repaint = true;
     }
   }
+
+  // Smooth lerp animated tab sliding offsets (smooth sliding when tabs are closed)
+  bool animating = false;
+  for (auto &[id, offset_x] : m_tab_animated_offset_x) {
+    if (std::abs(offset_x) > 0.5F) {
+      offset_x += (0.0F - offset_x) * 0.3F;
+      animating = true;
+    } else {
+      offset_x = 0.0F;
+    }
+  }
+  if (animating) {
+    needs_repaint = true;
+  }
+
   return needs_repaint;
 }
 
@@ -2625,8 +2652,6 @@ void TextEditor::render(
       const float line_height = 20.0F * surface.m_dpi_scale;
       const std::size_t visible_count = static_cast<std::size_t>(std::max(
           static_cast<int>(layout.editor_bounds.height / line_height), 1));
-      m_minimap.render(surface, drawable, layout, *document,
-                       m_scrollbar.get_first_visible_line(), visible_count);
       m_scrollbar.render(surface, drawable, layout);
 
       // Render Scrollbar Error / Warning Stripes (JetBrains Overview Ruler)
@@ -2663,6 +2688,9 @@ void TextEditor::render(
               surface.allocate_color(stripe_color));
         }
       }
+
+      m_minimap.render(surface, drawable, layout, *document,
+                       m_scrollbar.get_first_visible_line(), visible_count);
     }
   } else if (m_split_document_index.has_value() &&
              *m_split_document_index < m_controller.get_documents().size()) {
@@ -2696,10 +2724,6 @@ void TextEditor::render(
 
     if (const UI::Editor::TextDocumentModel *left_doc =
             m_controller.get_active_document()) {
-      if (!left_minimap.is_empty()) {
-        m_minimap.render(surface, drawable, left_layout, *left_doc,
-                         m_scrollbar.get_first_visible_line(), visible_count);
-      }
       m_scrollbar.render(surface, drawable, left_layout);
 
       const std::size_t total_lines = left_doc->get_line_count();
@@ -2729,6 +2753,11 @@ void TextEditor::render(
                                  surface.allocate_color(stripe_color));
         }
       }
+
+      if (!left_minimap.is_empty()) {
+        m_minimap.render(surface, drawable, left_layout, *left_doc,
+                         m_scrollbar.get_first_visible_line(), visible_count);
+      }
     }
 
     // --- Right Pane Minimap & Scrollbar ---
@@ -2751,11 +2780,6 @@ void TextEditor::render(
 
     if (const UI::Editor::TextDocumentModel *right_doc =
             m_controller.get_document(*m_split_document_index)) {
-      if (!right_minimap.is_empty()) {
-        m_split_minimap.render(surface, drawable, right_layout, *right_doc,
-                               m_split_scrollbar.get_first_visible_line(),
-                               visible_count);
-      }
       m_split_scrollbar.render(surface, drawable, right_layout);
 
       const std::size_t total_lines = right_doc->get_line_count();
@@ -2785,7 +2809,28 @@ void TextEditor::render(
                                  surface.allocate_color(stripe_color));
         }
       }
+
+      if (!right_minimap.is_empty()) {
+        m_split_minimap.render(surface, drawable, right_layout, *right_doc,
+                               m_split_scrollbar.get_first_visible_line(),
+                               visible_count);
+      }
     }
+
+    // Draw continuous split divider line on TOP of minimap and scrollbar (full height from tab bar to editor bottom)
+    const bool split_highlight = m_is_resizing_split || m_hovered_split_resize;
+    const unsigned long divider_col = split_highlight
+                                          ? surface.m_pixels.accent
+                                          : surface.m_pixels.border;
+    const float divider_top_y = (!layout.editor_header_bounds.is_empty() && layout.editor_header_bounds.height > 2.0F)
+                                    ? layout.editor_header_bounds.y
+                                    : layout.tab_bar_bounds.y;
+    const float divider_total_h = layout.editor_bounds.bottom() - divider_top_y;
+    surface.fill_rectangle(drawable,
+                           UI::Rect{splitter_x, divider_top_y,
+                                    2.0F * scale,
+                                    divider_total_h},
+                           divider_col);
   }
 
   draw_split_drop_overlay(surface, drawable, layout);
@@ -2835,15 +2880,30 @@ void TextEditor::draw_tab_strip(
     }
     UI::Rect bounds{tab_x, layout.tab_bar_bounds.y, width,
                     layout.tab_bar_bounds.height};
+
+    const std::size_t id = documents[index].id;
+    const float offset_x = m_tab_animated_offset_x.contains(id) ? m_tab_animated_offset_x[id] : 0.0F;
+
     if (m_tab_drag_drop.is_dragging() &&
         m_tab_drag_drop.get_dragged_index() == index) {
       bounds.x = m_drag_initial_tab_x + m_tab_drag_drop.get_drag_offset();
+    } else {
+      bounds.x = tab_x + offset_x;
     }
+
     if (m_tab_count < max_visible_tabs) {
       m_tab_bounds[m_tab_count] = bounds;
       ++m_tab_count;
     }
     tab_x += width + UI::Editor::StudioEditorMetrics::editor_tab_gap * scale;
+  }
+
+  if (m_tab_animated_offset_x.size() > documents.size() + 8) {
+    std::unordered_set<std::size_t> active_ids;
+    for (const auto &doc : documents) {
+      active_ids.insert(doc.id);
+    }
+    std::erase_if(m_tab_animated_offset_x, [&](const auto &item) { return !active_ids.contains(item.first); });
   }
 
   auto draw_single_tab = [&](std::size_t tab_index) {
@@ -3178,15 +3238,6 @@ void TextEditor::draw_document(
                 false);
     render_pane(m_controller.get_document(*m_split_document_index),
                 right_gutter, right_code, true);
-
-    // Draw split divider line & handle
-    const unsigned long divider_col = (m_is_resizing_split)
-                                          ? surface.m_pixels.accent
-                                          : surface.m_pixels.border;
-    surface.fill_rectangle(drawable,
-                           UI::Rect{split_x, layout.editor_bounds.y,
-                                    2.0F * scale, layout.editor_bounds.height},
-                           divider_col);
 
     // Split close button in right pane top-right
     const float close_btn_size = 18.0F * scale;

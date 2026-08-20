@@ -234,8 +234,7 @@ private:
     mutable EditorMinimap m_minimap;
     mutable EditorScrollbar m_scrollbar;
     Utility::DragDropModel m_tab_drag_drop;
-    mutable std::unordered_map<const UI::Editor::TextDocumentModel*, float> m_tab_animated_x;
-    mutable std::unordered_map<const UI::Editor::TextDocumentModel*, float> m_tab_target_x;
+    mutable std::unordered_map<std::size_t, float> m_tab_animated_offset_x;
     float m_drag_initial_tab_x = 0.0F;
     UI::Editor::CaretBlinkModel m_caret_blink;
     mutable bool m_reveal_caret_pending = true;
@@ -243,7 +242,9 @@ private:
     bool m_pointer_selecting = false;
     bool m_is_drag_selecting = false; ///< True only during actual mouse drag, not on click
   public:
-    bool is_pointer_selecting() const noexcept { return m_is_drag_selecting; }
+    bool is_pointer_selecting() const noexcept { return m_pointer_selecting || m_is_drag_selecting; }
+    bool is_resizing_split() const noexcept { return m_is_resizing_split; }
+    bool is_tab_dragging() const noexcept { return m_tab_drag_drop.is_dragging(); }
   private:
     mutable std::array<UI::Rect, max_visible_tabs> m_tab_bounds{};
     mutable std::size_t m_tab_count = 0;

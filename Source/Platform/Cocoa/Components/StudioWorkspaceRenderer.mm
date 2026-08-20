@@ -446,13 +446,15 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
         }
         return true;
     }
-    if (m_terminal_panel.handle_pointer_press(layout, point_x, point_y, event_time))
+    if (m_terminal_panel.is_visible() &&
+        m_terminal_panel.handle_pointer_press(layout, point_x, point_y, event_time))
     {
         m_text_editor.set_focused(false);
         return true;
     }
     m_terminal_panel.set_focused(false);
-    if (m_shader_sandbox_panel.handle_pointer_press(layout, point_x, point_y))
+    if (m_shader_sandbox_panel.is_visible() &&
+        m_shader_sandbox_panel.handle_pointer_press(layout, point_x, point_y))
     {
         return true;
     }
@@ -489,14 +491,15 @@ bool StudioWorkspaceRenderer::handle_pointer_move(
 
     const UI::Editor::StudioEditorLayoutResult layout =
         calculate_layout(client_width, client_height, content_top);
-    const bool sidebar_changed = m_tool_sidebar.handle_pointer_move(
-        layout, point_x, point_y);
-    const bool editor_changed = m_text_editor.handle_pointer_move(
-        layout, point_x, point_y);
-    const bool shader_changed = m_shader_sandbox_panel.handle_pointer_move(
-        layout, point_x, point_y);
-    return m_terminal_panel.handle_pointer_move(layout, point_x, point_y) ||
-        sidebar_changed || editor_changed || shader_changed;
+    const bool sidebar_changed =
+        m_tool_sidebar.handle_pointer_move(layout, point_x, point_y);
+    const bool terminal_changed =
+        m_terminal_panel.handle_pointer_move(layout, point_x, point_y);
+    const bool editor_changed =
+        m_text_editor.handle_pointer_move(layout, point_x, point_y);
+    const bool shader_changed =
+        m_shader_sandbox_panel.handle_pointer_move(layout, point_x, point_y);
+    return sidebar_changed || terminal_changed || editor_changed || shader_changed;
 }
 
 bool StudioWorkspaceRenderer::handle_pointer_drag(
@@ -506,17 +509,37 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(
 {
     const UI::Editor::StudioEditorLayoutResult layout =
         calculate_layout(client_width, client_height, content_top);
-    if (m_shader_sandbox_panel.handle_pointer_drag(layout, point_x, point_y))
+    if (m_text_editor.is_pointer_selecting() || m_text_editor.is_resizing_split() ||
+        m_text_editor.is_tab_dragging())
     {
-        return true;
+        return m_text_editor.handle_pointer_drag(*this, layout, point_x, point_y);
     }
-    if (m_terminal_panel.handle_pointer_drag(layout, point_y))
+    if (m_shader_sandbox_panel.is_resizing())
     {
-        return true;
+        return m_shader_sandbox_panel.handle_pointer_drag(layout, point_x, point_y);
     }
-    if (m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y))
+    if (m_terminal_panel.is_resizing())
     {
-        return true;
+        return m_terminal_panel.handle_pointer_drag(layout, point_y);
+    }
+    if (m_tool_sidebar.is_resizing() || m_tool_sidebar.is_dragging_item() ||
+        m_tool_sidebar.is_dragging_scrollbar())
+    {
+        return m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y);
+    }
+    if (m_terminal_panel.is_visible() && m_terminal_panel.contains(layout, point_x, point_y))
+    {
+        if (m_terminal_panel.handle_pointer_drag(layout, point_y))
+        {
+            return true;
+        }
+    }
+    if (m_tool_sidebar.is_visible() && m_tool_sidebar.contains(layout, point_x, point_y))
+    {
+        if (m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y))
+        {
+            return true;
+        }
     }
     return m_text_editor.handle_pointer_drag(*this, layout, point_x, point_y);
 }

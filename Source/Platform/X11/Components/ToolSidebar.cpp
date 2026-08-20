@@ -86,7 +86,7 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
     m_project_scrollbar.set_thumb_inset(2.0F * scale);
     m_project_scrollbar.set_minimum_thumb_size(24.0F * scale);
     m_project_scrollbar.set_metrics(items.size(), row_count);
-    m_project_scrollbar.scroll_to(m_model.get_scroll_offset());
+    static_cast<void>(m_project_scrollbar.scroll_to(m_model.get_scroll_offset()));
     if (m_project_scrollbar.handle_pointer_press(point_x, point_y)) {
       m_model.set_scroll_offset(m_project_scrollbar.get_scroll_offset());
       return SidebarPressResult{.handled = true};
@@ -745,7 +745,7 @@ void ToolSidebar::render(
   m_project_scrollbar.set_thumb_inset(2.0F * scale);
   m_project_scrollbar.set_minimum_thumb_size(24.0F * scale);
   m_project_scrollbar.set_metrics(items.size(), row_count);
-  m_project_scrollbar.scroll_to(first);
+  static_cast<void>(m_project_scrollbar.scroll_to(first));
   if (m_project_scrollbar.is_needed()) {
     const UI::Rect thumb_bounds = m_project_scrollbar.get_thumb_bounds();
     const UI::Theme::Color thumb_color = m_project_scrollbar.is_dragging()
@@ -793,12 +793,16 @@ void ToolSidebar::render(
   }
 
   // Draw right border
-  const bool resize_active = m_resize_hovered || m_resizing;
-  const auto border_pixel = resize_active ? surface.m_pixels.accent : surface.m_pixels.border;
   surface.draw_line(
       drawable, round_to_int(panel.right() - 1.0F), round_to_int(panel.y),
       round_to_int(panel.right() - 1.0F), round_to_int(panel.bottom()),
-      border_pixel);
+      surface.m_pixels.border);
+  if (m_resize_hovered || m_resizing) {
+    surface.fill_rectangle(
+        drawable,
+        UI::Rect{panel.right() - 1.0F * scale, panel.y, 2.0F * scale, panel.height},
+        surface.m_pixels.accent);
+  }
 }
 
 std::size_t ToolSidebar::viewport_row_count(

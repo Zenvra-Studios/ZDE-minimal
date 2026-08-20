@@ -6,8 +6,9 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
-#include <lunasvg.h>
 #include <sstream>
+
+#include <lunasvg.h>
 
 #include <X11/Xutil.h>
 

@@ -671,15 +671,6 @@ void TextEditor::draw_editor_header(
             surface.m_palette.text_primary);
         RestoreDC(device_context, -1);
 
-        // Vertical Splitter Line in Header (matches editor splitter exactly)
-        const UI::Theme::Color splitter_col = (m_is_resizing_split || m_hovered_split_resize)
-            ? UI::Theme::Color{53, 132, 228, 255}
-            : surface.m_palette.border;
-        surface.fill_rectangle(
-            device_context,
-            UI::Rect{splitter_x, header_bounds.y, 2.0F * scale, header_bounds.height},
-            splitter_col);
-
         // Close Split Button (Using diagnostic-error.svg icon)
         m_split_close_btn_bounds = UI::Rect{right_header.right() - button_w - 4.0F * scale, button_y, button_w, button_h};
         if (m_hovered_split_close)
@@ -1467,9 +1458,15 @@ bool TextEditor::handle_pointer_press(
                 m_focused = true;
                 if (close_bounds.contains(point_x, point_y))
                 {
+                    const float shift = bounds.width + UI::Editor::StudioEditorMetrics::editor_tab_gap * surface.m_dpi_scale;
                     const bool closed = m_controller.close_file(index);
                     if (closed)
                     {
+                        const auto remaining = m_controller.get_documents();
+                        for (std::size_t k = index; k < remaining.size(); ++k)
+                        {
+                            m_tab_animated_offset_x[remaining[k].id] += shift;
+                        }
                         m_scrollbar.reset();
                         m_reveal_caret_pending = true;
                         m_caret_blink.reset();
@@ -3519,22 +3516,18 @@ bool TextEditor::tick_animations() noexcept
         }
     }
 
-    // Lerp animated tab positions
+    // Lerp animated tab sliding offsets
     bool animating = false;
-    for (auto& [doc, animated_x] : m_tab_animated_x)
+    for (auto& [id, offset_x] : m_tab_animated_offset_x)
     {
-        if (m_tab_target_x.contains(doc))
+        if (std::abs(offset_x) > 0.5f)
         {
-            const float target_x = m_tab_target_x[doc];
-            if (std::abs(animated_x - target_x) > 0.5f)
-            {
-                animated_x += (target_x - animated_x) * 0.3f; // Smooth lerp
-                animating = true;
-            }
-            else
-            {
-                animated_x = target_x;
-            }
+            offset_x += (0.0f - offset_x) * 0.3f;
+            animating = true;
+        }
+        else
+        {
+            offset_x = 0.0f;
         }
     }
     
@@ -3583,19 +3576,6 @@ void TextEditor::render(
     draw_document(surface, device_context, layout);
     if (!m_is_split)
     {
-        if (const UI::Editor::TextDocumentModel* document = m_controller.get_active_document())
-        {
-            const float line_height = 20.0F * surface.m_dpi_scale;
-            const std::size_t visible_count = static_cast<std::size_t>(std::max(
-                static_cast<int>(layout.editor_bounds.height / line_height), 1));
-            m_minimap.render(
-                surface,
-                device_context,
-                layout,
-                *document,
-                m_scrollbar.get_first_visible_line(),
-                visible_count);
-        }
         m_scrollbar.render(surface, device_context, layout);
 
         // Render Scrollbar Error / Warning Stripes (JetBrains Overview Ruler)
@@ -3632,6 +3612,17 @@ void TextEditor::render(
                         stripe_color);
                 }
             }
+
+            const float line_height = 20.0F * surface.m_dpi_scale;
+            const std::size_t visible_count = static_cast<std::size_t>(std::max(
+                static_cast<int>(layout.editor_bounds.height / line_height), 1));
+            m_minimap.render(
+                surface,
+                device_context,
+                layout,
+                *document,
+                m_scrollbar.get_first_visible_line(),
+                visible_count);
         }
     }
     else if (m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size())
@@ -3657,13 +3648,14 @@ void TextEditor::render(
 
         if (const UI::Editor::TextDocumentModel* left_doc = m_controller.get_active_document())
         {
+            m_scrollbar.render(surface, device_context, left_layout);
+
             if (!left_minimap.is_empty())
             {
                 m_minimap.render(
                     surface, device_context, left_layout, *left_doc,
                     m_scrollbar.get_first_visible_line(), visible_count);
             }
-            m_scrollbar.render(surface, device_context, left_layout);
         }
 
         // --- Right Pane Minimap & Scrollbar ---
@@ -3678,12 +3670,6 @@ void TextEditor::render(
 
         if (const UI::Editor::TextDocumentModel* right_doc = m_controller.get_document(*m_split_document_index))
         {
-            if (!right_minimap.is_empty())
-            {
-                m_split_minimap.render(
-                    surface, device_context, right_layout, *right_doc,
-                    m_split_scrollbar.get_first_visible_line(), visible_count);
-            }
             m_split_scrollbar.render(surface, device_context, right_layout);
 
             // Right Overview Ruler
@@ -3710,6 +3696,27 @@ void TextEditor::render(
                         stripe_color);
                 }
             }
+
+            if (!right_minimap.is_empty())
+            {
+                m_split_minimap.render(
+                    surface, device_context, right_layout, *right_doc,
+                    m_split_scrollbar.get_first_visible_line(), visible_count);
+            }
+
+            // Draw continuous split divider line on TOP of minimap and scrollbar (full height from tab bar to editor bottom)
+            const bool split_highlight = m_is_resizing_split || m_hovered_split_resize;
+            const UI::Theme::Color divider_col = split_highlight
+                ? surface.m_palette.accent
+                : surface.m_palette.border;
+            const float divider_top_y = (!layout.editor_header_bounds.is_empty() && layout.editor_header_bounds.height > 2.0F)
+                ? layout.editor_header_bounds.y
+                : layout.tab_bar_bounds.y;
+            const float divider_total_h = layout.editor_bounds.bottom() - divider_top_y;
+            surface.fill_rectangle(
+                device_context,
+                UI::Rect{splitter_x, divider_top_y, 2.0F * scale, divider_total_h},
+                divider_col);
         }
     }
 }
@@ -3761,10 +3768,18 @@ void TextEditor::draw_tab_strip(
             break;
         }
         UI::Rect bounds{tab_x, layout.tab_bar_bounds.y, width, layout.tab_bar_bounds.height};
+        const std::size_t id = documents[index].id;
+        const float offset_x = m_tab_animated_offset_x.contains(id) ? m_tab_animated_offset_x[id] : 0.0f;
+
         if (m_tab_drag_drop.is_dragging() && m_tab_drag_drop.get_dragged_index() == index)
         {
             bounds.x = m_drag_initial_tab_x + m_tab_drag_drop.get_drag_offset();
         }
+        else
+        {
+            bounds.x = tab_x + offset_x;
+        }
+
         if (m_tab_count < max_visible_tabs)
         {
             m_tab_bounds[m_tab_count] = bounds;
@@ -3772,6 +3787,14 @@ void TextEditor::draw_tab_strip(
         }
         tab_x += width +
             UI::Editor::StudioEditorMetrics::editor_tab_gap * surface.m_dpi_scale;
+    }
+
+    if (m_tab_animated_offset_x.size() > documents.size() + 8) {
+        std::unordered_set<std::size_t> active_ids;
+        for (const auto &doc : documents) {
+            active_ids.insert(doc.id);
+        }
+        std::erase_if(m_tab_animated_offset_x, [&](const auto &item) { return !active_ids.contains(item.first); });
     }
 
     auto draw_single_tab = [&](std::size_t tab_index) {
@@ -4725,15 +4748,6 @@ void TextEditor::draw_document(
             const float scale = surface.m_dpi_scale;
             const float splitter_x = left_right_limit;
             const float splitter_w = 2.0F * scale;
-
-            // 1. SOLID Splitter vertical bar
-            const UI::Theme::Color splitter_col = (m_is_resizing_split || m_hovered_split_resize)
-                ? UI::Theme::Color{53, 132, 228, 255}
-                : surface.m_palette.border;
-            surface.fill_rectangle(
-                device_context,
-                UI::Rect{splitter_x, layout.editor_bounds.y, splitter_w, layout.editor_bounds.height},
-                splitter_col);
 
             // 2. Right Pane Bounds
             const float right_x = splitter_x + splitter_w;

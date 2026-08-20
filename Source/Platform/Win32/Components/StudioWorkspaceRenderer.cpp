@@ -375,7 +375,8 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     }
     return true;
   }
-  if (m_terminal_panel.handle_pointer_press(layout, point_x, point_y)) {
+  if (m_terminal_panel.is_visible() &&
+      m_terminal_panel.handle_pointer_press(layout, point_x, point_y)) {
     return true;
   }
   m_terminal_panel.set_focused(false);
@@ -428,26 +429,36 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(HDC device_context,
                                                   float content_top) {
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
+  if (m_text_editor.is_pointer_selecting() || m_text_editor.is_resizing_split() ||
+      m_text_editor.is_tab_dragging()) {
+    return m_text_editor.handle_pointer_drag(*this, device_context, layout,
+                                             point_x, point_y);
+  }
   if (m_tool_sidebar.is_resizing() || m_tool_sidebar.is_dragging_item() ||
       m_tool_sidebar.is_dragging_scrollbar()) {
     return m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y);
   }
-  if (m_tool_sidebar.contains(layout, point_x, point_y)) {
+  if (m_terminal_panel.is_resizing()) {
+    return m_terminal_panel.handle_pointer_drag(layout, point_y);
+  }
+  if (m_shader_sandbox_panel.is_resizing()) {
+    return m_shader_sandbox_panel.handle_pointer_drag(layout, point_x, point_y);
+  }
+  if (m_tool_sidebar.is_visible() && m_tool_sidebar.contains(layout, point_x, point_y)) {
     if (m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y)) {
       return true;
     }
   }
-  if (m_shader_sandbox_panel.is_resizing() ||
+  if (m_terminal_panel.is_visible() && m_terminal_panel.contains(layout, point_x, point_y)) {
+    if (m_terminal_panel.handle_pointer_drag(layout, point_x, point_y)) {
+      return true;
+    }
+  }
+  if (m_shader_sandbox_panel.is_visible() &&
       m_shader_sandbox_panel.contains(layout, point_x, point_y)) {
     if (m_shader_sandbox_panel.handle_pointer_drag(layout, point_x, point_y)) {
       return true;
     }
-  }
-  if (m_terminal_panel.is_resizing()) {
-    return m_terminal_panel.handle_pointer_drag(layout, point_y);
-  }
-  if (m_terminal_panel.handle_pointer_drag(layout, point_x, point_y)) {
-    return true;
   }
   return m_text_editor.handle_pointer_drag(*this, device_context, layout,
                                            point_x, point_y);
