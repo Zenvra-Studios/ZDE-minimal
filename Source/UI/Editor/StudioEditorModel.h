@@ -10,6 +10,30 @@
 #include <string>
 #include <string_view>
 
+namespace Zenvra::Language::Syntax
+{
+
+struct TokenizerState
+{
+    enum class StateKind : uint8_t
+    {
+        Normal = 0,
+        BlockComment,
+        RawString,
+        TripleQuoteString,
+        MultilineString,
+        BackslashString
+    };
+
+    StateKind kind = StateKind::Normal;
+    char quote_char = 0;
+    std::string custom_delimiter = "";
+
+    bool operator==(const TokenizerState& other) const = default;
+};
+
+} // namespace Zenvra::Language::Syntax
+
 namespace Zenvra::UI::Editor
 {
 
@@ -195,7 +219,8 @@ public:
 [[nodiscard]] std::size_t tokenize_editor_line(
     std::string_view line,
     std::array<EditorToken, maximum_editor_tokens>& output,
-    std::string_view file_name = {}) noexcept;
+    std::string_view file_name = {},
+    Language::Syntax::TokenizerState* inout_state = nullptr) noexcept;
 [[nodiscard]] bool supports_editor_syntax_highlighting(
     std::string_view file_name) noexcept;
 

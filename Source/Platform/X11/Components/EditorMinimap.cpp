@@ -36,6 +36,10 @@ std::string normalize_minimap_text(std::string_view text)
 
 } // namespace
 
+/**
+ * 
+ * 
+ **/
 bool EditorMinimap::is_point(
     const UI::Editor::StudioEditorLayoutResult& layout,
     float point_x,
@@ -163,11 +167,11 @@ void EditorMinimap::render(
     {
         const std::size_t line_index = m_model.get_line_for_sample(sample, sample_count);
         const std::string_view line = document.get_line(line_index);
-        const float center_y = text_bounds.y +
-            (static_cast<float>(sample) + 0.5F) * row_height;
+        const float center_y = text_bounds.y + (static_cast<float>(sample) + 0.5F) * row_height;
         float token_x = bounds.x + left_padding;
         std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
-        const std::size_t token_count = UI::Editor::tokenize_editor_line(line, tokens, document.get_file_name());
+        auto line_state = document.get_line_state(line_index);
+        const std::size_t token_count = UI::Editor::tokenize_editor_line(line, tokens, document.get_file_name(), &line_state);
         for (std::size_t token_index = 0; token_index < token_count; ++token_index)
         {
             if (token_x >= bounds.right() - right_padding)

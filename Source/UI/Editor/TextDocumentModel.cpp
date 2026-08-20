@@ -1,5 +1,7 @@
 #include "UI/Editor/TextDocumentModel.h"
 
+#include "Language/Syntax/GenericGrammarEngine.h"
+#include "Language/Syntax/GrammarRegistry.h"
 #include "UI/Editor/CppSymbolLexer.h"
 #include "Language/LanguageConfiguration.h"
 #include <algorithm>
@@ -1441,6 +1443,53 @@ std::vector<Language::Protocol::Diagnostic> TextDocumentModel::get_diagnostics_f
         }
     }
     return line_diags;
+}
+
+Language::Syntax::TokenizerState TextDocumentModel::get_line_state(std::size_t line_index) const noexcept
+{
+    if (line_index == 0 || m_lines.empty() || m_file_name.empty() ||
+        !supports_editor_syntax_highlighting(m_file_name))
+    {
+        return Language::Syntax::TokenizerState{};
+    }
+
+    if (m_line_states_revision != m_revision || m_line_states.size() != m_lines.size())
+    {
+        m_line_states.assign(m_lines.size(), Language::Syntax::TokenizerState{});
+        m_line_states_valid_up_to = 0;
+        m_line_states_revision = m_revision;
+    }
+
+    if (line_index >= m_lines.size())
+    {
+        line_index = m_lines.size() - 1;
+    }
+
+    const auto* grammar = Language::Syntax::GrammarRegistry::instance().get_grammar_for_filename(m_file_name);
+    if (grammar == nullptr)
+    {
+        return Language::Syntax::TokenizerState{};
+    }
+
+    std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> dummy_tokens{};
+
+    while (m_line_states_valid_up_to < line_index)
+    {
+        Language::Syntax::TokenizerState state = (m_line_states_valid_up_to == 0)
+            ? Language::Syntax::TokenizerState{}
+            : m_line_states[m_line_states_valid_up_to];
+
+        std::ignore = Language::Syntax::GenericGrammarEngine::tokenize_line(
+            m_lines[m_line_states_valid_up_to], *grammar, dummy_tokens, state);
+
+        ++m_line_states_valid_up_to;
+        if (m_line_states_valid_up_to < m_line_states.size())
+        {
+            m_line_states[m_line_states_valid_up_to] = state;
+        }
+    }
+
+    return m_line_states[line_index];
 }
 
 } // namespace Zenvra::UI::Editor

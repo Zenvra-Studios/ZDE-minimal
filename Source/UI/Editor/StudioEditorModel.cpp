@@ -332,12 +332,23 @@ float calculate_editor_tab_width(float text_width, float dpi_scale) noexcept {
 std::size_t tokenize_editor_line(
     std::string_view line,
     std::array<EditorToken, maximum_editor_tokens> &output,
-    std::string_view file_name) noexcept {
-  const auto* grammar = file_name.empty()
-      ? Language::Syntax::GrammarRegistry::instance().get_grammar_for_extension(".cpp")
-      : Language::Syntax::GrammarRegistry::instance().get_grammar_for_filename(file_name);
+    std::string_view file_name,
+    Language::Syntax::TokenizerState* inout_state) noexcept {
+  if (file_name.empty() || !supports_editor_syntax_highlighting(file_name)) {
+    if (!line.empty() && !output.empty()) {
+      output[0] = EditorToken{line, EditorTokenKind::Plain};
+      return 1;
+    }
+    return 0;
+  }
+
+  const auto* grammar = Language::Syntax::GrammarRegistry::instance().get_grammar_for_filename(file_name);
   if (grammar != nullptr) {
-    return Language::Syntax::GenericGrammarEngine::tokenize_line(line, *grammar, output);
+    if (inout_state != nullptr) {
+      return Language::Syntax::GenericGrammarEngine::tokenize_line(line, *grammar, output, *inout_state);
+    }
+    Language::Syntax::TokenizerState default_state{};
+    return Language::Syntax::GenericGrammarEngine::tokenize_line(line, *grammar, output, default_state);
   }
   if (!line.empty() && !output.empty()) {
     output[0] = EditorToken{line, EditorTokenKind::Plain};
@@ -347,9 +358,8 @@ std::size_t tokenize_editor_line(
 }
 
 bool supports_editor_syntax_highlighting(std::string_view file_name) noexcept {
-  const auto* grammar = Language::Syntax::GrammarRegistry::instance().get_grammar_for_filename(file_name);
-  if (grammar != nullptr) {
-    return true;
+  if (file_name.empty()) {
+    return false;
   }
 
   std::string normalized_name{file_name};
@@ -358,12 +368,27 @@ bool supports_editor_syntax_highlighting(std::string_view file_name) noexcept {
                    return static_cast<char>(std::tolower(character));
                  });
 
-  if (normalized_name == "cmakelists.txt" || normalized_name.ends_with(".cmake")) {
+  const std::filesystem::path p(normalized_name);
+  const std::string base_name = p.filename().string();
+
+  // 1. Build scripts and special files with custom names
+  if (base_name == "cmakelists.txt" || base_name.ends_with(".cmake") ||
+      base_name == "meson.build" || base_name == "meson_options.txt") {
     return true;
   }
 
-  if (normalized_name.ends_with(".log") || normalized_name.ends_with(".txt")) {
+  // 2. Plain text notes, logs, and documentation files must remain plain text
+  if (base_name.ends_with(".log") || base_name.ends_with(".txt") ||
+      base_name.ends_with(".md") || base_name.ends_with(".markdown") ||
+      base_name.ends_with(".note") || base_name.ends_with(".notes") ||
+      base_name.ends_with(".doc") || base_name.ends_with(".rtf")) {
     return false;
+  }
+
+  // 3. Grammar registry check
+  const auto* grammar = Language::Syntax::GrammarRegistry::instance().get_grammar_for_filename(file_name);
+  if (grammar != nullptr) {
+    return true;
   }
 
   return false;

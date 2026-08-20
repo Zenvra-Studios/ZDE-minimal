@@ -142,8 +142,9 @@ void EditorMinimap::render(const StudioWorkspaceRenderer &surface,
     float token_x = bounds.x + left_padding;
     std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens>
         tokens{};
+    auto line_state = document.get_line_state(line_index);
     const std::size_t token_count =
-        UI::Editor::tokenize_editor_line(line, tokens, document.get_file_name());
+        UI::Editor::tokenize_editor_line(line, tokens, document.get_file_name(), &line_state);
     for (std::size_t token_index = 0; token_index < token_count;
          ++token_index) {
       if (token_x >= bounds.right() - right_padding) {

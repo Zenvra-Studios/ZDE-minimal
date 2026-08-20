@@ -37,7 +37,8 @@ bool is_path_or_filename(std::string_view text) noexcept
 std::size_t GenericGrammarEngine::tokenize_line(
     std::string_view line,
     const GrammarRule& grammar,
-    std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens>& output) noexcept
+    std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens>& output,
+    TokenizerState& state) noexcept
 {
     std::size_t token_count = 0;
     std::size_t cursor = 0;
@@ -49,19 +50,132 @@ std::size_t GenericGrammarEngine::tokenize_line(
         }
     };
 
-    // Check for leading comment decorations like in JSDoc / Doxygen (* or /**)
-    const std::size_t first_non_ws = line.find_first_not_of(" \t");
-    if (first_non_ws != std::string_view::npos)
+    // Handle resumed state from previous lines
+    if (state.kind == TokenizerState::StateKind::BlockComment)
     {
-        const std::string_view trimmed = line.substr(first_non_ws);
-        if (trimmed.starts_with("/**") || trimmed.starts_with("/*") ||
-            trimmed.starts_with("*/") || trimmed.starts_with("* ") ||
-            trimmed == "*" || trimmed.starts_with("**/"))
+        const std::string_view end_token = !grammar.block_comment_end.empty() ? grammar.block_comment_end : "*/";
+        const std::size_t end_pos = line.find(end_token);
+        if (end_pos != std::string_view::npos)
         {
-            if (!output.empty())
+            cursor = end_pos + end_token.size();
+            append(line.substr(0, cursor), UI::Editor::EditorTokenKind::Comment);
+            state = TokenizerState{};
+        }
+        else
+        {
+            append(line, UI::Editor::EditorTokenKind::Comment);
+            return token_count;
+        }
+    }
+    else if (state.kind == TokenizerState::StateKind::RawString)
+    {
+        const std::string closing_pattern = ")" + state.custom_delimiter + "\"";
+        const std::size_t end_pos = line.find(closing_pattern);
+        if (end_pos != std::string_view::npos)
+        {
+            cursor = end_pos + closing_pattern.size();
+            append(line.substr(0, cursor), UI::Editor::EditorTokenKind::String);
+            state = TokenizerState{};
+        }
+        else
+        {
+            append(line, UI::Editor::EditorTokenKind::String);
+            return token_count;
+        }
+    }
+    else if (state.kind == TokenizerState::StateKind::TripleQuoteString)
+    {
+        const std::string closing_pattern = std::string(3, state.quote_char != 0 ? state.quote_char : '"');
+        const std::size_t end_pos = line.find(closing_pattern);
+        if (end_pos != std::string_view::npos)
+        {
+            cursor = end_pos + 3;
+            append(line.substr(0, cursor), UI::Editor::EditorTokenKind::String);
+            state = TokenizerState{};
+        }
+        else
+        {
+            append(line, UI::Editor::EditorTokenKind::String);
+            return token_count;
+        }
+    }
+    else if (state.kind == TokenizerState::StateKind::MultilineString)
+    {
+        const char quote = state.quote_char != 0 ? state.quote_char : '`';
+        std::size_t scan = 0;
+        bool closed = false;
+        while (scan < line.size())
+        {
+            if (line[scan] == '\\' && scan + 1 < line.size())
             {
-                output[0] = UI::Editor::EditorToken{line, UI::Editor::EditorTokenKind::Comment};
-                return 1;
+                scan += 2;
+                continue;
+            }
+            if (line[scan] == quote)
+            {
+                closed = true;
+                cursor = scan + 1;
+                append(line.substr(0, cursor), UI::Editor::EditorTokenKind::String);
+                state = TokenizerState{};
+                break;
+            }
+            ++scan;
+        }
+        if (!closed)
+        {
+            append(line, UI::Editor::EditorTokenKind::String);
+            return token_count;
+        }
+    }
+    else if (state.kind == TokenizerState::StateKind::BackslashString)
+    {
+        const char quote = state.quote_char != 0 ? state.quote_char : '"';
+        std::size_t scan = 0;
+        bool closed = false;
+        while (scan < line.size())
+        {
+            if (line[scan] == '\\' && scan + 1 < line.size())
+            {
+                scan += 2;
+                continue;
+            }
+            if (line[scan] == quote)
+            {
+                closed = true;
+                cursor = scan + 1;
+                append(line.substr(0, cursor), UI::Editor::EditorTokenKind::String);
+                state = TokenizerState{};
+                break;
+            }
+            ++scan;
+        }
+        if (!closed)
+        {
+            append(line, UI::Editor::EditorTokenKind::String);
+            if (!line.ends_with('\\'))
+            {
+                state = TokenizerState{};
+            }
+            return token_count;
+        }
+    }
+
+    // Check for leading comment decorations like in JSDoc / Doxygen (* or /**)
+    if (cursor == 0)
+    {
+        const std::size_t first_non_ws = line.find_first_not_of(" \t");
+        if (first_non_ws != std::string_view::npos)
+        {
+            const std::string_view trimmed = line.substr(first_non_ws);
+            if (trimmed.starts_with("/**") || trimmed.starts_with("/*") ||
+                trimmed.starts_with("*/") || trimmed.starts_with("* ") ||
+                trimmed == "*" || trimmed.starts_with("**/"))
+            {
+                if (!output.empty())
+                {
+                    output[0] = UI::Editor::EditorToken{line, UI::Editor::EditorTokenKind::Comment};
+                    return 1;
+                }
             }
         }
     }
@@ -160,8 +274,13 @@ std::size_t GenericGrammarEngine::tokenize_line(
                     else
                     {
                         cursor = line.size();
+                        state.kind = TokenizerState::StateKind::BlockComment;
                     }
                     append(line.substr(comment_start, cursor - comment_start), UI::Editor::EditorTokenKind::Comment);
+                    if (state.kind == TokenizerState::StateKind::BlockComment)
+                    {
+                        return token_count;
+                    }
                     continue;
                 }
             }
@@ -196,13 +315,15 @@ std::size_t GenericGrammarEngine::tokenize_line(
             if (end_pos != std::string_view::npos)
             {
                 cursor = end_pos + grammar.block_comment_end.size();
+                append(line.substr(token_start, cursor - token_start), UI::Editor::EditorTokenKind::Comment);
+                continue;
             }
             else
             {
-                cursor = line.size();
+                append(line.substr(token_start), UI::Editor::EditorTokenKind::Comment);
+                state.kind = TokenizerState::StateKind::BlockComment;
+                return token_count;
             }
-            append(line.substr(token_start, cursor - token_start), UI::Editor::EditorTokenKind::Comment);
-            continue;
         }
 
         // 5. Variable Expansions (${VAR}, $ENV{VAR}, $<...>, @VAR@)
@@ -252,7 +373,151 @@ std::size_t GenericGrammarEngine::tokenize_line(
             }
         }
 
-        // 6. Strings
+        // 6. Strings & Raw Strings
+        // 6a. C/C++ Raw String Literal: R"delim(...)delim", u8R"delim(...)delim", LR"...", etc.
+        bool is_cpp_raw_string = false;
+        std::size_t raw_prefix_len = 0;
+        if (grammar.name == "C/C++" || grammar.supports_preprocessor)
+        {
+            if (character == 'R' && cursor + 1 < line.size() && line[cursor + 1] == '"')
+            {
+                is_cpp_raw_string = true;
+                raw_prefix_len = 1;
+            }
+            else if (cursor + 3 < line.size() && line.substr(cursor, 3) == "u8R" && line[cursor + 3] == '"')
+            {
+                is_cpp_raw_string = true;
+                raw_prefix_len = 3;
+            }
+            else if (cursor + 2 < line.size() && (character == 'L' || character == 'u' || character == 'U') && line[cursor + 1] == 'R' && line[cursor + 2] == '"')
+            {
+                is_cpp_raw_string = true;
+                raw_prefix_len = 2;
+            }
+        }
+
+        if (is_cpp_raw_string)
+        {
+            const std::size_t quote_pos = cursor + raw_prefix_len; // Points to '"'
+            const std::size_t open_paren = line.find('(', quote_pos + 1);
+            if (open_paren != std::string_view::npos && (open_paren - (quote_pos + 1) <= 16))
+            {
+                const std::string delim = std::string(line.substr(quote_pos + 1, open_paren - (quote_pos + 1)));
+                bool valid_delim = true;
+                for (char c : delim)
+                {
+                    if (std::isspace(static_cast<unsigned char>(c)) != 0 || c == ')' || c == '\\')
+                    {
+                        valid_delim = false;
+                        break;
+                    }
+                }
+                if (valid_delim)
+                {
+                    const std::string closing_pattern = ")" + delim + "\"";
+                    const std::size_t close_pos = line.find(closing_pattern, open_paren + 1);
+                    if (close_pos != std::string_view::npos)
+                    {
+                        cursor = close_pos + closing_pattern.size();
+                        append(line.substr(token_start, cursor - token_start), UI::Editor::EditorTokenKind::String);
+                        continue;
+                    }
+                    else
+                    {
+                        append(line.substr(token_start), UI::Editor::EditorTokenKind::String);
+                        state.kind = TokenizerState::StateKind::RawString;
+                        state.custom_delimiter = delim;
+                        return token_count;
+                    }
+                }
+            }
+        }
+
+        // 6b. Rust Raw String Literal: r"...", r#"..."#, r##"..."##
+        if (grammar.name == "Rust" && character == 'r' && cursor + 1 < line.size())
+        {
+            std::size_t hashes = 0;
+            std::size_t scan = cursor + 1;
+            while (scan < line.size() && line[scan] == '#')
+            {
+                ++hashes;
+                ++scan;
+            }
+            if (scan < line.size() && line[scan] == '"')
+            {
+                const std::string closing_pattern = "\"" + std::string(hashes, '#');
+                const std::size_t close_pos = line.find(closing_pattern, scan + 1);
+                if (close_pos != std::string_view::npos)
+                {
+                    cursor = close_pos + closing_pattern.size();
+                    append(line.substr(token_start, cursor - token_start), UI::Editor::EditorTokenKind::String);
+                    continue;
+                }
+                else
+                {
+                    append(line.substr(token_start), UI::Editor::EditorTokenKind::String);
+                    state.kind = TokenizerState::StateKind::RawString;
+                    state.custom_delimiter = std::string(hashes, '#');
+                    return token_count;
+                }
+            }
+        }
+
+        // 6c. Triple-quoted Strings (""" or ''')
+        if (line.substr(cursor).starts_with("\"\"\"") || line.substr(cursor).starts_with("'''"))
+        {
+            const std::string_view tquote = line.substr(cursor, 3);
+            const std::size_t close_pos = line.find(tquote, cursor + 3);
+            if (close_pos != std::string_view::npos)
+            {
+                cursor = close_pos + 3;
+                append(line.substr(token_start, cursor - token_start), UI::Editor::EditorTokenKind::String);
+                continue;
+            }
+            else
+            {
+                append(line.substr(token_start), UI::Editor::EditorTokenKind::String);
+                state.kind = TokenizerState::StateKind::TripleQuoteString;
+                state.quote_char = tquote[0];
+                return token_count;
+            }
+        }
+
+        // 6d. Backticks / Template Literals (`)
+        if (character == '`')
+        {
+            std::size_t scan = cursor + 1;
+            bool closed = false;
+            while (scan < line.size())
+            {
+                if (line[scan] == '\\' && scan + 1 < line.size())
+                {
+                    scan += 2;
+                    continue;
+                }
+                if (line[scan] == '`')
+                {
+                    closed = true;
+                    cursor = scan + 1;
+                    append(line.substr(token_start, cursor - token_start), UI::Editor::EditorTokenKind::String);
+                    break;
+                }
+                ++scan;
+            }
+            if (closed)
+            {
+                continue;
+            }
+            else
+            {
+                append(line.substr(token_start), UI::Editor::EditorTokenKind::String);
+                state.kind = TokenizerState::StateKind::MultilineString;
+                state.quote_char = '`';
+                return token_count;
+            }
+        }
+
+        // 6e. Standard String Delimiters (" and ')
         bool is_string_delim = false;
         for (const auto& delim : grammar.string_delimiters)
         {
@@ -267,6 +532,7 @@ std::size_t GenericGrammarEngine::tokenize_line(
         {
             const char quote = character;
             ++cursor;
+            bool closed = false;
             while (cursor < line.size())
             {
                 if (line[cursor] == '\\' && cursor + 1 < line.size())
@@ -277,12 +543,26 @@ std::size_t GenericGrammarEngine::tokenize_line(
                 if (line[cursor] == quote)
                 {
                     ++cursor;
+                    closed = true;
                     break;
                 }
                 ++cursor;
             }
-            append(line.substr(token_start, cursor - token_start), UI::Editor::EditorTokenKind::String);
-            continue;
+            if (closed)
+            {
+                append(line.substr(token_start, cursor - token_start), UI::Editor::EditorTokenKind::String);
+                continue;
+            }
+            else
+            {
+                append(line.substr(token_start), UI::Editor::EditorTokenKind::String);
+                if (line.ends_with('\\'))
+                {
+                    state.kind = TokenizerState::StateKind::BackslashString;
+                    state.quote_char = quote;
+                }
+                return token_count;
+            }
         }
 
         // 7. Numbers (Decimal, Hex, Binary, Floats)

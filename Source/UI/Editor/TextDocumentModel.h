@@ -135,6 +135,7 @@ public:
     void set_diagnostics(std::vector<Language::Protocol::Diagnostic> diagnostics);
     [[nodiscard]] std::vector<Language::Protocol::Diagnostic> get_diagnostics() const;
     [[nodiscard]] std::vector<Language::Protocol::Diagnostic> get_diagnostics_for_line(std::size_t line) const;
+    [[nodiscard]] Language::Syntax::TokenizerState get_line_state(std::size_t line_index) const noexcept;
 
 private:
     void insert_new_line();
@@ -155,6 +156,9 @@ private:
     std::vector<TextCursor> m_secondary_cursors;
     mutable std::shared_ptr<std::mutex> m_diagnostics_mutex = std::make_shared<std::mutex>();
     std::vector<Language::Protocol::Diagnostic> m_diagnostics;
+    mutable std::vector<Language::Syntax::TokenizerState> m_line_states;
+    mutable std::size_t m_line_states_valid_up_to = 0;
+    mutable std::size_t m_line_states_revision = 0;
     std::size_t m_revision = 0;
     bool m_dirty = false;
     bool m_read_only = false;

@@ -3594,8 +3594,9 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
       std::size_t rendered_bytes = 0;
       std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens>
           tokens{};
-      const std::size_t token_count =
-          UI::Editor::tokenize_editor_line(line, tokens, doc->get_file_name());
+      auto line_state = doc->get_line_state(line_index);
+      const std::size_t token_count = UI::Editor::tokenize_editor_line(
+          line, tokens, doc->get_file_name(), &line_state);
       for (std::size_t token_index = 0; token_index < token_count;
            ++token_index) {
         const auto &tok = tokens[token_index];

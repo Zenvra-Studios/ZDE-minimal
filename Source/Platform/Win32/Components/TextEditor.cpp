@@ -4393,7 +4393,8 @@ void TextEditor::draw_document(
             float token_x = code_x;
             std::size_t rendered_bytes = 0;
             std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
-            const std::size_t token_count = UI::Editor::tokenize_editor_line(line, tokens, document->get_file_name());
+            auto line_state = document->get_line_state(line_index);
+            const std::size_t token_count = UI::Editor::tokenize_editor_line(line, tokens, document->get_file_name(), &line_state);
             for (std::size_t token_index = 0; token_index < token_count; ++token_index)
             {
                 const UI::Editor::EditorToken& token = tokens[token_index];
@@ -5022,7 +5023,8 @@ void TextEditor::draw_document(
                 {
                     std::size_t rbytes = 0;
                     std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> rtokens{};
-                    const std::size_t rcount = UI::Editor::tokenize_editor_line(lstr, rtokens, split_doc.get_file_name());
+                    auto rline_state = split_doc.get_line_state(lidx);
+                    const std::size_t rcount = UI::Editor::tokenize_editor_line(lstr, rtokens, split_doc.get_file_name(), &rline_state);
                     for (std::size_t ti = 0; ti < rcount; ++ti)
                     {
                         const auto& t = rtokens[ti];

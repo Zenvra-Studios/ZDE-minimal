@@ -116,6 +116,9 @@ void ActivitySidebar::render(
         surface.m_pixels.border);
 }
 
+/**
+ * 
+ **/
 void ActivitySidebar::draw_icon(
     const StudioWorkspaceRenderer& surface,
     Drawable drawable,

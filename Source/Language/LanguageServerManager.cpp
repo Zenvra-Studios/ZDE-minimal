@@ -753,11 +753,31 @@ void LanguageServerManager::set_workspace_root(
 
 Client::ILanguageClient *
 LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
+  if (filename.empty()) {
+    return nullptr;
+  }
   std::string fname_str(filename);
-  if (fname_str.empty() ||
-      fname_str.find("Untitled") != std::string_view::npos ||
-      fname_str.find("untitled") != std::string_view::npos) {
-    fname_str = "untitled.cpp";
+  const std::filesystem::path p(fname_str);
+  std::string ext = p.extension().string();
+  for (char &c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  std::string base_name = p.filename().string();
+  for (char &c : base_name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+  const bool is_cmake = (base_name == "cmakelists.txt" || ext == ".cmake");
+
+  // Plain text, notes, log files, and markdown must NEVER start or trigger LSP
+  if (!is_cmake && (ext == ".txt" || ext == ".log" || ext == ".note" || ext == ".notes" ||
+      ext == ".md" || ext == ".markdown" || ext == ".doc" || ext == ".rtf")) {
+    return nullptr;
+  }
+
+  // If untitled without an explicit code extension, do not start LSP
+  if (base_name.starts_with("untitled") || base_name.empty()) {
+    if (ext.empty() || (ext != ".cpp" && ext != ".c" && ext != ".h" && ext != ".hpp" &&
+                        ext != ".cc" && ext != ".cxx" && ext != ".rs" && ext != ".py" &&
+                        ext != ".go" && ext != ".js" && ext != ".ts" && ext != ".cmake")) {
+      return nullptr;
+    }
   }
 
   const auto *profile =
