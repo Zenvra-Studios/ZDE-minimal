@@ -7,11 +7,13 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <iostream>
 
 namespace Zenvra::Platform::Win32::Components
 {
 
 /**
+ * 
  * 
  **/
 Menubar::~Menubar()
@@ -23,6 +25,7 @@ Menubar::~Menubar()
 }
 
 /**
+ * 
  * 
  **/
 bool Menubar::load(HINSTANCE instance_handle)
