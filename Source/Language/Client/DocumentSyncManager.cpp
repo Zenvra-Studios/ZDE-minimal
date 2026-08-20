@@ -33,9 +33,18 @@ Protocol::JsonRpcNotification DocumentSyncManager::create_did_change(
     int version,
     std::string_view text)
 {
+    int next_ver = version;
     if (auto it = m_documents.find(uri); it != m_documents.end())
     {
-        it->second.version = version;
+        if (version <= it->second.version)
+        {
+            it->second.version++;
+        }
+        else
+        {
+            it->second.version = version;
+        }
+        next_ver = it->second.version;
     }
 
     return Protocol::JsonRpcNotification{
@@ -43,7 +52,7 @@ Protocol::JsonRpcNotification DocumentSyncManager::create_did_change(
         .params = {
             {"textDocument", {
                 {"uri", uri},
-                {"version", version}
+                {"version", next_ver}
             }},
             {"contentChanges", nlohmann::json::array({
                 {{"text", std::string(text)}}

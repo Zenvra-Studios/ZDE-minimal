@@ -586,130 +586,32 @@ LanguageServerManager::get_header_completions(std::string_view line_prefix, cons
   std::vector<Protocol::CompletionItem> items;
   std::unordered_set<std::string> seen;
 
-  static const std::vector<std::pair<const char*, const char*>> s_std_cpp_headers = {
-      {"iostream", "Standard Input/Output Stream"},
-      {"vector", "Dynamic contiguous array container"},
-      {"string", "Standard character string container"},
-      {"string_view", "Non-owning view over a character string"},
-      {"memory", "Smart pointers (unique_ptr, shared_ptr, weak_ptr)"},
-      {"algorithm", "Standard algorithms (sort, find, transform, etc.)"},
-      {"array", "Fixed-size sequential array container"},
-      {"chrono", "Date and time library"},
-      {"cmath", "C-style mathematical functions"},
-      {"cstdint", "Fixed-width integer types"},
-      {"cstdio", "C-style input/output operations"},
-      {"cstdlib", "General purpose utilities (malloc, free, rand, etc.)"},
-      {"cstring", "C-style string manipulation functions"},
-      {"filesystem", "Filesystem navigation and file queries"},
-      {"fstream", "File streams (ifstream, ofstream, fstream)"},
-      {"functional", "Function objects and std::function wrappers"},
-      {"map", "Ordered associative key-value container"},
-      {"set", "Ordered associative unique key container"},
-      {"unordered_map", "Hash-table based key-value container"},
-      {"unordered_set", "Hash-table based unique key container"},
-      {"utility", "General utilities (std::pair, std::move, std::forward)"},
-      {"variant", "Type-safe discriminated union"},
-      {"optional", "Optional value wrapper"},
-      {"tuple", "Fixed-size collection of heterogeneous values"},
-      {"thread", "Standard thread management"},
-      {"mutex", "Mutual exclusion primitives"},
-      {"future", "Asynchronous operation primitives"},
-      {"atomic", "Atomic operations library"},
-      {"sstream", "String stream buffer objects"},
-      {"ranges", "Ranges and view adapters"},
-      {"concepts", "Fundamental language concepts"},
-      {"format", "Formatting library (std::format)"},
-      {"deque", "Double-ended queue container"},
-      {"queue", "Queue and priority_queue adapter"},
-      {"stack", "LIFO stack container adapter"},
-      {"list", "Doubly-linked list container"},
-      {"forward_list", "Singly-linked list container"},
-      {"bit", "Bit manipulation utilities"},
-      {"type_traits", "Compile-time type traits and inspection"},
-      {"regex", "Regular expression library"},
-      {"exception", "Base exception classes"},
-      {"stdexcept", "Standard domain and logic exception classes"},
-      {"system_error", "System error codes and categories"},
-      {"cassert", "Macro for compile/runtime assertions"},
-      {"climits", "Limits of integral types"},
-      {"cfloat", "Limits of floating-point types"},
-      {"cctype", "Character classification functions"},
-      {"numeric", "Generalized numeric operations (accumulate, iota)"},
-      {"complex", "Complex numbers class"},
-      {"random", "Pseudo-random number generators"},
-      {"numbers", "Mathematical constants (pi, e, sqrt2)"},
-      {"span", "Non-owning view over contiguous sequence"},
-      {"source_location", "Source code location reflection"}
-  };
-
-  static const std::vector<std::pair<const char*, const char*>> s_c_headers = {
-      {"stdio.h", "Standard C Input/Output"},
-      {"stdlib.h", "Standard C General Utilities"},
-      {"string.h", "Standard C String Manipulation"},
-      {"math.h", "Standard C Mathematics"},
-      {"time.h", "Standard C Time Functions"},
-      {"assert.h", "Standard C Assertions"},
-      {"ctype.h", "Standard C Character Classification"},
-      {"errno.h", "Standard C Error Numbers"},
-      {"fcntl.h", "File control options (POSIX)"},
-      {"unistd.h", "Standard symbolic constants & types (POSIX)"},
-      {"pthread.h", "POSIX Threads library"},
-      {"stdint.h", "Integer Types"},
-      {"stdbool.h", "Boolean Type"},
-      {"stddef.h", "Standard Type Definitions"}
-  };
-
-  static const std::vector<std::pair<const char*, const char*>> s_apple_headers = {
-      {"Cocoa/Cocoa.h", "macOS Cocoa Application Kit & Foundation umbrella"},
-      {"Foundation/Foundation.h", "macOS Objective-C Foundation framework"},
-      {"AppKit/AppKit.h", "macOS Application Kit UI framework"},
-      {"CoreGraphics/CoreGraphics.h", "macOS 2D vector drawing & Quartz engine"},
-      {"Metal/Metal.h", "macOS Low-overhead hardware-accelerated GPU 3D graphics"},
-      {"MetalKit/MetalKit.h", "macOS Metal utilities and MTKView helpers"},
-      {"QuartzCore/QuartzCore.h", "macOS CoreAnimation and layer graphics"},
-      {"CoreFoundation/CoreFoundation.h", "macOS CoreFoundation C API"}
-  };
-
-  for (const auto& [hdr, desc] : s_std_cpp_headers) {
-    if (seen.insert(hdr).second) {
-      Protocol::CompletionItem it{};
-      it.label = hdr;
-      it.kind = Protocol::CompletionItemKind::Module;
-      it.detail = "Standard C++ Header";
-      it.documentation = desc;
-      it.insert_text = hdr;
-      it.filter_text = hdr;
-      items.push_back(std::move(it));
+  // 1. Dynamically discover headers from active toolchain system include directories
+  const auto& toolchain = Toolchain::ToolchainDetector::instance().get_active_toolchain();
+  for (const auto& sys_inc : toolchain.system_include_paths) {
+    std::error_code ec;
+    if (std::filesystem::exists(sys_inc, ec) && std::filesystem::is_directory(sys_inc, ec)) {
+      for (const auto& entry : std::filesystem::directory_iterator(sys_inc, std::filesystem::directory_options::skip_permission_denied, ec)) {
+        if (entry.is_regular_file(ec)) {
+          const auto filename = entry.path().filename().string();
+          const auto ext = entry.path().extension().string();
+          if (ext == ".h" || ext == ".hpp" || ext == ".hxx" || ext == ".inl" || ext.empty()) {
+            if (seen.insert(filename).second) {
+              Protocol::CompletionItem it{};
+              it.label = filename;
+              it.kind = Protocol::CompletionItemKind::File;
+              it.detail = "System Header";
+              it.insert_text = filename;
+              it.filter_text = filename;
+              items.push_back(std::move(it));
+            }
+          }
+        }
+      }
     }
   }
 
-  for (const auto& [hdr, desc] : s_apple_headers) {
-    if (seen.insert(hdr).second) {
-      Protocol::CompletionItem it{};
-      it.label = hdr;
-      it.kind = Protocol::CompletionItemKind::Module;
-      it.detail = "Apple macOS Framework";
-      it.documentation = desc;
-      it.insert_text = hdr;
-      it.filter_text = hdr;
-      items.push_back(std::move(it));
-    }
-  }
-
-  for (const auto& [hdr, desc] : s_c_headers) {
-    if (seen.insert(hdr).second) {
-      Protocol::CompletionItem it{};
-      it.label = hdr;
-      it.kind = Protocol::CompletionItemKind::File;
-      it.detail = "C Standard Library";
-      it.documentation = desc;
-      it.insert_text = hdr;
-      it.filter_text = hdr;
-      items.push_back(std::move(it));
-    }
-  }
-
-  // Scan workspace for project header files
+  // 2. Dynamically scan workspace for project header files
   if (!workspace_root.empty() && std::filesystem::exists(workspace_root)) {
     std::error_code ec;
     for (const auto& entry : std::filesystem::recursive_directory_iterator(workspace_root, std::filesystem::directory_options::skip_permission_denied, ec)) {
@@ -724,7 +626,6 @@ LanguageServerManager::get_header_completions(std::string_view line_prefix, cons
             it.label = rel_path;
             it.kind = Protocol::CompletionItemKind::File;
             it.detail = "Project Header";
-            it.documentation = "Workspace relative header file";
             it.insert_text = rel_path;
             it.filter_text = rel_path;
             items.push_back(std::move(it));
@@ -748,7 +649,10 @@ LanguageServerManager::~LanguageServerManager() { shutdown_all(); }
 
 void LanguageServerManager::set_workspace_root(
     std::filesystem::path root_path) {
-  m_workspace_root = std::move(root_path);
+  if (m_workspace_root != root_path) {
+    m_workspace_root = std::move(root_path);
+    shutdown_all();
+  }
 }
 
 Client::ILanguageClient *
@@ -785,11 +689,26 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
   lsp_debug_log("[zde-lsp] exe=" + exe_path.generic_string());
 
   std::vector<std::string> args = profile->default_args;
+  std::vector<std::string> fallback_flags;
   if (profile->language_id == "cpp") {
     std::error_code ec;
     std::vector<std::filesystem::path> search_roots;
     if (!m_workspace_root.empty()) {
       search_roots.push_back(m_workspace_root);
+    }
+    if (!fname_str.empty() && fname_str != "untitled.cpp") {
+      std::filesystem::path file_p(fname_str);
+      if (file_p.is_relative()) {
+        file_p = std::filesystem::absolute(file_p, ec);
+      }
+      std::filesystem::path parent = file_p.parent_path();
+      for (int i = 0; i < 8 && !parent.empty(); ++i) {
+        search_roots.push_back(parent);
+        const auto next_parent = parent.parent_path();
+        if (next_parent == parent)
+          break;
+        parent = next_parent;
+      }
     }
     std::filesystem::path cur = std::filesystem::current_path(ec);
     for (int i = 0; i < 8 && !cur.empty(); ++i) {
@@ -800,151 +719,155 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
       cur = parent;
     }
 
-    std::filesystem::path found_compile_dir;
-    for (const auto &root : search_roots) {
-      if (root.empty())
+    std::vector<std::filesystem::path> unique_search_roots;
+    for (const auto &r : search_roots) {
+      if (r.empty())
         continue;
-#if defined(_WIN32)
-      const std::filesystem::path direct_candidates[] = {
-          root / "compile_commands.json",
-          root / "build" / "compile_commands.json",
-          root / "build" / "windows-x64-clang-ninja-debug" /
-              "compile_commands.json",
-          root / "build" / "windows-x64-clang-ninja-release" /
-              "compile_commands.json",
-          root / "build" / "windows-x64-ninja-debug" / "compile_commands.json",
-          root / "build" / "windows-x64-ninja-release" /
-              "compile_commands.json",
-          root / "build" / "windows-debug" / "compile_commands.json",
-          root / "build" / "windows-release" / "compile_commands.json",
-          root / "build" / "clang-debug" / "compile_commands.json",
-          root / "build" / "clang-release" / "compile_commands.json",
-          root / "build" / "ninja-debug" / "compile_commands.json",
-          root / "build" / "ninja-release" / "compile_commands.json",
-          root / "build" / "Debug" / "compile_commands.json",
-          root / "build" / "Release" / "compile_commands.json",
-      };
-#elif defined(__APPLE__)
-      const std::filesystem::path direct_candidates[] = {
-          root / "compile_commands.json",
-          root / "build" / "compile_commands.json",
-          root / "build" / "macos-debug" / "compile_commands.json",
-          root / "build" / "macos-release" / "compile_commands.json",
-          root / "build" / "clang-debug" / "compile_commands.json",
-          root / "build" / "clang-release" / "compile_commands.json",
-          root / "build" / "ninja-debug" / "compile_commands.json",
-          root / "build" / "ninja-release" / "compile_commands.json",
-          root / "build" / "Debug" / "compile_commands.json",
-          root / "build" / "Release" / "compile_commands.json",
-      };
-#else
-      const std::filesystem::path direct_candidates[] = {
-          root / "compile_commands.json",
-          root / "build" / "compile_commands.json",
-          root / "build" / "linux-debug" / "compile_commands.json",
-          root / "build" / "linux-release" / "compile_commands.json",
-          root / "build" / "clang-debug" / "compile_commands.json",
-          root / "build" / "clang-release" / "compile_commands.json",
-          root / "build" / "ninja-debug" / "compile_commands.json",
-          root / "build" / "ninja-release" / "compile_commands.json",
-          root / "build" / "Debug" / "compile_commands.json",
-          root / "build" / "Release" / "compile_commands.json",
-      };
-#endif
-      for (const auto &cand : direct_candidates) {
-        if (std::filesystem::exists(cand, ec)) {
-          found_compile_dir = cand.parent_path();
+      bool exists_already = false;
+      for (const auto &u : unique_search_roots) {
+        if (std::filesystem::equivalent(r, u, ec)) {
+          exists_already = true;
           break;
         }
       }
-      if (!found_compile_dir.empty())
-        break;
+      if (!exists_already) {
+        unique_search_roots.push_back(r);
+      }
+    }
 
-      const std::filesystem::path build_dir = root / "build";
-      if (std::filesystem::exists(build_dir, ec) &&
-          std::filesystem::is_directory(build_dir, ec)) {
-        std::vector<std::filesystem::path> subdirs;
-        for (const auto &entry :
-             std::filesystem::directory_iterator(build_dir, ec)) {
-          if (entry.is_directory()) {
-            const auto sub_cc = entry.path() / "compile_commands.json";
-            if (std::filesystem::exists(sub_cc, ec)) {
-              subdirs.push_back(entry.path());
+    std::filesystem::path best_compile_dir;
+    std::uintmax_t best_file_size = 0;
+    std::filesystem::file_time_type best_mtime{};
+
+    auto evaluate_candidate = [&](const std::filesystem::path &cand_path) {
+      std::error_code ec_cand;
+      if (std::filesystem::exists(cand_path, ec_cand) &&
+          std::filesystem::is_regular_file(cand_path, ec_cand)) {
+        const auto sz = std::filesystem::file_size(cand_path, ec_cand);
+        if (sz > 0) {
+          const auto mtime = std::filesystem::last_write_time(cand_path, ec_cand);
+          if (best_compile_dir.empty() || mtime > best_mtime || sz > best_file_size) {
+            best_file_size = sz;
+            best_mtime = mtime;
+            best_compile_dir = cand_path.parent_path();
+          }
+        }
+      }
+    };
+
+    auto should_skip_dir = [](std::string_view dirname) {
+      return dirname == ".git" || dirname == ".svn" || dirname == ".hg" ||
+             dirname == ".vscode" || dirname == ".vs" || dirname == ".gemini" ||
+             dirname == ".antigravity" || dirname == "node_modules" ||
+             dirname == ".cache" || dirname == "CMakeFiles" ||
+             dirname == "Testing" || dirname == ".idea";
+    };
+
+    for (const auto &root : unique_search_roots) {
+      // 1. Immediate root candidates (standard CMake, Meson, Visual Studio, CLion output directories)
+      evaluate_candidate(root / "compile_commands.json");
+      evaluate_candidate(root / "build" / "compile_commands.json");
+      evaluate_candidate(root / "out" / "compile_commands.json");
+      evaluate_candidate(root / "cmake-build-debug" / "compile_commands.json");
+      evaluate_candidate(root / "cmake-build-release" / "compile_commands.json");
+      evaluate_candidate(root / ".build" / "compile_commands.json");
+      evaluate_candidate(root / "builddir" / "compile_commands.json");
+
+      // 2. Scan all subdirectories in root up to depth 4 dynamically
+      std::vector<std::pair<std::filesystem::path, int>> dirs_to_scan = {{root, 0}};
+      while (!dirs_to_scan.empty()) {
+        auto [current_dir, depth] = dirs_to_scan.back();
+        dirs_to_scan.pop_back();
+
+        if (depth >= 4) continue;
+
+        std::error_code ec_iter;
+        for (const auto &entry : std::filesystem::directory_iterator(
+                 current_dir,
+                 std::filesystem::directory_options::skip_permission_denied,
+                 ec_iter)) {
+          if (entry.is_directory(ec_iter)) {
+            const std::string name = entry.path().filename().string();
+            if (!should_skip_dir(name)) {
+              evaluate_candidate(entry.path() / "compile_commands.json");
+              dirs_to_scan.emplace_back(entry.path(), depth + 1);
             }
           }
         }
-        auto get_platform_score = [](const std::filesystem::path &p) -> int {
-          std::string name = p.filename().string();
-          std::transform(name.begin(), name.end(), name.begin(),
-                         [](unsigned char c) {
-                           return static_cast<char>(std::tolower(c));
-                         });
+      }
+    }
+
+    std::erase_if(args, [](const std::string &a) {
+      return a.starts_with("--compile-commands-dir");
+    });
+    if (!best_compile_dir.empty()) {
+      args.push_back("--compile-commands-dir=" +
+                     best_compile_dir.generic_string());
+    }
+
+    // Auto-detect and configure toolchain fallback flags
+    const auto &toolchain =
+        Toolchain::ToolchainDetector::instance().get_active_toolchain();
+
+    // Standard C++ specification
+    fallback_flags.push_back("-std=c++20");
+
 #if defined(_WIN32)
-          if (name.find("win") != std::string::npos)
-            return 100;
-          if (name.find("clang") != std::string::npos ||
-              name.find("ninja") != std::string::npos)
-            return 50;
-          if (name.find("linux") != std::string::npos ||
-              name.find("macos") != std::string::npos ||
-              name.find("darwin") != std::string::npos)
-            return -100;
-#elif defined(__APPLE__)
-          if (name.find("mac") != std::string::npos ||
-              name.find("darwin") != std::string::npos)
-            return 100;
-          if (name.find("clang") != std::string::npos ||
-              name.find("ninja") != std::string::npos)
-            return 50;
-          if (name.find("linux") != std::string::npos ||
-              name.find("win") != std::string::npos)
-            return -100;
-#else
-          if (name.find("linux") != std::string::npos)
-            return 100;
-          if (name.find("clang") != std::string::npos ||
-              name.find("ninja") != std::string::npos)
-            return 50;
-          if (name.find("win") != std::string::npos ||
-              name.find("macos") != std::string::npos ||
-              name.find("darwin") != std::string::npos)
-            return -100;
+    // Target configuration based on detected toolchain (GCC / MSVC)
+    if (toolchain.kind == Toolchain::ToolchainKind::MinGW_GCC) {
+      fallback_flags.push_back("--target=x86_64-w64-windows-gnu");
+    } else if (toolchain.kind == Toolchain::ToolchainKind::MSVC) {
+      fallback_flags.push_back("--target=x86_64-pc-windows-msvc");
+      fallback_flags.push_back("-fms-extensions");
+      fallback_flags.push_back("-fms-compatibility");
+    }
+    fallback_flags.push_back("-DWIN32");
+    fallback_flags.push_back("-D_WINDOWS");
+    fallback_flags.push_back("-DUNICODE");
+    fallback_flags.push_back("-D_UNICODE");
+    fallback_flags.push_back("-DNOMINMAX");
+    fallback_flags.push_back("-DWIN32_LEAN_AND_MEAN");
 #endif
-          return 0;
-        };
-        std::sort(subdirs.begin(), subdirs.end(),
-                  [&](const auto &a, const auto &b) {
-                    return get_platform_score(a) > get_platform_score(b);
-                  });
-        if (!subdirs.empty() && get_platform_score(subdirs.front()) >= 0) {
-          found_compile_dir = subdirs.front();
+
+    // Fallback project include directories from search roots
+    for (const auto &root : unique_search_roots) {
+      const std::filesystem::path sub_candidates[] = {
+          root / "Source",
+          root / "src",
+          root / "include",
+          root / "Include",
+          root / "Drivers",
+          root / "ThirdParty",
+          root / "Utility",
+          root / "UI",
+          root / "Platform",
+          root,
+      };
+      for (const auto &sub : sub_candidates) {
+        if (std::filesystem::exists(sub, ec) &&
+            std::filesystem::is_directory(sub, ec)) {
+          fallback_flags.push_back("-I" + sub.generic_string());
         }
       }
-      if (!found_compile_dir.empty())
-        break;
     }
 
-    if (!found_compile_dir.empty()) {
-      std::erase_if(args, [](const std::string &a) {
-        return a.starts_with("--compile-commands-dir");
-      });
-      args.push_back("--compile-commands-dir=" +
-                     found_compile_dir.generic_string());
+    // Auto-inject system include directories discovered by ToolchainDetector
+    for (const auto &inc : toolchain.system_include_paths) {
+      if (!inc.empty() && std::filesystem::exists(inc, ec)) {
+        fallback_flags.push_back("-isystem" + inc.generic_string());
+      }
     }
 
-    // Auto-inject system include directories discovered by ToolchainDetector so
-    // STL and Windows SDK headers always resolve const auto &toolchain =
-    // Toolchain::ToolchainDetector::instance().get_active_toolchain(); for
-    // (const auto &inc : toolchain.system_include_paths) {
-    //   if (!inc.empty()) {
-    //     args.push_back("--extra-arg=-isystem" + inc.generic_string());
-    //   }
-    // }
+    // Direct query-driver pointing to the detected compiler if available
+    if (!toolchain.compiler_path.empty()) {
+      std::string comp_pattern = toolchain.compiler_path.generic_string() + "*";
+      args.push_back("--query-driver=" + comp_pattern + ",*,*/*,**/*,C:/*,C:/**,D:/*,D:/**");
+    }
 
-    lsp_debug_log(found_compile_dir.empty()
-                      ? "[zde-lsp] no compile_commands.json found"
+    lsp_debug_log(best_compile_dir.empty()
+                      ? "[zde-lsp] no compile_commands.json found, using fallback includes"
                       : "[zde-lsp] compile-dir=" +
-                            found_compile_dir.generic_string());
+                            best_compile_dir.generic_string());
   }
 
   auto transport = std::make_unique<Transport::StdioProcessTransport>(
@@ -956,6 +879,12 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
 
   auto client = std::make_unique<Client::LanguageClient>(
       profile->language_id, std::move(transport), m_workspace_root);
+
+  if (profile->language_id == "cpp") {
+    nlohmann::json init_opts = nlohmann::json::object();
+    init_opts["fallbackFlags"] = fallback_flags;
+    client->set_initialization_options(std::move(init_opts));
+  }
 
   client->set_diagnostics_handler(
       [this](const std::string &uri,
@@ -1026,6 +955,10 @@ void LanguageServerManager::on_document_changed(const std::string &uri,
                                                 std::string_view content) {
   auto *client = get_or_start_client_for_file(filename);
   if (client != nullptr) {
+    if (!client->is_document_open(uri)) {
+      on_document_opened(uri, filename, version, content);
+      return;
+    }
     client->did_change(uri, version, content);
     request_semantic_tokens(uri, filename);
   }
@@ -1051,7 +984,8 @@ void LanguageServerManager::on_document_closed(const std::string &uri,
 void LanguageServerManager::request_completion(
     const std::string &uri, std::string_view filename,
     const Protocol::Position &pos, std::string_view line_text,
-    std::function<void(std::vector<Protocol::CompletionItem>)> callback) {
+    std::function<void(std::vector<Protocol::CompletionItem>)> callback,
+    std::optional<char> trigger_character) {
   const std::filesystem::path p(filename);
   const std::string ext = p.extension().string();
   const std::string fname = p.filename().string();
@@ -1083,7 +1017,7 @@ void LanguageServerManager::request_completion(
             if (callback) {
               callback(std::move(items));
             }
-          });
+          }, trigger_character);
       return;
     }
 
@@ -1093,8 +1027,25 @@ void LanguageServerManager::request_completion(
     return;
   }
 
-  // Retrieve base templates for the language
-  auto templates = get_templates_for_filename(filename);
+  // Check if cursor is immediately following a scoped or member access operator (::, ->, .)
+  const std::string_view line_before_cursor = line_text.substr(0, std::min(static_cast<std::size_t>(pos.character), line_text.size()));
+  std::size_t p_op = line_before_cursor.size();
+  while (p_op > 0 && (std::isalnum(static_cast<unsigned char>(line_before_cursor[p_op - 1])) || line_before_cursor[p_op - 1] == '_' || line_before_cursor[p_op - 1] == '~')) {
+    --p_op;
+  }
+  const std::string_view prefix_op = line_before_cursor.substr(0, p_op);
+  const bool is_scoped_context = prefix_op.ends_with("::") || prefix_op.ends_with("->") || prefix_op.ends_with('.');
+
+  // Retrieve base templates for the language only if NOT in scoped context
+  auto templates = is_scoped_context ? std::vector<Protocol::CompletionItem>{} : get_templates_for_filename(filename);
+
+  // If in an include context (#include <... or #include "...), fetch header completions
+  std::vector<Protocol::CompletionItem> header_items;
+  if (line_text.find("#include") != std::string_view::npos ||
+      line_text.find("#import") != std::string_view::npos ||
+      line_text.find('#') != std::string_view::npos) {
+    header_items = get_header_completions(line_text, m_workspace_root);
+  }
 
   auto *client = get_or_start_client_for_file(filename);
   if (client != nullptr &&
@@ -1102,11 +1053,13 @@ void LanguageServerManager::request_completion(
        client->get_state() == Client::ClientState::Initializing)) {
     client->request_completion(
         uri, pos,
-        [callback = std::move(callback), templates = std::move(templates)](
+        [callback = std::move(callback), templates = std::move(templates),
+         header_items = std::move(header_items)](
             std::vector<Protocol::CompletionItem> lsp_items) mutable {
           std::unordered_set<std::string> seen_labels;
           std::vector<Protocol::CompletionItem> combined;
-          combined.reserve(lsp_items.size() + templates.size());
+          combined.reserve(lsp_items.size() + templates.size() +
+                           header_items.size());
 
           // 1. LSP items first
           for (auto &it : lsp_items) {
@@ -1115,7 +1068,14 @@ void LanguageServerManager::request_completion(
             }
           }
 
-          // 2. Language templates & snippets
+          // 2. Header completions (standard library + project headers)
+          for (auto &hdr : header_items) {
+            if (seen_labels.insert(hdr.label).second) {
+              combined.push_back(std::move(hdr));
+            }
+          }
+
+          // 3. Language templates & snippets
           for (auto &tpl : templates) {
             if (seen_labels.insert(tpl.label).second) {
               combined.push_back(std::move(tpl));
@@ -1125,9 +1085,22 @@ void LanguageServerManager::request_completion(
           if (callback) {
             callback(std::move(combined));
           }
-        });
+        }, trigger_character);
   } else if (callback) {
-    callback(std::move(templates));
+    std::unordered_set<std::string> seen_labels;
+    std::vector<Protocol::CompletionItem> fallback_items;
+    fallback_items.reserve(header_items.size() + templates.size());
+    for (auto &hdr : header_items) {
+      if (seen_labels.insert(hdr.label).second) {
+        fallback_items.push_back(std::move(hdr));
+      }
+    }
+    for (auto &tpl : templates) {
+      if (seen_labels.insert(tpl.label).second) {
+        fallback_items.push_back(std::move(tpl));
+      }
+    }
+    callback(std::move(fallback_items));
   }
 }
 
@@ -1260,7 +1233,7 @@ void LanguageServerManager::request_semantic_tokens(
   }
 
   client->request_semantic_tokens(
-      uri, [this, uri, callback = std::move(callback)](
+      uri, [this, client, uri, callback = std::move(callback)](
                std::optional<Protocol::SemanticTokens> tokens) {
         if (!tokens.has_value() || tokens->data.empty()) {
           if (callback)
@@ -1268,8 +1241,9 @@ void LanguageServerManager::request_semantic_tokens(
           return;
         }
 
+        const auto legend = client->get_semantic_token_legend();
         auto spans =
-            Syntax::SemanticTokensManager::decode_lsp_tokens(tokens->data);
+            Syntax::SemanticTokensManager::decode_lsp_tokens(tokens->data, legend);
         m_semantic_tokens_manager.update_document_tokens(uri, spans);
 
         if (callback) {

@@ -7,6 +7,7 @@
 #include "Platform/Win32/Components/TextEditor.h"
 #include "Platform/Win32/Components/ToolSidebar.h"
 #include "Platform/Win32/Event/ScrollEvent.h"
+#include "Platform/Win32/Components/Win32PromptDialog.h"
 #include "UI/Components/PromptModal.h"
 #include "UI/Components/AddNewItemDialog.h"
 #include "UI/Editor/StudioEditorModel.h"
@@ -296,6 +297,7 @@ private:
         float content_top);
     [[nodiscard]] bool is_prompt_modal_visible() const noexcept;
     [[nodiscard]] UI::Components::PromptModal& get_prompt_modal() const noexcept { return m_prompt_modal; }
+    [[nodiscard]] Win32PromptDialog& get_prompt_dialog() const noexcept { return m_prompt_dialog; }
     void render_prompt_modal(HDC device_context, int client_width, int client_height) const;
 
     void set_window_handle(HWND handle) noexcept { m_window_handle = handle; }
@@ -324,6 +326,7 @@ private:
     mutable TerminalPanel m_terminal_panel;
     mutable ShaderSandboxPanel m_shader_sandbox_panel;
     mutable UI::Components::PromptModal m_prompt_modal;
+    mutable Win32PromptDialog m_prompt_dialog;
     mutable UI::Components::AddNewItemDialog m_add_item_dialog;
     mutable std::unordered_map<std::string, std::vector<std::uint32_t>> m_svg_cache;
 };

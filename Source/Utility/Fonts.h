@@ -43,6 +43,21 @@ public:
     if (!m_font) {
       std::cerr << "Warning: Could not open font '" << font_name << "'"
                 << std::endl;
+    } else {
+      HDC screen_dc = GetDC(nullptr);
+      if (screen_dc) {
+        HFONT old_f = (HFONT)SelectObject(screen_dc, m_font);
+        TEXTMETRIC tm{};
+        GetTextMetrics(screen_dc, &tm);
+        m_ascent = tm.tmAscent;
+        m_descent = tm.tmDescent;
+        m_height = tm.tmHeight;
+        SIZE char_sz{};
+        GetTextExtentPoint32A(screen_dc, "X", 1, &char_sz);
+        m_char_width = char_sz.cx;
+        SelectObject(screen_dc, old_f);
+        ReleaseDC(nullptr, screen_dc);
+      }
     }
   }
 
@@ -67,7 +82,7 @@ public:
    */
   void drawString(HDC hdc, const std::string &color_name, int x, int y,
                   const std::string &text) {
-    if (!m_font || !hdc)
+    if (!m_font || !hdc || text.empty())
       return;
 
     COLORREF color = parseColor(color_name);
@@ -76,86 +91,103 @@ public:
     SetTextColor(hdc, color);
     SetBkMode(hdc, TRANSPARENT);
 
-    // GDI TextOut draws from the top-left, while Xft draws from the baseline.
-    // Adjust Y by subtracting the ascent to match Xft's baseline behavior.
-    TEXTMETRIC tm;
-    GetTextMetrics(hdc, &tm);
+    const int draw_y = y - m_ascent;
 
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), NULL, 0);
+    // Fast stack buffer conversion for UTF-8 (zero heap allocations)
+    wchar_t stack_buf[512];
+    wchar_t* wide_ptr = stack_buf;
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), stack_buf, 512);
+    std::wstring heap_wtext;
+    if (wlen <= 0 && GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+      wlen = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), nullptr, 0);
+      if (wlen > 0) {
+        heap_wtext.resize(wlen);
+        MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), &heap_wtext[0], wlen);
+        wide_ptr = &heap_wtext[0];
+      }
+    }
+
     if (wlen > 0) {
-        std::wstring wtext(wlen, 0);
-        MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), &wtext[0], wlen);
-
-        if (m_ligaturesEnabled) {
-            SCRIPT_STRING_ANALYSIS ssa = nullptr;
-            HRESULT hr = ScriptStringAnalyse(hdc, wtext.c_str(), static_cast<int>(wtext.length()), static_cast<int>(wtext.length() * 3 / 2 + 16), -1, SSA_GLYPHS | SSA_FALLBACK | SSA_LINK, 0, NULL, NULL, NULL, NULL, NULL, &ssa);
-            if (SUCCEEDED(hr)) {
-                ScriptStringOut(ssa, x, y - tm.tmAscent, 0, NULL, 0, 0, FALSE);
-                ScriptStringFree(&ssa);
-            } else {
-                TextOutW(hdc, x, y - tm.tmAscent, wtext.c_str(), static_cast<int>(wtext.length()));
-            }
+      if (m_ligaturesEnabled) {
+        SCRIPT_STRING_ANALYSIS ssa = nullptr;
+        HRESULT hr = ScriptStringAnalyse(hdc, wide_ptr, wlen, static_cast<int>(wlen * 3 / 2 + 16), -1, SSA_GLYPHS | SSA_FALLBACK | SSA_LINK, 0, NULL, NULL, NULL, NULL, NULL, &ssa);
+        if (SUCCEEDED(hr)) {
+          ScriptStringOut(ssa, x, draw_y, 0, NULL, 0, 0, FALSE);
+          ScriptStringFree(&ssa);
         } else {
-            TextOutW(hdc, x, y - tm.tmAscent, wtext.c_str(), static_cast<int>(wtext.length()));
+          TextOutW(hdc, x, draw_y, wide_ptr, wlen);
         }
+      } else {
+        TextOutW(hdc, x, draw_y, wide_ptr, wlen);
+      }
     }
 
     SelectObject(hdc, oldFont);
   }
 
-  int getAscent(HDC hdc) const {
-    TEXTMETRIC tm;
-    HFONT oldFont = (HFONT)SelectObject(hdc, m_font);
-    GetTextMetrics(hdc, &tm);
-    SelectObject(hdc, oldFont);
-    return tm.tmAscent;
+  int getAscent(HDC /*hdc*/ = nullptr) const {
+    return m_ascent;
   }
 
-  int getDescent(HDC hdc) const {
-    TEXTMETRIC tm;
-    HFONT oldFont = (HFONT)SelectObject(hdc, m_font);
-    GetTextMetrics(hdc, &tm);
-    SelectObject(hdc, oldFont);
-    return tm.tmDescent;
+  int getDescent(HDC /*hdc*/ = nullptr) const {
+    return m_descent;
   }
 
-  int getHeight(HDC hdc) const {
-    TEXTMETRIC tm;
-    HFONT oldFont = (HFONT)SelectObject(hdc, m_font);
-    GetTextMetrics(hdc, &tm);
-    SelectObject(hdc, oldFont);
-    return tm.tmHeight;
+  int getHeight(HDC /*hdc*/ = nullptr) const {
+    return m_height;
   }
 
   int getTextWidth(HDC hdc, const std::string &text) const {
     if (!m_font || !hdc || text.empty())
       return 0;
-      
+
+    // Fast O(1) calculation for monospace ASCII text
+    bool is_ascii = true;
+    for (char c : text) {
+      if (static_cast<unsigned char>(c) >= 128) {
+        is_ascii = false;
+        break;
+      }
+    }
+
+    if (!m_ligaturesEnabled && is_ascii && m_char_width > 0) {
+      return static_cast<int>(text.length()) * m_char_width;
+    }
+
     int width = 0;
     HFONT oldFont = (HFONT)SelectObject(hdc, m_font);
 
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), NULL, 0);
+    wchar_t stack_buf[512];
+    wchar_t* wide_ptr = stack_buf;
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), stack_buf, 512);
+    std::wstring heap_wtext;
+    if (wlen <= 0 && GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
+      wlen = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), nullptr, 0);
+      if (wlen > 0) {
+        heap_wtext.resize(wlen);
+        MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), &heap_wtext[0], wlen);
+        wide_ptr = &heap_wtext[0];
+      }
+    }
+
     if (wlen > 0) {
-        std::wstring wtext(wlen, 0);
-        MultiByteToWideChar(CP_UTF8, 0, text.c_str(), static_cast<int>(text.length()), &wtext[0], wlen);
-
-        if (m_ligaturesEnabled) {
-            SCRIPT_STRING_ANALYSIS ssa = nullptr;
-            HRESULT hr = ScriptStringAnalyse(hdc, wtext.c_str(), static_cast<int>(wtext.length()), static_cast<int>(wtext.length() * 3 / 2 + 16), -1, SSA_GLYPHS | SSA_FALLBACK | SSA_LINK, 0, NULL, NULL, NULL, NULL, NULL, &ssa);
-            if (SUCCEEDED(hr)) {
-                const SIZE* pSize = ScriptString_pSize(ssa);
-                if (pSize) {
-                    width = pSize->cx;
-                }
-                ScriptStringFree(&ssa);
-            }
+      if (m_ligaturesEnabled) {
+        SCRIPT_STRING_ANALYSIS ssa = nullptr;
+        HRESULT hr = ScriptStringAnalyse(hdc, wide_ptr, wlen, static_cast<int>(wlen * 3 / 2 + 16), -1, SSA_GLYPHS | SSA_FALLBACK | SSA_LINK, 0, NULL, NULL, NULL, NULL, NULL, &ssa);
+        if (SUCCEEDED(hr)) {
+          const SIZE* pSize = ScriptString_pSize(ssa);
+          if (pSize) {
+            width = pSize->cx;
+          }
+          ScriptStringFree(&ssa);
         }
+      }
 
-        if (width == 0) {
-            SIZE size{};
-            GetTextExtentPoint32W(hdc, wtext.c_str(), static_cast<int>(wtext.length()), &size);
-            width = size.cx;
-        }
+      if (width == 0) {
+        SIZE size{};
+        GetTextExtentPoint32W(hdc, wide_ptr, wlen, &size);
+        width = size.cx;
+      }
     }
 
     SelectObject(hdc, oldFont);
@@ -163,8 +195,12 @@ public:
   }
 
 private:
-  HFONT m_font;
+  HFONT m_font = nullptr;
   bool m_ligaturesEnabled = false;
+  int m_ascent = 14;
+  int m_descent = 4;
+  int m_height = 18;
+  int m_char_width = 8;
 
   COLORREF parseColor(const std::string &color_name) {
     if (color_name.empty())

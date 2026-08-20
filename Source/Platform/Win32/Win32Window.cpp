@@ -1179,6 +1179,9 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     return 0;
 
   case WM_LBUTTONDOWN:
+    if (m_workspace_renderer.get_prompt_dialog().is_open()) {
+      m_workspace_renderer.get_prompt_dialog().close();
+    }
     if (m_custom_chrome_enabled && m_workspace_renderer.is_prompt_modal_visible()) {
       const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
       const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
@@ -1464,6 +1467,9 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
 
   case WM_RBUTTONDOWN:
   case WM_RBUTTONUP:
+    if (message == WM_RBUTTONDOWN && m_workspace_renderer.get_prompt_dialog().is_open()) {
+      m_workspace_renderer.get_prompt_dialog().close();
+    }
     if (m_custom_chrome_enabled) {
       const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
       const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
@@ -1685,8 +1691,15 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
               static_cast<float>(cursor_position.y),
               client_bounds.right - client_bounds.left,
               client_bounds.bottom - client_bounds.top,
-              m_chrome_layout.titlebar_bounds.bottom()) ||
-          m_workspace_renderer.is_terminal_point(
+              m_chrome_layout.titlebar_bounds.bottom())) {
+        if ((GetKeyState(VK_CONTROL) & 0x8000) != 0) {
+          SetCursor(LoadCursorW(nullptr, IDC_HAND));
+          return TRUE;
+        }
+        SetCursor(LoadCursorW(nullptr, IDC_IBEAM));
+        return TRUE;
+      }
+      if (m_workspace_renderer.is_terminal_point(
               static_cast<float>(cursor_position.x),
               static_cast<float>(cursor_position.y),
               client_bounds.right - client_bounds.left,
@@ -1793,6 +1806,8 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           if (dispatch_shortcut_command(Commands::CommandIds::window_toggle_fullscreen)) return 0;
         } else if (w_param == VK_F5) {
           if (dispatch_shortcut_command(Commands::CommandIds::run_start)) return 0;
+        } else if (w_param == VK_F12) {
+          if (dispatch_shortcut_command(Commands::CommandIds::editor_goto_definition)) return 0;
         }
       } else if (ctrl_down && shift_down && !alt_down) {
         if (w_param == 'W') {
@@ -3974,12 +3989,11 @@ void Win32Window::execute_explorer_context_menu_item(std::size_t item_index) {
     break;
   }
   case CmdNewFolder: {
-    m_workspace_renderer.get_prompt_modal().open_new_folder(target_path, [this](const std::string& name) {
+    m_workspace_renderer.get_prompt_dialog().open_new_folder(m_window_handle, target_path, [this](const std::string& name) {
       std::filesystem::path created_p;
       static_cast<void>(m_workspace_renderer.m_tool_sidebar.get_model().create_directory(name, created_p));
       InvalidateRect(m_window_handle, nullptr, FALSE);
     });
-    InvalidateRect(m_window_handle, nullptr, FALSE);
     break;
   }
   case CmdOpenToSide: {
@@ -4041,7 +4055,7 @@ void Win32Window::execute_explorer_context_menu_item(std::size_t item_index) {
     break;
   }
   case CmdRename: {
-    m_workspace_renderer.get_prompt_modal().open_rename(target_path, [this, target_path](const std::string& new_name) {
+    m_workspace_renderer.get_prompt_dialog().open_rename(m_window_handle, target_path, [this, target_path](const std::string& new_name) {
       std::filesystem::path new_p;
       if (m_workspace_renderer.m_tool_sidebar.get_model().rename_item(target_path, new_name, new_p)) {
         static_cast<void>(m_workspace_renderer.m_text_editor.close_file(target_path));
@@ -4049,16 +4063,14 @@ void Win32Window::execute_explorer_context_menu_item(std::size_t item_index) {
       }
       InvalidateRect(m_window_handle, nullptr, FALSE);
     });
-    InvalidateRect(m_window_handle, nullptr, FALSE);
     break;
   }
   case CmdDelete: {
-    m_workspace_renderer.get_prompt_modal().open_delete(target_path, [this, target_path]() {
+    m_workspace_renderer.get_prompt_dialog().open_delete(m_window_handle, target_path, [this, target_path]() {
       static_cast<void>(m_workspace_renderer.m_text_editor.close_file(target_path));
       static_cast<void>(m_workspace_renderer.m_tool_sidebar.get_model().delete_item(target_path));
       InvalidateRect(m_window_handle, nullptr, FALSE);
     });
-    InvalidateRect(m_window_handle, nullptr, FALSE);
     break;
   }
   default:

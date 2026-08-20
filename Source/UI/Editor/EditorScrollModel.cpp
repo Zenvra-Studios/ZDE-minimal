@@ -94,11 +94,11 @@ std::size_t EditorScrollModel::get_first_visible_line() const noexcept
 
 std::size_t EditorScrollModel::get_maximum_first_line() const noexcept
 {
-    if (m_total_lines <= m_visible_lines)
+    if (m_total_lines <= 1)
     {
         return 0;
     }
-    return m_total_lines - m_visible_lines;
+    return m_total_lines - 1;
 }
 
 bool EditorScrollModel::is_dragging() const noexcept

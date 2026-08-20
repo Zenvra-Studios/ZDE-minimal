@@ -9,6 +9,7 @@
 #include "Language/Syntax/SemanticTokensManager.h"
 #include "Language/CMake/CMakeLanguageDatabase.h"
 #include "UI/Components/CompletionPopup.h"
+#include "UI/Components/HoverTooltip.h"
 #include "UI/Editor/StudioEditorModel.h"
 #include "UI/Toolbar/StudioMainToolbar.h"
 #include "Tools/Builder/CMakeBuilder.h"
@@ -588,6 +589,27 @@ TEST(LanguageServerTests, ActivityPanelModelScrollingAndClamping)
         EXPECT_TRUE(model.scroll(-10000, viewport_rows));
         EXPECT_EQ(model.get_scroll_offset(), 0u);
     }
+}
+
+TEST(LanguageServerTests, HoverTooltipStateAndBoundsCalculation)
+{
+    UI::Components::HoverTooltip tooltip;
+    EXPECT_FALSE(tooltip.is_visible());
+
+    tooltip.show("```cpp\nint calculate(int a, int b);\n```\nCalculates sum of a and b", 150.0F, 200.0F);
+    EXPECT_TRUE(tooltip.is_visible());
+    EXPECT_EQ(tooltip.get_x(), 150.0F);
+    EXPECT_EQ(tooltip.get_y(), 200.0F);
+    EXPECT_FALSE(tooltip.get_content().empty());
+
+    const auto bounds = tooltip.calculate_bounds(320.0F, 90.0F);
+    EXPECT_EQ(bounds.x, 150.0F);
+    EXPECT_EQ(bounds.y, 200.0F);
+    EXPECT_EQ(bounds.width, 320.0F);
+    EXPECT_EQ(bounds.height, 90.0F);
+
+    tooltip.hide();
+    EXPECT_FALSE(tooltip.is_visible());
 }
 
 

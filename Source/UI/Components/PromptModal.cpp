@@ -108,10 +108,10 @@ PromptModalLayoutResult PromptModal::calculate_layout(const Rect& viewport_bound
     PromptModalLayoutResult layout{};
     layout.dpi_scale = dpi_scale;
 
-    const float dialog_w = std::min(460.0F * dpi_scale, viewport_bounds.width - 32.0F * dpi_scale);
-    const float dialog_h = (m_mode == PromptMode::ConfirmDelete) ? (160.0F * dpi_scale) : (190.0F * dpi_scale);
+    const float dialog_w = std::min(360.0F * dpi_scale, viewport_bounds.width - 32.0F * dpi_scale);
+    const float dialog_h = (m_mode == PromptMode::ConfirmDelete) ? (130.0F * dpi_scale) : (96.0F * dpi_scale);
     const float dialog_x = viewport_bounds.x + (viewport_bounds.width - dialog_w) * 0.5F;
-    const float dialog_y = viewport_bounds.y + (viewport_bounds.height - dialog_h) * 0.35F;
+    const float dialog_y = viewport_bounds.y + (viewport_bounds.height - dialog_h) * 0.38F;
 
     layout.base_layout.dialog_bounds = Rect{dialog_x, dialog_y, dialog_w, dialog_h};
     layout.base_layout.backdrop_bounds = viewport_bounds;
@@ -119,53 +119,59 @@ PromptModalLayoutResult PromptModal::calculate_layout(const Rect& viewport_bound
     const float pad = 18.0F * dpi_scale;
     const float close_size = 20.0F * dpi_scale;
     layout.close_button_bounds = Rect{
-        dialog_x + dialog_w - pad - close_size,
-        dialog_y + 14.0F * dpi_scale,
+        dialog_x + dialog_w - pad - close_size + 4.0F * dpi_scale,
+        dialog_y + 12.0F * dpi_scale,
         close_size,
         close_size
     };
 
+    // Centered Title
     layout.title_bounds = Rect{
         dialog_x + pad,
         dialog_y + 14.0F * dpi_scale,
-        dialog_w - pad * 2.0F - close_size - 8.0F * dpi_scale,
-        22.0F * dpi_scale
-    };
-
-    layout.subtitle_bounds = Rect{
-        dialog_x + pad,
-        layout.title_bounds.bottom() + 4.0F * dpi_scale,
         dialog_w - pad * 2.0F,
-        18.0F * dpi_scale
+        20.0F * dpi_scale
     };
 
-    if (m_mode != PromptMode::ConfirmDelete)
+    if (m_mode == PromptMode::ConfirmDelete)
     {
-        layout.input_bounds = Rect{
+        layout.subtitle_bounds = Rect{
             dialog_x + pad,
-            layout.subtitle_bounds.bottom() + 10.0F * dpi_scale,
+            layout.title_bounds.bottom() + 4.0F * dpi_scale,
             dialog_w - pad * 2.0F,
-            30.0F * dpi_scale
+            16.0F * dpi_scale
+        };
+
+        const float btn_w = 78.0F * dpi_scale;
+        const float btn_h = 26.0F * dpi_scale;
+        const float btn_y = dialog_y + dialog_h - 14.0F * dpi_scale - btn_h;
+
+        layout.ok_button_bounds = Rect{
+            dialog_x + dialog_w * 0.5F + 6.0F * dpi_scale,
+            btn_y,
+            btn_w,
+            btn_h
+        };
+
+        layout.cancel_button_bounds = Rect{
+            dialog_x + dialog_w * 0.5F - btn_w - 6.0F * dpi_scale,
+            btn_y,
+            btn_w,
+            btn_h
         };
     }
-
-    const float btn_w = 90.0F * dpi_scale;
-    const float btn_h = 28.0F * dpi_scale;
-    const float btn_y = dialog_y + dialog_h - pad - btn_h;
-
-    layout.ok_button_bounds = Rect{
-        dialog_x + dialog_w - pad - btn_w,
-        btn_y,
-        btn_w,
-        btn_h
-    };
-
-    layout.cancel_button_bounds = Rect{
-        layout.ok_button_bounds.x - btn_w - 8.0F * dpi_scale,
-        btn_y,
-        btn_w,
-        btn_h
-    };
+    else
+    {
+        layout.subtitle_bounds = Rect{};
+        layout.input_bounds = Rect{
+            dialog_x + 22.0F * dpi_scale,
+            dialog_y + 46.0F * dpi_scale,
+            dialog_w - 44.0F * dpi_scale,
+            32.0F * dpi_scale
+        };
+        layout.ok_button_bounds = Rect{};
+        layout.cancel_button_bounds = Rect{};
+    }
 
     return layout;
 }

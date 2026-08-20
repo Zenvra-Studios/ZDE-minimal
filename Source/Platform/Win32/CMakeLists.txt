@@ -15,6 +15,7 @@ add_library(ZDEPlatformWin32
     Components/TerminalPanel.cpp
     Components/TextEditor.cpp
     Components/ToolSidebar.cpp
+    Components/Win32PromptDialog.cpp
     Components/ShaderSandboxPanel.cpp
     Utility/Win32Dialogs.cpp
     Utility/Tray.cpp

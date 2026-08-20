@@ -196,6 +196,80 @@ static std::vector<std::filesystem::path> discover_msvc_includes(std::string* ou
     return includes;
 }
 
+static std::vector<std::filesystem::path> discover_gcc_includes(const std::string& user_profile, std::string* out_gcc_version = nullptr, std::filesystem::path* out_gxx_path = nullptr)
+{
+    std::vector<std::filesystem::path> includes;
+    std::vector<std::filesystem::path> gcc_candidates;
+    if (!user_profile.empty())
+    {
+        gcc_candidates.push_back(std::filesystem::path(user_profile) / "scoop/apps/gcc/current/bin/g++.exe");
+        gcc_candidates.push_back(std::filesystem::path(user_profile) / "scoop/apps/gcc/current/bin/gcc.exe");
+    }
+    gcc_candidates.push_back("C:/msys64/mingw64/bin/g++.exe");
+    gcc_candidates.push_back("C:/msys64/ucrt64/bin/g++.exe");
+    gcc_candidates.push_back("C:/msys64/clang64/bin/g++.exe");
+    gcc_candidates.push_back("C:/MinGW/bin/g++.exe");
+
+    std::error_code ec;
+    for (const auto& candidate : gcc_candidates)
+    {
+        if (file_exists(candidate))
+        {
+            if (out_gxx_path != nullptr && out_gxx_path->empty())
+            {
+                *out_gxx_path = candidate;
+            }
+            const auto bin_dir = candidate.parent_path();
+            const auto prefix = bin_dir.parent_path();
+            const auto include_cxx = prefix / "include/c++";
+
+            if (std::filesystem::exists(include_cxx, ec) && std::filesystem::is_directory(include_cxx, ec))
+            {
+                for (const auto& entry : std::filesystem::directory_iterator(include_cxx, ec))
+                {
+                    if (entry.is_directory() && file_exists(entry.path() / "iostream"))
+                    {
+                        const auto ver_dir = entry.path();
+                        if (out_gcc_version != nullptr && out_gcc_version->empty())
+                        {
+                            *out_gcc_version = ver_dir.filename().string();
+                        }
+                        includes.push_back(ver_dir);
+
+                        for (const auto& sub : std::filesystem::directory_iterator(ver_dir, ec))
+                        {
+                            if (sub.is_directory() && (sub.path().filename().string().find("mingw") != std::string::npos || sub.path().filename().string().find("x86_64") != std::string::npos || sub.path().filename() == "backward"))
+                            {
+                                includes.push_back(sub.path());
+                            }
+                        }
+
+                        for (const auto& sub : std::filesystem::directory_iterator(prefix, ec))
+                        {
+                            if (sub.is_directory() && sub.path().filename().string().find("mingw") != std::string::npos)
+                            {
+                                const auto target_inc = sub.path() / "include";
+                                if (std::filesystem::exists(target_inc, ec))
+                                {
+                                    includes.push_back(target_inc);
+                                }
+                            }
+                        }
+                        const auto direct_inc = prefix / "include";
+                        if (std::filesystem::exists(direct_inc, ec))
+                        {
+                            includes.push_back(direct_inc);
+                        }
+
+                        return includes;
+                    }
+                }
+            }
+        }
+    }
+    return includes;
+}
+
 static std::vector<std::filesystem::path> discover_clang_resource_includes(const std::string& user_profile)
 {
     std::vector<std::filesystem::path> includes;
@@ -255,18 +329,22 @@ void ToolchainDetector::detect_environment()
         user_profile = user_profile_buf;
     }
 
-    // Discover all system includes dynamically across Windows SDK versions and MSVC editions
+    // Discover all system includes dynamically across Windows SDK versions, MSVC editions, Clang, and GCC/MinGW
     const auto sdk_includes = discover_windows_sdk_includes();
     std::string msvc_version;
     std::filesystem::path msvc_cl_path;
     const auto msvc_includes = discover_msvc_includes(&msvc_version, &msvc_cl_path);
     const auto clang_res_includes = discover_clang_resource_includes(user_profile);
+    std::string gcc_version;
+    std::filesystem::path gcc_gxx_path;
+    const auto gcc_includes = discover_gcc_includes(user_profile, &gcc_version, &gcc_gxx_path);
 
     // Combine all standard include paths
     std::vector<std::filesystem::path> all_system_includes;
     for (const auto& p : msvc_includes) all_system_includes.push_back(p);
     for (const auto& p : sdk_includes) all_system_includes.push_back(p);
     for (const auto& p : clang_res_includes) all_system_includes.push_back(p);
+    for (const auto& p : gcc_includes) all_system_includes.push_back(p);
 
     m_info.system_include_paths = all_system_includes;
 
@@ -289,8 +367,9 @@ void ToolchainDetector::detect_environment()
             m_info.compiler_path = candidate;
             m_info.name = "Clang / LLVM";
             m_info.status = ToolchainStatus::Ready;
-            m_info.has_standard_headers = !msvc_includes.empty() || !sdk_includes.empty();
+            m_info.has_standard_headers = !msvc_includes.empty() || !sdk_includes.empty() || !gcc_includes.empty();
             if (!msvc_includes.empty()) m_info.sdk_include_path = msvc_includes.front();
+            else if (!gcc_includes.empty()) m_info.sdk_include_path = gcc_includes.front();
             m_info.user_status_text = "Ready";
             return;
         }
@@ -311,57 +390,17 @@ void ToolchainDetector::detect_environment()
     }
 
     // 3. Check GCC / MinGW (Scoop, MSYS2, MinGW)
-    std::vector<std::filesystem::path> gcc_candidates;
-    if (!user_profile.empty())
+    if (!gcc_gxx_path.empty() && !gcc_includes.empty())
     {
-        gcc_candidates.push_back(std::filesystem::path(user_profile) / "scoop/apps/gcc/current/bin/g++.exe");
-        gcc_candidates.push_back(std::filesystem::path(user_profile) / "scoop/apps/gcc/current/bin/gcc.exe");
-    }
-    gcc_candidates.push_back("C:/msys64/mingw64/bin/g++.exe");
-    gcc_candidates.push_back("C:/msys64/ucrt64/bin/g++.exe");
-    gcc_candidates.push_back("C:/MinGW/bin/g++.exe");
-
-    for (const auto& candidate : gcc_candidates)
-    {
-        if (file_exists(candidate))
-        {
-            m_info.kind = ToolchainKind::MinGW_GCC;
-            m_info.compiler_path = candidate;
-            m_info.name = "MinGW-w64 GCC";
-
-            // Find GCC C++ include directories (e.g. ../include/c++/<version>/iostream)
-            const auto bin_dir = candidate.parent_path();
-            const auto include_cxx = bin_dir.parent_path() / "include/c++";
-            std::error_code ec;
-            if (std::filesystem::exists(include_cxx, ec) && std::filesystem::is_directory(include_cxx, ec))
-            {
-                for (const auto& entry : std::filesystem::directory_iterator(include_cxx, ec))
-                {
-                    if (entry.is_directory() && file_exists(entry.path() / "iostream"))
-                    {
-                        m_info.has_standard_headers = true;
-                        m_info.sdk_include_path = entry.path();
-                        m_info.compiler_version = entry.path().filename().string();
-                        m_info.name = "GCC " + m_info.compiler_version + " (MinGW)";
-                        break;
-                    }
-                }
-            }
-
-            if (m_info.has_standard_headers)
-            {
-                m_info.status = ToolchainStatus::Ready;
-                m_info.user_status_text = "Ready";
-                return;
-            }
-            else
-            {
-                m_info.status = ToolchainStatus::MissingSdk;
-                m_info.warning_message = "Found GCC compiler at " + candidate.string() + ", but Standard C++ headers (<iostream>) were not found.";
-                m_info.installation_guide = "Please reinstall GCC or ensure libstdc++-dev headers are installed in the MinGW include directory.";
-                return;
-            }
-        }
+        m_info.kind = ToolchainKind::MinGW_GCC;
+        m_info.compiler_path = gcc_gxx_path;
+        m_info.sdk_include_path = gcc_includes.front();
+        m_info.compiler_version = gcc_version;
+        m_info.name = "GCC " + gcc_version + " (MinGW)";
+        m_info.has_standard_headers = true;
+        m_info.status = ToolchainStatus::Ready;
+        m_info.user_status_text = "Ready";
+        return;
     }
 #else
     // Comprehensive macOS & Linux Compiler / SDK Discovery

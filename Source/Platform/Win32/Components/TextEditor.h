@@ -39,6 +39,7 @@ class TextEditor
 public:
     [[nodiscard]] bool open_file(const std::filesystem::path& path);
     [[nodiscard]] bool open_file_at_location(const std::filesystem::path& path, std::size_t line, std::size_t column);
+    void sync_lsp_active_document();
     [[nodiscard]] bool close_file(const std::filesystem::path& path);
     [[nodiscard]] bool close_all_files();
     [[nodiscard]] std::size_t open_dropped_paths(
@@ -124,6 +125,9 @@ public:
     [[nodiscard]] HWND get_window_handle() const noexcept { return m_window_handle; }
     void on_diagnostics_updated(const std::string& uri, std::vector<Language::Protocol::Diagnostic> diags);
 
+    [[nodiscard]] bool go_to_definition();
+    [[nodiscard]] bool select_all_occurrences();
+
     void render(
         const StudioWorkspaceRenderer& surface,
         HDC device_context,
@@ -190,6 +194,10 @@ private:
         const StudioWorkspaceRenderer& surface,
         HDC device_context,
         const UI::Editor::StudioEditorLayoutResult& layout) const;
+    void draw_hover_tooltip(
+        const StudioWorkspaceRenderer& surface,
+        HDC device_context,
+        const UI::Editor::StudioEditorLayoutResult& layout) const;
     void show_tab_action_menu(
         const UI::Editor::StudioEditorLayoutResult& layout);
     void close_all_documents();
@@ -236,6 +244,10 @@ private:
     mutable EditorMinimap m_split_minimap;
     mutable EditorScrollbar m_split_scrollbar;
     mutable UI::Components::EditorFoldingModel m_split_folding;
+    mutable const UI::Editor::TextDocumentModel* m_last_folded_doc = nullptr;
+    mutable std::size_t m_last_folded_line_count = 0;
+    mutable const UI::Editor::TextDocumentModel* m_split_last_folded_doc = nullptr;
+    mutable std::size_t m_split_last_folded_line_count = 0;
     float m_split_ratio = 0.5F;
     bool m_is_resizing_split = false;
     mutable bool m_hovered_split_resize = false;
@@ -261,6 +273,12 @@ private:
     mutable std::optional<HoveredDiagnosticInfo> m_hovered_diagnostic;
     mutable UI::Components::SignatureHelpWidget m_signature_help;
     mutable std::mutex m_lsp_mutex;
+    mutable std::optional<UI::Editor::TextPosition> m_hovered_token_pos;
+    mutable std::string m_last_hovered_word;
+    mutable float m_hover_screen_x = 0.0F;
+    mutable float m_hover_screen_y = 0.0F;
+    mutable std::chrono::steady_clock::time_point m_hover_start_time{};
+    mutable bool m_hover_requested = false;
     mutable std::chrono::steady_clock::time_point m_last_file_check_time{};
 };
 

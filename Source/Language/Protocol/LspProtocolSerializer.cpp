@@ -196,12 +196,35 @@ CompletionItem LspProtocolSerializer::parse_completion_item(const nlohmann::json
             item.insert_text = item.label;
         }
 
-        // Clean up clangd header insertion decorator bullet prefix (• / \xE2\x80\xA2) if present
+        if (j.contains("labelDetails") && j["labelDetails"].is_object())
+        {
+            const auto& ld = j["labelDetails"];
+            if (ld.contains("detail") && ld["detail"].is_string() && item.detail.empty())
+            {
+                item.detail = ld["detail"].get<std::string>();
+            }
+        }
+
+        // Clean up clangd header insertion decorator bullet prefix (• / \xE2\x80\xA2) and leading whitespace
         auto strip_leading_bullet = [](std::string& s) {
-            if (s.starts_with("•")) {
-                s.erase(0, std::string("•").length());
-            } else if (s.starts_with("\xE2\x80\xA2")) {
-                s.erase(0, 3);
+            while (!s.empty())
+            {
+                if (s.starts_with("•"))
+                {
+                    s.erase(0, std::string("•").length());
+                }
+                else if (s.starts_with("\xE2\x80\xA2"))
+                {
+                    s.erase(0, 3);
+                }
+                else if (s.front() == ' ' || s.front() == '\t')
+                {
+                    s.erase(0, 1);
+                }
+                else
+                {
+                    break;
+                }
             }
         };
         strip_leading_bullet(item.label);

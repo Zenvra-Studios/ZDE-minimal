@@ -206,10 +206,32 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                 }
             }
 
-            // Check relative ThirdParty up to 5 levels above executable
+            // Check relative plugins/lsp and ThirdParty up to 6 levels above executable
             std::filesystem::path check_dir = app_dir;
-            for (int i = 0; i < 5; ++i)
+            for (int i = 0; i < 6; ++i)
             {
+                const std::filesystem::path direct_candidates[] = {
+                    check_dir / "plugins" / "lsp" / exe_with_ext,
+                    check_dir / "plugins" / "lsp" / "tls" / exe_with_ext,
+                    check_dir / "plugins" / "lsp" / "html" / exe_with_ext,
+                    check_dir / "plugins" / "lsp" / "clangd" / exe_with_ext,
+                    check_dir / "plugins" / "lsp" / "clangd" / "bin" / exe_with_ext,
+                    check_dir / "plugins" / "lsp" / cur_name / exe_with_ext,
+                    check_dir / "plugins" / "lsp" / cur_name / "bin" / exe_with_ext,
+                    check_dir / "plugins" / exe_with_ext,
+                    check_dir / "ThirdParty" / exe_with_ext,
+                    check_dir / "ThirdParty" / "bin" / exe_with_ext,
+                    check_dir / "bin" / exe_with_ext,
+                };
+                for (const auto& candidate : direct_candidates)
+                {
+                    std::error_code ec;
+                    if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
+                    {
+                        return candidate;
+                    }
+                }
+
                 const std::filesystem::path tp = check_dir / "ThirdParty";
                 std::error_code ec;
                 if (std::filesystem::exists(tp, ec) && std::filesystem::is_directory(tp, ec))
@@ -337,19 +359,31 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
 
 #if defined(_WIN32)
         // 2. Second Priority (Windows): Check Scoop, WinGet, Chocolatey, NuGet, and LocalAppData environment paths
-        const char* user_profile = std::getenv("USERPROFILE");
+        std::wstring user_profile_w;
+        wchar_t up_buf[32768]{};
+        if (GetEnvironmentVariableW(L"USERPROFILE", up_buf, 32768) > 0)
+        {
+            user_profile_w = up_buf;
+        }
+        else if (const char* env_up = std::getenv("USERPROFILE"))
+        {
+            user_profile_w = std::wstring(env_up, env_up + strlen(env_up));
+        }
+
         const char* local_appdata = std::getenv("LOCALAPPDATA");
         const char* appdata = std::getenv("APPDATA");
         const char* program_data = std::getenv("ProgramData");
 
-        if (user_profile != nullptr)
+        if (!user_profile_w.empty())
         {
-            const std::filesystem::path up(user_profile);
+            const std::filesystem::path up(user_profile_w);
             const std::filesystem::path user_candidates[] = {
                 // Scoop LLVM / clangd / cmake-ls
                 up / "scoop" / "apps" / "llvm" / "current" / "bin" / exe_with_ext,
+                up / "scoop" / "apps" / "llvm" / "current" / "bin" / "clangd.exe",
                 up / "scoop" / "apps" / cur_name / "current" / "bin" / exe_with_ext,
                 up / "scoop" / "shims" / exe_with_ext,
+                up / "scoop" / "shims" / "clangd.exe",
                 // WinGet Links / Packages
                 up / "AppData" / "Local" / "Microsoft" / "WinGet" / "Links" / exe_with_ext,
                 // NuGet package fallbacks
@@ -431,36 +465,84 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
             return std::filesystem::path(resolved.data());
         }
 
-        // 4. Fourth Priority: Program Files, MSYS2/MinGW, & Visual Studio standard installer paths
-        const std::filesystem::path program_files_candidates[] = {
+        // 4. Fourth Priority: Program Files LLVM / CMake, and dynamic Visual Studio installation scanning
+        const std::filesystem::path standard_program_files[] = {
             std::filesystem::path("C:/Program Files/LLVM/bin") / exe_with_ext,
             std::filesystem::path("C:/Program Files (x86)/LLVM/bin") / exe_with_ext,
             std::filesystem::path("C:/LLVM/bin") / exe_with_ext,
             std::filesystem::path("C:/Program Files/CMake/bin") / exe_with_ext,
             std::filesystem::path("C:/Program Files (x86)/CMake/bin") / exe_with_ext,
             std::filesystem::path("C:/CMake/bin") / exe_with_ext,
-            std::filesystem::path("C:/Program Files/Go/bin") / exe_with_ext,
-            std::filesystem::path("C:/msys64/mingw64/bin") / exe_with_ext,
-            std::filesystem::path("C:/msys64/ucrt64/bin") / exe_with_ext,
             std::filesystem::path("C:/msys64/clang64/bin") / exe_with_ext,
+            std::filesystem::path("C:/msys64/ucrt64/bin") / exe_with_ext,
+            std::filesystem::path("C:/msys64/mingw64/bin") / exe_with_ext,
             std::filesystem::path("C:/msys64/usr/bin") / exe_with_ext,
             std::filesystem::path("C:/MinGW/bin") / exe_with_ext,
-            // Visual Studio 2022 Bundled Clang/LLVM
-            std::filesystem::path("C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/Llvm/bin") / exe_with_ext,
-            std::filesystem::path("C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/Llvm/bin") / exe_with_ext,
-            std::filesystem::path("C:/Program Files/Microsoft Visual Studio/2022/Professional/VC/Tools/Llvm/bin") / exe_with_ext,
-            std::filesystem::path("C:/Program Files/Microsoft Visual Studio/2022/Preview/VC/Tools/Llvm/bin") / exe_with_ext,
-            // Visual Studio 2019 Bundled Clang/LLVM
-            std::filesystem::path("C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/VC/Tools/Llvm/bin") / exe_with_ext,
-            std::filesystem::path("C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/VC/Tools/Llvm/bin") / exe_with_ext,
-            std::filesystem::path("C:/Program Files (x86)/Microsoft Visual Studio/2019/Professional/VC/Tools/Llvm/bin") / exe_with_ext,
         };
-        for (const auto& candidate : program_files_candidates)
+        for (const auto& candidate : standard_program_files)
         {
             std::error_code ec;
             if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
             {
                 return candidate;
+            }
+        }
+
+        // Dynamically inspect any Visual Studio version/edition (2022, 2019, Preview, BuildTools, etc.)
+        const std::filesystem::path vs_roots[] = {
+            "C:/Program Files/Microsoft Visual Studio",
+            "C:/Program Files (x86)/Microsoft Visual Studio",
+        };
+        for (const auto& vs_root : vs_roots)
+        {
+            std::error_code ec;
+            if (std::filesystem::exists(vs_root, ec) && std::filesystem::is_directory(vs_root, ec))
+            {
+                for (const auto& year_entry : std::filesystem::directory_iterator(vs_root, ec))
+                {
+                    if (!year_entry.is_directory(ec)) continue;
+                    for (const auto& edition_entry : std::filesystem::directory_iterator(year_entry.path(), ec))
+                    {
+                        if (!edition_entry.is_directory(ec)) continue;
+                        
+                        // Check Visual Studio Bundled LLVM
+                        const std::filesystem::path vs_llvm_candidates[] = {
+                            edition_entry.path() / "VC/Tools/Llvm/bin" / exe_with_ext,
+                            edition_entry.path() / "VC/Tools/Llvm/x64/bin" / exe_with_ext,
+                        };
+                        for (const auto& c : vs_llvm_candidates)
+                        {
+                            if (std::filesystem::exists(c, ec) && std::filesystem::is_regular_file(c, ec))
+                            {
+                                return c;
+                            }
+                        }
+
+                        // Check MSVC compiler tools dynamically across all installed MSVC versions
+                        const auto msvc_tools_dir = edition_entry.path() / "VC/Tools/MSVC";
+                        if (std::filesystem::exists(msvc_tools_dir, ec) && std::filesystem::is_directory(msvc_tools_dir, ec))
+                        {
+                            for (const auto& msvc_ver : std::filesystem::directory_iterator(msvc_tools_dir, ec))
+                            {
+                                if (msvc_ver.is_directory(ec))
+                                {
+                                    const std::filesystem::path msvc_bins[] = {
+                                        msvc_ver.path() / "bin/Hostx64/x64" / exe_with_ext,
+                                        msvc_ver.path() / "bin/Hostx86/x64" / exe_with_ext,
+                                        msvc_ver.path() / "bin/Hostx86/x86" / exe_with_ext,
+                                    };
+                                    for (const auto& b : msvc_bins)
+                                    {
+                                        if (std::filesystem::exists(b, ec) && std::filesystem::is_regular_file(b, ec))
+                                        {
+                                            return b;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 #else
@@ -583,9 +665,9 @@ void ServerRegistry::initialize_default_profiles()
         "--limit-references=500",
         "--clang-tidy=false",
         "--enable-config",
+        "--header-insertion=iwyu",
         "--header-insertion-decorators=false",
-        "--query-driver=**",
-        "--compile-commands-dir=build",
+        "--query-driver=*,*/*,**/*,C:/*,C:/**,D:/*,D:/**,E:/*,E:/**,/usr/**,/opt/**",
         "--completion-style=detailed",
         "--all-scopes-completion"
     };

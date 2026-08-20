@@ -37,11 +37,10 @@ public:
 
     /// LSP queries (Powered purely by the real binary LSP e.g. clangd.exe)
     void request_completion(
-        const std::string& uri,
-        std::string_view filename,
-        const Protocol::Position& pos,
-        std::string_view line_text,
-        std::function<void(std::vector<Protocol::CompletionItem>)> callback);
+      const std::string &uri, std::string_view filename,
+      const Protocol::Position &pos, std::string_view line_text,
+      std::function<void(std::vector<Protocol::CompletionItem>)> callback,
+      std::optional<char> trigger_character = std::nullopt);
 
     void request_hover(
         const std::string& uri,

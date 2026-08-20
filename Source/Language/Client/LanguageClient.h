@@ -30,6 +30,7 @@ public:
 
     [[nodiscard]] ClientState get_state() const noexcept override;
     [[nodiscard]] bool is_active() const noexcept override;
+    [[nodiscard]] std::vector<std::string> get_semantic_token_legend() const noexcept override { return m_semantic_token_legend; }
     [[nodiscard]] const std::string& get_language_id() const noexcept { return m_language_id; }
 
     // Document sync
@@ -43,7 +44,8 @@ public:
     void request_completion(
         const std::string& uri,
         const Protocol::Position& pos,
-        std::function<void(std::vector<Protocol::CompletionItem>)> callback) override;
+        std::function<void(std::vector<Protocol::CompletionItem>)> callback,
+        std::optional<char> trigger_character = std::nullopt) override;
 
     void request_hover(
         const std::string& uri,
@@ -67,6 +69,9 @@ public:
     void set_diagnostics_handler(
         std::function<void(const std::string& uri, const std::vector<Protocol::Diagnostic>&)> handler) override;
 
+public:
+    void set_initialization_options(nlohmann::json options);
+
 private:
     void on_message_received(std::string_view json_string);
     int64_t send_request(std::string_view method, nlohmann::json params, std::function<void(const nlohmann::json&)> callback);
@@ -76,6 +81,8 @@ private:
     std::unique_ptr<Transport::ILspTransport> m_transport;
     std::filesystem::path m_workspace_root;
     DocumentSyncManager m_sync_manager;
+    nlohmann::json m_initialization_options;
+    std::vector<std::string> m_semantic_token_legend;
 
     std::atomic<ClientState> m_state{ClientState::Uninitialized};
     int64_t m_next_request_id{1};

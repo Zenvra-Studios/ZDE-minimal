@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <string_view>
 #include <unordered_set>
 
 namespace Zenvra::UI::Components
@@ -10,21 +11,41 @@ namespace Zenvra::UI::Components
 namespace
 {
 
-int calculate_match_score(std::string_view candidate, std::string_view query) noexcept
+int calculate_match_score(std::string_view raw_candidate, std::string_view raw_query) noexcept
 {
+    if (raw_query.empty())
+    {
+        return 1;
+    }
+
+    auto clean_str = [](std::string_view s) -> std::string_view {
+        while (!s.empty() && (s.front() == '<' || s.front() == '"' || s.front() == '\'' || s.front() == '#' || s.front() == ' '))
+        {
+            s.remove_prefix(1);
+        }
+        while (!s.empty() && (s.back() == '>' || s.back() == '"' || s.back() == '\'' || s.back() == ' '))
+        {
+            s.remove_suffix(1);
+        }
+        return s;
+    };
+
+    const std::string_view candidate = clean_str(raw_candidate);
+    const std::string_view query = clean_str(raw_query);
+
     if (query.empty())
     {
         return 1;
     }
 
     // Exact match
-    if (candidate == query)
+    if (candidate == query || raw_candidate == raw_query)
     {
         return 10000;
     }
 
     // Exact case-sensitive prefix
-    if (candidate.starts_with(query))
+    if (candidate.starts_with(query) || raw_candidate.starts_with(raw_query))
     {
         return 8000 - static_cast<int>(candidate.size() - query.size());
     }
@@ -65,7 +86,7 @@ int calculate_match_score(std::string_view candidate, std::string_view query) no
     const auto sub_pos = cand_lower.find(query_lower);
     if (sub_pos != std::string::npos)
     {
-        const bool at_boundary = (sub_pos > 0 && (candidate[sub_pos - 1] == '_' || candidate[sub_pos - 1] == ':' || candidate[sub_pos - 1] == '.'));
+        const bool at_boundary = (sub_pos > 0 && (candidate[sub_pos - 1] == '_' || candidate[sub_pos - 1] == ':' || candidate[sub_pos - 1] == '.' || candidate[sub_pos - 1] == '/' || candidate[sub_pos - 1] == '\\'));
         return (at_boundary ? 4000 : 2500) - static_cast<int>(sub_pos * 10 + candidate.size());
     }
 
@@ -160,7 +181,11 @@ void CompletionPopup::update_filtering()
     {
         const auto& item = m_all_items[i];
         const std::string_view candidate = !item.filter_text.empty() ? item.filter_text : item.label;
-        const int score = calculate_match_score(candidate, m_filter_query);
+        int score = calculate_match_score(candidate, m_filter_query);
+        if (score == 0 && !item.insert_text.empty() && item.insert_text != candidate)
+        {
+            score = calculate_match_score(item.insert_text, m_filter_query);
+        }
         if (score > 0)
         {
             scored.push_back({i, score});
@@ -266,14 +291,15 @@ bool CompletionPopup::scroll(int delta_lines) noexcept
     const std::size_t max_scroll = m_filtered_indices.size() - m_max_visible_items;
     const std::size_t prev_scroll = m_scroll_offset;
 
-    if (delta_lines > 0)
+    if (delta_lines < 0)
     {
-        m_scroll_offset = std::min(m_scroll_offset + static_cast<std::size_t>(delta_lines), max_scroll);
+        const std::size_t lines = static_cast<std::size_t>(-delta_lines);
+        m_scroll_offset = std::min(m_scroll_offset + lines, max_scroll);
     }
-    else if (delta_lines < 0)
+    else if (delta_lines > 0)
     {
-        const std::size_t abs_delta = static_cast<std::size_t>(-delta_lines);
-        m_scroll_offset = (m_scroll_offset > abs_delta) ? m_scroll_offset - abs_delta : 0;
+        const std::size_t lines = static_cast<std::size_t>(delta_lines);
+        m_scroll_offset = (m_scroll_offset >= lines) ? m_scroll_offset - lines : 0;
     }
 
     return m_scroll_offset != prev_scroll;

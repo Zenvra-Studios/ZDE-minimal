@@ -32,6 +32,7 @@ public:
     virtual void exit() = 0;
     [[nodiscard]] virtual ClientState get_state() const noexcept = 0;
     [[nodiscard]] virtual bool is_active() const noexcept = 0;
+    [[nodiscard]] virtual std::vector<std::string> get_semantic_token_legend() const noexcept { return {}; }
 
     // Document sync
     virtual void did_open(const std::string& uri, std::string_view language_id, int version, std::string_view text) = 0;
@@ -44,7 +45,8 @@ public:
     virtual void request_completion(
         const std::string& uri,
         const Protocol::Position& pos,
-        std::function<void(std::vector<Protocol::CompletionItem>)> callback) = 0;
+        std::function<void(std::vector<Protocol::CompletionItem>)> callback,
+        std::optional<char> trigger_character = std::nullopt) = 0;
 
     virtual void request_hover(
         const std::string& uri,

@@ -8,6 +8,7 @@
 #include <lunasvg.h>
 
 #include "Utility/MathUtil.h"
+#include "Utility/Shadows.h"
 
 #include <algorithm>
 #include <array>
@@ -186,6 +187,9 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
   static_cast<void>(m_terminal_panel.toggle());
   m_terminal_panel.set_focused(false);
   static_cast<void>(m_shader_sandbox_panel.initialize());
+
+  m_text_editor.sync_lsp_active_document();
+
   return true;
 }
 
@@ -355,10 +359,11 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
           });
     } else if (sidebar_res.action == SidebarActionKind::NewFolder &&
                sidebar_res.path) {
-      m_prompt_modal.open_new_folder(
-          *sidebar_res.path, [this](const std::string &name) {
+      m_prompt_dialog.open_new_folder(
+          m_window_handle, *sidebar_res.path, [this](const std::string &name) {
             std::filesystem::path created_p;
             m_tool_sidebar.get_model().create_directory(name, created_p);
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
           });
     }
     return true;
@@ -1423,125 +1428,123 @@ void StudioWorkspaceRenderer::render_prompt_modal(HDC device_context,
   DeleteObject(mem_bm);
   DeleteDC(mem_dc);
 
-  // 2. Dialog Container (VS Code sleek dark card with elevation shadow)
-  const UI::Theme::Color dialog_bg{30, 30, 34, 255};
-  const UI::Theme::Color border_col{60, 64, 75, 255};
+  // 2. Dialog Container (macOS sleek minimalist dark card with elevation shadow)
+  const UI::Theme::Color dialog_bg{28, 29, 34, 255};
+  const UI::Theme::Color border_col{58, 60, 68, 255};
 
-  struct ShadowLayer {
-    float dx;
-    float dy;
-    float spread;
-    uint8_t alpha;
-  };
-  const ShadowLayer shadow_layers[] = {
-    {0.0F, 12.0F, 24.0F, 22},
-    {0.0F,  8.0F, 16.0F, 34},
-    {0.0F,  4.0F,  8.0F, 50},
-    {0.0F,  1.5F,  2.0F, 70},
-  };
-  for (const auto &layer : shadow_layers) {
-    const float spread = layer.spread * m_dpi_scale;
-    const UI::Rect layer_rect{
-        layout.base_layout.dialog_bounds.x - spread + layer.dx * m_dpi_scale,
-        layout.base_layout.dialog_bounds.y - spread + layer.dy * m_dpi_scale,
-        layout.base_layout.dialog_bounds.width + spread * 2.0F,
-        layout.base_layout.dialog_bounds.height + spread * 2.0F,
-    };
-    fill_rounded_rectangle(device_context, layer_rect,
-                           UI::Theme::Color{0, 0, 0, layer.alpha},
-                           static_cast<int>(6.0F * m_dpi_scale + spread));
-  }
+  Utility::for_each_shadow_layer(
+      layout.base_layout.dialog_bounds, 10.0F * m_dpi_scale, m_dpi_scale,
+      Utility::macos_modal_shadows,
+      [&](const UI::Rect &layer_rect, const UI::Theme::Color &color,
+          float layer_radius) {
+        fill_rounded_rectangle(device_context, layer_rect, color,
+                               static_cast<int>(layer_radius));
+      });
 
   fill_rounded_rectangle(device_context, layout.base_layout.dialog_bounds,
-                         dialog_bg, 6.0F * m_dpi_scale);
+                         dialog_bg, 10.0F * m_dpi_scale);
   draw_rectangle(device_context, layout.base_layout.dialog_bounds, border_col);
 
-  // 3. Title & Subtitle
-  draw_text(device_context, *m_ui_font, m_prompt_modal.get_title(),
-            layout.title_bounds.x,
+  // 3. Title & Subtitle (macOS centered bold typography)
+  const std::string title_str = m_prompt_modal.get_title();
+  const int title_tw = get_text_width(device_context, *m_ui_font, title_str);
+  const float title_x = layout.base_layout.dialog_bounds.x +
+                        (layout.base_layout.dialog_bounds.width - static_cast<float>(title_tw)) * 0.5F;
+  draw_text(device_context, *m_ui_font, title_str,
+            title_x,
             layout.title_bounds.y + layout.title_bounds.height * 0.5F,
-            UI::Theme::Color{255, 255, 255, 255});
-  draw_text(device_context, *m_small_font, m_prompt_modal.get_subtitle(),
-            layout.subtitle_bounds.x,
-            layout.subtitle_bounds.y + layout.subtitle_bounds.height * 0.5F,
-            UI::Theme::Color{160, 160, 170, 255});
+            UI::Theme::Color{235, 238, 242, 255});
+
+  if (m_prompt_modal.get_mode() == UI::Components::PromptMode::ConfirmDelete) {
+    const std::string sub_str = m_prompt_modal.get_subtitle();
+    const int sub_tw = get_text_width(device_context, *m_small_font, sub_str);
+    const float sub_x = layout.base_layout.dialog_bounds.x +
+                        (layout.base_layout.dialog_bounds.width - static_cast<float>(sub_tw)) * 0.5F;
+    draw_text(device_context, *m_small_font, sub_str,
+              sub_x,
+              layout.subtitle_bounds.y + layout.subtitle_bounds.height * 0.5F,
+              UI::Theme::Color{145, 150, 160, 255});
+  }
 
   // 4. Close (X) button
   const auto close_bg = m_prompt_modal.is_close_hovered()
-                            ? UI::Theme::Color{232, 17, 35, 255}
+                            ? UI::Theme::Color{255, 255, 255, 25}
                             : dialog_bg;
   if (m_prompt_modal.is_close_hovered()) {
     fill_rounded_rectangle(device_context, layout.close_button_bounds, close_bg,
-                           3.0F * m_dpi_scale);
+                           4.0F * m_dpi_scale);
   }
   const int prompt_cx = round_to_int(layout.close_button_bounds.x + layout.close_button_bounds.width * 0.5F);
   const int prompt_cy = round_to_int(layout.close_button_bounds.y + layout.close_button_bounds.height * 0.5F);
   const int prompt_icon_sz = std::max(round_to_int(12.0F * m_dpi_scale), 10);
   draw_svg_icon(
       device_context, "diagnostic-error.svg", prompt_cx, prompt_cy, prompt_icon_sz,
-      m_prompt_modal.is_close_hovered() ? UI::Theme::Color{255, 255, 255, 255} : UI::Theme::Color{200, 200, 200, 255},
+      m_prompt_modal.is_close_hovered() ? UI::Theme::Color{255, 255, 255, 255} : UI::Theme::Color{180, 185, 195, 255},
       close_bg);
 
-  // 5. Input field (if not ConfirmDelete)
+  // 5. Pure Transparent Borderless Input Field (macOS Cocoa standard)
   if (m_prompt_modal.get_mode() != UI::Components::PromptMode::ConfirmDelete) {
     const auto &input = m_prompt_modal.get_input();
-    const UI::Theme::Color input_bg{20, 20, 24, 255};
-    const UI::Theme::Color input_border{0, 122, 204, 255}; // Accent Blue Border
-    fill_rounded_rectangle(device_context, layout.input_bounds, input_bg,
-                           3.0F * m_dpi_scale);
-    draw_rectangle(device_context, layout.input_bounds, input_border);
-
     const std::string &text = input.get_text();
-    const float text_x = layout.input_bounds.x + 8.0F * m_dpi_scale;
+    const float text_x = layout.input_bounds.x + 4.0F * m_dpi_scale;
     const float text_y =
         layout.input_bounds.y + layout.input_bounds.height * 0.5F;
 
     if (text.empty()) {
       draw_text(device_context, *m_ui_font, input.get_placeholder(), text_x,
-                text_y, UI::Theme::Color{120, 120, 130, 255});
+                text_y, UI::Theme::Color{110, 115, 130, 255});
     } else {
       draw_text(device_context, *m_editor_font, text, text_x, text_y,
-                UI::Theme::Color{240, 240, 245, 255});
+                UI::Theme::Color{240, 242, 245, 255});
     }
 
     // Draw Caret
     const int text_w = get_text_width(device_context, *m_editor_font, text);
     const float caret_x = text_x + static_cast<float>(text_w);
     draw_line(device_context, round_to_int(caret_x),
-              round_to_int(layout.input_bounds.y + 5.0F * m_dpi_scale),
+              round_to_int(layout.input_bounds.y + 6.0F * m_dpi_scale),
               round_to_int(caret_x),
-              round_to_int(layout.input_bounds.bottom() - 5.0F * m_dpi_scale),
-              UI::Theme::Color{255, 255, 255, 255});
+              round_to_int(layout.input_bounds.bottom() - 6.0F * m_dpi_scale),
+              UI::Theme::Color{255, 255, 255, 230});
   }
 
-  // 6. Cancel Button
-  const auto cancel_bg = m_prompt_modal.is_cancel_hovered()
-                             ? UI::Theme::Color{55, 55, 62, 255}
-                             : UI::Theme::Color{45, 45, 50, 255};
-  fill_rounded_rectangle(device_context, layout.cancel_button_bounds, cancel_bg,
-                         3.0F * m_dpi_scale);
-  draw_rectangle(device_context, layout.cancel_button_bounds, border_col);
-  draw_text(device_context, *m_ui_font, "Cancel",
-            layout.cancel_button_bounds.x + 22.0F * m_dpi_scale,
-            layout.cancel_button_bounds.y +
-                layout.cancel_button_bounds.height * 0.5F,
-            UI::Theme::Color{220, 220, 220, 255});
+  // 6. Action Buttons (Only rendered when defined, e.g. for ConfirmDelete)
+  if (!layout.cancel_button_bounds.is_empty()) {
+    const auto cancel_bg = m_prompt_modal.is_cancel_hovered()
+                               ? UI::Theme::Color{58, 61, 68, 255}
+                               : UI::Theme::Color{45, 47, 52, 255};
+    fill_rounded_rectangle(device_context, layout.cancel_button_bounds, cancel_bg,
+                           6.0F * m_dpi_scale);
+    const int cancel_tw = get_text_width(device_context, *m_ui_font, "Cancel");
+    const float cancel_tx = layout.cancel_button_bounds.x +
+                            (layout.cancel_button_bounds.width - static_cast<float>(cancel_tw)) * 0.5F;
+    draw_text(device_context, *m_ui_font, "Cancel",
+              cancel_tx,
+              layout.cancel_button_bounds.y +
+                  layout.cancel_button_bounds.height * 0.5F,
+              UI::Theme::Color{204, 204, 204, 255});
+  }
 
-  // 7. OK / Confirm Button
-  UI::Theme::Color ok_bg =
-      (m_prompt_modal.get_mode() == UI::Components::PromptMode::ConfirmDelete)
-          ? (m_prompt_modal.is_ok_hovered()
-                 ? UI::Theme::Color{232, 17, 35, 255}
-                 : UI::Theme::Color{180, 20, 30, 255})
-          : (m_prompt_modal.is_ok_hovered()
-                 ? UI::Theme::Color{0, 122, 204, 255}
-                 : UI::Theme::Color{14, 99, 156, 255});
-  fill_rounded_rectangle(device_context, layout.ok_button_bounds, ok_bg,
-                         3.0F * m_dpi_scale);
-  draw_text(device_context, *m_ui_font, m_prompt_modal.get_confirm_label(),
-            layout.ok_button_bounds.x + 24.0F * m_dpi_scale,
-            layout.ok_button_bounds.y + layout.ok_button_bounds.height * 0.5F,
-            UI::Theme::Color{255, 255, 255, 255});
+  if (!layout.ok_button_bounds.is_empty()) {
+    const UI::Theme::Color ok_bg =
+        (m_prompt_modal.get_mode() == UI::Components::PromptMode::ConfirmDelete)
+            ? (m_prompt_modal.is_ok_hovered()
+                   ? UI::Theme::Color{235, 65, 70, 255}
+                   : UI::Theme::Color{218, 45, 50, 255})
+            : (m_prompt_modal.is_ok_hovered()
+                   ? UI::Theme::Color{66, 148, 246, 255}
+                   : UI::Theme::Color{53, 132, 228, 255});
+    fill_rounded_rectangle(device_context, layout.ok_button_bounds, ok_bg,
+                           6.0F * m_dpi_scale);
+    const std::string confirm_label = m_prompt_modal.get_confirm_label();
+    const int ok_tw = get_text_width(device_context, *m_ui_font, confirm_label);
+    const float ok_tx = layout.ok_button_bounds.x +
+                        (layout.ok_button_bounds.width - static_cast<float>(ok_tw)) * 0.5F;
+    draw_text(device_context, *m_ui_font, confirm_label,
+              ok_tx,
+              layout.ok_button_bounds.y + layout.ok_button_bounds.height * 0.5F,
+              UI::Theme::Color{255, 255, 255, 255});
+  }
 }
 
 void StudioWorkspaceRenderer::render_add_item_dialog(

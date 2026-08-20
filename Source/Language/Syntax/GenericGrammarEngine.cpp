@@ -80,11 +80,91 @@ std::size_t GenericGrammarEngine::tokenize_line(
         const std::size_t token_start = cursor;
         const char character = line[cursor];
 
-        // 1. Preprocessor (e.g. #include, #define in C/C++)
+        // 1. Preprocessor (e.g. #include, #define, #pragma in C/C++)
         if (grammar.supports_preprocessor && character == '#')
         {
-            append(line.substr(cursor), UI::Editor::EditorTokenKind::Keyword);
-            break;
+            std::size_t scan = cursor;
+            bool in_quotes = false;
+            char quote_char = 0;
+            std::size_t comment_start = std::string_view::npos;
+            bool is_block_comment = false;
+
+            while (scan < line.size())
+            {
+                const char c = line[scan];
+                if (in_quotes)
+                {
+                    if (c == '\\' && scan + 1 < line.size())
+                    {
+                        scan += 2;
+                        continue;
+                    }
+                    if (c == quote_char)
+                    {
+                        in_quotes = false;
+                    }
+                    ++scan;
+                    continue;
+                }
+
+                if (c == '"' || c == '\'')
+                {
+                    in_quotes = true;
+                    quote_char = c;
+                    ++scan;
+                    continue;
+                }
+
+                if (!grammar.line_comment.empty() && line.substr(scan).starts_with(grammar.line_comment))
+                {
+                    comment_start = scan;
+                    is_block_comment = false;
+                    break;
+                }
+
+                if (!grammar.block_comment_start.empty() && line.substr(scan).starts_with(grammar.block_comment_start))
+                {
+                    comment_start = scan;
+                    is_block_comment = true;
+                    break;
+                }
+
+                ++scan;
+            }
+
+            if (comment_start == std::string_view::npos)
+            {
+                append(line.substr(cursor), UI::Editor::EditorTokenKind::Keyword);
+                break;
+            }
+            else
+            {
+                if (comment_start > cursor)
+                {
+                    append(line.substr(cursor, comment_start - cursor), UI::Editor::EditorTokenKind::Keyword);
+                }
+
+                if (!is_block_comment)
+                {
+                    append(line.substr(comment_start), UI::Editor::EditorTokenKind::Comment);
+                    break;
+                }
+                else
+                {
+                    cursor = comment_start + grammar.block_comment_start.size();
+                    const std::size_t end_pos = line.find(grammar.block_comment_end, cursor);
+                    if (end_pos != std::string_view::npos)
+                    {
+                        cursor = end_pos + grammar.block_comment_end.size();
+                    }
+                    else
+                    {
+                        cursor = line.size();
+                    }
+                    append(line.substr(comment_start, cursor - comment_start), UI::Editor::EditorTokenKind::Comment);
+                    continue;
+                }
+            }
         }
 
         // 2. Whitespace

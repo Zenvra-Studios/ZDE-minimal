@@ -22,6 +22,11 @@ LanguageClient::~LanguageClient()
     exit();
 }
 
+void LanguageClient::set_initialization_options(nlohmann::json options)
+{
+    m_initialization_options = std::move(options);
+}
+
 bool LanguageClient::start()
 {
     if (m_state.load() == ClientState::Active || m_state.load() == ClientState::Initializing)
@@ -46,10 +51,19 @@ bool LanguageClient::start()
     }
 
     // Prepare Initialize Params
-    std::string root_uri = "file:///" + m_workspace_root.generic_string();
-    if (!root_uri.empty() && root_uri.back() == '/')
+    std::string root_uri;
+    if (!m_workspace_root.empty())
     {
-        root_uri.pop_back();
+        std::string gen = m_workspace_root.generic_string();
+        if (!gen.starts_with("/"))
+        {
+            gen = "/" + gen;
+        }
+        root_uri = "file://" + gen;
+        if (!root_uri.empty() && root_uri.back() == '/')
+        {
+            root_uri.pop_back();
+        }
     }
 
     nlohmann::json init_params = {
@@ -68,8 +82,12 @@ bool LanguageClient::start()
                     {"dynamicRegistration", true},
                     {"completionItem", {
                         {"snippetSupport", true},
-                        {"documentationFormat", nlohmann::json::array({"markdown", "plaintext"})}
-                    }}
+                        {"documentationFormat", nlohmann::json::array({"markdown", "plaintext"})},
+                        {"labelDetailsSupport", true},
+                        {"insertReplaceSupport", true},
+                        {"resolveSupport", {{"properties", nlohmann::json::array({"documentation", "detail", "additionalTextEdits"})}}}
+                    }},
+                    {"contextSupport", true}
                 }},
                 {"hover", {
                     {"contentFormat", nlohmann::json::array({"markdown", "plaintext"})}
@@ -101,7 +119,33 @@ bool LanguageClient::start()
         }}
     };
 
-    send_request("initialize", init_params, [this](const nlohmann::json& /*result*/) {
+    if (!m_initialization_options.is_null())
+    {
+        init_params["initializationOptions"] = m_initialization_options;
+    }
+
+    send_request("initialize", init_params, [this](const nlohmann::json& result) {
+        if (result.is_object() && result.contains("capabilities"))
+        {
+            const auto& caps = result["capabilities"];
+            if (caps.contains("semanticTokensProvider") && caps["semanticTokensProvider"].is_object())
+            {
+                const auto& stp = caps["semanticTokensProvider"];
+                if (stp.contains("legend") && stp["legend"].contains("tokenTypes") && stp["legend"]["tokenTypes"].is_array())
+                {
+                    std::vector<std::string> legend;
+                    for (const auto& t : stp["legend"]["tokenTypes"])
+                    {
+                        if (t.is_string())
+                        {
+                            legend.push_back(t.get<std::string>());
+                        }
+                    }
+                    m_semantic_token_legend = std::move(legend);
+                }
+            }
+        }
+
         m_state.store(ClientState::Initialized);
         send_notification("initialized", nlohmann::json::object());
         m_state.store(ClientState::Active);
@@ -192,11 +236,24 @@ void LanguageClient::did_close(const std::string& uri)
 void LanguageClient::request_completion(
     const std::string& uri,
     const Protocol::Position& pos,
-    std::function<void(std::vector<Protocol::CompletionItem>)> callback)
+    std::function<void(std::vector<Protocol::CompletionItem>)> callback,
+    std::optional<char> trigger_character)
 {
+    nlohmann::json context_json = nlohmann::json::object();
+    if (trigger_character.has_value())
+    {
+        context_json["triggerKind"] = 2; // TriggerCharacter
+        context_json["triggerCharacter"] = std::string(1, *trigger_character);
+    }
+    else
+    {
+        context_json["triggerKind"] = 1; // Invoked
+    }
+
     nlohmann::json params = {
         {"textDocument", {{"uri", uri}}},
-        {"position", Protocol::LspProtocolSerializer::serialize_position(pos)}
+        {"position", Protocol::LspProtocolSerializer::serialize_position(pos)},
+        {"context", context_json}
     };
 
     send_request("textDocument/completion", params, [callback = std::move(callback)](const nlohmann::json& res) {
