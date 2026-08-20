@@ -553,25 +553,14 @@ void X11ChromeRenderer::render(
                           chrome_layout.titlebar_bounds.height},
                  m_colors.titlebar_background);
 
-  // Draw titlebar bottom separator border only outside of tab bar bounds
+  // Draw titlebar top border & bottom separator border across full width with proper z-index above content
   const int titlebar_bottom_y =
       round_to_int(chrome_layout.titlebar_bounds.bottom()) - 1;
   XSetForeground(m_display, m_graphics_context, m_colors.titlebar_border);
-  if (chrome_layout.file_buffer_bounds.width > 0.0F) {
-    const int tab_left = round_to_int(chrome_layout.file_buffer_bounds.x);
-    const int tab_right = round_to_int(chrome_layout.file_buffer_bounds.right());
-    if (tab_left > 0) {
-      XDrawLine(m_display, back_buffer, m_graphics_context, 0, titlebar_bottom_y,
-                tab_left, titlebar_bottom_y);
-    }
-    if (tab_right < client_width) {
-      XDrawLine(m_display, back_buffer, m_graphics_context, tab_right,
-                titlebar_bottom_y, client_width, titlebar_bottom_y);
-    }
-  } else {
-    XDrawLine(m_display, back_buffer, m_graphics_context, 0, titlebar_bottom_y,
-              client_width, titlebar_bottom_y);
-  }
+  XDrawLine(m_display, back_buffer, m_graphics_context, 0, 0,
+            client_width, 0);
+  XDrawLine(m_display, back_buffer, m_graphics_context, 0, titlebar_bottom_y,
+            client_width, titlebar_bottom_y);
 
   draw_window_control(back_buffer, chrome_layout.minimize_bounds,
                       UI::Chrome::WindowControl::Minimize, interaction_state);
@@ -786,6 +775,7 @@ void X11ChromeRenderer::render(
   if (overlay_callback) {
     overlay_callback(back_buffer);
   }
+
 
   if (dirty_rect && !dirty_rect->is_empty()) {
     const int src_x = std::clamp(round_to_int(dirty_rect->x), 0,

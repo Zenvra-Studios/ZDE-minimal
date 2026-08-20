@@ -244,6 +244,22 @@ bool StudioWorkspaceRenderer::open_file(const std::filesystem::path &path) {
   return opened;
 }
 
+bool StudioWorkspaceRenderer::open_file_at_location(
+    const std::filesystem::path &path,
+    std::size_t line,
+    std::size_t column) {
+  const bool opened = m_text_editor.open_file_at_location(path, line, column);
+  if (opened) {
+    m_terminal_panel.set_focused(false);
+    const std::string ext = path.extension().string();
+    if (ext == ".glsl" || ext == ".frag" || ext == ".vert") {
+      m_shader_sandbox_panel.set_visible(true);
+    }
+    sync_shader_sandbox();
+  }
+  return opened;
+}
+
 bool StudioWorkspaceRenderer::set_workspace_root(
     const std::filesystem::path &root) {
   if (!m_tool_sidebar.set_workspace_root(root)) {
@@ -301,6 +317,11 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     if (sidebar_result.action == SidebarActionKind::OpenFile && sidebar_result.path) {
       if (sidebar_result.path->string() == "::OPEN_FOLDER::") {
         command_out = "zde.project.open";
+      } else if (sidebar_result.line.has_value() || sidebar_result.column.has_value()) {
+        static_cast<void>(open_file_at_location(
+            *sidebar_result.path,
+            sidebar_result.line.value_or(0),
+            sidebar_result.column.value_or(0)));
       } else {
         static_cast<void>(open_file(*sidebar_result.path));
       }
@@ -811,7 +832,13 @@ void StudioWorkspaceRenderer::render(Drawable drawable, int client_width,
                  m_pixels.status_background);
 
   m_text_editor.render(*this, drawable, layout);
-  m_terminal_panel.render(*this, drawable, layout);
+
+  // During drag selection, skip terminal rendering (the heaviest component)
+  // since it doesn't change. All other components always render to avoid
+  // visual glitches (disappearing icons) on click/hold.
+  if (!m_text_editor.is_pointer_selecting()) {
+    m_terminal_panel.render(*this, drawable, layout);
+  }
   m_tool_sidebar.render(*this, drawable, layout);
   m_activity_sidebar.render(*this, drawable, layout);
   m_shader_sandbox_panel.render(*this, drawable, layout);

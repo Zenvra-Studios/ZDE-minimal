@@ -315,6 +315,189 @@ static std::vector<std::filesystem::path> discover_clang_resource_includes(const
 }
 #endif
 
+#ifndef _WIN32
+static std::vector<std::filesystem::path> discover_unix_system_includes(std::string* out_compiler_version = nullptr)
+{
+    std::vector<std::filesystem::path> includes;
+    std::error_code ec;
+
+    // 1. GCC C++ standard header versions (e.g. /usr/include/c++/14, 13, 12, etc.)
+    const std::filesystem::path cxx_roots[] = {
+        "/usr/include/c++",
+        "/usr/local/include/c++",
+        "/opt/homebrew/opt/llvm/include/c++/v1",
+        "/opt/homebrew/opt/llvm@19/include/c++/v1",
+        "/opt/homebrew/opt/llvm@18/include/c++/v1",
+        "/opt/homebrew/opt/llvm@17/include/c++/v1",
+        "/usr/local/opt/llvm/include/c++/v1",
+        "/Library/Developer/CommandLineTools/usr/include/c++/v1",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include/c++/v1",
+    };
+
+    std::vector<std::filesystem::path> version_dirs;
+    for (const auto& cxx_root : cxx_roots)
+    {
+        if (std::filesystem::exists(cxx_root, ec) && std::filesystem::is_directory(cxx_root, ec))
+        {
+            if (file_exists(cxx_root / "iostream") || file_exists(cxx_root / "vector"))
+            {
+                includes.push_back(cxx_root);
+            }
+            for (const auto& entry : std::filesystem::directory_iterator(cxx_root, std::filesystem::directory_options::skip_permission_denied, ec))
+            {
+                if (entry.is_directory(ec) && (file_exists(entry.path() / "iostream") || file_exists(entry.path() / "vector")))
+                {
+                    version_dirs.push_back(entry.path());
+                }
+            }
+        }
+    }
+
+    std::sort(version_dirs.begin(), version_dirs.end(), [](const auto& a, const auto& b) {
+        return a.filename().string() > b.filename().string();
+    });
+
+    if (!version_dirs.empty())
+    {
+        const auto& best_ver_dir = version_dirs.front();
+        if (out_compiler_version != nullptr && out_compiler_version->empty())
+        {
+            *out_compiler_version = best_ver_dir.filename().string();
+        }
+        includes.push_back(best_ver_dir);
+        const auto backward = best_ver_dir / "backward";
+        if (std::filesystem::exists(backward, ec))
+        {
+            includes.push_back(backward);
+        }
+
+        for (const auto& sub : std::filesystem::directory_iterator(best_ver_dir, std::filesystem::directory_options::skip_permission_denied, ec))
+        {
+            if (sub.is_directory(ec))
+            {
+                const std::string sub_name = sub.path().filename().string();
+                if (sub_name.find("linux") != std::string::npos ||
+                    sub_name.find("gnu") != std::string::npos ||
+                    sub_name.find("x86_64") != std::string::npos ||
+                    sub_name.find("aarch64") != std::string::npos ||
+                    sub_name.find("arm") != std::string::npos ||
+                    sub_name.find("darwin") != std::string::npos)
+                {
+                    includes.push_back(sub.path());
+                }
+            }
+        }
+    }
+
+    // 2. Linux Multiarch architecture-specific headers
+    const std::filesystem::path multiarch_candidates[] = {
+        "/usr/include/x86_64-linux-gnu",
+        "/usr/include/aarch64-linux-gnu",
+        "/usr/include/arm-linux-gnueabihf",
+        "/usr/include/i386-linux-gnu",
+        "/usr/include/riscv64-linux-gnu",
+        "/usr/local/include",
+        "/usr/include",
+        "/opt/homebrew/include",
+        "/usr/local/opt/llvm/include",
+        "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include",
+    };
+
+    for (const auto& cand : multiarch_candidates)
+    {
+        if (std::filesystem::exists(cand, ec) && std::filesystem::is_directory(cand, ec))
+        {
+            includes.push_back(cand);
+            // Check for nested c++ version folder under multiarch root
+            const auto multi_cxx = cand / "c++";
+            if (std::filesystem::exists(multi_cxx, ec) && std::filesystem::is_directory(multi_cxx, ec))
+            {
+                for (const auto& entry : std::filesystem::directory_iterator(multi_cxx, std::filesystem::directory_options::skip_permission_denied, ec))
+                {
+                    if (entry.is_directory(ec))
+                    {
+                        includes.push_back(entry.path());
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. GCC compiler internal include headers (/usr/lib/gcc/<arch>/<ver>/include)
+    const std::filesystem::path gcc_lib_root = "/usr/lib/gcc";
+    if (std::filesystem::exists(gcc_lib_root, ec) && std::filesystem::is_directory(gcc_lib_root, ec))
+    {
+        for (const auto& arch_entry : std::filesystem::directory_iterator(gcc_lib_root, std::filesystem::directory_options::skip_permission_denied, ec))
+        {
+            if (arch_entry.is_directory(ec))
+            {
+                for (const auto& ver_entry : std::filesystem::directory_iterator(arch_entry.path(), std::filesystem::directory_options::skip_permission_denied, ec))
+                {
+                    if (ver_entry.is_directory(ec))
+                    {
+                        const auto inc = ver_entry.path() / "include";
+                        const auto inc_fixed = ver_entry.path() / "include-fixed";
+                        if (std::filesystem::exists(inc, ec)) includes.push_back(inc);
+                        if (std::filesystem::exists(inc_fixed, ec)) includes.push_back(inc_fixed);
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Clang compiler resource headers (/usr/lib/llvm-*/lib/clang/*/include or /usr/lib/clang/*/include)
+    const std::filesystem::path clang_lib_roots[] = {
+        "/usr/lib/llvm-19/lib/clang",
+        "/usr/lib/llvm-18/lib/clang",
+        "/usr/lib/llvm-17/lib/clang",
+        "/usr/lib/llvm-16/lib/clang",
+        "/usr/lib/llvm-15/lib/clang",
+        "/usr/lib/clang",
+        "/opt/homebrew/opt/llvm/lib/clang",
+        "/usr/local/opt/llvm/lib/clang",
+    };
+
+    for (const auto& cl_root : clang_lib_roots)
+    {
+        if (std::filesystem::exists(cl_root, ec) && std::filesystem::is_directory(cl_root, ec))
+        {
+            for (const auto& ver_entry : std::filesystem::directory_iterator(cl_root, std::filesystem::directory_options::skip_permission_denied, ec))
+            {
+                if (ver_entry.is_directory(ec))
+                {
+                    const auto inc = ver_entry.path() / "include";
+                    if (std::filesystem::exists(inc, ec))
+                    {
+                        includes.push_back(inc);
+                    }
+                }
+            }
+        }
+    }
+
+    // Remove duplicates while preserving order
+    std::vector<std::filesystem::path> unique_includes;
+    for (const auto& p : includes)
+    {
+        bool dup = false;
+        for (const auto& u : unique_includes)
+        {
+            if (std::filesystem::equivalent(p, u, ec))
+            {
+                dup = true;
+                break;
+            }
+        }
+        if (!dup)
+        {
+            unique_includes.push_back(p);
+        }
+    }
+
+    return unique_includes;
+}
+#endif
+
 void ToolchainDetector::detect_environment()
 {
     m_info = ToolchainInfo{};
@@ -404,7 +587,34 @@ void ToolchainDetector::detect_environment()
     }
 #else
     // Comprehensive macOS & Linux Compiler / SDK Discovery
+    std::string detected_version;
+    const auto unix_includes = discover_unix_system_includes(&detected_version);
+    m_info.system_include_paths = unix_includes;
+    if (!unix_includes.empty())
+    {
+        m_info.sdk_include_path = unix_includes.front();
+        m_info.has_standard_headers = true;
+    }
+
     const std::filesystem::path unix_compilers[] = {
+        // Linux Standard & Versioned GCC (primary on Linux)
+        "/usr/bin/g++",
+        "/usr/bin/g++-14",
+        "/usr/bin/g++-13",
+        "/usr/bin/g++-12",
+        "/usr/bin/g++-11",
+        "/usr/bin/c++",
+        "/usr/bin/gcc",
+        // Linux Standard & Versioned Clang
+        "/usr/bin/clang++",
+        "/usr/bin/clang++-19",
+        "/usr/bin/clang++-18",
+        "/usr/bin/clang++-17",
+        "/usr/bin/clang++-16",
+        "/usr/bin/clang++-15",
+        "/usr/lib/llvm-19/bin/clang++",
+        "/usr/lib/llvm-18/bin/clang++",
+        "/usr/lib/llvm-17/bin/clang++",
         // macOS Apple Silicon (M1/M2/M3/M4) Homebrew
         "/opt/homebrew/bin/clang++",
         "/opt/homebrew/opt/llvm/bin/clang++",
@@ -421,23 +631,6 @@ void ToolchainDetector::detect_environment()
         "/usr/local/bin/clang++",
         "/usr/local/bin/g++",
         "/opt/local/bin/clang++",
-        // Linux Standard & Versioned Clang
-        "/usr/bin/clang++",
-        "/usr/bin/clang++-19",
-        "/usr/bin/clang++-18",
-        "/usr/bin/clang++-17",
-        "/usr/bin/clang++-16",
-        "/usr/bin/clang++-15",
-        "/usr/lib/llvm-19/bin/clang++",
-        "/usr/lib/llvm-18/bin/clang++",
-        "/usr/lib/llvm-17/bin/clang++",
-        // Linux Standard & Versioned GCC
-        "/usr/bin/g++",
-        "/usr/bin/g++-14",
-        "/usr/bin/g++-13",
-        "/usr/bin/g++-12",
-        "/usr/bin/g++-11",
-        "/usr/bin/c++",
     };
     for (const auto& p : unix_compilers)
     {
@@ -447,9 +640,10 @@ void ToolchainDetector::detect_environment()
             const bool is_clang = name.find("clang") != std::string::npos;
             m_info.kind = is_clang ? ToolchainKind::Clang : ToolchainKind::Gcc;
             m_info.compiler_path = p;
+            m_info.compiler_version = detected_version;
             m_info.name = is_clang ? ("Clang++ (" + name + ")") : ("GCC / G++ (" + name + ")");
             m_info.status = ToolchainStatus::Ready;
-            m_info.has_standard_headers = true;
+            m_info.has_standard_headers = !m_info.system_include_paths.empty();
             m_info.user_status_text = "Ready";
             return;
         }

@@ -54,12 +54,7 @@ bool LanguageClient::start()
     std::string root_uri;
     if (!m_workspace_root.empty())
     {
-        std::string gen = m_workspace_root.generic_string();
-        if (!gen.starts_with("/"))
-        {
-            gen = "/" + gen;
-        }
-        root_uri = "file://" + gen;
+        root_uri = Protocol::LspProtocolSerializer::path_to_uri(m_workspace_root);
         if (!root_uri.empty() && root_uri.back() == '/')
         {
             root_uri.pop_back();
@@ -77,6 +72,15 @@ bool LanguageClient::start()
                     {"willSave", true},
                     {"willSaveWaitUntil", false},
                     {"didSave", true}
+                }},
+                {"publishDiagnostics", {
+                    {"relatedInformation", true},
+                    {"versionSupport", true},
+                    {"tagSupport", {
+                        {"valueSet", nlohmann::json::array({1, 2})}
+                    }},
+                    {"codeDescriptionSupport", true},
+                    {"dataSupport", true}
                 }},
                 {"completion", {
                     {"dynamicRegistration", true},

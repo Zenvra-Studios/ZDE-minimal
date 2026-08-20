@@ -305,7 +305,7 @@ bool X11Window::initialize() {
   Language::LanguageServerManager::instance().set_diagnostics_callback(
       [this](const std::string &uri,
              const std::vector<Language::Protocol::Diagnostic> &diags) {
-        // Queue diagnostics for main thread — never touch UI state from LSP thread
+        // Queue diagnostics for main thread — never touch UI/Xlib state from LSP thread
         std::lock_guard<std::mutex> lock(m_pending_diag_mutex);
         m_pending_diagnostics.push_back({uri, diags});
         m_has_pending_diagnostics.store(true, std::memory_order_release);
@@ -374,13 +374,21 @@ void X11Window::poll_events() {
       XFlush(m_display);
       continue;
     }
-    if (m_prompt_dialog.is_open() && event.xany.window == m_prompt_dialog.window()) {
-      m_prompt_dialog.handle_event(event);
-      continue;
+    if (m_prompt_dialog.is_open()) {
+      if (event.xany.window == m_prompt_dialog.window()) {
+        m_prompt_dialog.handle_event(event);
+        continue;
+      }
+      if (event.type == ButtonPress) {
+        m_prompt_dialog.close();
+        continue;
+      }
     }
-    if (m_add_item_dialog.is_open() && event.xany.window == m_add_item_dialog.window()) {
-      m_add_item_dialog.handle_event(event);
-      continue;
+    if (m_add_item_dialog.is_open()) {
+      if (event.xany.window == m_add_item_dialog.window()) {
+        m_add_item_dialog.handle_event(event);
+        continue;
+      }
     }
     if (target.popup_window != 0 && event.xany.window == target.popup_window && event.type != MappingNotify) {
       static_cast<void>(m_chrome_renderer.handle_popup_event(event));
@@ -423,6 +431,9 @@ void X11Window::poll_events() {
     m_last_animation_frame_time = now;
     if (!m_is_minimized && m_custom_chrome_enabled && m_chrome_renderer.tick_animations()) {
       render();
+    }
+    if (m_prompt_dialog.is_open()) {
+      m_prompt_dialog.render();
     }
   }
 
@@ -1279,7 +1290,18 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
         show_explorer_context_menu(*opt_target, event.x, event.y);
         return;
       }
-    } else if (m_chrome_renderer.is_editor_interactive_point(point_x, point_y)) {
+    }
+
+    const bool over_editor =
+        m_chrome_renderer.is_editor_point(point_x, point_y, m_client_width,
+                                          m_client_height, content_top) ||
+        m_chrome_renderer.is_minimap_point(point_x, point_y, m_client_width,
+                                           m_client_height, content_top) ||
+        m_chrome_renderer.is_scrollbar_point(point_x, point_y, m_client_width,
+                                             m_client_height, content_top) ||
+        m_chrome_renderer.is_editor_interactive_point(point_x, point_y);
+
+    if (over_editor) {
       show_editor_context_menu(event.x, event.y);
       return;
     }
@@ -1941,6 +1963,10 @@ void X11Window::handle_key_press(XKeyEvent &event) {
       if (dispatch_shortcut_command(Commands::CommandIds::window_toggle_fullscreen)) {
         return;
       }
+    } else if (key_symbol == XK_F12) {
+      if (dispatch_shortcut_command(Commands::CommandIds::editor_goto_definition)) {
+        return;
+      }
     }
   }
 
@@ -2288,14 +2314,15 @@ void X11Window::update_cursor(int point_x, int point_y) {
                  m_client_width, m_client_height,
                  m_chrome_layout.titlebar_bounds.bottom())) {
     desired_cursor = m_horizontal_split_resize_cursor;
-  } else if (m_chrome_renderer.is_editor_point(
-                 static_cast<float>(point_x), static_cast<float>(point_y),
-                 m_client_width, m_client_height,
-                 m_chrome_layout.titlebar_bounds.bottom()) ||
+  } else if ((m_chrome_renderer.is_editor_point(
+                  static_cast<float>(point_x), static_cast<float>(point_y),
+                  m_client_width, m_client_height,
+                  m_chrome_layout.titlebar_bounds.bottom()) &&
+              m_chrome_renderer.get_text_editor().get_document() != nullptr) ||
              m_chrome_renderer.is_terminal_point(
-                 static_cast<float>(point_x), static_cast<float>(point_y),
-                 m_client_width, m_client_height,
-                 m_chrome_layout.titlebar_bounds.bottom())) {
+                  static_cast<float>(point_x), static_cast<float>(point_y),
+                  m_client_width, m_client_height,
+                  m_chrome_layout.titlebar_bounds.bottom())) {
     desired_cursor = m_text_cursor;
   } else {
     desired_cursor = m_default_cursor;
@@ -2884,28 +2911,61 @@ void X11Window::show_explorer_context_menu(
 }
 
 void X11Window::show_editor_context_menu(int client_x, int client_y) {
-  const std::vector<Components::PopupMenuItem> items = {
-      {"Cut", std::string{Commands::CommandIds::edit_cut}, false, true, false,
-       "Ctrl+X"},
-      {"Copy", std::string{Commands::CommandIds::edit_copy}, false, true, false,
-       "Ctrl+C"},
-      {"Paste", std::string{Commands::CommandIds::edit_paste}, false, true,
-       false, "Ctrl+V"},
-      {"", "", true, true, false, ""},
-      {"Select All", std::string{Commands::CommandIds::selection_select_all},
-       false, true, false, "Ctrl+A"},
-      {"Toggle Line Comment",
-       std::string{Commands::CommandIds::edit_toggle_comment}, false, true,
-       false, "Ctrl+/"},
-      {"", "", true, true, false, ""},
-      {"Undo", std::string{Commands::CommandIds::edit_undo}, false, true, false,
-       "Ctrl+Z"},
-      {"Redo", std::string{Commands::CommandIds::edit_redo}, false, true, false,
-       "Ctrl+Y"},
-      {"", "", true, true, false, ""},
-      {"Command Palette...",
-       std::string{Commands::CommandIds::help_show_all_commands}, false, true,
-       false, "Ctrl+Shift+P"}};
+  const bool has_doc = m_chrome_renderer.get_text_editor().get_document() != nullptr;
+  std::vector<Components::PopupMenuItem> items;
+
+  if (has_doc) {
+    items = {
+        // 1. Navigation / LSP
+        {"Go to Definition", std::string{Commands::CommandIds::edit_goto_definition}, false, true, false, "F12"},
+        {"Go to Declaration", std::string{Commands::CommandIds::edit_goto_declaration}, false, true, false, ""},
+        {"Go to Type Definition", std::string{Commands::CommandIds::edit_goto_type_definition}, false, true, false, ""},
+        {"Go to Implementations", std::string{Commands::CommandIds::edit_goto_implementations}, false, true, false, "Ctrl+F12"},
+        {"Go to References", std::string{Commands::CommandIds::edit_goto_references}, false, true, false, "Shift+F12"},
+        {"", "", true, true, false, ""},
+
+        // 2. References & Hierarchy
+        {"Find All References", std::string{Commands::CommandIds::edit_find_all_references}, false, true, false, "Shift+Alt+F12"},
+        {"Find All Implementations", std::string{Commands::CommandIds::edit_find_all_implementations}, false, true, false, ""},
+        {"Show Call Hierarchy", std::string{Commands::CommandIds::edit_show_call_hierarchy}, false, true, false, "Shift+Alt+H"},
+        {"Show Type Hierarchy", std::string{Commands::CommandIds::edit_show_type_hierarchy}, false, true, false, ""},
+        {"Switch Between Source/Header", std::string{Commands::CommandIds::edit_switch_header_source}, false, true, false, "Alt+O"},
+        {"", "", true, true, false, ""},
+
+        // 3. Refactoring & Editing
+        {"Rename Symbol", std::string{Commands::CommandIds::edit_rename_symbol}, false, true, false, "F2"},
+        {"Change All Occurrences", std::string{Commands::CommandIds::selection_select_all_occurrences}, false, true, false, "Ctrl+F2"},
+        {"Format Document", std::string{Commands::CommandIds::edit_format_document}, false, true, false, "Ctrl+Shift+I"},
+        {"Refactor...", std::string{Commands::CommandIds::edit_refactor}, false, true, false, "Ctrl+Shift+R"},
+        {"", "", true, true, false, ""},
+
+        // 4. Clipboard Operations
+        {"Cut", std::string{Commands::CommandIds::edit_cut}, false, true, false, "Ctrl+X"},
+        {"Copy", std::string{Commands::CommandIds::edit_copy}, false, true, false, "Ctrl+C"},
+        {"Paste", std::string{Commands::CommandIds::edit_paste}, false, true, false, "Ctrl+V"},
+        {"", "", true, true, false, ""},
+
+        // 5. Palette & Tools
+        {"Command Palette...", std::string{Commands::CommandIds::help_show_all_commands}, false, true, false, "Ctrl+Shift+P"},
+        {"Show AST", std::string{Commands::CommandIds::edit_show_ast}, false, true, false, ""},
+    };
+  } else {
+    items = {
+        {"New Text File", std::string{Commands::CommandIds::file_new}, false, true, false, "Ctrl+N"},
+        {"Open File...", std::string{Commands::CommandIds::file_open}, false, true, false, "Ctrl+P"},
+        {"", "", true, true, false, ""},
+        {"New Terminal", std::string{Commands::CommandIds::view_terminal_panel}, false, true, false, ""},
+        {"", "", true, true, false, ""},
+        {"Split Up", std::string{Commands::CommandIds::view_split_up}, false, true, false, "Ctrl+K Ctrl+\\"},
+        {"Split Down", std::string{Commands::CommandIds::view_split_down}, false, true, false, ""},
+        {"Split Left", std::string{Commands::CommandIds::view_split_left}, false, true, false, ""},
+        {"Split Right", std::string{Commands::CommandIds::view_split_right}, false, true, false, ""},
+        {"", "", true, true, false, ""},
+        {"New Window", std::string{Commands::CommandIds::window_new}, false, true, false, ""},
+        {"", "", true, true, false, ""},
+        {"Lock Group", "", false, false, false, ""},
+    };
+  }
 
   const UI::Rect anchor{static_cast<float>(client_x),
                         static_cast<float>(client_y), 0.0F, 0.0F};

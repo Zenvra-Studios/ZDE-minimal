@@ -168,18 +168,26 @@ bool TerminalPanel::handle_pointer_press(
         const float local_x = point_x - (layout.terminal_content_bounds.x + padding_x);
         const int col = static_cast<int>(std::floor(std::max(local_x, 0.0F) / char_width));
         const std::size_t col_idx = static_cast<std::size_t>(std::max(0, col));
+        const Terminal::TerminalSession* session = m_model.get_active_session();
+        const bool is_cli_app = (session && session->is_in_alternate_screen()) || m_model.is_mouse_tracking_active();
 
-        if (m_model.is_mouse_tracking_active() && !shift_held)
+        if (is_cli_app && !shift_held)
         {
-            const std::size_t visual_col = col_idx + 1;
-            const std::size_t visual_row = static_cast<std::size_t>(std::clamp(row, 0, static_cast<int>(m_last_visible_rows > 0 ? m_last_visible_rows - 1 : 0))) + 1;
-            m_cli_mouse_down = true;
-            m_last_cli_mouse_col = visual_col;
-            m_last_cli_mouse_row = visual_row;
-            return m_model.send_mouse_button(
-                Terminal::TerminalSession::MouseButton::Left,
-                Terminal::TerminalSession::MouseAction::Press,
-                visual_col, visual_row);
+            m_model.clear_selection();
+            m_selecting_text = false;
+            if (m_model.is_mouse_tracking_active())
+            {
+                const std::size_t visual_col = col_idx + 1;
+                const std::size_t visual_row = static_cast<std::size_t>(std::clamp(row, 0, static_cast<int>(m_last_visible_rows > 0 ? m_last_visible_rows - 1 : 0))) + 1;
+                m_cli_mouse_down = true;
+                m_last_cli_mouse_col = visual_col;
+                m_last_cli_mouse_row = visual_row;
+                return m_model.send_mouse_button(
+                    Terminal::TerminalSession::MouseButton::Left,
+                    Terminal::TerminalSession::MouseAction::Press,
+                    visual_col, visual_row);
+            }
+            return true;
         }
 
         if (click_count == 2)
@@ -762,7 +770,7 @@ void TerminalPanel::render(
         const std::string& line = lines[index];
         const std::size_t len = line.size();
 
-        if (has_selection && selection.intersects_line(index))
+        if (has_selection && !session->is_in_alternate_screen() && !m_model.is_mouse_tracking_active() && selection.intersects_line(index))
         {
             const auto [col_start, col_end] = selection.get_line_range(index, len);
             if (col_end > col_start || (col_start == 0 && col_end == 0 && index < selection.normalized_end().line))

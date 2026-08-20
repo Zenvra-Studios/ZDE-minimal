@@ -123,11 +123,25 @@ std::vector<const ServerProfile*> ServerRegistry::get_all_profiles() const
 std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view executable_name) const
 {
     const std::string exe_str(executable_name);
+    {
+        std::lock_guard<std::mutex> lock(m_cache_mutex);
+        if (auto it = m_executable_cache.find(exe_str); it != m_executable_cache.end())
+        {
+            return it->second;
+        }
+    }
+
+    auto cache_and_return = [this, &exe_str](std::filesystem::path result) -> std::filesystem::path {
+        std::lock_guard<std::mutex> lock(m_cache_mutex);
+        m_executable_cache[exe_str] = result;
+        return result;
+    };
+
     std::vector<std::string> candidate_names = { exe_str };
 
-    if (exe_str == "cmake-language-server" || exe_str == "cmake-ls" || exe_str == "cmakels" || exe_str == "cmakels-win64")
+    if (exe_str == "cmake-language-server" || exe_str == "cmake-ls" || exe_str == "cmakels" || exe_str == "cmakels-win64" || exe_str == "neocmakelsp")
     {
-        candidate_names = { "cmakels", "cmake-language-server", "cmake-ls", "cmakels-win64", "neocmakelsp" };
+        candidate_names = { "cmake-language-server", "neocmakelsp", "cmakels", "cmake-ls", "cmakels-win64" };
     }
     else if (exe_str == "clangd")
     {
@@ -202,7 +216,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                 std::error_code ec;
                 if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
                 {
-                    return candidate;
+                    return cache_and_return(candidate);
                 }
             }
 
@@ -228,7 +242,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                     std::error_code ec;
                     if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
                     {
-                        return candidate;
+                        return cache_and_return(candidate);
                     }
                 }
 
@@ -240,7 +254,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                     {
                         if (entry.is_regular_file() && entry.path().filename() == exe_with_ext)
                         {
-                            return entry.path();
+                            return cache_and_return(entry.path());
                         }
                     }
                 }
@@ -258,15 +272,14 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
             const std::filesystem::path app_candidates[] = {
                 app_dir / "plugins" / "lsp" / cur_name,
                 app_dir / "plugins" / cur_name,
-                app_dir / "../Resources/plugins/lsp" / cur_name,
-                app_dir / "../Resources" / cur_name,
+                app_dir / "bin" / cur_name,
                 app_dir / cur_name,
             };
             for (const auto& candidate : app_candidates)
             {
                 if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
                 {
-                    return candidate;
+                    return cache_and_return(candidate);
                 }
             }
         }
@@ -285,7 +298,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
             {
                 if (std::filesystem::exists(candidate, ec_proc) && std::filesystem::is_regular_file(candidate, ec_proc))
                 {
-                    return candidate;
+                    return cache_and_return(candidate);
                 }
             }
         }
@@ -321,7 +334,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                 std::error_code ec;
                 if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
                 {
-                    return candidate;
+                    return cache_and_return(candidate);
                 }
             }
 
@@ -344,12 +357,12 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                             const auto sub_candidate = entry.path() / exe_with_ext;
                             if (std::filesystem::exists(sub_candidate, ec) && std::filesystem::is_regular_file(sub_candidate, ec))
                             {
-                                return sub_candidate;
+                                return cache_and_return(sub_candidate);
                             }
                             const auto sub_bin = entry.path() / "bin" / exe_with_ext;
                             if (std::filesystem::exists(sub_bin, ec) && std::filesystem::is_regular_file(sub_bin, ec))
                             {
-                                return sub_bin;
+                                return cache_and_return(sub_bin);
                             }
                         }
                     }
@@ -399,7 +412,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                 std::error_code ec;
                 if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
                 {
-                    return candidate;
+                    return cache_and_return(candidate);
                 }
             }
         }
@@ -421,7 +434,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                 std::error_code ec;
                 if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
                 {
-                    return candidate;
+                    return cache_and_return(candidate);
                 }
             }
         }
@@ -439,7 +452,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                 std::error_code ec;
                 if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
                 {
-                    return candidate;
+                    return cache_and_return(candidate);
                 }
             }
         }
@@ -451,7 +464,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
             std::error_code ec;
             if (std::filesystem::exists(npm_candidate, ec) && std::filesystem::is_regular_file(npm_candidate, ec))
             {
-                return npm_candidate;
+                return cache_and_return(npm_candidate);
             }
         }
 
@@ -462,7 +475,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
             nullptr, exe_w.c_str(), nullptr, static_cast<DWORD>(resolved.size()), resolved.data(), nullptr);
         if (length > 0 && length < resolved.size())
         {
-            return std::filesystem::path(resolved.data());
+            return cache_and_return(std::filesystem::path(resolved.data()));
         }
 
         // 4. Fourth Priority: Program Files LLVM / CMake, and dynamic Visual Studio installation scanning
@@ -484,7 +497,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
             std::error_code ec;
             if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
             {
-                return candidate;
+                return cache_and_return(candidate);
             }
         }
 
@@ -514,7 +527,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                         {
                             if (std::filesystem::exists(c, ec) && std::filesystem::is_regular_file(c, ec))
                             {
-                                return c;
+                                return cache_and_return(c);
                             }
                         }
 
@@ -535,7 +548,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                                     {
                                         if (std::filesystem::exists(b, ec) && std::filesystem::is_regular_file(b, ec))
                                         {
-                                            return b;
+                                            return cache_and_return(b);
                                         }
                                     }
                                 }
@@ -572,7 +585,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                 std::error_code ec;
                 if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
                 {
-                    return candidate;
+                    return cache_and_return(candidate);
                 }
             }
         }
@@ -622,7 +635,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
             std::error_code ec;
             if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
             {
-                return candidate;
+                return cache_and_return(candidate);
             }
         }
 
@@ -639,14 +652,20 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                 std::error_code ec;
                 if (std::filesystem::exists(p, ec) && std::filesystem::is_regular_file(p, ec))
                 {
-                    return p;
+                    return cache_and_return(p);
                 }
             }
         }
 #endif
     }
 
-    return {};
+    return cache_and_return({});
+}
+
+void ServerRegistry::clear_cache() noexcept
+{
+    std::lock_guard<std::mutex> lock(m_cache_mutex);
+    m_executable_cache.clear();
 }
 
 void ServerRegistry::initialize_default_profiles()
@@ -657,10 +676,10 @@ void ServerRegistry::initialize_default_profiles()
     cpp_profile.extensions = {".cpp", ".c", ".h", ".hpp", ".cc", ".cxx", ".hh", ".hxx", ".inl", ".m", ".mm"};
     cpp_profile.executable_name = "clangd";
     cpp_profile.default_args = {
-        "-j=2",
+        "-j=4",
         "--background-index",
-        "--background-index-priority=low",
-        "--pch-storage=disk",
+        "--background-index-priority=normal",
+        "--pch-storage=memory",
         "--limit-results=100",
         "--limit-references=500",
         "--clang-tidy=false",
@@ -674,12 +693,12 @@ void ServerRegistry::initialize_default_profiles()
     cpp_profile.root_markers = {"compile_commands.json", "CMakeLists.txt", ".git"};
     register_profile(std::move(cpp_profile));
 
-    // CMake
+    // CMake (cmake-language-server / neocmakelsp / cmakels)
     ServerProfile cmake_profile;
     cmake_profile.language_id = "cmake";
     cmake_profile.extensions = {".cmake", "cmakelists.txt", "CMakeLists.txt"};
-    cmake_profile.executable_name = "cmakels";
-    cmake_profile.default_args = {"build"};
+    cmake_profile.executable_name = "cmake-language-server";
+    cmake_profile.default_args = {};
     cmake_profile.root_markers = {"CMakeLists.txt", ".git"};
     register_profile(std::move(cmake_profile));
 

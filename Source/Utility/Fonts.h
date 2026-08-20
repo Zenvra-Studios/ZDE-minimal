@@ -372,6 +372,19 @@ private:
       }
       FcPatternDestroy(fallback);
     }
+
+    if (m_font) {
+      XGlyphInfo ext_m{}, ext_i{};
+      XftTextExtentsUtf8(m_display, m_font, reinterpret_cast<const FcChar8 *>("M"), 1, &ext_m);
+      XftTextExtentsUtf8(m_display, m_font, reinterpret_cast<const FcChar8 *>("i"), 1, &ext_i);
+      if (ext_m.xOff > 0 && ext_m.xOff == ext_i.xOff) {
+        m_is_monospace = true;
+        m_cell_width = ext_m.xOff;
+      } else {
+        m_is_monospace = false;
+        m_cell_width = ext_m.xOff > 0 ? ext_m.xOff : 8;
+      }
+    }
   }
 
 public:
@@ -387,6 +400,13 @@ public:
       XftFontClose(m_display, m_font);
       m_font = nullptr;
     }
+
+    for (auto &pair : m_fallback_fonts) {
+      if (pair.second && pair.second != m_font && m_display) {
+        XftFontClose(m_display, pair.second);
+      }
+    }
+    m_fallback_fonts.clear();
 
     /* Free all cached allocated colors */
     if (m_display && m_visual && m_colormap) {
@@ -408,6 +428,9 @@ public:
         m_draw(other.m_draw),
         m_current_drawable(other.m_current_drawable),
         m_allocated_colors(std::move(other.m_allocated_colors)),
+        m_fallback_fonts(std::move(other.m_fallback_fonts)),
+        m_is_monospace(other.m_is_monospace),
+        m_cell_width(other.m_cell_width),
         m_ligaturesEnabled(other.m_ligaturesEnabled) {
     other.m_font = nullptr;
     other.m_draw = nullptr;
@@ -422,6 +445,13 @@ public:
       if (m_font && m_display) {
         XftFontClose(m_display, m_font);
       }
+      for (auto &pair : m_fallback_fonts) {
+        if (pair.second && pair.second != m_font && m_display) {
+          XftFontClose(m_display, pair.second);
+        }
+      }
+      m_fallback_fonts.clear();
+
       if (m_display && m_visual && m_colormap) {
         for (auto &pair : m_allocated_colors) {
           XftColorFree(m_display, m_visual, m_colormap, &pair.second);
@@ -436,6 +466,9 @@ public:
       m_draw = other.m_draw;
       m_current_drawable = other.m_current_drawable;
       m_allocated_colors = std::move(other.m_allocated_colors);
+      m_fallback_fonts = std::move(other.m_fallback_fonts);
+      m_is_monospace = other.m_is_monospace;
+      m_cell_width = other.m_cell_width;
       m_ligaturesEnabled = other.m_ligaturesEnabled;
 
       other.m_font = nullptr;
@@ -450,14 +483,104 @@ public:
   void setLigaturesEnabled(bool enabled) { m_ligaturesEnabled = enabled; }
   bool isLigaturesEnabled() const { return m_ligaturesEnabled; }
 
+  static inline bool is_ascii_only(std::string_view text) noexcept {
+    for (char c : text) {
+      if (static_cast<unsigned char>(c) >= 0x80) return false;
+    }
+    return true;
+  }
+
+  static inline FcChar32 next_utf8_char(const char *&ptr, const char *end) {
+    if (ptr >= end) return 0;
+    unsigned char c = static_cast<unsigned char>(*ptr++);
+    if (c < 0x80) return c;
+    if ((c & 0xE0) == 0xC0) {
+      if (ptr >= end) return c;
+      unsigned char c2 = static_cast<unsigned char>(*ptr++);
+      return ((c & 0x1F) << 6) | (c2 & 0x3F);
+    }
+    if ((c & 0xF0) == 0xE0) {
+      if (ptr + 1 >= end) { ptr = end; return c; }
+      unsigned char c2 = static_cast<unsigned char>(*ptr++);
+      unsigned char c3 = static_cast<unsigned char>(*ptr++);
+      return ((c & 0x0F) << 12) | ((c2 & 0x3F) << 6) | (c3 & 0x3F);
+    }
+    if ((c & 0xF8) == 0xF0) {
+      if (ptr + 2 >= end) { ptr = end; return c; }
+      unsigned char c2 = static_cast<unsigned char>(*ptr++);
+      unsigned char c3 = static_cast<unsigned char>(*ptr++);
+      unsigned char c4 = static_cast<unsigned char>(*ptr++);
+      return ((c & 0x07) << 18) | ((c2 & 0x3F) << 12) | ((c3 & 0x3F) << 6) | (c4 & 0x3F);
+    }
+    return c;
+  }
+
+  static inline int unicode_column_width(FcChar32 ucs4) {
+    if (ucs4 == 0) return 0;
+    if (ucs4 < 0x80) return 1;
+    if (ucs4 < 0x20 || (ucs4 >= 0x7F && ucs4 < 0xA0)) return 0;
+    if ((ucs4 >= 0x0300 && ucs4 <= 0x036F) || (ucs4 >= 0x200B && ucs4 <= 0x200F)) return 0;
+    if ((ucs4 >= 0x1100 && ucs4 <= 0x115F) ||
+        (ucs4 >= 0x2E80 && ucs4 <= 0xA4CF) ||
+        (ucs4 >= 0xAC00 && ucs4 <= 0xD7A3) ||
+        (ucs4 >= 0xF900 && ucs4 <= 0xFAFF) ||
+        (ucs4 >= 0xFE10 && ucs4 <= 0xFE19) ||
+        (ucs4 >= 0xFE30 && ucs4 <= 0xFE6F) ||
+        (ucs4 >= 0xFF01 && ucs4 <= 0xFF60) ||
+        (ucs4 >= 0xFFE0 && ucs4 <= 0xFFE6) ||
+        (ucs4 >= 0x1F300 && ucs4 <= 0x1FAFF)) {
+      return 2;
+    }
+    return 1;
+  }
+
+  XftFont* getFallbackFont(FcChar32 ucs4) {
+    auto it = m_fallback_fonts.find(ucs4);
+    if (it != m_fallback_fonts.end()) {
+      return it->second;
+    }
+    if (!m_display) {
+      return nullptr;
+    }
+
+    FcCharSet *charset = FcCharSetCreate();
+    FcCharSetAddChar(charset, ucs4);
+
+    FcPattern *pattern = FcPatternCreate();
+    FcPatternAddCharSet(pattern, FC_CHARSET, charset);
+    if (m_font && m_font->pattern) {
+      double pixel_size = 14.0;
+      if (FcPatternGetDouble(m_font->pattern, FC_PIXEL_SIZE, 0, &pixel_size) == FcResultMatch) {
+        FcPatternAddDouble(pattern, FC_PIXEL_SIZE, pixel_size);
+      }
+    }
+    FcPatternAddBool(pattern, FC_ANTIALIAS, FcTrue);
+    FcPatternAddBool(pattern, FC_HINTING, FcTrue);
+    FcPatternAddInteger(pattern, FC_HINT_STYLE, FC_HINT_SLIGHT);
+
+    FcConfigSubstitute(nullptr, pattern, FcMatchPattern);
+    XftDefaultSubstitute(m_display, DefaultScreen(m_display), pattern);
+    FcDefaultSubstitute(pattern);
+
+    FcResult result;
+    FcPattern *match = FcFontMatch(nullptr, pattern, &result);
+    XftFont *fallback_font = nullptr;
+    if (match) {
+      fallback_font = XftFontOpenPattern(m_display, match);
+      if (!fallback_font) {
+        // XftFontOpenPattern did not take ownership on failure
+        FcPatternDestroy(match);
+      }
+    }
+    FcPatternDestroy(pattern);
+    FcCharSetDestroy(charset);
+
+    m_fallback_fonts[ucs4] = fallback_font;
+    return fallback_font;
+  }
+
   /**
-   * @brief Draw a UTF-8 string on a drawable.
-   * @param drawable Window or Pixmap target.
-   * @param color_name Color name or hex value (e.g. "black", "#3b82f6").
-   * @param x X coordinate (baseline origin).
-   * @param y Y coordinate (baseline origin).
-   * @param text String content to draw.
-   * @param clip Optional clip rectangle.
+   * @brief Draw a UTF-8 string on a drawable with automatic fallback font support.
    */
   void drawString(Drawable drawable, const std::string &color_name, int x,
                   int y, std::string_view text, const XRectangle *clip = nullptr) {
@@ -485,9 +608,116 @@ public:
       } else {
         XftDrawSetClip(m_draw, nullptr);
       }
-      XftDrawStringUtf8(m_draw, color, m_font, x, y,
-                        reinterpret_cast<const FcChar8 *>(text.data()),
-                        static_cast<int>(text.size()));
+
+      // Fast path: pure ASCII text never needs fallback (vast majority of source code)
+      if (is_ascii_only(text)) {
+        XftDrawStringUtf8(m_draw, color, m_font, x, y,
+                          reinterpret_cast<const FcChar8 *>(text.data()),
+                          static_cast<int>(text.size()));
+        return;
+      }
+
+      // Check if all non-ASCII characters exist in primary font
+      const char *p = text.data();
+      const char *end = p + text.size();
+      bool has_missing = false;
+      while (p < end) {
+        FcChar32 ucs4 = next_utf8_char(p, end);
+        if (ucs4 > 127 && !XftCharExists(m_display, m_font, ucs4)) {
+          has_missing = true;
+          break;
+        }
+      }
+
+      if (!has_missing) {
+        XftDrawStringUtf8(m_draw, color, m_font, x, y,
+                          reinterpret_cast<const FcChar8 *>(text.data()),
+                          static_cast<int>(text.size()));
+        return;
+      }
+
+      // Fallback path: render runs using font fallback
+      if (m_is_monospace) {
+        p = text.data();
+        int col = 0;
+        while (p < end) {
+          const char *chunk_start = p;
+          const int chunk_col_start = col;
+          FcChar32 first_ucs4 = next_utf8_char(p, end);
+          col += unicode_column_width(first_ucs4);
+
+          XftFont *cur_font = m_font;
+          if (!XftCharExists(m_display, m_font, first_ucs4)) {
+            XftFont *fb = getFallbackFont(first_ucs4);
+            if (fb) cur_font = fb;
+          }
+
+          if (cur_font == m_font) {
+            const char *chunk_end = p;
+            while (p < end) {
+              const char *saved_p = p;
+              FcChar32 ucs4 = next_utf8_char(p, end);
+              if (!XftCharExists(m_display, m_font, ucs4)) {
+                p = saved_p;
+                break;
+              }
+              col += unicode_column_width(ucs4);
+              chunk_end = p;
+            }
+            const int chunk_len = static_cast<int>(chunk_end - chunk_start);
+            XftDrawStringUtf8(m_draw, color, m_font,
+                              x + chunk_col_start * m_cell_width, y,
+                              reinterpret_cast<const FcChar8 *>(chunk_start),
+                              chunk_len);
+          } else {
+            const int chunk_len = static_cast<int>(p - chunk_start);
+            XftDrawStringUtf8(m_draw, color, cur_font,
+                              x + chunk_col_start * m_cell_width, y,
+                              reinterpret_cast<const FcChar8 *>(chunk_start),
+                              chunk_len);
+          }
+        }
+        return;
+      }
+
+      p = text.data();
+      int cur_x = x;
+      while (p < end) {
+        const char *chunk_start = p;
+        FcChar32 first_ucs4 = next_utf8_char(p, end);
+        XftFont *cur_font = m_font;
+        if (!XftCharExists(m_display, m_font, first_ucs4)) {
+          XftFont *fb = getFallbackFont(first_ucs4);
+          if (fb) cur_font = fb;
+        }
+
+        const char *chunk_end = p;
+        while (p < end) {
+          const char *saved_p = p;
+          FcChar32 ucs4 = next_utf8_char(p, end);
+          XftFont *match_font = m_font;
+          if (!XftCharExists(m_display, m_font, ucs4)) {
+            XftFont *fb = getFallbackFont(ucs4);
+            if (fb) match_font = fb;
+          }
+          if (match_font != cur_font) {
+            p = saved_p;
+            break;
+          }
+          chunk_end = p;
+        }
+
+        const int chunk_len = static_cast<int>(chunk_end - chunk_start);
+        XftDrawStringUtf8(m_draw, color, cur_font, cur_x, y,
+                          reinterpret_cast<const FcChar8 *>(chunk_start),
+                          chunk_len);
+
+        XGlyphInfo extents{};
+        XftTextExtentsUtf8(m_display, cur_font,
+                           reinterpret_cast<const FcChar8 *>(chunk_start),
+                           chunk_len, &extents);
+        cur_x += extents.xOff;
+      }
     }
   }
 
@@ -508,18 +738,90 @@ public:
 
   /**
    * @brief Calculate the exact pixel width of a UTF-8 text string.
-   * @param text Target string.
-   * @return Width in pixels.
    */
   int getTextWidth(std::string_view text) const {
     if (!m_font || text.empty() || !m_display) {
       return 0;
     }
-    XGlyphInfo extents{};
-    XftTextExtentsUtf8(m_display, m_font,
-                       reinterpret_cast<const FcChar8 *>(text.data()),
-                       static_cast<int>(text.size()), &extents);
-    return extents.xOff;
+
+    if (m_is_monospace) {
+      // Fast path: ASCII text in monospace = trivial multiplication
+      if (is_ascii_only(text)) {
+        return static_cast<int>(text.size()) * m_cell_width;
+      }
+      const char *p = text.data();
+      const char *end = p + text.size();
+      int cols = 0;
+      while (p < end) {
+        FcChar32 ucs4 = next_utf8_char(p, end);
+        cols += unicode_column_width(ucs4);
+      }
+      return cols * m_cell_width;
+    }
+
+    // Fast path: ASCII text never has missing glyphs
+    if (is_ascii_only(text)) {
+      XGlyphInfo extents{};
+      XftTextExtentsUtf8(m_display, m_font,
+                         reinterpret_cast<const FcChar8 *>(text.data()),
+                         static_cast<int>(text.size()), &extents);
+      return extents.xOff;
+    }
+
+    const char *p = text.data();
+    const char *end = p + text.size();
+    bool has_missing = false;
+    while (p < end) {
+      FcChar32 ucs4 = next_utf8_char(p, end);
+      if (ucs4 > 127 && !XftCharExists(m_display, m_font, ucs4)) {
+        has_missing = true;
+        break;
+      }
+    }
+
+    if (!has_missing) {
+      XGlyphInfo extents{};
+      XftTextExtentsUtf8(m_display, m_font,
+                         reinterpret_cast<const FcChar8 *>(text.data()),
+                         static_cast<int>(text.size()), &extents);
+      return extents.xOff;
+    }
+
+    p = text.data();
+    int total_width = 0;
+    while (p < end) {
+      const char *chunk_start = p;
+      FcChar32 first_ucs4 = next_utf8_char(p, end);
+      XftFont *cur_font = m_font;
+      if (!XftCharExists(m_display, m_font, first_ucs4)) {
+        XftFont *fb = const_cast<AntialiasedFont*>(this)->getFallbackFont(first_ucs4);
+        if (fb) cur_font = fb;
+      }
+
+      const char *chunk_end = p;
+      while (p < end) {
+        const char *saved_p = p;
+        FcChar32 ucs4 = next_utf8_char(p, end);
+        XftFont *match_font = m_font;
+        if (!XftCharExists(m_display, m_font, ucs4)) {
+          XftFont *fb = const_cast<AntialiasedFont*>(this)->getFallbackFont(ucs4);
+          if (fb) match_font = fb;
+        }
+        if (match_font != cur_font) {
+          p = saved_p;
+          break;
+        }
+        chunk_end = p;
+      }
+
+      const int chunk_len = static_cast<int>(chunk_end - chunk_start);
+      XGlyphInfo extents{};
+      XftTextExtentsUtf8(m_display, cur_font,
+                         reinterpret_cast<const FcChar8 *>(chunk_start),
+                         chunk_len, &extents);
+      total_width += extents.xOff;
+    }
+    return total_width;
   }
 
 private:
@@ -596,6 +898,9 @@ private:
   XftDraw *m_draw = nullptr;
   Drawable m_current_drawable = 0;
   std::unordered_map<std::string, XftColor> m_allocated_colors;
+  std::unordered_map<FcChar32, XftFont*> m_fallback_fonts;
+  bool m_is_monospace = false;
+  int m_cell_width = 8;
   bool m_ligaturesEnabled = false;
 };
 

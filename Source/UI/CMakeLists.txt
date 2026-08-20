@@ -46,6 +46,10 @@ target_include_directories(ZDEUI PUBLIC
     "${PROJECT_SOURCE_DIR}"
 )
 target_link_libraries(ZDEUI PUBLIC Zenvra::Core Zenvra::Graphics Zenvra::Language lunasvg PRIVATE Zenvra::Commands)
+find_library(ZDE_GIT2_LIBRARY git2)
+if(ZDE_GIT2_LIBRARY)
+    target_link_libraries(ZDEUI PUBLIC "${ZDE_GIT2_LIBRARY}")
+endif()
 if(WIN32)
     target_link_libraries(ZDEUI PRIVATE gdi32 msimg32 user32 dwmapi)
 endif()

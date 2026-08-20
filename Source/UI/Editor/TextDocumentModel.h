@@ -109,6 +109,7 @@ public:
     [[nodiscard]] TextSelection get_selection() const noexcept;
     [[nodiscard]] std::string get_selected_text() const;
     [[nodiscard]] std::span<const std::string> get_lines() const noexcept;
+    [[nodiscard]] std::size_t get_revision() const noexcept { return m_revision; }
     [[nodiscard]] std::vector<TextCursor> get_all_cursors() const;
     [[nodiscard]] bool has_secondary_cursors() const noexcept;
 
@@ -154,6 +155,7 @@ private:
     std::vector<TextCursor> m_secondary_cursors;
     mutable std::shared_ptr<std::mutex> m_diagnostics_mutex = std::make_shared<std::mutex>();
     std::vector<Language::Protocol::Diagnostic> m_diagnostics;
+    std::size_t m_revision = 0;
     bool m_dirty = false;
     bool m_read_only = false;
 };

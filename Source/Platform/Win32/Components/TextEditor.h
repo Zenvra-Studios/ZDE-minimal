@@ -262,8 +262,6 @@ private:
     mutable float m_max_tab_scroll = 0.0F;
     float m_text_scroll_offset = 0.0F;
     mutable float m_max_text_scroll = 0.0F;
-    mutable UI::Editor::SelectionAnimationModel m_selection_animation;
-    mutable UI::Editor::SelectionAnimationModel m_split_selection_animation;
     mutable UI::Editor::BraceAnimationModel m_brace_animation;
     mutable UI::Components::Button m_empty_state_open_btn;
     mutable UI::Components::Button m_empty_state_clone_btn;

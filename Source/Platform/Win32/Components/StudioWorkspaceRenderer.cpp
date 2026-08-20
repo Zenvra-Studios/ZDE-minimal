@@ -1,5 +1,6 @@
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
 #include "Commands/CommandIds.h"
+#include "Platform/PlatformDialogs.h"
 #include "Utility/Antialiasing.h"
 #include "Utility/stb_image.h"
 
@@ -332,6 +333,12 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
   if (sidebar_res.handled) {
     m_terminal_panel.set_focused(false);
     if (sidebar_res.action == SidebarActionKind::OpenFile && sidebar_res.path) {
+      if (sidebar_res.path->string() == "::OPEN_FOLDER::") {
+        if (const auto folder = Platform::open_folder_dialog()) {
+          set_workspace_root(*folder);
+        }
+        return true;
+      }
       if (sidebar_res.line > 0) {
         static_cast<void>(open_file_at_location(*sidebar_res.path, sidebar_res.line, sidebar_res.column));
       } else {

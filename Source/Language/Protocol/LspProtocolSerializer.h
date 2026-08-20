@@ -3,6 +3,7 @@
 #include "Language/Protocol/LspMessage.h"
 #include "Language/Protocol/LspTypes.h"
 
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -14,6 +15,10 @@ namespace Zenvra::Language::Protocol
 class LspProtocolSerializer
 {
 public:
+    // URI Helpers
+    [[nodiscard]] static std::string path_to_uri(const std::filesystem::path& path);
+    [[nodiscard]] static std::filesystem::path uri_to_path(std::string_view uri);
+
     // Framing
     [[nodiscard]] static std::string frame_payload(std::string_view json_payload);
     [[nodiscard]] static std::string serialize_request(const JsonRpcRequest& req);

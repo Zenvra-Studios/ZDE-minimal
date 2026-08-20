@@ -107,6 +107,7 @@ private:
                         int client_height);
   void show_explorer_context_menu(const std::filesystem::path &target_path,
                                   int client_x, int client_y);
+  void show_editor_context_menu(int client_x, int client_y);
   void close_explorer_context_menu();
   void draw_explorer_context_menu(HDC device_context) const;
   void execute_explorer_context_menu_item(std::size_t item_index);
@@ -119,6 +120,7 @@ private:
     std::string shortcut;
     bool separator = false;
     uint32_t command_id = 0;
+    std::string command_str;
   };
 
   struct ExplorerContextMenuState {

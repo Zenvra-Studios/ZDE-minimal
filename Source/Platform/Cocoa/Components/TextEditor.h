@@ -213,8 +213,6 @@ private:
     std::optional<std::size_t> m_hovered_tab_close_index;
     mutable std::optional<std::size_t> m_hovered_fold_line;
     bool m_hovered_tab_scrollbar = false;
-    mutable UI::Editor::SelectionAnimationModel m_selection_animation;
-    mutable UI::Editor::SelectionAnimationModel m_split_selection_animation;
     mutable UI::Editor::BraceAnimationModel m_brace_animation;
     mutable UI::Components::Button m_empty_state_open_btn;
     mutable UI::Components::Button m_empty_state_clone_btn;

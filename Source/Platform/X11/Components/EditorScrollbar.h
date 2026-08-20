@@ -20,6 +20,8 @@ public:
     [[nodiscard]] bool scroll_lines(std::ptrdiff_t line_delta) noexcept;
     [[nodiscard]] bool scroll_to(std::size_t first_visible_line) noexcept;
     [[nodiscard]] bool reveal_line(std::size_t line_index) noexcept;
+    [[nodiscard]] bool tick_animation() noexcept;
+    [[nodiscard]] float get_animated_scroll_lines() const noexcept;
     [[nodiscard]] bool handle_pointer_press(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,

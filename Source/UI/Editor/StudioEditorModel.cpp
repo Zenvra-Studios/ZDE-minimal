@@ -358,6 +358,10 @@ bool supports_editor_syntax_highlighting(std::string_view file_name) noexcept {
                    return static_cast<char>(std::tolower(character));
                  });
 
+  if (normalized_name == "cmakelists.txt" || normalized_name.ends_with(".cmake")) {
+    return true;
+  }
+
   if (normalized_name.ends_with(".log") || normalized_name.ends_with(".txt")) {
     return false;
   }

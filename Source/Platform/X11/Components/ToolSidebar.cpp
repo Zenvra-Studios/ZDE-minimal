@@ -116,9 +116,10 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
     }
   }
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
+    const bool show_actions = !m_model.get_project_items().empty();
     HeaderAction header_act = HeaderAction::NoneAction;
     if (m_explorer_header.handle_pointer_press(layout, point_x, point_y,
-                                               m_model, header_act)) {
+                                               m_model, header_act, show_actions)) {
       if (header_act == HeaderAction::NewFile) {
         return SidebarPressResult{.handled = true,
                                   .action = SidebarActionKind::NewFile,
@@ -233,8 +234,9 @@ bool ToolSidebar::handle_pointer_move(
   bool next_resize_hovered = is_resize_handle_point(layout, point_x, point_y);
   bool header_changed = false;
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
+    const bool show_actions = !m_model.get_project_items().empty();
     header_changed =
-        m_explorer_header.handle_pointer_move(layout, point_x, point_y);
+        m_explorer_header.handle_pointer_move(layout, point_x, point_y, show_actions);
   }
 
   bool empty_btn_changed = false;
@@ -424,8 +426,9 @@ void ToolSidebar::render(
   surface.fill_rectangle(drawable, panel, surface.m_pixels.sidebar_background);
 
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
+    const bool show_actions = !m_model.get_project_items().empty();
     m_explorer_header.render(surface, drawable, layout,
-                             std::string{m_model.get_title()});
+                             std::string{m_model.get_title()}, show_actions);
   } else {
     surface.draw_text(drawable, *surface.m_ui_font, m_model.get_title(),
                       panel.x + 14.0F * scale,

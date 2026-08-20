@@ -3,9 +3,22 @@
 #include "Platform/X11/Components/StudioWorkspaceRenderer.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 
 namespace Zenvra::Platform::X11::Components
 {
+
+namespace
+{
+
+unsigned long long get_current_time_ms() noexcept
+{
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
+
+} // namespace
 
 void EditorScrollbar::reset() noexcept
 {
@@ -33,6 +46,16 @@ bool EditorScrollbar::scroll_to(std::size_t first_visible_line) noexcept
 bool EditorScrollbar::reveal_line(std::size_t line_index) noexcept
 {
     return m_model.reveal_line(line_index);
+}
+
+bool EditorScrollbar::tick_animation() noexcept
+{
+    return false;
+}
+
+float EditorScrollbar::get_animated_scroll_lines() const noexcept
+{
+    return static_cast<float>(m_model.get_first_visible_line());
 }
 
 bool EditorScrollbar::handle_pointer_press(
@@ -64,7 +87,9 @@ bool EditorScrollbar::handle_pointer_drag(
 
 bool EditorScrollbar::handle_pointer_release() noexcept
 {
-    return m_model.end_pointer_drag();
+    const bool was_dragging = m_model.is_dragging();
+    m_model.end_pointer_drag();
+    return was_dragging;
 }
 
 bool EditorScrollbar::is_point(
@@ -104,6 +129,7 @@ void EditorScrollbar::render(
     }
     const UI::Editor::EditorScrollbarGeometry geometry = m_model.calculate_geometry(
         get_track_bounds(layout), 28.0F * layout.dpi_scale);
+
     const UI::Theme::Color thumb_color = m_model.is_dragging()
         ? UI::Theme::Color{255, 255, 255, 115}
         : (m_hovered ? UI::Theme::Color{255, 255, 255, 75} : UI::Theme::Color{255, 255, 255, 40});

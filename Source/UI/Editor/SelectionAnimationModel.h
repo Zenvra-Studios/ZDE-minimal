@@ -20,6 +20,9 @@ public:
     /// zero-width sliver; removed entries shrink out on the next tick.
     void set_targets(const std::vector<UI::Rect>& targets);
 
+    /// Instantly snap animated rects to target rects without animation delay.
+    void snap_to_targets() noexcept;
+
     /// Clear all targets (selection dismissed).
     void clear() noexcept;
 
@@ -34,7 +37,7 @@ public:
     [[nodiscard]] bool has_rects() const noexcept;
 
 private:
-    static constexpr float lerp_factor_per_sec = 45.0F;
+    static constexpr float lerp_factor_per_sec = 42.0F;
     static constexpr float snap_threshold = 0.5F;
     unsigned long long m_last_tick_ms = 0;
 

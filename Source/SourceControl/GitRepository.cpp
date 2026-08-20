@@ -1,6 +1,6 @@
 #include "SourceControl/GitRepository.h"
 
-#if __has_include(<git2.h>)
+#if defined(ZDE_ENABLE_LIBGIT2) && __has_include(<git2.h>)
 #include <git2.h>
 
 #include <algorithm>
@@ -562,7 +562,7 @@ bool GitRepository::commit(
     git_commit* parent = nullptr;
     git_reference* head_ref = nullptr;
     std::size_t parent_count = 0;
-    git_commit* parents[1] = {nullptr};
+    const git_commit* parents[1] = {nullptr};
 
     if (git_repository_head(&head_ref, m_repo) == 0 && head_ref)
     {

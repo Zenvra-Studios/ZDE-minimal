@@ -1,7 +1,95 @@
 #include "Language/Protocol/LspProtocolSerializer.h"
 
+#include <cctype>
+
 namespace Zenvra::Language::Protocol
 {
+
+namespace
+{
+std::string percent_decode(std::string_view input)
+{
+    std::string result;
+    result.reserve(input.size());
+    for (std::size_t i = 0; i < input.size(); ++i)
+    {
+        if (input[i] == '%' && i + 2 < input.size())
+        {
+            auto hex_val = [](char c) -> int {
+                if (c >= '0' && c <= '9') return c - '0';
+                if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+                return -1;
+            };
+            int high = hex_val(input[i + 1]);
+            int low = hex_val(input[i + 2]);
+            if (high >= 0 && low >= 0)
+            {
+                result.push_back(static_cast<char>((high << 4) | low));
+                i += 2;
+                continue;
+            }
+        }
+        result.push_back(input[i]);
+    }
+    return result;
+}
+} // namespace
+
+std::string LspProtocolSerializer::path_to_uri(const std::filesystem::path& path)
+{
+    if (path.empty())
+    {
+        return "file:///untitled.cpp";
+    }
+
+    std::error_code ec;
+    std::filesystem::path p = path;
+    const std::string raw = path.generic_string();
+    const bool has_drive_letter = raw.size() >= 2 &&
+        std::isalpha(static_cast<unsigned char>(raw[0])) && raw[1] == ':';
+    if (p.is_relative() && !p.has_root_name() && !has_drive_letter)
+    {
+        p = std::filesystem::current_path(ec) / p;
+    }
+    if (!p.has_root_name() && !has_drive_letter)
+    {
+        p = std::filesystem::weakly_canonical(p, ec);
+    }
+
+    std::string generic = p.generic_string();
+    if (!generic.starts_with("/"))
+    {
+        generic = "/" + generic;
+    }
+    return "file://" + generic;
+}
+
+std::filesystem::path LspProtocolSerializer::uri_to_path(std::string_view uri)
+{
+    if (uri.empty())
+    {
+        return {};
+    }
+
+    std::string_view path_view = uri;
+    if (path_view.starts_with("file://"))
+    {
+        path_view.remove_prefix(7);
+    }
+
+    std::string decoded = percent_decode(path_view);
+
+    // On Windows: if URI was file:///C:/foo/bar, decoded starts with /C:/foo/bar
+    // Strip leading / before drive letter
+    if (decoded.size() >= 3 && decoded[0] == '/' &&
+        std::isalpha(static_cast<unsigned char>(decoded[1])) && decoded[2] == ':')
+    {
+        decoded.erase(0, 1);
+    }
+
+    return std::filesystem::path(decoded);
+}
 
 std::string LspProtocolSerializer::frame_payload(std::string_view json_payload)
 {

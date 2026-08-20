@@ -40,6 +40,10 @@ public:
 
     [[nodiscard]] bool initialize(Display* display, int screen, float dpi_scale);
     [[nodiscard]] bool open_file(const std::filesystem::path& path);
+    [[nodiscard]] bool open_file_at_location(
+        const std::filesystem::path& path,
+        std::size_t line,
+        std::size_t column);
     [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root);
     [[nodiscard]] bool close_project();
     [[nodiscard]] std::size_t open_dropped_paths(

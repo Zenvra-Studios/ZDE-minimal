@@ -612,5 +612,56 @@ TEST(LanguageServerTests, HoverTooltipStateAndBoundsCalculation)
     EXPECT_FALSE(tooltip.is_visible());
 }
 
+TEST(LanguageServerTests, UriConversionAndPercentDecoding)
+{
+    using Language::Protocol::LspProtocolSerializer;
+
+    // 1. Linux/Unix absolute path conversion
+    const std::filesystem::path unix_path("/home/user/project/main.cpp");
+    const std::string unix_uri = LspProtocolSerializer::path_to_uri(unix_path);
+    EXPECT_EQ(unix_uri, "file:///home/user/project/main.cpp");
+    const std::filesystem::path parsed_unix = LspProtocolSerializer::uri_to_path(unix_uri);
+    EXPECT_EQ(parsed_unix, unix_path);
+
+    // 2. Windows drive path conversion
+    const std::filesystem::path win_path("C:/Users/dev/project/main.cpp");
+    const std::string win_uri = LspProtocolSerializer::path_to_uri(win_path);
+    EXPECT_EQ(win_uri, "file:///C:/Users/dev/project/main.cpp");
+    const std::filesystem::path parsed_win = LspProtocolSerializer::uri_to_path(win_uri);
+    EXPECT_EQ(parsed_win, win_path);
+
+    // 3. Percent-encoded spaces and symbols
+    const std::filesystem::path space_path = LspProtocolSerializer::uri_to_path("file:///home/user/my%20cool%20app/test.cpp");
+    EXPECT_EQ(space_path, std::filesystem::path("/home/user/my cool app/test.cpp"));
+
+    // 4. Empty / Untitled fallback
+    EXPECT_EQ(LspProtocolSerializer::path_to_uri({}), "file:///untitled.cpp");
+    EXPECT_TRUE(LspProtocolSerializer::uri_to_path("").empty());
+}
+
+TEST(LanguageServerTests, ToolchainDetectionIncludesAndHeaders)
+{
+    auto& detector = Language::Toolchain::ToolchainDetector::instance();
+    detector.refresh();
+    const auto& toolchain = detector.get_active_toolchain();
+
+    // Verify toolchain detection on any development system
+    EXPECT_TRUE(detector.has_valid_sdk());
+    if (toolchain.kind != Language::Toolchain::ToolchainKind::None)
+    {
+        EXPECT_FALSE(toolchain.compiler_path.empty());
+        EXPECT_TRUE(toolchain.status == Language::Toolchain::ToolchainStatus::Ready);
+        EXPECT_FALSE(toolchain.name.empty());
+#if !defined(_WIN32)
+        // On Linux / macOS systems with build tools, system include paths must be populated
+        if (std::filesystem::exists("/usr/include") || std::filesystem::exists("/usr/include/c++"))
+        {
+            EXPECT_TRUE(toolchain.has_standard_headers);
+            EXPECT_FALSE(toolchain.system_include_paths.empty());
+        }
+#endif
+    }
+}
+
 
 

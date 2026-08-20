@@ -42,7 +42,17 @@ int main(int argument_count, char** argument_values)
     }
 
     // Locate installation directory
-    std::filesystem::path exe_path = std::filesystem::path(argument_values[0]).parent_path();
+    std::filesystem::path exe_path;
+#if defined(__linux__) || defined(__unix__)
+    std::error_code ec_proc;
+    if (std::filesystem::exists("/proc/self/exe", ec_proc)) {
+        exe_path = std::filesystem::canonical("/proc/self/exe", ec_proc).parent_path();
+    } else {
+        exe_path = std::filesystem::path(argument_values[0]).parent_path();
+    }
+#else
+    exe_path = std::filesystem::path(argument_values[0]).parent_path();
+#endif
     std::filesystem::path manifest_path = exe_path / "manifest" / "runtime.json";
 
     std::string manifest_content = ReadFile(manifest_path.string());

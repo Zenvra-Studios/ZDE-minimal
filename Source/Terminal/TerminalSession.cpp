@@ -456,13 +456,23 @@ bool TerminalSession::start(const std::filesystem::path& working_directory,
         {
             static_cast<void>(::chdir(working_directory.c_str()));
         }
+        const std::string executable = m_shell_path.string();
+        ::setenv("SHELL", executable.c_str(), 1);
         ::setenv("TERM", "xterm-256color", 1);
         ::setenv("COLORTERM", "truecolor", 1);
         ::setenv("TERM_PROGRAM", "ZDE", 1);
-        const std::string executable = m_shell_path.string();
-        ::execl(executable.c_str(), executable.c_str(), nullptr);
+        ::setenv("TERM_PROGRAM_VERSION", "1.0.0", 1);
+        const std::string shell_name = m_shell_path.filename().string();
+        if (shell_name == "fish")
+        {
+            ::execl(executable.c_str(), executable.c_str(), "-i", nullptr);
+        }
+        else if (shell_name == "zsh" || shell_name == "bash")
+        {
+            ::execl(executable.c_str(), executable.c_str(), "-i", "-l", nullptr);
+        }
         ::execl(executable.c_str(), executable.c_str(), "-i", nullptr);
-        ::execl(executable.c_str(), executable.c_str(), "-l", nullptr);
+        ::execl(executable.c_str(), executable.c_str(), nullptr);
         ::_exit(127);
     }
     m_implementation->process_id = process_id;
@@ -1485,6 +1495,103 @@ void TerminalSession::apply_control_sequence(char command)
                     m_lines.erase(m_lines.begin() + static_cast<std::ptrdiff_t>(m_cursor_line + 1), m_lines.end());
                 }
             }
+        }
+        break;
+    }
+    case 'n':
+    {
+        // Device Status Report (DSR)
+        auto send_pty_response = [this](std::string_view resp) {
+            if (!m_running || resp.empty() || !m_implementation) return;
+#if defined(_WIN32)
+            if (m_implementation->input_write != nullptr)
+            {
+                DWORD written = 0;
+                WriteFile(m_implementation->input_write, resp.data(),
+                          static_cast<DWORD>(resp.size()), &written, nullptr);
+            }
+#else
+            if (m_implementation->master_fd >= 0)
+            {
+                static_cast<void>(::write(m_implementation->master_fd, resp.data(), resp.size()));
+            }
+#endif
+        };
+
+        if (m_control_sequence == "6" || m_control_sequence == "?6")
+        {
+            // Report Cursor Position (CPR): \x1b[row;colR
+            const std::size_t report_row = (m_in_alternate_screen
+                ? m_cursor_line
+                : (m_cursor_line >= m_rows ? m_rows - 1 : m_cursor_line)) + 1;
+            const std::size_t report_col = m_cursor_column + 1;
+            send_pty_response("\x1b[" + std::to_string(report_row) + ";" +
+                              std::to_string(report_col) + "R");
+        }
+        else if (m_control_sequence == "5" || m_control_sequence == "?5")
+        {
+            // Report Device Status: \x1b[0n (Terminal OK)
+            send_pty_response("\x1b[0n");
+        }
+        break;
+    }
+    case 'c':
+    {
+        // Primary & Secondary Device Attributes (DA)
+        auto send_pty_response = [this](std::string_view resp) {
+            if (!m_running || resp.empty() || !m_implementation) return;
+#if defined(_WIN32)
+            if (m_implementation->input_write != nullptr)
+            {
+                DWORD written = 0;
+                WriteFile(m_implementation->input_write, resp.data(),
+                          static_cast<DWORD>(resp.size()), &written, nullptr);
+            }
+#else
+            if (m_implementation->master_fd >= 0)
+            {
+                static_cast<void>(::write(m_implementation->master_fd, resp.data(), resp.size()));
+            }
+#endif
+        };
+
+        if (!m_control_sequence.empty() && m_control_sequence.front() == '>')
+        {
+            // Secondary DA: \x1b[>0;10;0c (VT100 / xterm compatible)
+            send_pty_response("\x1b[>0;10;0c");
+        }
+        else
+        {
+            // Primary DA: \x1b[?62;1;2;6;7;8;9c (VT220 compatible)
+            send_pty_response("\x1b[?62;1;2;6;7;8;9c");
+        }
+        break;
+    }
+    case 't':
+    {
+        // Window manipulation & query
+        auto send_pty_response = [this](std::string_view resp) {
+            if (!m_running || resp.empty() || !m_implementation) return;
+#if defined(_WIN32)
+            if (m_implementation->input_write != nullptr)
+            {
+                DWORD written = 0;
+                WriteFile(m_implementation->input_write, resp.data(),
+                          static_cast<DWORD>(resp.size()), &written, nullptr);
+            }
+#else
+            if (m_implementation->master_fd >= 0)
+            {
+                static_cast<void>(::write(m_implementation->master_fd, resp.data(), resp.size()));
+            }
+#endif
+        };
+
+        if (m_control_sequence == "18")
+        {
+            // Report terminal size in characters: \x1b[8;rows;cols t
+            send_pty_response("\x1b[8;" + std::to_string(m_rows) + ";" +
+                              std::to_string(m_columns) + "t");
         }
         break;
     }

@@ -27,6 +27,11 @@ void SelectionAnimationModel::set_targets(const std::vector<UI::Rect> &targets) 
   }
 }
 
+void SelectionAnimationModel::snap_to_targets() noexcept {
+  m_animated = m_targets;
+  m_last_tick_ms = get_current_time_ms();
+}
+
 void SelectionAnimationModel::clear() noexcept {
   m_targets.clear();
 }

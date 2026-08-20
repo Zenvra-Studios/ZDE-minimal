@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Platform/Win32/Components/ExplorerHeader.h"
+#include "UI/Components/Button.h"
 #include "UI/Components/ScrollBar.h"
 #include "UI/Editor/ActivityPanelModel.h"
 #include "UI/Editor/StudioEditorModel.h"
@@ -140,6 +141,8 @@ private:
     UI::Editor::ActivityPanelModel m_model;
     UI::Editor::WorkspaceSearchModel m_search_model;
     ExplorerHeader m_explorer_header;
+    mutable UI::Components::Button m_empty_state_open_btn;
+    mutable UI::Components::Button m_empty_state_clone_btn;
     std::optional<std::size_t> m_hovered_row;
     std::optional<std::size_t> m_hovered_search_row;
     std::optional<std::size_t> m_hovered_sticky_index;

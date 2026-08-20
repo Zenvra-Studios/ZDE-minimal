@@ -31,25 +31,29 @@ public:
         const StudioWorkspaceRenderer& surface,
         HDC device_context,
         const UI::Editor::StudioEditorLayoutResult& layout,
-        const std::string& title) const;
+        const std::string& title,
+        bool show_actions = true) const;
 
     bool handle_pointer_press(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y,
         UI::Editor::ActivityPanelModel& model,
-        HeaderAction& action_out);
+        HeaderAction& action_out,
+        bool show_actions = true);
 
     bool handle_pointer_move(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
-        float point_y) noexcept;
+        float point_y,
+        bool show_actions = true) noexcept;
 
     [[nodiscard]] bool is_interactive_point(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
-        float point_y) const noexcept {
-        return get_icon_at_point(layout, point_x, point_y) != ActionIcon::NoneAction;
+        float point_y,
+        bool show_actions = true) const noexcept {
+        return get_icon_at_point(layout, point_x, point_y, show_actions) != ActionIcon::NoneAction;
     }
 
 private:
@@ -65,7 +69,8 @@ private:
     [[nodiscard]] ActionIcon get_icon_at_point(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
-        float point_y) const noexcept;
+        float point_y,
+        bool show_actions = true) const noexcept;
     
     ActionIcon m_hovered_icon{ActionIcon::NoneAction};
 };

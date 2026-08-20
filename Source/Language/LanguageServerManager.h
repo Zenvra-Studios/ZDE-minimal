@@ -11,6 +11,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace Zenvra::Language
 {
@@ -91,6 +92,7 @@ private:
 
     std::mutex m_clients_mutex;
     std::unordered_map<std::string, std::unique_ptr<Client::LanguageClient>> m_clients; // language_id -> client
+    std::unordered_set<std::string> m_unavailable_languages;
     std::unordered_map<std::string, std::vector<Protocol::Diagnostic>> m_document_diagnostics; // uri -> diagnostics
 
     std::function<void(const std::string&, const std::vector<Protocol::Diagnostic>&)> m_diagnostics_callback;

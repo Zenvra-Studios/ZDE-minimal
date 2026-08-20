@@ -45,6 +45,9 @@ bool TerminalPanelModel::create_session(const std::filesystem::path& working_dir
     {
         return false;
     }
+    // Read initial output immediately with zero latency
+    static_cast<void>(session->poll());
+
     const std::size_t identifier = m_next_identifier++;
     const std::string shell_name = session->get_shell_path().stem().string();
     m_sessions.push_back(TerminalSessionEntry{

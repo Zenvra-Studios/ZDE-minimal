@@ -698,6 +698,8 @@ using namespace Zenvra::Platform::Cocoa::Components;
     add_item(@"Split Right", @"\\", NSEventModifierFlagCommand, "zde.view.splitRight");
     add_separator();
     add_item(@"New Window", @"n", NSEventModifierFlagCommand | NSEventModifierFlagShift, "zde.window.new");
+    add_separator();
+    add_item(@"Lock Group", @"", 0, "");
 
     [NSMenu popUpContextMenu:menu withEvent:event forView:self];
     [menu release];

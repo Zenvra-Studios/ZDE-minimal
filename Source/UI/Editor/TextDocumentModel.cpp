@@ -105,6 +105,7 @@ void TextDocumentModel::replace_contents(
     m_selection_anchor = {};
     m_secondary_cursors.clear();
     m_dirty = false;
+    ++m_revision;
     update_preferred_column();
 }
 
@@ -121,6 +122,7 @@ void TextDocumentModel::reload_contents(
     m_line_ending = std::move(line_ending);
     m_read_only = read_only;
     m_dirty = false;
+    ++m_revision;
 
     if (m_caret_line >= m_lines.size())
     {
@@ -521,6 +523,7 @@ bool TextDocumentModel::insert_text(std::string_view utf8_text)
     if (changed)
     {
         m_dirty = true;
+        ++m_revision;
         m_selection_anchor = {m_caret_line, m_caret_column};
         update_preferred_column();
     }
@@ -860,6 +863,7 @@ bool TextDocumentModel::execute(EditorInputCommand command, bool extend_selectio
     if (edited)
     {
         m_dirty = true;
+        ++m_revision;
         m_selection_anchor = {m_caret_line, m_caret_column};
         update_preferred_column();
     }
@@ -909,6 +913,7 @@ bool TextDocumentModel::delete_selection()
     m_caret_column = selection.start.column;
     m_selection_anchor = selection.start;
     m_dirty = true;
+    ++m_revision;
     update_preferred_column();
     return true;
 }
@@ -972,6 +977,7 @@ bool TextDocumentModel::toggle_line_comment()
     }
     
     m_dirty = true;
+    ++m_revision;
     update_preferred_column();
     return true;
 }
@@ -1021,6 +1027,7 @@ bool TextDocumentModel::move_line_up()
     m_caret_column = clamp_to_character_boundary(m_lines[m_caret_line], m_caret_column);
 
     m_dirty = true;
+    ++m_revision;
     update_preferred_column();
     return true;
 }
@@ -1070,6 +1077,7 @@ bool TextDocumentModel::move_line_down()
     m_caret_column = clamp_to_character_boundary(m_lines[m_caret_line], m_caret_column);
 
     m_dirty = true;
+    ++m_revision;
     update_preferred_column();
     return true;
 }

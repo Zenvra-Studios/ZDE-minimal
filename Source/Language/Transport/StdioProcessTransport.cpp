@@ -206,6 +206,11 @@ bool StdioProcessTransport::start()
 
     if (pid == 0)
     {
+        // Unblock signals in child
+        sigset_t set;
+        sigemptyset(&set);
+        sigprocmask(SIG_SETMASK, &set, nullptr);
+
         // Child process
         dup2(stdin_pipes[0], STDIN_FILENO);
         dup2(stdout_pipes[1], STDOUT_FILENO);
@@ -217,6 +222,13 @@ bool StdioProcessTransport::start()
         close(stdout_pipes[1]);
         close(stderr_pipes[0]);
         close(stderr_pipes[1]);
+
+        // Close any inherited file descriptors > 2
+        const int max_fd = static_cast<int>(sysconf(_SC_OPEN_MAX));
+        for (int fd = 3; fd < max_fd && fd < 256; ++fd)
+        {
+            close(fd);
+        }
 
         if (!m_working_directory.empty())
         {
@@ -296,6 +308,17 @@ void StdioProcessTransport::stop()
     if (m_process->pid > 0)
     {
         kill(m_process->pid, SIGTERM);
+        int status = 0;
+        for (int i = 0; i < 20; ++i)
+        {
+            pid_t res = waitpid(m_process->pid, &status, WNOHANG);
+            if (res == m_process->pid || res < 0)
+            {
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        kill(m_process->pid, SIGKILL);
         waitpid(m_process->pid, nullptr, WNOHANG);
         m_process->pid = -1;
     }
@@ -519,7 +542,6 @@ void StdioProcessTransport::stderr_thread_loop()
             break;
         }
         const std::string_view err_view(chunk.data(), bytes_read);
-        transport_debug_log("[zde-lsp stderr] " + std::string(err_view));
         if (m_error_handler)
         {
             m_error_handler(err_view);
@@ -535,7 +557,6 @@ void StdioProcessTransport::stderr_thread_loop()
             break;
         }
         const std::string_view err_view(chunk.data(), static_cast<std::size_t>(bytes_read));
-        transport_debug_log("[zde-lsp stderr] " + std::string(err_view));
         if (m_error_handler)
         {
             m_error_handler(err_view);

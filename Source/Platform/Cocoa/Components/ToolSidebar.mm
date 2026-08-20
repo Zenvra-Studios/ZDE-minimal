@@ -107,7 +107,8 @@ bool ToolSidebar::handle_pointer_press(
         }
 
         // Check explorer header
-        if (m_explorer_header.handle_pointer_press(surface, layout, px, py, m_model, file_to_open)) return true;
+        const bool show_actions = !m_model.get_project_items().empty();
+        if (m_explorer_header.handle_pointer_press(surface, layout, px, py, m_model, file_to_open, show_actions)) return true;
         // Check tree item click
         if (auto row = row_from_point(layout, py)) {
             const auto& items = m_model.get_project_items();
@@ -132,9 +133,24 @@ bool ToolSidebar::handle_pointer_press(
             }
         }
         // Empty state buttons
-        if (m_model.get_workspace_root().empty()) {
-            if (m_empty_state_open_btn.get_state().hovered) {
+        if (m_model.get_workspace_root().empty() || m_model.get_project_items().empty()) {
+            const float scale = layout.dpi_scale;
+            const UI::Rect panel = layout.tool_sidebar_bounds;
+            const float msg_y = panel.y + (header_height + 22.0F) * scale;
+            float btn_y = msg_y + 36.0F * scale;
+            const float btn_w = std::max(panel.width - 28.0F * scale, 0.0F);
+            const float btn_h = 28.0F * scale;
+            const float btn_x = panel.x + 14.0F * scale;
+
+            m_empty_state_open_btn.set_bounds(UI::Rect{btn_x, btn_y, btn_w, btn_h});
+            btn_y += btn_h + 20.0F * scale + 14.0F * scale;
+            m_empty_state_clone_btn.set_bounds(UI::Rect{btn_x, btn_y, btn_w, btn_h});
+
+            if (m_empty_state_open_btn.handle_pointer_press(px, py)) {
                 file_to_open = std::filesystem::path("::OPEN_FOLDER::");
+                return true;
+            }
+            if (m_empty_state_clone_btn.handle_pointer_press(px, py)) {
                 return true;
             }
         }
@@ -190,7 +206,12 @@ bool ToolSidebar::handle_pointer_move(
         auto new_row = row_from_point(layout, py);
         changed |= new_row != m_hovered_row;
         m_hovered_row = new_row;
-        changed |= m_explorer_header.handle_pointer_move(layout, px, py);
+        const bool show_actions = !m_model.get_project_items().empty();
+        changed |= m_explorer_header.handle_pointer_move(layout, px, py, show_actions);
+        if (m_model.get_project_items().empty()) {
+            changed |= m_empty_state_open_btn.handle_pointer_move(px, py) ||
+                       m_empty_state_clone_btn.handle_pointer_move(px, py);
+        }
     }
     else
     {
@@ -1937,19 +1958,67 @@ void ToolSidebar::render(
     else if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project)
     {
         // Project Header
-        m_explorer_header.render(surface, context, layout, std::string{m_model.get_title()});
+        const bool show_actions = !m_model.get_project_items().empty();
+        m_explorer_header.render(surface, context, layout, std::string{m_model.get_title()}, show_actions);
 
         // Content
         const std::span<const UI::Editor::ProjectTreeItem> items = m_model.get_project_items();
-        const std::size_t first = m_model.get_scroll_offset();
-        const std::size_t row_count = viewport_row_count(layout);
-        const std::size_t end = std::min(items.size(), first + row_count + 1);
-        const float tree_top = panel.y + header_height * scale;
+        if (items.empty())
+        {
+            const float msg_y = panel.y + (header_height + 22.0F) * scale;
+            surface.draw_text(context, *surface.m_ui_font, "No Folder Opened",
+                              panel.x + 14.0F * scale, msg_y, surface.m_colors.text_primary);
+            surface.draw_text(context, *surface.m_small_font,
+                              "You have not yet opened a folder.",
+                              panel.x + 14.0F * scale, msg_y + 20.0F * scale,
+                              surface.m_colors.text_muted);
 
-        // Clip tree view strictly to sidebar bounds
-        CGContextSaveGState(context);
-        CGRect clip_rect = CGRectMake(panel.x, tree_top, panel.width, std::max(panel.bottom() - tree_top, 0.0F));
-        CGContextClipToRect(context, clip_rect);
+            float btn_y = msg_y + 36.0F * scale;
+            const float btn_w = std::max(panel.width - 28.0F * scale, 0.0F);
+            const float btn_h = 28.0F * scale;
+            const float btn_x = panel.x + 14.0F * scale;
+
+            m_empty_state_open_btn.set_bounds(UI::Rect{btn_x, btn_y, btn_w, btn_h});
+            const CGFloat open_bg[4] = {
+                m_empty_state_open_btn.get_state().hovered ? 17.0f / 255.0f : 14.0f / 255.0f,
+                m_empty_state_open_btn.get_state().hovered ? 119.0f / 255.0f : 99.0f / 255.0f,
+                m_empty_state_open_btn.get_state().hovered ? 187.0f / 255.0f : 156.0f / 255.0f,
+                1.0f
+            };
+            surface.fill_rounded_rectangle(context, m_empty_state_open_btn.get_bounds(), open_bg, 4.0F * scale);
+            surface.draw_text(context, *surface.m_small_font, "Open Folder",
+                              btn_x + btn_w * 0.5F - 36.0F * scale, btn_y + btn_h * 0.5F,
+                              "#ffffff");
+
+            btn_y += btn_h + 20.0F * scale;
+            surface.draw_text(context, *surface.m_small_font,
+                              "Clone from a remote repository.",
+                              panel.x + 14.0F * scale, btn_y, surface.m_colors.text_muted);
+
+            btn_y += 14.0F * scale;
+            m_empty_state_clone_btn.set_bounds(UI::Rect{btn_x, btn_y, btn_w, btn_h});
+            const CGFloat clone_bg[4] = {
+                m_empty_state_clone_btn.get_state().hovered ? 58.0f / 255.0f : 44.0f / 255.0f,
+                m_empty_state_clone_btn.get_state().hovered ? 62.0f / 255.0f : 48.0f / 255.0f,
+                m_empty_state_clone_btn.get_state().hovered ? 72.0f / 255.0f : 56.0f / 255.0f,
+                1.0f
+            };
+            surface.fill_rounded_rectangle(context, m_empty_state_clone_btn.get_bounds(), clone_bg, 4.0F * scale);
+            surface.draw_text(context, *surface.m_small_font, "Clone Repository",
+                              btn_x + btn_w * 0.5F - 46.0F * scale, btn_y + btn_h * 0.5F,
+                              "#d7dce4");
+        }
+        else
+        {
+            const std::size_t first = m_model.get_scroll_offset();
+            const std::size_t row_count = viewport_row_count(layout);
+            const std::size_t end = std::min(items.size(), first + row_count + 1);
+            const float tree_top = panel.y + header_height * scale;
+
+            // Clip tree view strictly to sidebar bounds
+            CGContextSaveGState(context);
+            CGRect clip_rect = CGRectMake(panel.x, tree_top, panel.width, std::max(panel.bottom() - tree_top, 0.0F));
+            CGContextClipToRect(context, clip_rect);
 
         for (std::size_t item_index = first; item_index < end; ++item_index)
         {

@@ -559,7 +559,11 @@ std::vector<Protocol::CompletionItem>
 LanguageServerManager::get_templates_for_filename(std::string_view filename) {
   const std::filesystem::path p(filename);
   const std::string ext = p.extension().string();
+  const std::string fname = p.filename().string();
 
+  if (fname == "CMakeLists.txt" || fname == "cmakelists.txt" || ext == ".cmake") {
+    return CMake::CMakeLanguageDatabase::instance().get_all_completions();
+  }
   if (ext == ".cpp" || ext == ".cc" || ext == ".cxx" || ext == ".h" ||
       ext == ".hpp" || ext == ".hxx" || ext == ".c" || ext == ".inl") {
     return get_jetbrains_cpp_templates();
@@ -582,58 +586,150 @@ LanguageServerManager::get_templates_for_filename(std::string_view filename) {
 
 std::vector<Protocol::CompletionItem>
 LanguageServerManager::get_header_completions(std::string_view line_prefix, const std::filesystem::path& workspace_root) {
-  (void)line_prefix;
   std::vector<Protocol::CompletionItem> items;
   std::unordered_set<std::string> seen;
 
-  // 1. Dynamically discover headers from active toolchain system include directories
+  // Determine if it is <system> or "quoted" include
+  bool is_system = false;
+  std::string_view path_after_delim;
+
+  const auto lt_pos = line_prefix.rfind('<');
+  const auto qt_pos = line_prefix.rfind('"');
+
+  if (lt_pos != std::string_view::npos && (qt_pos == std::string_view::npos || lt_pos > qt_pos)) {
+    is_system = true;
+    path_after_delim = line_prefix.substr(lt_pos + 1);
+  } else if (qt_pos != std::string_view::npos) {
+    is_system = false;
+    path_after_delim = line_prefix.substr(qt_pos + 1);
+  } else {
+    return items;
+  }
+
+  // Extract subdirectory prefix if user typed e.g. "X11/" or "Platform/X11/"
+  std::string sub_dir;
+  const auto last_slash = path_after_delim.rfind('/');
+  if (last_slash != std::string_view::npos) {
+    sub_dir = std::string(path_after_delim.substr(0, last_slash + 1));
+  }
+
   const auto& toolchain = Toolchain::ToolchainDetector::instance().get_active_toolchain();
-  for (const auto& sys_inc : toolchain.system_include_paths) {
+
+  auto add_entry = [&](const std::filesystem::directory_entry& entry) {
     std::error_code ec;
-    if (std::filesystem::exists(sys_inc, ec) && std::filesystem::is_directory(sys_inc, ec)) {
-      for (const auto& entry : std::filesystem::directory_iterator(sys_inc, std::filesystem::directory_options::skip_permission_denied, ec)) {
-        if (entry.is_regular_file(ec)) {
-          const auto filename = entry.path().filename().string();
-          const auto ext = entry.path().extension().string();
-          if (ext == ".h" || ext == ".hpp" || ext == ".hxx" || ext == ".inl" || ext.empty()) {
-            if (seen.insert(filename).second) {
-              Protocol::CompletionItem it{};
-              it.label = filename;
-              it.kind = Protocol::CompletionItemKind::File;
-              it.detail = "System Header";
-              it.insert_text = filename;
-              it.filter_text = filename;
-              items.push_back(std::move(it));
-            }
+    const auto name = entry.path().filename().string();
+    if (name.empty() || name.front() == '.') return;
+
+    const auto status = std::filesystem::status(entry.path(), ec);
+    if (std::filesystem::is_regular_file(status)) {
+      const auto ext = entry.path().extension().string();
+      if (ext == ".h" || ext == ".hpp" || ext == ".hxx" || ext == ".inl" || ext.empty()) {
+        if (seen.insert(name).second) {
+          Protocol::CompletionItem it{};
+          it.label = name;
+          it.kind = Protocol::CompletionItemKind::File;
+          it.detail = is_system ? "System Header" : "Project Header";
+          // Close with > or " automatically
+          it.insert_text = name + (is_system ? ">" : "\"");
+          it.filter_text = name;
+          items.push_back(std::move(it));
+        }
+      }
+    } else if (std::filesystem::is_directory(status) && sub_dir.empty()) {
+      // Only show directory candidates at top-level; once inside a folder, show only header files
+      const std::string dir_label = name + "/";
+      if (seen.insert(dir_label).second) {
+        Protocol::CompletionItem it{};
+        it.label = dir_label;
+        it.kind = Protocol::CompletionItemKind::Folder;
+        it.detail = "Directory";
+        it.insert_text = dir_label;
+        it.filter_text = name;
+        items.push_back(std::move(it));
+      }
+    }
+  };
+
+  // 1. If scanning a specific sub_dir (e.g. "X11/" or "Platform/X11/"):
+  if (!sub_dir.empty()) {
+    bool found_dir = false;
+
+    // Scan toolchain system include paths + sub_dir
+    for (const auto& sys_inc : toolchain.system_include_paths) {
+      std::error_code ec;
+      const auto target = sys_inc / sub_dir;
+      if (std::filesystem::exists(target, ec) && std::filesystem::is_directory(target, ec)) {
+        for (const auto& entry : std::filesystem::directory_iterator(
+                 target, std::filesystem::directory_options::skip_permission_denied, ec)) {
+          add_entry(entry);
+        }
+        found_dir = true;
+      }
+    }
+
+    // Also scan workspace roots + sub_dir
+    if (!workspace_root.empty()) {
+      const std::filesystem::path roots[] = {
+          workspace_root / sub_dir,
+          workspace_root / "Source" / sub_dir,
+          workspace_root / "Include" / sub_dir,
+          workspace_root / "include" / sub_dir,
+      };
+      for (const auto& target : roots) {
+        std::error_code ec;
+        if (std::filesystem::exists(target, ec) && std::filesystem::is_directory(target, ec)) {
+          for (const auto& entry : std::filesystem::directory_iterator(
+                   target, std::filesystem::directory_options::skip_permission_denied, ec)) {
+            add_entry(entry);
+          }
+          found_dir = true;
+        }
+      }
+    }
+
+    // If no matching sub_dir was found anywhere, return empty
+    if (!found_dir) {
+      return items;
+    }
+  } else {
+    // Top-level include scanning
+    // A. System include top-level
+    for (const auto& sys_inc : toolchain.system_include_paths) {
+      std::error_code ec;
+      if (std::filesystem::exists(sys_inc, ec) && std::filesystem::is_directory(sys_inc, ec)) {
+        for (const auto& entry : std::filesystem::directory_iterator(
+                 sys_inc, std::filesystem::directory_options::skip_permission_denied, ec)) {
+          add_entry(entry);
+        }
+      }
+    }
+    // B. Workspace include scanning
+    if (!workspace_root.empty()) {
+      const std::filesystem::path roots[] = {
+          workspace_root / "Source",
+          workspace_root / "include",
+          workspace_root / "Include",
+          workspace_root,
+      };
+      for (const auto& r : roots) {
+        std::error_code ec;
+        if (std::filesystem::exists(r, ec) && std::filesystem::is_directory(r, ec)) {
+          for (const auto& entry : std::filesystem::directory_iterator(
+                   r, std::filesystem::directory_options::skip_permission_denied, ec)) {
+            add_entry(entry);
           }
         }
       }
     }
   }
 
-  // 2. Dynamically scan workspace for project header files
-  if (!workspace_root.empty() && std::filesystem::exists(workspace_root)) {
-    std::error_code ec;
-    for (const auto& entry : std::filesystem::recursive_directory_iterator(workspace_root, std::filesystem::directory_options::skip_permission_denied, ec)) {
-      if (entry.is_regular_file(ec)) {
-        const auto p = entry.path();
-        const std::string ext = p.extension().string();
-        if (ext == ".h" || ext == ".hpp" || ext == ".hxx" || ext == ".inl") {
-          auto rel_path = std::filesystem::relative(p, workspace_root, ec).string();
-          std::replace(rel_path.begin(), rel_path.end(), '\\', '/');
-          if (seen.insert(rel_path).second) {
-            Protocol::CompletionItem it{};
-            it.label = rel_path;
-            it.kind = Protocol::CompletionItemKind::File;
-            it.detail = "Project Header";
-            it.insert_text = rel_path;
-            it.filter_text = rel_path;
-            items.push_back(std::move(it));
-          }
-        }
-      }
+  // Sort items: header files first, then subdirectories alphabetically
+  std::sort(items.begin(), items.end(), [](const Protocol::CompletionItem& a, const Protocol::CompletionItem& b) {
+    if (a.kind != b.kind) {
+      return a.kind == Protocol::CompletionItemKind::File;
     }
-  }
+    return a.label < b.label;
+  });
 
   return items;
 }
@@ -675,6 +771,9 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
   if (auto it = m_clients.find(profile->language_id); it != m_clients.end()) {
     return it->second.get();
   }
+  if (m_unavailable_languages.contains(profile->language_id)) {
+    return nullptr;
+  }
 
   // Locate the language server executable (e.g. clangd.exe, rust-analyzer.exe,
   // etc.)
@@ -684,6 +783,7 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
   if (exe_path.empty()) {
     lsp_debug_log("[zde-lsp] EXE NOT FOUND for " +
                   std::string(profile->executable_name));
+    m_unavailable_languages.insert(profile->language_id);
     return nullptr;
   }
   lsp_debug_log("[zde-lsp] exe=" + exe_path.generic_string());
@@ -767,30 +867,30 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
       // 1. Immediate root candidates (standard CMake, Meson, Visual Studio, CLion output directories)
       evaluate_candidate(root / "compile_commands.json");
       evaluate_candidate(root / "build" / "compile_commands.json");
+      evaluate_candidate(root / "build" / "linux-debug" / "compile_commands.json");
+      evaluate_candidate(root / "build" / "linux-release" / "compile_commands.json");
+      evaluate_candidate(root / "build" / "x86_64-debug" / "compile_commands.json");
+      evaluate_candidate(root / "build" / "x86_64-release" / "compile_commands.json");
       evaluate_candidate(root / "out" / "compile_commands.json");
+      evaluate_candidate(root / "out" / "build" / "compile_commands.json");
       evaluate_candidate(root / "cmake-build-debug" / "compile_commands.json");
       evaluate_candidate(root / "cmake-build-release" / "compile_commands.json");
       evaluate_candidate(root / ".build" / "compile_commands.json");
       evaluate_candidate(root / "builddir" / "compile_commands.json");
 
-      // 2. Scan all subdirectories in root up to depth 4 dynamically
-      std::vector<std::pair<std::filesystem::path, int>> dirs_to_scan = {{root, 0}};
-      while (!dirs_to_scan.empty()) {
-        auto [current_dir, depth] = dirs_to_scan.back();
-        dirs_to_scan.pop_back();
-
-        if (depth >= 4) continue;
-
+      // 2. Scan immediate direct child directories up to depth 1 (e.g. build subfolders)
+      if (best_compile_dir.empty()) {
         std::error_code ec_iter;
         for (const auto &entry : std::filesystem::directory_iterator(
-                 current_dir,
+                 root,
                  std::filesystem::directory_options::skip_permission_denied,
                  ec_iter)) {
           if (entry.is_directory(ec_iter)) {
             const std::string name = entry.path().filename().string();
             if (!should_skip_dir(name)) {
               evaluate_candidate(entry.path() / "compile_commands.json");
-              dirs_to_scan.emplace_back(entry.path(), depth + 1);
+              evaluate_candidate(entry.path() / "build" / "compile_commands.json");
+              if (!best_compile_dir.empty()) break;
             }
           }
         }
@@ -798,7 +898,7 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
     }
 
     std::erase_if(args, [](const std::string &a) {
-      return a.starts_with("--compile-commands-dir");
+      return a.starts_with("--compile-commands-dir") || a.starts_with("--query-driver");
     });
     if (!best_compile_dir.empty()) {
       args.push_back("--compile-commands-dir=" +
@@ -827,6 +927,10 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
     fallback_flags.push_back("-D_UNICODE");
     fallback_flags.push_back("-DNOMINMAX");
     fallback_flags.push_back("-DWIN32_LEAN_AND_MEAN");
+#else
+    fallback_flags.push_back("-D__linux__");
+    fallback_flags.push_back("-D_GNU_SOURCE");
+    fallback_flags.push_back("-D_POSIX_C_SOURCE=200809L");
 #endif
 
     // Fallback project include directories from search roots
@@ -858,11 +962,16 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
       }
     }
 
-    // Direct query-driver pointing to the detected compiler if available
+    // Direct query-driver pointing to the detected compiler and standard paths
+    std::string comp_pattern;
     if (!toolchain.compiler_path.empty()) {
-      std::string comp_pattern = toolchain.compiler_path.generic_string() + "*";
-      args.push_back("--query-driver=" + comp_pattern + ",*,*/*,**/*,C:/*,C:/**,D:/*,D:/**");
+      comp_pattern = toolchain.compiler_path.generic_string() + "*,";
     }
+#if defined(_WIN32)
+    args.push_back("--query-driver=" + comp_pattern + "*,*/*,**/*,C:/*,C:/**,D:/*,D:/**,E:/*,E:/**");
+#else
+    args.push_back("--query-driver=" + comp_pattern + "/usr/bin/*,/usr/local/bin/*,/opt/**,*,*/*,**/*");
+#endif
 
     lsp_debug_log(best_compile_dir.empty()
                       ? "[zde-lsp] no compile_commands.json found, using fallback includes"
@@ -872,10 +981,6 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
 
   auto transport = std::make_unique<Transport::StdioProcessTransport>(
       exe_path, std::move(args), m_workspace_root);
-  transport->set_error_handler(
-      [lang_id = profile->language_id](std::string_view err) {
-        lsp_debug_log("[zde-lsp error " + lang_id + "] " + std::string(err));
-      });
 
   auto client = std::make_unique<Client::LanguageClient>(
       profile->language_id, std::move(transport), m_workspace_root);
@@ -906,6 +1011,7 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
   }
 
   lsp_debug_log("[zde-lsp] client START FAILED for " + profile->language_id);
+  m_unavailable_languages.insert(profile->language_id);
   return nullptr;
 }
 
@@ -1279,6 +1385,8 @@ void LanguageServerManager::shutdown_all() {
     }
   }
   m_clients.clear();
+  m_unavailable_languages.clear();
+  Registry::ServerRegistry::instance().clear_cache();
 }
 
 } // namespace Zenvra::Language

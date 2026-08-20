@@ -18,7 +18,8 @@ static inline int round_to_int(float f) { return static_cast<int>(std::lround(f)
 ExplorerHeader::ActionIcon ExplorerHeader::get_icon_at_point(
     const UI::Editor::StudioEditorLayoutResult& layout,
     float point_x,
-    float point_y) const noexcept
+    float point_y,
+    bool show_actions) const noexcept
 {
     const UI::Rect panel = layout.tool_sidebar_bounds;
     const float scale = layout.dpi_scale;
@@ -32,6 +33,8 @@ ExplorerHeader::ActionIcon ExplorerHeader::get_icon_at_point(
     
     // More (ellipsis)
     if (std::abs(point_x - current_x) <= hit_radius) return ActionIcon::More;
+    if (!show_actions) return ActionIcon::NoneAction;
+
     current_x -= icon_spacing * scale;
 
     // Collapse All
@@ -56,7 +59,8 @@ void ExplorerHeader::render(
     const StudioWorkspaceRenderer& surface,
     CGContextRef context,
     const UI::Editor::StudioEditorLayoutResult& layout,
-    const std::string& title) const
+    const std::string& title,
+    bool show_actions) const
 {
     const UI::Rect panel = layout.tool_sidebar_bounds;
     const float scale = surface.m_dpi_scale;
@@ -94,18 +98,20 @@ void ExplorerHeader::render(
 
     float current_x = panel.right() - right_margin * scale;
     draw_icon(ActionIcon::More, "Assets/icons/ellipsis.svg", current_x);
-    current_x -= icon_spacing * scale;
 
-    draw_icon(ActionIcon::CollapseAll, "Assets/icons/collapse-all.svg", current_x);
-    current_x -= icon_spacing * scale;
-    
-    draw_icon(ActionIcon::Refresh, "Assets/icons/refresh.svg", current_x);
-    current_x -= icon_spacing * scale;
-    
-    draw_icon(ActionIcon::NewFolder, "Assets/icons/new-folder.svg", current_x);
-    current_x -= icon_spacing * scale;
-    
-    draw_icon(ActionIcon::NewFile, "Assets/icons/new-file.svg", current_x);
+    if (show_actions) {
+        current_x -= icon_spacing * scale;
+        draw_icon(ActionIcon::CollapseAll, "Assets/icons/collapse-all.svg", current_x);
+        current_x -= icon_spacing * scale;
+        
+        draw_icon(ActionIcon::Refresh, "Assets/icons/refresh.svg", current_x);
+        current_x -= icon_spacing * scale;
+        
+        draw_icon(ActionIcon::NewFolder, "Assets/icons/new-folder.svg", current_x);
+        current_x -= icon_spacing * scale;
+        
+        draw_icon(ActionIcon::NewFile, "Assets/icons/new-file.svg", current_x);
+    }
 
     surface.draw_line(context,
         round_to_int(header_bounds.x),
@@ -117,9 +123,10 @@ void ExplorerHeader::render(
 
 bool ExplorerHeader::handle_pointer_move(
     const UI::Editor::StudioEditorLayoutResult& layout,
-    float px, float py) noexcept
+    float px, float py,
+    bool show_actions) noexcept
 {
-    auto new_icon = get_icon_at_point(layout, px, py);
+    auto new_icon = get_icon_at_point(layout, px, py, show_actions);
     bool changed = new_icon != m_hovered_icon;
     m_hovered_icon = new_icon;
     return changed;
@@ -130,9 +137,10 @@ bool ExplorerHeader::handle_pointer_press(
     const UI::Editor::StudioEditorLayoutResult& layout,
     float point_x, float point_y,
     UI::Editor::ActivityPanelModel& model,
-    std::optional<std::filesystem::path>& file_to_open)
+    std::optional<std::filesystem::path>& file_to_open,
+    bool show_actions)
 {
-    ActionIcon pressed = get_icon_at_point(layout, point_x, point_y);
+    ActionIcon pressed = get_icon_at_point(layout, point_x, point_y, show_actions);
     switch (pressed) {
         case ActionIcon::NewFile: {
             const std::filesystem::path target_dir = model.get_target_directory_for_creation();

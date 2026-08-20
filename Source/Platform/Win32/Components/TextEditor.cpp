@@ -3538,15 +3538,6 @@ bool TextEditor::tick_animations() noexcept
         }
     }
     
-    if (m_selection_animation.tick())
-    {
-        animating = true;
-    }
-    if (m_split_selection_animation.tick())
-    {
-        animating = true;
-    }
-    
     if (const UI::Editor::TextDocumentModel* doc = m_controller.get_active_document())
     {
         UI::Editor::TextPosition current_caret{doc->get_caret_line(), doc->get_caret_column()};
@@ -3814,7 +3805,7 @@ void TextEditor::draw_tab_strip(
         const int tab_top = round_to_int(bounds.y);
         const int tab_bottom = round_to_int(bounds.bottom()) - 1;
 
-        if (active)
+        if (active && !is_dragging_this)
         {
             // Active tab top accent bar (VS Code style)
             surface.fill_rectangle(
@@ -4281,8 +4272,8 @@ void TextEditor::draw_document(
         static_cast<int>(left_code_limit),
         static_cast<int>(layout.editor_bounds.bottom() - hscroll_height));
 
-    std::vector<UI::Rect> selection_targets;
-    if (!is_split_active || m_focused_pane == SplitPaneFocus::Left)
+    // Selection Highlight: Direct & Instant (0 animation delay)
+    if (is_focused)
     {
         for (const auto& cursor : document->get_all_cursors())
         {
@@ -4292,8 +4283,12 @@ void TextEditor::draw_document(
                 const std::size_t start_line = std::max(selection.start.line, first_line);
                 const std::size_t end_line = std::min(selection.end.line, first_line + render_count);
                 
-                for (std::size_t line_index = start_line; line_index <= end_line; ++line_index)
+                for (std::size_t line_index = start_line; line_index <= end_line && line_index < total_lines; ++line_index)
                 {
+                    if (m_folding.is_line_hidden(line_index) || line_index >= document->get_line_count())
+                    {
+                        continue;
+                    }
                     const std::string_view line = document->get_line(line_index);
                     const std::size_t selection_start = line_index == selection.start.line ? selection.start.column : 0;
                     const std::size_t selection_end = line_index == selection.end.line ? selection.end.column : line.size();
@@ -4310,50 +4305,32 @@ void TextEditor::draw_document(
                         selection_width += 6.0F * surface.m_dpi_scale;
                     }
                     
-                    selection_targets.push_back(UI::Rect{
-                        selection_x,
-                        static_cast<float>(physical_line_to_visual_row(
-                            m_folding, line_index, total_lines)) * line_height,
-                        selection_width,
-                        line_height
-                    });
+                    if (selection_width <= 0.0F)
+                    {
+                        continue;
+                    }
+
+                    const std::size_t visual_row = physical_line_to_visual_row(m_folding, line_index, total_lines);
+                    const float screen_y = layout.editor_bounds.y + (static_cast<float>(visual_row) - static_cast<float>(first_visual_row)) * line_height;
+                    const float screen_x = code_x + selection_x;
+
+                    if (screen_y + line_height >= layout.editor_bounds.y &&
+                        screen_y <= layout.editor_bounds.bottom())
+                    {
+                        const int snap_y = round_to_int(screen_y);
+                        const int snap_bottom = round_to_int(screen_y + line_height);
+                        const int snap_x = round_to_int(screen_x);
+                        const int snap_right = round_to_int(screen_x + selection_width);
+
+                        surface.fill_rounded_rectangle(
+                            device_context,
+                            UI::Rect{static_cast<float>(snap_x), static_cast<float>(snap_y), 
+                                     static_cast<float>(snap_right - snap_x), static_cast<float>(snap_bottom - snap_y)},
+                            surface.m_palette.selection_background,
+                            4.0F * surface.m_dpi_scale
+                        );
+                    }
                 }
-            }
-        }
-    }
-    if (selection_targets.empty())
-    {
-        m_selection_animation.clear();
-    }
-    if (!selection_targets.empty())
-    {
-        m_selection_animation.set_targets(selection_targets);
-    }
-    
-    if (m_selection_animation.has_rects())
-    {
-        for (const UI::Rect& anim_rect : m_selection_animation.get_animated_rects())
-        {
-            if (anim_rect.width <= 0.0F) continue;
-            
-            const float screen_y = layout.editor_bounds.y + anim_rect.y - static_cast<float>(first_visual_row) * line_height;
-            const float screen_x = code_x + anim_rect.x;
-            
-            if (screen_y + anim_rect.height >= layout.editor_bounds.y &&
-                screen_y <= layout.editor_bounds.bottom())
-            {
-                const int snap_y = round_to_int(screen_y);
-                const int snap_bottom = round_to_int(screen_y + anim_rect.height);
-                const int snap_x = round_to_int(screen_x);
-                const int snap_right = round_to_int(screen_x + anim_rect.width);
-                
-                surface.fill_rounded_rectangle(
-                    device_context,
-                    UI::Rect{static_cast<float>(snap_x), static_cast<float>(snap_y), 
-                             static_cast<float>(snap_right - snap_x), static_cast<float>(snap_bottom - snap_y)},
-                    surface.m_palette.selection_background,
-                    4.0F * surface.m_dpi_scale
-                );
             }
         }
     }
@@ -4531,7 +4508,24 @@ void TextEditor::draw_document(
             std::size_t start_col = diag.range.start.line == line_index ? diag.range.start.character : 0;
             std::size_t end_col = diag.range.end.line == line_index ? diag.range.end.character : line.size();
             if (end_col > line.size()) end_col = line.size();
-            if (start_col >= end_col) end_col = std::min(start_col + 1, line.size());
+            if (start_col > line.size()) start_col = 0;
+
+            // Smart include range expansion for header path diagnostics
+            if (line.find("#include") != std::string::npos) {
+                const std::size_t first_quote = line.find_first_of("\"<");
+                const std::size_t last_quote = line.find_last_of("\">");
+                if (first_quote != std::string::npos && last_quote != std::string::npos && last_quote > first_quote) {
+                    if (start_col <= first_quote || (end_col - start_col) <= 2) {
+                        start_col = first_quote;
+                        end_col = last_quote + 1;
+                    }
+                }
+            }
+
+            if (start_col >= end_col) {
+                start_col = 0;
+                end_col = line.size();
+            }
 
             float diag_start_x = code_x;
             if (start_col > 0 && start_col <= line.size())

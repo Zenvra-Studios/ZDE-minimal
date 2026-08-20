@@ -31,6 +31,8 @@ struct SidebarPressResult {
     bool handled = false;
     SidebarActionKind action = SidebarActionKind::NoneAction;
     std::optional<std::filesystem::path> path = std::nullopt;
+    std::optional<std::size_t> line = std::nullopt;
+    std::optional<std::size_t> column = std::nullopt;
 };
 
 class ToolSidebar

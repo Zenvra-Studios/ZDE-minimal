@@ -1499,6 +1499,18 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         InvalidateRect(window_handle, nullptr, FALSE);
         return 0;
       }
+
+      const bool over_editor =
+          m_workspace_renderer.is_editor_point(point_x, point_y, client_width, client_height, content_top) ||
+          m_workspace_renderer.is_minimap_point(point_x, point_y, client_width, client_height, content_top) ||
+          m_workspace_renderer.is_scrollbar_point(point_x, point_y, client_width, client_height, content_top);
+      if (over_editor) {
+        if (message == WM_RBUTTONUP) {
+          show_editor_context_menu(static_cast<int>(point_x), static_cast<int>(point_y));
+        }
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
     }
     break;
 
@@ -1691,7 +1703,8 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
               static_cast<float>(cursor_position.y),
               client_bounds.right - client_bounds.left,
               client_bounds.bottom - client_bounds.top,
-              m_chrome_layout.titlebar_bounds.bottom())) {
+              m_chrome_layout.titlebar_bounds.bottom()) &&
+          m_workspace_renderer.get_text_editor().get_document() != nullptr) {
         if ((GetKeyState(VK_CONTROL) & 0x8000) != 0) {
           SetCursor(LoadCursorW(nullptr, IDC_HAND));
           return TRUE;
@@ -3843,6 +3856,120 @@ void Win32Window::show_explorer_context_menu(const std::filesystem::path& target
   InvalidateRect(m_window_handle, nullptr, FALSE);
 }
 
+void Win32Window::show_editor_context_menu(int client_x, int client_y) {
+  close_menu_overlay();
+  m_explorer_context_menu.visible = true;
+  m_explorer_context_menu.target_path.clear();
+  m_explorer_context_menu.hovered_index.reset();
+
+  const bool has_doc = m_workspace_renderer.get_text_editor().get_document() != nullptr;
+
+  if (has_doc) {
+    m_explorer_context_menu.items = {
+        // 1. Navigation / LSP
+        {"Go to Definition", "F12", false, 0, std::string{Commands::CommandIds::edit_goto_definition}},
+        {"Go to Declaration", "", false, 0, std::string{Commands::CommandIds::edit_goto_declaration}},
+        {"Go to Type Definition", "", false, 0, std::string{Commands::CommandIds::edit_goto_type_definition}},
+        {"Go to Implementations", "Ctrl+F12", false, 0, std::string{Commands::CommandIds::edit_goto_implementations}},
+        {"Go to References", "Shift+F12", false, 0, std::string{Commands::CommandIds::edit_goto_references}},
+        {"", "", true, 0, ""},
+
+        // 2. References & Hierarchy
+        {"Find All References", "Shift+Alt+F12", false, 0, std::string{Commands::CommandIds::edit_find_all_references}},
+        {"Find All Implementations", "", false, 0, std::string{Commands::CommandIds::edit_find_all_implementations}},
+        {"Show Call Hierarchy", "Shift+Alt+H", false, 0, std::string{Commands::CommandIds::edit_show_call_hierarchy}},
+        {"Show Type Hierarchy", "", false, 0, std::string{Commands::CommandIds::edit_show_type_hierarchy}},
+        {"Switch Between Source/Header", "Alt+O", false, 0, std::string{Commands::CommandIds::edit_switch_header_source}},
+        {"", "", true, 0, ""},
+
+        // 3. Refactoring & Editing
+        {"Rename Symbol", "F2", false, 0, std::string{Commands::CommandIds::edit_rename_symbol}},
+        {"Change All Occurrences", "Ctrl+F2", false, 0, std::string{Commands::CommandIds::selection_select_all_occurrences}},
+        {"Format Document", "Ctrl+Shift+I", false, 0, std::string{Commands::CommandIds::edit_format_document}},
+        {"Refactor...", "Ctrl+Shift+R", false, 0, std::string{Commands::CommandIds::edit_refactor}},
+        {"", "", true, 0, ""},
+
+        // 4. Clipboard Operations
+        {"Cut", "Ctrl+X", false, 0, std::string{Commands::CommandIds::edit_cut}},
+        {"Copy", "Ctrl+C", false, 0, std::string{Commands::CommandIds::edit_copy}},
+        {"Paste", "Ctrl+V", false, 0, std::string{Commands::CommandIds::edit_paste}},
+        {"", "", true, 0, ""},
+
+        // 5. Palette & Tools
+        {"Command Palette...", "Ctrl+Shift+P", false, 0, std::string{Commands::CommandIds::help_show_all_commands}},
+        {"Show AST", "", false, 0, std::string{Commands::CommandIds::edit_show_ast}},
+    };
+  } else {
+    m_explorer_context_menu.items = {
+        {"New Text File", "Ctrl+N", false, 0, std::string{Commands::CommandIds::file_new}},
+        {"Open File...", "Ctrl+P", false, 0, std::string{Commands::CommandIds::file_open}},
+        {"", "", true, 0, ""},
+        {"New Terminal", "", false, 0, std::string{Commands::CommandIds::view_terminal_panel}},
+        {"", "", true, 0, ""},
+        {"Split Up", "Ctrl+K Ctrl+\\", false, 0, std::string{Commands::CommandIds::view_split_up}},
+        {"Split Down", "", false, 0, std::string{Commands::CommandIds::view_split_down}},
+        {"Split Left", "", false, 0, std::string{Commands::CommandIds::view_split_left}},
+        {"Split Right", "", false, 0, std::string{Commands::CommandIds::view_split_right}},
+        {"", "", true, 0, ""},
+        {"New Window", "", false, 0, std::string{Commands::CommandIds::window_new}},
+        {"", "", true, 0, ""},
+        {"Lock Group", "", false, 0, ""},
+    };
+  }
+
+  const float scale = m_chrome_layout.dpi_scale;
+  const float row_height = 24.0F * scale;
+  const float sep_height = 7.0F * scale;
+  const float vertical_padding = 4.0F * scale;
+  float total_h = vertical_padding * 2.0F;
+  float popup_width = 240.0F * scale;
+
+  for (const auto& item : m_explorer_context_menu.items) {
+    if (item.separator) {
+      total_h += sep_height;
+      continue;
+    }
+    total_h += row_height;
+    float item_width = static_cast<float>(item.label.size()) * 7.0F * scale + 42.0F * scale;
+    if (!item.shortcut.empty()) {
+      item_width += static_cast<float>(item.shortcut.size()) * 7.0F * scale + 30.0F * scale;
+    }
+    popup_width = std::max(popup_width, item_width);
+  }
+  popup_width = std::min(popup_width, 420.0F * scale);
+
+  RECT client_rect{};
+  GetClientRect(m_window_handle, &client_rect);
+  const float client_w = static_cast<float>(client_rect.right - client_rect.left);
+  const float client_h = static_cast<float>(client_rect.bottom - client_rect.top);
+
+  float menu_x = static_cast<float>(client_x);
+  float menu_y = static_cast<float>(client_y);
+
+  if (menu_x + popup_width > client_w - 8.0F * scale) {
+    menu_x = std::max(8.0F * scale, client_w - popup_width - 8.0F * scale);
+  }
+  if (menu_y + total_h > client_h - 8.0F * scale) {
+    menu_y = std::max(8.0F * scale, client_h - total_h - 8.0F * scale);
+  }
+
+  m_explorer_context_menu.bounds = {menu_x, menu_y, popup_width, total_h};
+  m_explorer_context_menu.item_bounds.clear();
+
+  float curr_y = menu_y + vertical_padding;
+  for (const auto& item : m_explorer_context_menu.items) {
+    if (item.separator) {
+      m_explorer_context_menu.item_bounds.push_back({menu_x, curr_y, popup_width, sep_height});
+      curr_y += sep_height;
+    } else {
+      m_explorer_context_menu.item_bounds.push_back({menu_x, curr_y, popup_width, row_height});
+      curr_y += row_height;
+    }
+  }
+
+  InvalidateRect(m_window_handle, nullptr, FALSE);
+}
+
 void Win32Window::draw_explorer_context_menu(HDC device_context) const {
   if (!m_explorer_context_menu.visible) return;
 
@@ -3949,6 +4076,17 @@ void Win32Window::execute_explorer_context_menu_item(std::size_t item_index) {
   if (item_index >= m_explorer_context_menu.items.size()) return;
   const auto& item = m_explorer_context_menu.items[item_index];
   if (item.separator) return;
+
+  if (!item.command_str.empty()) {
+    const std::optional<bool> editor_result =
+        m_workspace_renderer.handle_editor_command(item.command_str);
+    if (editor_result && *editor_result) {
+      InvalidateRect(m_window_handle, nullptr, FALSE);
+    } else if (m_command_invoked_callback) {
+      m_command_invoked_callback(item.command_str);
+    }
+    return;
+  }
 
   const auto target_path = m_explorer_context_menu.target_path;
 

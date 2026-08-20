@@ -8,7 +8,11 @@
 
 namespace Zenvra::Platform::X11::Components
 {
-
+    
+/**
+ * 
+ * 
+ **/
 class FileDropTarget
 {
 public:

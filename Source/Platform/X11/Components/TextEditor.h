@@ -37,6 +37,11 @@ class TextEditor
 {
 public:
     [[nodiscard]] bool open_file(const std::filesystem::path& path);
+    [[nodiscard]] bool open_file_at_location(
+        const std::filesystem::path& path,
+        std::size_t line,
+        std::size_t column);
+    [[nodiscard]] bool go_to_definition();
     [[nodiscard]] bool close_file(const std::filesystem::path& path);
     [[nodiscard]] bool close_all_files();
     [[nodiscard]] std::size_t open_dropped_paths(
@@ -224,6 +229,8 @@ private:
 
     UI::Editor::EditorController m_controller;
     mutable UI::Components::EditorFoldingModel m_folding;
+    mutable std::size_t m_last_folding_revision = 0;
+    mutable const UI::Editor::TextDocumentModel* m_last_folding_doc = nullptr;
     mutable EditorMinimap m_minimap;
     mutable EditorScrollbar m_scrollbar;
     Utility::DragDropModel m_tab_drag_drop;
@@ -234,6 +241,10 @@ private:
     mutable bool m_reveal_caret_pending = true;
     bool m_focused = false;
     bool m_pointer_selecting = false;
+    bool m_is_drag_selecting = false; ///< True only during actual mouse drag, not on click
+  public:
+    bool is_pointer_selecting() const noexcept { return m_is_drag_selecting; }
+  private:
     mutable std::array<UI::Rect, max_visible_tabs> m_tab_bounds{};
     mutable std::size_t m_tab_count = 0;
     std::optional<std::size_t> m_hovered_tab_index;
@@ -251,6 +262,8 @@ private:
     mutable EditorMinimap m_split_minimap;
     mutable EditorScrollbar m_split_scrollbar;
     mutable UI::Components::EditorFoldingModel m_split_folding;
+    mutable std::size_t m_split_last_folding_revision = 0;
+    mutable const UI::Editor::TextDocumentModel* m_split_last_folding_doc = nullptr;
     float m_split_ratio = 0.5F;
     bool m_is_resizing_split = false;
     mutable bool m_hovered_split_resize = false;
@@ -265,8 +278,6 @@ private:
     mutable float m_max_tab_scroll = 0.0F;
     float m_text_scroll_offset = 0.0F;
     mutable float m_max_text_scroll = 0.0F;
-    mutable UI::Editor::SelectionAnimationModel m_selection_animation;
-    mutable UI::Editor::SelectionAnimationModel m_split_selection_animation;
     mutable UI::Editor::BraceAnimationModel m_brace_animation;
     mutable UI::Components::Button m_empty_state_open_btn;
     mutable UI::Components::Button m_empty_state_clone_btn;
@@ -275,7 +286,7 @@ private:
     mutable UI::Components::HoverTooltip m_hover_tooltip;
     mutable std::optional<HoveredDiagnosticInfo> m_hovered_diagnostic;
     mutable UI::Components::SignatureHelpWidget m_signature_help;
-    mutable std::mutex m_lsp_mutex;
+    mutable std::recursive_mutex m_lsp_mutex;
     mutable bool m_lsp_dirty = false;
     mutable std::chrono::steady_clock::time_point m_last_file_check_time{};
 };

@@ -8,6 +8,8 @@
 #include <optional>
 #include <string>
 
+#include <chrono>
+
 class AntialiasedFont;
 
 namespace Zenvra::Platform::X11::Components {
@@ -78,15 +80,26 @@ private:
 
     int m_width = 480;
     int m_height = 190;
+    int m_win_x = 0;
+    int m_win_y = 0;
+
+    bool m_dragging = false;
+    int m_drag_start_root_x = 0;
+    int m_drag_start_root_y = 0;
+    int m_drag_start_win_x = 0;
+    int m_drag_start_win_y = 0;
 
     bool m_close_hovered = false;
     bool m_ok_hovered = false;
     bool m_cancel_hovered = false;
 
+    UI::Rect m_titlebar_rect{};
     UI::Rect m_close_btn_rect{};
     UI::Rect m_input_rect{};
     UI::Rect m_ok_btn_rect{};
     UI::Rect m_cancel_btn_rect{};
+
+    std::chrono::steady_clock::time_point m_last_input_time{std::chrono::steady_clock::now()};
 
     std::function<void(const std::string&)> m_on_confirm_string;
     std::function<void()> m_on_confirm_void;

@@ -1,6 +1,7 @@
 #include "Platform/X11/Components/EditorMinimap.h"
 
 #include "Platform/X11/Components/StudioWorkspaceRenderer.h"
+#include "Language/Protocol/LspTypes.h"
 #include "Utility/Fonts.h"
 
 #include <algorithm>
@@ -197,6 +198,32 @@ void EditorMinimap::render(
                     std::max(layout.dpi_scale, 1.0F),
                     row_height * 0.84F},
                 surface.m_pixels.accent);
+        }
+    }
+
+    // Render diagnostic tick marks on right border of minimap (VS Code / Cocoa style)
+    if (document.get_line_count() > 0)
+    {
+        const auto all_diags = document.get_diagnostics();
+        for (const auto& d : all_diags)
+        {
+            const std::size_t line_index = d.range.start.line;
+            if (line_index >= document.get_line_count()) continue;
+            const float center_y = text_bounds.y +
+                (static_cast<float>(line_index) / static_cast<float>(document.get_line_count())) * text_bounds.height;
+            const bool has_error = (d.severity == Language::Protocol::DiagnosticSeverity::Error);
+            const bool has_warn = (d.severity == Language::Protocol::DiagnosticSeverity::Warning);
+            const unsigned long diag_color = has_error
+                ? surface.allocate_color(UI::Theme::Color{247, 84, 100, 255})
+                : (has_warn ? surface.allocate_color(UI::Theme::Color{240, 167, 50, 255})
+                            : surface.allocate_color(UI::Theme::Color{86, 182, 194, 255}));
+            surface.fill_rectangle(
+                drawable,
+                UI::Rect{bounds.right() - 4.0F * layout.dpi_scale,
+                         center_y - row_height * 0.45F,
+                         3.0F * layout.dpi_scale,
+                         std::max(row_height * 0.9F, 2.0F * layout.dpi_scale)},
+                diag_color);
         }
     }
 

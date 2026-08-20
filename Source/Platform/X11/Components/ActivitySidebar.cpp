@@ -28,7 +28,7 @@ void ActivitySidebar::render(
         items.begin(), items.end(), [](const UI::Editor::SidebarItem& item) {
             return item.placement == UI::Editor::SidebarPlacement::Bottom;
         }));
-
+        
     for (const UI::Editor::SidebarItem& item : items)
     {
         float center_y = 0.0F;

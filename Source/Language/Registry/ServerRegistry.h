@@ -9,6 +9,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <vector>
+#include <mutex>
 
 namespace Zenvra::Language::Registry
 {
@@ -28,11 +29,14 @@ public:
     [[nodiscard]] std::filesystem::path find_executable_in_system(std::string_view executable_name) const;
 
     void initialize_default_profiles();
+    void clear_cache() noexcept;
 
 private:
     ServerRegistry();
     std::unordered_map<std::string, ServerProfile> m_profiles_by_language;
     std::unordered_map<std::string, std::string> m_language_by_extension;
+    mutable std::mutex m_cache_mutex;
+    mutable std::unordered_map<std::string, std::filesystem::path> m_executable_cache;
 };
 
 } // namespace Zenvra::Language::Registry

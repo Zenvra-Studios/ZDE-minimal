@@ -500,6 +500,28 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
     return handle_search_press(layout, point_x, point_y);
   }
 
+  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project &&
+      m_model.get_project_items().empty()) {
+    const float scale = layout.dpi_scale;
+    const UI::Rect panel = layout.tool_sidebar_bounds;
+    const float msg_y = panel.y + (header_height + 22.0F) * scale;
+    float btn_y = msg_y + 36.0F * scale;
+    const float btn_w = std::max(panel.width - 28.0F * scale, 0.0F);
+    const float btn_h = 28.0F * scale;
+    const float btn_x = panel.x + 14.0F * scale;
+
+    m_empty_state_open_btn.set_bounds(UI::Rect{btn_x, btn_y, btn_w, btn_h});
+    btn_y += btn_h + 20.0F * scale + 14.0F * scale;
+    m_empty_state_clone_btn.set_bounds(UI::Rect{btn_x, btn_y, btn_w, btn_h});
+
+    if (m_empty_state_open_btn.handle_pointer_press(point_x, point_y)) {
+      return SidebarPressResult{.handled = true, .action = SidebarActionKind::OpenFile, .path = "::OPEN_FOLDER::"};
+    }
+    if (m_empty_state_clone_btn.handle_pointer_press(point_x, point_y)) {
+      return SidebarPressResult{.handled = true};
+    }
+  }
+
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
     const auto items = m_model.get_project_items();
     const std::size_t row_count = viewport_row_count(layout);
@@ -512,8 +534,9 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
     }
   }
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
+    const bool show_actions = !m_model.get_project_items().empty();
     HeaderAction header_act = HeaderAction::None;
-    if (m_explorer_header.handle_pointer_press(layout, point_x, point_y, m_model, header_act)) {
+    if (m_explorer_header.handle_pointer_press(layout, point_x, point_y, m_model, header_act, show_actions)) {
       if (header_act == HeaderAction::NewFile) {
         return SidebarPressResult{.handled = true, .action = SidebarActionKind::NewFile, .path = m_model.get_target_directory_for_creation()};
       }
@@ -632,8 +655,14 @@ bool ToolSidebar::handle_pointer_move(
     }
     
     bool header_changed = false;
+    bool btn_changed = false;
     if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
-        header_changed = m_explorer_header.handle_pointer_move(layout, point_x, point_y);
+        const bool show_actions = !m_model.get_project_items().empty();
+        header_changed = m_explorer_header.handle_pointer_move(layout, point_x, point_y, show_actions);
+        if (m_model.get_project_items().empty()) {
+            btn_changed = m_empty_state_open_btn.handle_pointer_move(point_x, point_y) ||
+                          m_empty_state_clone_btn.handle_pointer_move(point_x, point_y);
+        }
     }
 
     const bool changed = next_row != m_hovered_row ||
@@ -641,7 +670,8 @@ bool ToolSidebar::handle_pointer_move(
                          next_icon != m_hovered_icon ||
                          next_scrollbar != m_hovered_scrollbar ||
                          resize_changed ||
-                         header_changed;
+                         header_changed ||
+                         btn_changed;
     m_hovered_row = next_row;
     m_hovered_sticky_index = next_sticky_hover;
     m_hovered_icon = next_icon;
@@ -1488,7 +1518,8 @@ void ToolSidebar::render(
   }
 
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
-    m_explorer_header.render(surface, device_context, layout, std::string{m_model.get_title()});
+    const bool show_actions = !m_model.get_project_items().empty();
+    m_explorer_header.render(surface, device_context, layout, std::string{m_model.get_title()}, show_actions);
   } else {
     surface.draw_text(device_context, *surface.m_ui_font, m_model.get_title(),
                       panel.x + 14.0F * scale,
@@ -1523,13 +1554,48 @@ void ToolSidebar::render(
   } else {
     const std::span<const UI::Editor::ProjectTreeItem> items = m_model.get_project_items();
     if (items.empty()) {
-      const float msg_y = panel.y + (header_height + 30.0F) * scale;
+      const float msg_y = panel.y + (header_height + 22.0F) * scale;
       surface.draw_text(device_context, *surface.m_ui_font,
-                        "No Folder Opened", panel.x + 16.0F * scale,
+                        "No Folder Opened", panel.x + 14.0F * scale,
                         msg_y, surface.m_palette.text_primary);
       surface.draw_text(device_context, *surface.m_small_font,
-                        "You have not yet opened a folder.", panel.x + 16.0F * scale,
-                        msg_y + 24.0F * scale, surface.m_palette.text_muted);
+                        "You have not yet opened a folder.", panel.x + 14.0F * scale,
+                        msg_y + 20.0F * scale, surface.m_palette.text_muted);
+
+      float btn_y = msg_y + 36.0F * scale;
+      const float btn_w = std::max(panel.width - 28.0F * scale, 0.0F);
+      const float btn_h = 28.0F * scale;
+      const float btn_x = panel.x + 14.0F * scale;
+
+      m_empty_state_open_btn.set_bounds(UI::Rect{btn_x, btn_y, btn_w, btn_h});
+      surface.fill_rounded_rectangle(
+          device_context, m_empty_state_open_btn.get_bounds(),
+          m_empty_state_open_btn.get_state().hovered
+              ? UI::Theme::Color{17, 119, 187, 255}
+              : UI::Theme::Color{14, 99, 156, 255},
+          4.0F * scale);
+      surface.draw_text(
+          device_context, *surface.m_small_font, "Open Folder",
+          btn_x + btn_w * 0.5F - 36.0F * scale, btn_y + btn_h * 0.5F,
+          UI::Theme::Color{255, 255, 255, 255});
+
+      btn_y += btn_h + 20.0F * scale;
+      surface.draw_text(device_context, *surface.m_small_font,
+                        "Clone from a remote repository.",
+                        panel.x + 14.0F * scale, btn_y, surface.m_palette.text_muted);
+
+      btn_y += 14.0F * scale;
+      m_empty_state_clone_btn.set_bounds(UI::Rect{btn_x, btn_y, btn_w, btn_h});
+      surface.fill_rounded_rectangle(
+          device_context, m_empty_state_clone_btn.get_bounds(),
+          m_empty_state_clone_btn.get_state().hovered
+              ? UI::Theme::Color{58, 62, 72, 255}
+              : UI::Theme::Color{44, 48, 56, 255},
+          4.0F * scale);
+      surface.draw_text(
+          device_context, *surface.m_small_font, "Clone Repository",
+          btn_x + btn_w * 0.5F - 46.0F * scale, btn_y + btn_h * 0.5F,
+          UI::Theme::Color{215, 220, 228, 255});
     } else {
       const std::size_t first = m_model.get_scroll_offset();
       const std::size_t row_count = viewport_row_count(layout);
