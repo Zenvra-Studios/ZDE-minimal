@@ -33,7 +33,7 @@ std::optional<std::filesystem::path> show_modern_dialog() {
   DWORD options = 0;
   if (SUCCEEDED(dialog->GetOptions(&options))) {
     options |= FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST |
-               FOS_FILEMUSTEXIST;
+               FOS_FILEMUSTEXIST | FOS_NOCHANGEDIR;
     static_cast<void>(dialog->SetOptions(options));
   }
   dialog->SetTitle(L"Select Folder");

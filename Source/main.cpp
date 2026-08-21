@@ -95,6 +95,23 @@ int main(int argument_count, char** argument_values)
     specification.enable_viewports = false;
     specification.smoke_test = smoke_test;
 
+    for (int i = 1; i < argument_count; ++i) {
+        std::string_view arg = argument_values[i];
+        if (arg.starts_with("--") || arg.starts_with("-")) {
+            if (arg == "--simulate-missing-dependency" && i + 1 < argument_count) {
+                ++i;
+            }
+            continue;
+        }
+        if (!specification.initial_path) {
+            std::error_code ec;
+            std::filesystem::path p = std::filesystem::absolute(argument_values[i], ec);
+            if (!ec && std::filesystem::exists(p, ec)) {
+                specification.initial_path = std::filesystem::weakly_canonical(p, ec);
+            }
+        }
+    }
+
     Zenvra::Application::Application application(std::move(specification));
     return application.run();
 }

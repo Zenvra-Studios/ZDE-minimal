@@ -45,6 +45,7 @@ public:
     StudioWorkspaceRenderer& operator=(const StudioWorkspaceRenderer&) = delete;
 
     [[nodiscard]] bool initialize(UINT dpi);
+    void update_dpi(UINT dpi);
     [[nodiscard]] bool open_file(const std::filesystem::path& path);
     [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root);
     [[nodiscard]] bool close_project();
@@ -318,6 +319,8 @@ private:
 
     UINT m_dpi = 96;
     float m_dpi_scale = 1.0F;
+    std::string m_editor_font_name = "Hack";
+    std::string m_ui_font_name = "Open Sans";
     std::unique_ptr<AntialiasedFont> m_ui_font;
     std::unique_ptr<AntialiasedFont> m_small_font;
     std::unique_ptr<AntialiasedFont> m_editor_font;

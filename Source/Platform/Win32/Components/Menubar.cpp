@@ -171,6 +171,10 @@ bool Menubar::show_overflow_popup(
     return true;
 }
 
+/**
+ * 
+ * 
+ **/
 bool Menubar::handle_command(int native_command_id) const
 {
     const std::string_view command_id = get_command_id(native_command_id);
@@ -186,16 +190,25 @@ bool Menubar::handle_command(int native_command_id) const
     return true;
 }
 
+/**
+ * 
+ **/
 void Menubar::set_command_invoked_callback(CommandInvokedCallback callback)
 {
     m_command_invoked_callback = std::move(callback);
 }
 
+/**
+ * 
+ **/
 void Menubar::set_command_state_query_callback(CommandStateQueryCallback callback)
 {
     m_command_state_query_callback = std::move(callback);
 }
 
+/**
+ * 
+ **/
 void Menubar::refresh_menu_state(HMENU menu_handle) const
 {
     const int item_count = GetMenuItemCount(menu_handle);
@@ -234,6 +247,10 @@ void Menubar::refresh_menu_state(HMENU menu_handle) const
     }
 }
 
+/**
+ * 
+ * 
+ **/
 HMENU Menubar::clone_menu(HMENU source_menu)
 {
     HMENU menu_copy = CreatePopupMenu();
@@ -293,6 +310,9 @@ HMENU Menubar::clone_menu(HMENU source_menu)
     return menu_copy;
 }
 
+/**
+ * 
+ **/
 std::wstring Menubar::get_menu_label(HMENU menu_handle, int item_index)
 {
     const int label_length = GetMenuStringW(menu_handle, item_index, nullptr, 0, MF_BYPOSITION);
@@ -312,6 +332,9 @@ std::wstring Menubar::get_menu_label(HMENU menu_handle, int item_index)
     return label;
 }
 
+/**
+ * 
+ **/
 std::string_view Menubar::get_command_id(int native_command_id) noexcept
 {
     std::string_view command_id;

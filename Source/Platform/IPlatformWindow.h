@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -69,6 +70,18 @@ public:
     /// Returns true when the dialog was shown (regardless of the user's
     /// choice); returns false when the platform cannot show a folder dialog.
     [[nodiscard]] virtual bool open_project_folder() { return false; }
+
+    /// Sets the active workspace root folder.
+    [[nodiscard]] virtual bool set_workspace_root(const std::filesystem::path& /*root*/) { return false; }
+
+    /// Opens an individual document file.
+    [[nodiscard]] virtual bool open_file(const std::filesystem::path& /*path*/) { return false; }
+
+    /// Opens a path (either a directory as workspace root, or a file).
+    [[nodiscard]] virtual bool open_path(const std::filesystem::path& /*path*/) { return false; }
+
+    /// Returns the currently opened workspace root folder if any.
+    [[nodiscard]] virtual std::filesystem::path get_workspace_root() const { return {}; }
 
     /// Closes the active project and resets workspace state.
     [[nodiscard]] virtual bool close_project() { return false; }

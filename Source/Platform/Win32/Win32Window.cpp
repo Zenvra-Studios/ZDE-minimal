@@ -10,6 +10,7 @@
 #include "UI/Components/MenuModel.h"
 #include "Utility/Antialiasing.h"
 #include "Utility/MathUtil.h"
+#include "Utility/MultiContext.h"
 #include "Utility/Shadows.h"
 #include "Utility/TextEncoding.h"
 
@@ -635,24 +636,24 @@ void Win32Window::set_command_state_query_callback(
       });
 }
 
-bool Win32Window::open_project_folder() {
-  const std::optional<std::filesystem::path> selected =
-      Zenvra::Platform::open_folder_dialog();
-  if (!selected || selected->empty()) {
-    return true;
+bool Win32Window::set_workspace_root(const std::filesystem::path &root) {
+  if (root.empty()) {
+    return false;
   }
-  if (!m_workspace_renderer.set_workspace_root(*selected)) {
-    std::cerr << "Could not open workspace folder: " << selected->string()
-              << '\n';
-    return true;
+  if (!m_workspace_renderer.set_workspace_root(root)) {
+    return false;
   }
 
-  Language::LanguageServerManager::instance().set_workspace_root(*selected);
+  Language::LanguageServerManager::instance().set_workspace_root(root);
+
+  if (auto ctx = Utility::MultiContextManager::instance().get_context_by_window(this)) {
+    Utility::MultiContextManager::instance().set_workspace_root(ctx->context_id, root);
+  }
 
   std::error_code path_error;
   const std::filesystem::path canonical =
-      std::filesystem::weakly_canonical(*selected, path_error);
-  const std::filesystem::path display_root = path_error ? *selected : canonical;
+      std::filesystem::weakly_canonical(root, path_error);
+  const std::filesystem::path display_root = path_error ? root : canonical;
   const std::string folder_name = display_root.filename().empty()
                                       ? display_root.string()
                                       : display_root.filename().string();
@@ -664,9 +665,49 @@ bool Win32Window::open_project_folder() {
   return true;
 }
 
+bool Win32Window::open_file(const std::filesystem::path &path) {
+  return m_workspace_renderer.open_file(path);
+}
+
+bool Win32Window::open_path(const std::filesystem::path &path) {
+  std::error_code ec;
+  if (std::filesystem::is_directory(path, ec)) {
+    return set_workspace_root(path);
+  }
+  if (std::filesystem::is_regular_file(path, ec)) {
+    const auto proj_root = UI::Editor::EditorFileSystem::find_project_root(path);
+    if (proj_root && get_workspace_root().empty()) {
+      static_cast<void>(set_workspace_root(*proj_root));
+    }
+    return open_file(path);
+  }
+  return false;
+}
+
+std::filesystem::path Win32Window::get_workspace_root() const {
+  return m_workspace_renderer.m_tool_sidebar.get_model().get_workspace_root();
+}
+
+bool Win32Window::open_project_folder() {
+  const std::optional<std::filesystem::path> selected =
+      Zenvra::Platform::open_folder_dialog();
+  if (!selected || selected->empty()) {
+    return true;
+  }
+  if (!set_workspace_root(*selected)) {
+    std::cerr << "Could not open workspace folder: " << selected->string()
+              << '\n';
+    return true;
+  }
+  return true;
+}
+
 bool Win32Window::close_project() {
   static_cast<void>(m_workspace_renderer.close_project());
   Language::LanguageServerManager::instance().set_workspace_root({});
+  if (auto ctx = Utility::MultiContextManager::instance().get_context_by_window(this)) {
+    Utility::MultiContextManager::instance().set_workspace_root(ctx->context_id, {});
+  }
   m_window_title = utf8_to_wide(m_specification.title);
   if (m_window_handle != nullptr) {
     SetWindowTextW(m_window_handle, m_window_title.c_str());
@@ -2291,8 +2332,9 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
                  suggested_bounds->bottom - suggested_bounds->top,
                  SWP_NOZORDER | SWP_NOACTIVATE);
     refresh_ui_font();
-    static_cast<void>(m_workspace_renderer.initialize(m_dpi));
+    m_workspace_renderer.update_dpi(m_dpi);
     refresh_chrome_layout();
+    InvalidateRect(window_handle, nullptr, FALSE);
     return 0;
   }
 

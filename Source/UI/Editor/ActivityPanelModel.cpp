@@ -40,13 +40,35 @@ bool ActivityPanelModel::initialize(const std::filesystem::path& workspace_root)
     std::filesystem::path resolved_root = workspace_root;
     if (resolved_root.empty())
     {
-        resolved_root = std::filesystem::current_path(error);
-        if (error)
+        if (!m_workspace_root.empty() && std::filesystem::is_directory(m_workspace_root, error))
         {
-            return false;
+            resolved_root = m_workspace_root;
         }
-        resolved_root = EditorFileSystem::find_project_root(resolved_root).value_or(resolved_root);
+        else
+        {
+            const std::filesystem::path current = std::filesystem::current_path(error);
+            if (!error)
+            {
+                const auto proj_root = EditorFileSystem::find_project_root(current);
+                if (proj_root && std::filesystem::is_directory(*proj_root, error))
+                {
+                    resolved_root = *proj_root;
+                }
+            }
+        }
     }
+
+    if (resolved_root.empty())
+    {
+        m_workspace_root.clear();
+        m_project_items.clear();
+        m_expanded_paths.clear();
+        m_active_icon = SidebarIcon::Project;
+        m_visible = true;
+        m_scroll_offset = 0;
+        return true;
+    }
+
     resolved_root = std::filesystem::weakly_canonical(resolved_root, error);
     if (error || !std::filesystem::is_directory(resolved_root, error))
     {

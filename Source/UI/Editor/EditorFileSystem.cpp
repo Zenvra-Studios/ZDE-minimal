@@ -93,11 +93,50 @@ std::vector<std::string> split_lines(std::string_view contents)
     return lines;
 }
 
-bool looks_like_project_root(const std::filesystem::path& directory)
+bool is_app_or_system_dir(const std::filesystem::path& directory)
 {
     std::error_code error;
-    return std::filesystem::is_directory(directory / "Source", error) &&
-        std::filesystem::is_regular_file(directory / "CMakeLists.txt", error);
+    if (std::filesystem::exists(directory / "ZDE.exe", error) ||
+        std::filesystem::exists(directory / "unins000.exe", error) ||
+        std::filesystem::exists(directory / "BootstrapperLib.dll", error))
+    {
+        return true;
+    }
+    const std::string path_str = directory.string();
+    if (path_str.find("Program Files") != std::string::npos ||
+        path_str.find("Windows\\System32") != std::string::npos)
+    {
+        return true;
+    }
+    return false;
+}
+
+bool looks_like_project_root(const std::filesystem::path& directory)
+{
+    if (is_app_or_system_dir(directory))
+    {
+        return false;
+    }
+
+    std::error_code error;
+    if (std::filesystem::is_regular_file(directory / "CMakeLists.txt", error) ||
+        std::filesystem::is_directory(directory / ".git", error) ||
+        std::filesystem::is_directory(directory / ".zde", error) ||
+        std::filesystem::is_regular_file(directory / "Cargo.toml", error) ||
+        std::filesystem::is_regular_file(directory / "package.json", error) ||
+        std::filesystem::is_regular_file(directory / "go.mod", error) ||
+        std::filesystem::is_regular_file(directory / "Makefile", error) ||
+        std::filesystem::is_regular_file(directory / "meson.build", error) ||
+        std::filesystem::is_regular_file(directory / "BUILD.bazel", error))
+    {
+        return true;
+    }
+    if (std::filesystem::is_directory(directory / "Source", error) ||
+        std::filesystem::is_directory(directory / "src", error))
+    {
+        return true;
+    }
+    return false;
 }
 
 } // namespace

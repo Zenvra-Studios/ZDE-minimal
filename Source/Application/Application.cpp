@@ -164,11 +164,16 @@ Platform::IPlatformWindow* Application::create_new_window(
             }
         },
         .request_toggle_shader = [win_ptr] { win_ptr->toggle_shader_sandbox(); },
-        .request_build = [this, view_model_holder] {
+        .request_build = [this, win_ptr, view_model_holder] {
             std::string preset = (*view_model_holder) ? std::string((*view_model_holder)->get_active_preset()) : "macos-debug";
             std::string target = (*view_model_holder) ? std::string((*view_model_holder)->get_active_target()) : "ZDE";
+            std::filesystem::path ws_root = win_ptr->get_workspace_root();
+            if (ws_root.empty()) {
+                std::error_code ec;
+                ws_root = std::filesystem::current_path(ec);
+            }
             Tools::Builder::CMakeBuildOptions opts{
-                .workspace_root = std::filesystem::current_path(),
+                .workspace_root = ws_root,
                 .preset_name = preset,
                 .target_name = target
             };
@@ -179,12 +184,17 @@ Platform::IPlatformWindow* Application::create_new_window(
                 std::clog << "[ZDE Build] " << (success ? "SUCCESS: Target built successfully." : "FAILED: Build errors encountered.") << '\n';
             });
         },
-        .request_run = [this, view_model_holder] {
+        .request_run = [this, win_ptr, view_model_holder] {
             std::string target = (*view_model_holder) ? std::string((*view_model_holder)->get_active_target()) : "ZDE";
             std::string exec_path = (target == "ZDEUnitTests") ? "bin/Debug/ZDEUnitTests" : "bin/Debug/ZDE.app/Contents/MacOS/ZDE";
+            std::filesystem::path ws_root = win_ptr->get_workspace_root();
+            if (ws_root.empty()) {
+                std::error_code ec;
+                ws_root = std::filesystem::current_path(ec);
+            }
             Tools::Runner::ProcessExecutionOptions opts{
                 .executable_path = exec_path,
-                .working_directory = std::filesystem::current_path(),
+                .working_directory = ws_root,
                 .run_in_background = true
             };
             std::clog << "[ZDE Run] Launching executable '" << exec_path << "'...\n";
@@ -229,6 +239,11 @@ Platform::IPlatformWindow* Application::create_new_window(
         return nullptr;
     }
 
+    if (initial_path && !initial_path->empty())
+    {
+        static_cast<void>(win_ptr->open_path(*initial_path));
+    }
+
     win_ptr->show();
 
     const std::uint64_t ctx_id = Utility::MultiContextManager::instance().register_context(
@@ -251,7 +266,7 @@ bool Application::initialize()
     Language::Toolchain::ToolchainDetector::instance().refresh();
 
     // Create the initial primary window context
-    auto* initial_window = create_new_window();
+    auto* initial_window = create_new_window(m_specification.initial_path);
     return initial_window != nullptr;
 }
 

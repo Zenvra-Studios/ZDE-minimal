@@ -165,27 +165,32 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
     }
   }
 
-  const char *editor_font_name = hack_loaded ? "Hack" : "Consolas";
-  const char *ui_font_name = opensans_loaded ? "Open Sans" : "Segoe UI";
+  m_editor_font_name = hack_loaded ? "Hack" : "Consolas";
+  m_ui_font_name = opensans_loaded ? "Open Sans" : "Segoe UI";
 
   m_ui_font = std::make_unique<AntialiasedFont>(
-      ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
+      m_ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
   m_small_font = std::make_unique<AntialiasedFont>(
-      ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
+      m_ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
   m_editor_font = std::make_unique<AntialiasedFont>(
-      editor_font_name, std::max(round_to_int(14.0F * m_dpi_scale), 10));
+      m_editor_font_name, std::max(round_to_int(14.0F * m_dpi_scale), 10));
   m_editor_font->setLigaturesEnabled(true);
   m_minimap_font = std::make_unique<AntialiasedFont>(
-      editor_font_name, std::max(round_to_int(3.0F * m_dpi_scale), 3));
+      m_editor_font_name, std::max(round_to_int(3.0F * m_dpi_scale), 3));
   m_large_font = std::make_unique<AntialiasedFont>(
-      ui_font_name, std::max(round_to_int(24.0F * m_dpi_scale), 18), FW_BOLD);
+      m_ui_font_name, std::max(round_to_int(24.0F * m_dpi_scale), 18), FW_BOLD);
   if (!m_ui_font->isValid() || !m_small_font->isValid() ||
       !m_editor_font->isValid() || !m_minimap_font->isValid() ||
       !m_large_font->isValid()) {
     shutdown();
     return false;
   }
-  static_cast<void>(m_tool_sidebar.initialize());
+  const auto existing_workspace = m_tool_sidebar.get_model().get_workspace_root();
+  if (existing_workspace.empty()) {
+    static_cast<void>(m_tool_sidebar.initialize());
+  } else {
+    static_cast<void>(m_tool_sidebar.set_workspace_root(existing_workspace));
+  }
   static_cast<void>(m_terminal_panel.toggle());
   m_terminal_panel.set_focused(false);
   static_cast<void>(m_shader_sandbox_panel.initialize());
@@ -193,6 +198,25 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
   m_text_editor.sync_lsp_active_document();
 
   return true;
+}
+
+void StudioWorkspaceRenderer::update_dpi(UINT dpi) {
+  m_dpi = std::max(dpi, 48U);
+  m_dpi_scale = static_cast<float>(m_dpi) / 96.0F;
+
+  m_ui_font = std::make_unique<AntialiasedFont>(
+      m_ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
+  m_small_font = std::make_unique<AntialiasedFont>(
+      m_ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
+  m_editor_font = std::make_unique<AntialiasedFont>(
+      m_editor_font_name, std::max(round_to_int(14.0F * m_dpi_scale), 10));
+  m_editor_font->setLigaturesEnabled(true);
+  m_minimap_font = std::make_unique<AntialiasedFont>(
+      m_editor_font_name, std::max(round_to_int(3.0F * m_dpi_scale), 3));
+  m_large_font = std::make_unique<AntialiasedFont>(
+      m_ui_font_name, std::max(round_to_int(24.0F * m_dpi_scale), 18), FW_BOLD);
+
+  m_svg_cache.clear();
 }
 
 UI::Editor::StudioEditorLayoutResult

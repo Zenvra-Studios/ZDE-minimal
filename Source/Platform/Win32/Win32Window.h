@@ -56,6 +56,10 @@ public:
   set_command_state_query_callback(CommandStateQueryCallback callback) override;
 
   [[nodiscard]] bool open_project_folder() override;
+  [[nodiscard]] bool set_workspace_root(const std::filesystem::path &root) override;
+  [[nodiscard]] bool open_file(const std::filesystem::path &path) override;
+  [[nodiscard]] bool open_path(const std::filesystem::path &path) override;
+  [[nodiscard]] std::filesystem::path get_workspace_root() const override;
   [[nodiscard]] bool close_project() override;
   void toggle_terminal() override;
   void toggle_shader_sandbox() override;

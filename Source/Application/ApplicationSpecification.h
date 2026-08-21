@@ -1,6 +1,8 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
+#include <optional>
 #include <string>
 
 namespace Zenvra::Application
@@ -15,6 +17,7 @@ struct ApplicationSpecification
     bool enable_docking = true;
     bool enable_viewports = false;
     bool smoke_test = false;
+    std::optional<std::filesystem::path> initial_path = std::nullopt;
 };
 
 } // namespace Zenvra::Application
