@@ -1,6 +1,11 @@
 #include "Application/Application.h"
 #include "Bootstrapper/NativeUI.h"
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 #include <algorithm>
 #include <string_view>
 #include <utility>
@@ -26,6 +31,11 @@ static bool has_argument(int argument_count, char** argument_values, std::string
 
 int main(int argument_count, char** argument_values)
 {
+#if defined(_WIN32) && (defined(NDEBUG) || defined(ZDE_RELEASE))
+    if (!has_argument(argument_count, argument_values, "--diagnose")) {
+        FreeConsole();
+    }
+#endif
     bool simulate_missing_dep = false;
     std::string missing_dep_target = "";
 

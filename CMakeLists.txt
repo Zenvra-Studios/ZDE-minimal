@@ -96,6 +96,7 @@ set(ZDE_SUBDIRECTORIES
     Config
     Docs
     Drivers
+    lib
     Scripts
     Source
     Tests

@@ -40,6 +40,10 @@ add_custom_command(
 add_custom_target(ZDE_Manifest DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/manifest-runtime.stamp")
 add_dependencies(ZDE ZDE_Manifest)
 
+if(TARGET zde_shared_libs)
+    add_dependencies(ZDE zde_shared_libs)
+endif()
+
 if(APPLE)
     set_target_properties(ZDE PROPERTIES
         MACOSX_BUNDLE TRUE
@@ -95,6 +99,18 @@ endif()
 
 if(WIN32)
     target_sources(ZDE PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Win32/Config/Win32Resources.rc")
+
+    # In Release mode, hide console window by linking as a Windows GUI application
+    if(MSVC)
+        target_link_options(ZDE PRIVATE
+            $<$<CONFIG:Release>:/SUBSYSTEM:WINDOWS>
+            $<$<CONFIG:Release>:/ENTRY:mainCRTStartup>
+        )
+    else()
+        target_link_options(ZDE PRIVATE
+            $<$<CONFIG:Release>:-mwindows>
+        )
+    endif()
 
     # Deploy clangd binary strictly inside plugins/lsp/ folder only (no root duplicates)
     set(CLANGD_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/clangd-windows-22.1.6/clangd.exe")
