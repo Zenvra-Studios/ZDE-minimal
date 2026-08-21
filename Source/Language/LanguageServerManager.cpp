@@ -615,6 +615,307 @@ std::vector<Protocol::CompletionItem> get_go_templates() {
           .filter_text = "type"}};
 }
 
+std::vector<Protocol::CompletionItem> get_asm_templates() {
+  return {
+      // --- x86 64-Bit (AMD64 / x86_64) Architecture ---
+      Protocol::CompletionItem{
+          .label = "x86_64:main (NASM 64-bit)",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(x86 64-bit NASM) _start entry point with 64-bit syscall",
+          .documentation = "x86 64-bit POSIX/Linux executable entry point using System V AMD64 ABI syscalls (sys_write, sys_exit).",
+          .insert_text =
+              "default rel\n"
+              "global _start\n\n"
+              "section .rodata\n"
+              "    msg db \"Hello from x86_64 Assembly!\", 10\n"
+              "    msg_len equ $ - msg\n\n"
+              "section .text\n"
+              "_start:\n"
+              "    ; write(1, msg, msg_len)\n"
+              "    mov rax, 1          ; sys_write\n"
+              "    mov rdi, 1          ; stdout\n"
+              "    lea rsi, [msg]      ; buffer\n"
+              "    mov rdx, msg_len    ; length\n"
+              "    syscall\n\n"
+              "    ; exit(0)\n"
+              "    mov rax, 60         ; sys_exit\n"
+              "    xor rdi, rdi        ; status 0\n"
+              "    syscall\n",
+          .filter_text = "x86_64:main"},
+      Protocol::CompletionItem{
+          .label = "x86_64:gas (GAS 64-bit)",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(x86 64-bit GAS) GNU Assembler entry point",
+          .documentation = "x86 64-bit GNU Assembler (.s) Intel syntax entry point with standard Linux 64-bit syscalls.",
+          .insert_text =
+              ".intel_syntax noprefix\n"
+              ".global _start\n\n"
+              ".section .rodata\n"
+              "msg:\n"
+              "    .ascii \"Hello from GAS x86_64!\\n\"\n"
+              "    msg_len = . - msg\n\n"
+              ".section .text\n"
+              "_start:\n"
+              "    mov rax, 1          # sys_write\n"
+              "    mov rdi, 1          # stdout\n"
+              "    lea rsi, [msg]      # buffer\n"
+              "    mov rdx, msg_len    # count\n"
+              "    syscall\n\n"
+              "    mov rax, 60         # sys_exit\n"
+              "    xor rdi, rdi        # status = 0\n"
+              "    syscall\n",
+          .filter_text = "x86_64:gas"},
+      Protocol::CompletionItem{
+          .label = "x86_64:frame (Stack Frame)",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(x86 64-bit) Standard Function Prologue & Epilogue",
+          .documentation = "Standard x86_64 stack frame setup and teardown preserving RBP.",
+          .insert_text =
+              "${1:function_name}:\n"
+              "    push rbp\n"
+              "    mov rbp, rsp\n"
+              "    sub rsp, ${2:16}       ; allocate stack space\n\n"
+              "    $0\n\n"
+              "    mov rsp, rbp\n"
+              "    pop rbp\n"
+              "    ret\n",
+          .filter_text = "x86_64:frame"},
+      Protocol::CompletionItem{
+          .label = "x86_64:avx2 (AVX2 SIMD)",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(x86 64-bit AVX2) 256-bit Vector Arithmetic",
+          .documentation = "AVX2 SIMD vector operations on 256-bit YMM registers with vzeroupper.",
+          .insert_text =
+              "; AVX2 256-bit Floating-Point Vector Addition\n"
+              "vmovaps ymm0, [rdi]        ; load 8x float from src1\n"
+              "vmovaps ymm1, [rsi]        ; load 8x float from src2\n"
+              "vaddps  ymm2, ymm0, ymm1   ; ymm2 = ymm0 + ymm1\n"
+              "vmovaps [rdx], ymm2        ; store result to dest\n"
+              "vzeroupper                 ; clear upper 128-bits state\n$0",
+          .filter_text = "x86_64:avx2"},
+      Protocol::CompletionItem{
+          .label = "x86_64:sse (SSE2 Vector)",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(x86 64-bit SSE2) 128-bit Vector Processing",
+          .documentation = "128-bit SSE2 vector mathematical operation on XMM registers.",
+          .insert_text =
+              "; SSE2 128-bit Single-Precision Vector Math\n"
+              "movaps xmm0, [rdi]         ; load 4x float\n"
+              "movaps xmm1, [rsi]         ; load 4x float\n"
+              "mulps  xmm0, xmm1          ; xmm0 = xmm0 * xmm1\n"
+              "movaps [rdx], xmm0         ; store result\n$0",
+          .filter_text = "x86_64:sse"},
+
+      // --- x86 32-Bit (i386 / IA-32) Architecture ---
+      Protocol::CompletionItem{
+          .label = "x86_32:main (NASM 32-bit)",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(x86 32-bit NASM) _start entry point with int 0x80",
+          .documentation = "x86 32-bit POSIX/Linux executable entry point using 32-bit system interrupts (int 0x80).",
+          .insert_text =
+              "global _start\n\n"
+              "section .rodata\n"
+              "    msg db \"Hello from x86 32-bit Assembly!\", 10\n"
+              "    msg_len equ $ - msg\n\n"
+              "section .text\n"
+              "_start:\n"
+              "    ; write(1, msg, msg_len)\n"
+              "    mov eax, 4          ; sys_write\n"
+              "    mov ebx, 1          ; stdout\n"
+              "    mov ecx, msg        ; buffer\n"
+              "    mov edx, msg_len    ; count\n"
+              "    int 0x80\n\n"
+              "    ; exit(0)\n"
+              "    mov eax, 1          ; sys_exit\n"
+              "    xor ebx, ebx        ; status 0\n"
+              "    int 0x80\n",
+          .filter_text = "x86_32:main"},
+      Protocol::CompletionItem{
+          .label = "x86_32:cdecl (cdecl Function)",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(x86 32-bit) Standard cdecl Function",
+          .documentation = "Standard 32-bit cdecl calling convention function with stack parameter access.",
+          .insert_text =
+              "${1:func_name}:\n"
+              "    push ebp\n"
+              "    mov ebp, esp\n"
+              "    push ebx\n"
+              "    push esi\n"
+              "    push edi\n\n"
+              "    mov eax, [ebp + 8]   ; arg1\n"
+              "    mov edx, [ebp + 12]  ; arg2\n"
+              "    $0\n\n"
+              "    pop edi\n"
+              "    pop esi\n"
+              "    pop ebx\n"
+              "    mov esp, ebp\n"
+              "    pop ebp\n"
+              "    ret\n",
+          .filter_text = "x86_32:cdecl"},
+
+      // --- x86 16-Bit (Real Mode / BIOS) Architecture ---
+      Protocol::CompletionItem{
+          .label = "x86_16:realmode (16-bit Real Mode)",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(x86 16-bit) Real Mode BIOS entry",
+          .documentation = "x86 16-bit real mode BIOS teletype output and execution.",
+          .insert_text =
+              "bits 16\n"
+              "org 0x7c00\n\n"
+              "start:\n"
+              "    xor ax, ax\n"
+              "    mov ds, ax\n"
+              "    mov es, ax\n"
+              "    mov ss, ax\n"
+              "    mov sp, 0x7c00\n\n"
+              "    lea si, [msg]\n"
+              "print_loop:\n"
+              "    lodsb\n"
+              "    test al, al\n"
+              "    jz halt\n"
+              "    mov ah, 0x0e        ; BIOS teletype output\n"
+              "    int 0x10\n"
+              "    jmp print_loop\n\n"
+              "halt:\n"
+              "    hlt\n"
+              "    jmp halt\n\n"
+              "msg db \"Hello from 16-bit Real Mode!\", 0\n",
+          .filter_text = "x86_16:realmode"},
+
+      // --- ARM 64-Bit (AArch64 / ARMv8-A / ARMv9) Architecture ---
+      Protocol::CompletionItem{
+          .label = "arm64:main (AArch64 64-bit)",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(ARM 64-bit AArch64) _start entry point with svc #0",
+          .documentation = "64-bit ARM AArch64 Linux/POSIX entry point using 64-bit system calls (x8=64 write, x8=93 exit).",
+          .insert_text =
+              ".global _start\n"
+              ".section .rodata\n"
+              "msg:\n"
+              "    .ascii \"Hello from ARM 64-bit (AArch64)!\\n\"\n"
+              "    msg_len = . - msg\n\n"
+              ".section .text\n"
+              "_start:\n"
+              "    // write(1, msg, msg_len)\n"
+              "    mov x0, #1          // stdout\n"
+              "    adr x1, msg         // buffer address\n"
+              "    mov x2, #msg_len    // length\n"
+              "    mov x8, #64         // sys_write (Linux AArch64)\n"
+              "    svc #0\n\n"
+              "    // exit(0)\n"
+              "    mov x0, #0          // status\n"
+              "    mov x8, #93         // sys_exit (Linux AArch64)\n"
+              "    svc #0\n",
+          .filter_text = "arm64:main"},
+      Protocol::CompletionItem{
+          .label = "arm64:frame (AArch64 Function Frame)",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(ARM 64-bit) AArch64 Stack Frame with Link Register",
+          .documentation = "Standard AArch64 function prologue/epilogue preserving Frame Pointer (x29) and Link Register (x30).",
+          .insert_text =
+              ".global ${1:function_name}\n"
+              ".type ${1:function_name}, %function\n"
+              "${1:function_name}:\n"
+              "    stp x29, x30, [sp, #-16]!  // save FP and LR\n"
+              "    mov x29, sp               // set frame pointer\n\n"
+              "    $0\n\n"
+              "    ldp x29, x30, [sp], #16   // restore FP and LR\n"
+              "    ret\n",
+          .filter_text = "arm64:frame"},
+      Protocol::CompletionItem{
+          .label = "arm64:neon (ARM NEON SIMD)",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(ARM 64-bit NEON) 128-bit Vector Processing",
+          .documentation = "ARM AArch64 Advanced SIMD (NEON) 128-bit vector floating point arithmetic.",
+          .insert_text =
+              "// ARM NEON 4x Float Vector Addition\n"
+              "ld1 {v0.4s}, [x0]         // load 4x 32-bit floats from [x0]\n"
+              "ld1 {v1.4s}, [x1]         // load 4x 32-bit floats from [x1]\n"
+              "fadd v2.4s, v0.4s, v1.4s  // v2 = v0 + v1\n"
+              "st1 {v2.4s}, [x2]         // store result to [x2]\n$0",
+          .filter_text = "arm64:neon"},
+
+      // --- ARM 32-Bit (ARMv7-A / Thumb-2 / AArch32) Architecture ---
+      Protocol::CompletionItem{
+          .label = "arm32:main (ARM 32-bit)",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(ARM 32-bit A32) _start entry point with svc #0",
+          .documentation = "32-bit ARM (ARMv7-A) Linux entry point using svc #0 (r7=4 write, r7=1 exit).",
+          .insert_text =
+              ".syntax unified\n"
+              ".arch armv7-a\n"
+              ".global _start\n\n"
+              ".section .rodata\n"
+              "msg:\n"
+              "    .ascii \"Hello from ARM 32-bit!\\n\"\n"
+              "    msg_len = . - msg\n\n"
+              ".section .text\n"
+              "_start:\n"
+              "    @ write(1, msg, msg_len)\n"
+              "    mov r0, #1          @ stdout\n"
+              "    ldr r1, =msg        @ buffer\n"
+              "    mov r2, #msg_len    @ count\n"
+              "    mov r7, #4          @ sys_write\n"
+              "    svc #0\n\n"
+              "    @ exit(0)\n"
+              "    mov r0, #0          @ status\n"
+              "    mov r7, #1          @ sys_exit\n"
+              "    svc #0\n",
+          .filter_text = "arm32:main"},
+      Protocol::CompletionItem{
+          .label = "arm32:thumb2 (ARM Thumb-2)",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(ARM 32-bit Thumb-2) Function Definition",
+          .documentation = "ARM Thumb-2 high-density instruction set function declaration.",
+          .insert_text =
+              ".syntax unified\n"
+              ".thumb\n"
+              ".thumb_func\n"
+              ".global ${1:thumb_func}\n"
+              "${1:thumb_func}:\n"
+              "    push {r4-r7, lr}\n"
+              "    $0\n"
+              "    pop {r4-r7, pc}\n",
+          .filter_text = "arm32:thumb2"},
+
+      // --- Common Sections & Directives ---
+      Protocol::CompletionItem{
+          .label = "section .data",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(Directive) Initialized Data Section",
+          .documentation = "Declares an initialized data section.",
+          .insert_text = "section .data\n    ${1:var_name} ${2:db} ${3:\"string\"}, 0\n$0",
+          .filter_text = "section .data"},
+      Protocol::CompletionItem{
+          .label = "section .bss",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(Directive) Uninitialized Data Section",
+          .documentation = "Declares a block started by symbol (BSS) memory reserve section.",
+          .insert_text = "section .bss\n    ${1:buffer} resb ${2:4096}\n$0",
+          .filter_text = "section .bss"},
+      Protocol::CompletionItem{
+          .label = "section .text",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(Directive) Code Section",
+          .documentation = "Declares a code/text executable section.",
+          .insert_text = "section .text\n    global ${1:entry_point}\n${1:entry_point}:\n    $0",
+          .filter_text = "section .text"},
+      Protocol::CompletionItem{
+          .label = "%macro",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(Macro) Preprocessor Macro Definition",
+          .documentation = "Defines a multi-line preprocessor macro in NASM.",
+          .insert_text = "%macro ${1:name} ${2:1}\n    $0\n%endmacro",
+          .filter_text = "%macro"},
+      Protocol::CompletionItem{
+          .label = "struc",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(Structure) Data Structure Declaration",
+          .documentation = "Defines a memory structure layout.",
+          .insert_text = "struc ${1:StructName}\n    .${2:field1}: resd 1\n    .${3:field2}: resq 1\nendstruc\n$0",
+          .filter_text = "struc"}};
+}
+
 } // namespace
 
 std::vector<Protocol::CompletionItem>
@@ -646,6 +947,10 @@ LanguageServerManager::get_templates_for_filename(std::string_view filename) {
   }
   if (ext == ".html" || ext == ".htm" || ext == ".xhtml") {
     return get_html_templates();
+  }
+  if (ext == ".asm" || ext == ".s" || ext == ".S" || ext == ".nasm" ||
+      ext == ".inc" || ext == ".a51") {
+    return get_asm_templates();
   }
   return {};
 }
@@ -889,7 +1194,8 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
          ext != ".go" && ext != ".js" && ext != ".ts" && ext != ".jsx" &&
          ext != ".tsx" && ext != ".mjs" && ext != ".cjs" && ext != ".mts" &&
          ext != ".cts" && ext != ".cmake" && ext != ".html" && ext != ".htm" &&
-         ext != ".xhtml" && ext != ".css" && ext != ".json")) {
+         ext != ".xhtml" && ext != ".css" && ext != ".json" && ext != ".asm" &&
+         ext != ".s" && ext != ".S" && ext != ".nasm" && ext != ".inc")) {
       return nullptr;
     }
   }

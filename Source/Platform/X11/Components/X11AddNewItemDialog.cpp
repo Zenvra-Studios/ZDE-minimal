@@ -234,30 +234,30 @@ void X11AddNewItemDialog::init_default_templates() {
   TemplateCategory shader_cat{
       "shader",
       "Shaders & Graphics",
-      "Assets/icons/vscode-symbols/icons/files/gdshader.svg",
+      "Assets/icons/material-icon-theme/shader.svg",
       {{"glsl_frag", "GLSL Fragment Shader (.frag)", "shader.frag", ".frag",
         "Shaders & Graphics",
         "Creates a GLSL fragment shader with standard output.",
-        "Assets/icons/vscode-symbols/icons/files/gdshader.svg",
+        "Assets/icons/material-icon-theme/shader.svg",
         "#version 450 core\n\nin vec2 v_uv;\nout vec4 frag_color;\n\nvoid "
         "main()\n{\n    frag_color = vec4(v_uv, 0.5, 1.0);\n}\n"},
        {"glsl_vert", "GLSL Vertex Shader (.vert)", "shader.vert", ".vert",
         "Shaders & Graphics",
         "Creates a GLSL vertex shader with position input.",
-        "Assets/icons/vscode-symbols/icons/files/gdshader.svg",
+        "Assets/icons/material-icon-theme/shader.svg",
         "#version 450 core\n\nlayout(location = 0) in vec3 "
         "a_pos;\nlayout(location = 1) in vec2 a_uv;\n\nout vec2 v_uv;\n\nvoid "
         "main()\n{\n    v_uv = a_uv;\n    gl_Position = vec4(a_pos, "
         "1.0);\n}\n"},
        {"glsl_comp", "GLSL Compute Shader (.comp)", "compute.comp", ".comp",
         "Shaders & Graphics", "Creates a GLSL compute shader.",
-        "Assets/icons/vscode-symbols/icons/files/gdshader.svg",
+        "Assets/icons/material-icon-theme/shader.svg",
         "#version 450 core\n\nlayout(local_size_x = 16, local_size_y = 16) "
         "in;\n\nvoid main()\n{\n    ivec2 coord = "
         "ivec2(gl_GlobalInvocationID.xy);\n}\n"},
        {"hlsl_shader", "HLSL Pixel Shader (.hlsl)", "PixelShader.hlsl", ".hlsl",
         "Shaders & Graphics", "Creates an HLSL pixel shader.",
-        "Assets/icons/vscode-symbols/icons/files/gdshader.svg",
+        "Assets/icons/material-icon-theme/shader.svg",
         "struct PSInput {\n    float4 pos : SV_POSITION;\n    float2 uv  : "
         "TEXCOORD0;\n};\n\nfloat4 main(PSInput input) : SV_TARGET\n{\n    "
         "return float4(input.uv, 0.0, 1.0);\n}\n"}}};
@@ -331,10 +331,152 @@ void X11AddNewItemDialog::init_default_templates() {
         "Assets/icons/vscode-symbols/icons/files/git.svg",
         "build/\nbin/\n*.obj\n*.exe\n.cache/\n"}}};
 
+  // 8. Assembly Category (x86 16/32/64-bit and ARM 32/64-bit)
+  TemplateCategory asm_cat{
+      "asm",
+      "Assembly",
+      "Assets/icons/material-icon-theme/assembly.svg",
+      {{"x86_64_nasm", "x86 64-bit NASM Executable (.asm)", "main.asm", ".asm",
+        "Assembly",
+        "Creates a 64-bit x86_64/AMD64 NASM source with POSIX 64-bit syscalls.",
+        "Assets/icons/material-icon-theme/assembly.svg",
+        "default rel\n"
+        "global _start\n\n"
+        "section .rodata\n"
+        "    msg db \"Hello from x86 64-bit Assembly!\", 10\n"
+        "    msg_len equ $ - msg\n\n"
+        "section .text\n"
+        "_start:\n"
+        "    ; write(1, msg, msg_len)\n"
+        "    mov rax, 1          ; sys_write\n"
+        "    mov rdi, 1          ; stdout\n"
+        "    lea rsi, [msg]      ; buffer\n"
+        "    mov rdx, msg_len    ; count\n"
+        "    syscall\n\n"
+        "    ; exit(0)\n"
+        "    mov rax, 60         ; sys_exit\n"
+        "    xor rdi, rdi        ; status 0\n"
+        "    syscall\n"},
+       {"x86_64_gas", "x86 64-bit GAS Assembly (.s)", "main.s", ".s",
+        "Assembly",
+        "Creates a 64-bit GNU Assembler (GAS) source file with Intel syntax.",
+        "Assets/icons/material-icon-theme/assembly.svg",
+        ".intel_syntax noprefix\n"
+        ".global _start\n\n"
+        ".section .rodata\n"
+        "msg:\n"
+        "    .ascii \"Hello from GAS x86_64!\\n\"\n"
+        "    msg_len = . - msg\n\n"
+        ".section .text\n"
+        "_start:\n"
+        "    mov rax, 1          # sys_write\n"
+        "    mov rdi, 1          # stdout\n"
+        "    lea rsi, [msg]      # buffer\n"
+        "    mov rdx, msg_len    # count\n"
+        "    syscall\n\n"
+        "    mov rax, 60         # sys_exit\n"
+        "    xor rdi, rdi        # status = 0\n"
+        "    syscall\n"},
+       {"x86_32_nasm", "x86 32-bit NASM Executable (.asm)", "main32.asm", ".asm",
+        "Assembly",
+        "Creates a 32-bit x86/IA-32 NASM source with standard 32-bit int 0x80 syscalls.",
+        "Assets/icons/material-icon-theme/assembly.svg",
+        "global _start\n\n"
+        "section .rodata\n"
+        "    msg db \"Hello from x86 32-bit Assembly!\", 10\n"
+        "    msg_len equ $ - msg\n\n"
+        "section .text\n"
+        "_start:\n"
+        "    ; write(1, msg, msg_len)\n"
+        "    mov eax, 4          ; sys_write\n"
+        "    mov ebx, 1          ; stdout\n"
+        "    mov ecx, msg        ; buffer\n"
+        "    mov edx, msg_len    ; count\n"
+        "    int 0x80\n\n"
+        "    ; exit(0)\n"
+        "    mov eax, 1          ; sys_exit\n"
+        "    xor ebx, ebx        ; status 0\n"
+        "    int 0x80\n"},
+       {"arm64_gas", "ARM 64-bit AArch64 Assembly (.s)", "main_arm64.s", ".s",
+        "Assembly",
+        "Creates a 64-bit ARM AArch64 (ARMv8/ARMv9) assembly source with 64-bit svc #0.",
+        "Assets/icons/material-icon-theme/assembly.svg",
+        ".global _start\n\n"
+        ".section .rodata\n"
+        "msg:\n"
+        "    .ascii \"Hello from ARM 64-bit (AArch64)!\\n\"\n"
+        "    msg_len = . - msg\n\n"
+        ".section .text\n"
+        "_start:\n"
+        "    // write(1, msg, msg_len)\n"
+        "    mov x0, #1          // stdout\n"
+        "    adr x1, msg         // buffer address\n"
+        "    mov x2, #msg_len    // length\n"
+        "    mov x8, #64         // sys_write\n"
+        "    svc #0\n\n"
+        "    // exit(0)\n"
+        "    mov x0, #0          // status\n"
+        "    mov x8, #93         // sys_exit\n"
+        "    svc #0\n"},
+       {"arm32_gas", "ARM 32-bit ARMv7/Thumb Assembly (.s)", "main_arm32.s", ".s",
+        "Assembly",
+        "Creates a 32-bit ARM (ARMv7-A / Cortex-A) assembly source with svc #0.",
+        "Assets/icons/material-icon-theme/assembly.svg",
+        ".syntax unified\n"
+        ".arch armv7-a\n"
+        ".global _start\n\n"
+        ".section .rodata\n"
+        "msg:\n"
+        "    .ascii \"Hello from ARM 32-bit!\\n\"\n"
+        "    msg_len = . - msg\n\n"
+        ".section .text\n"
+        "_start:\n"
+        "    @ write(1, msg, msg_len)\n"
+        "    mov r0, #1          @ stdout\n"
+        "    ldr r1, =msg        @ buffer\n"
+        "    mov r2, #msg_len    @ count\n"
+        "    mov r7, #4          @ sys_write\n"
+        "    svc #0\n\n"
+        "    @ exit(0)\n"
+        "    mov r0, #0          @ status\n"
+        "    mov r7, #1          @ sys_exit\n"
+        "    svc #0\n"},
+       {"asm_inc", "Assembly Header Include (.inc)", "defs.inc", ".inc",
+        "Assembly",
+        "Creates an assembly definitions, structures, and macros include file.",
+        "Assets/icons/material-icon-theme/assembly.svg",
+        "; Assembly Include Definitions & Macros\n"
+        "%ifndef _DEFS_INC_\n"
+        "%define _DEFS_INC_\n\n"
+        "; System Call Numbers (x86_64 / AArch64 ABI)\n"
+        "%define SYS_READ   0\n"
+        "%define SYS_WRITE  1\n"
+        "%define SYS_OPEN   2\n"
+        "%define SYS_CLOSE  3\n"
+        "%define SYS_EXIT   60\n\n"
+        "%macro PUSH_ALL 0\n"
+        "    push rbx\n"
+        "    push rcx\n"
+        "    push rdx\n"
+        "    push rsi\n"
+        "    push rdi\n"
+        "    push rbp\n"
+        "%endmacro\n\n"
+        "%macro POP_ALL 0\n"
+        "    pop rbp\n"
+        "    pop rdi\n"
+        "    pop rsi\n"
+        "    pop rdx\n"
+        "    pop rcx\n"
+        "    pop rbx\n"
+        "%endmacro\n\n"
+        "%endif ; _DEFS_INC_\n"}}};
+
   m_categories.push_back(cpp_cat);
   m_categories.push_back(rust_cat);
   m_categories.push_back(go_cat);
   m_categories.push_back(ts_cat);
+  m_categories.push_back(asm_cat);
   m_categories.push_back(shader_cat);
   m_categories.push_back(build_cat);
   m_categories.push_back(web_cat);
@@ -642,11 +784,17 @@ void X11AddNewItemDialog::render() {
   const unsigned long titlebar_bg = alloc_rgb(m_display, m_screen, 29, 30, 33);
   const unsigned long border_col = alloc_rgb(m_display, m_screen, 48, 50, 55);
   const unsigned long sep_col = alloc_rgb(m_display, m_screen, 48, 50, 55);
-  const unsigned long sel_cat_blue =
+
+  const unsigned long sel_cat_bg = alloc_rgb(m_display, m_screen, 38, 46, 58);
+  const unsigned long accent_blue =
       alloc_rgb(m_display, m_screen, 53, 132, 228);
-  const unsigned long sel_tpl_blue =
-      alloc_rgb(m_display, m_screen, 53, 132, 228);
-  const unsigned long hov_item_bg = alloc_rgb(m_display, m_screen, 45, 47, 52);
+  const unsigned long hov_cat_bg = alloc_rgb(m_display, m_screen, 42, 45, 52);
+
+  const unsigned long sel_tpl_bg = alloc_rgb(m_display, m_screen, 40, 52, 72);
+  const unsigned long sel_tpl_border =
+      alloc_rgb(m_display, m_screen, 58, 88, 128);
+  const unsigned long hov_tpl_bg = alloc_rgb(m_display, m_screen, 42, 45, 52);
+
   const unsigned long input_bg = alloc_rgb(m_display, m_screen, 24, 25, 28);
   const unsigned long input_border =
       alloc_rgb(m_display, m_screen, 53, 132, 228);
@@ -669,14 +817,14 @@ void X11AddNewItemDialog::render() {
 
   // Titlebar Icon
   draw_icon(m_back_buffer, "Assets/icons/material-icon-theme/document.svg",
-            static_cast<int>(12.0F * scale), static_cast<int>(9.0F * scale),
+            static_cast<int>(8.0F * scale), static_cast<int>(9.0F * scale),
             static_cast<int>(16.0F * scale), 29, 30, 33);
 
   // Titlebar Title
   if (m_title_font && m_title_font->isValid()) {
     const std::string full_title = "Add New Item - " + m_project_name;
-    m_title_font->drawString(m_back_buffer, "#cccccc",
-                             static_cast<int>(36.0F * scale),
+    m_title_font->drawString(m_back_buffer, "#e6e9f0",
+                             static_cast<int>(28.0F * scale),
                              static_cast<int>(21.0F * scale), full_title);
   }
 
@@ -715,6 +863,8 @@ void X11AddNewItemDialog::render() {
   const int pane_top_y = static_cast<int>(m_titlebar_rect.height);
   const int pane_bottom_y =
       static_cast<int>(m_titlebar_rect.height + m_category_pane_rect.height);
+
+  // Vertical Separators
   XSetForeground(m_display, m_gc, sep_col);
   XDrawLine(m_display, m_back_buffer, m_gc,
             static_cast<int>(m_category_pane_rect.right()), pane_top_y,
@@ -722,6 +872,9 @@ void X11AddNewItemDialog::render() {
   XDrawLine(m_display, m_back_buffer, m_gc,
             static_cast<int>(m_template_pane_rect.right()), pane_top_y,
             static_cast<int>(m_template_pane_rect.right()), pane_bottom_y);
+
+  const float h_inset = 4.0F * scale;
+  const float v_inset = 1.0F * scale;
 
   // 4. Left Categories Pane
   m_category_item_rects.clear();
@@ -738,33 +891,52 @@ void X11AddNewItemDialog::render() {
     const bool is_hov =
         (m_hovered_category_index && *m_hovered_category_index == i);
 
+    UI::Rect tile_rect{item_rect.x + h_inset, item_rect.y + v_inset,
+                       item_rect.width - h_inset * 2.0F,
+                       item_rect.height - v_inset * 2.0F};
+
     if (is_sel) {
-      XSetForeground(m_display, m_gc, sel_cat_blue);
+      // Soft dark slate-blue selection background
+      XSetForeground(m_display, m_gc, sel_cat_bg);
       XFillRectangle(m_display, m_back_buffer, m_gc,
-                     static_cast<int>(item_rect.x),
-                     static_cast<int>(item_rect.y),
-                     static_cast<unsigned int>(item_rect.width),
-                     static_cast<unsigned int>(item_rect.height));
+                     static_cast<int>(tile_rect.x),
+                     static_cast<int>(tile_rect.y),
+                     static_cast<unsigned int>(tile_rect.width),
+                     static_cast<unsigned int>(tile_rect.height));
+
+      // Active vertical accent indicator bar on left edge (3px)
+      XSetForeground(m_display, m_gc, accent_blue);
+      XFillRectangle(m_display, m_back_buffer, m_gc,
+                     static_cast<int>(tile_rect.x),
+                     static_cast<int>(tile_rect.y),
+                     static_cast<unsigned int>(3.0F * scale),
+                     static_cast<unsigned int>(tile_rect.height));
     } else if (is_hov) {
-      XSetForeground(m_display, m_gc, hov_item_bg);
+      // Subtle dark neutral hover
+      XSetForeground(m_display, m_gc, hov_cat_bg);
       XFillRectangle(m_display, m_back_buffer, m_gc,
-                     static_cast<int>(item_rect.x),
-                     static_cast<int>(item_rect.y),
-                     static_cast<unsigned int>(item_rect.width),
-                     static_cast<unsigned int>(item_rect.height));
+                     static_cast<int>(tile_rect.x),
+                     static_cast<int>(tile_rect.y),
+                     static_cast<unsigned int>(tile_rect.width),
+                     static_cast<unsigned int>(tile_rect.height));
     }
 
-    const uint8_t bg_r = is_sel ? 0 : (is_hov ? 45 : 31);
-    const uint8_t bg_g = is_sel ? 122 : (is_hov ? 45 : 31);
-    const uint8_t bg_b = is_sel ? 204 : (is_hov ? 45 : 31);
+    const uint8_t bg_r = is_sel ? 38 : (is_hov ? 42 : 30);
+    const uint8_t bg_g = is_sel ? 46 : (is_hov ? 45 : 31);
+    const uint8_t bg_b = is_sel ? 58 : (is_hov ? 52 : 34);
     draw_icon(m_back_buffer, cat.icon_path,
-              static_cast<int>(item_rect.x + 12.0F * scale),
+              static_cast<int>(tile_rect.x + 8.0F * scale),
               static_cast<int>(item_rect.y + 6.0F * scale),
               static_cast<int>(16.0F * scale), bg_r, bg_g, bg_b);
 
-    if (m_ui_font && m_ui_font->isValid()) {
-      m_ui_font->drawString(m_back_buffer, is_sel ? "#ffffff" : "#cdcdcd",
-                            static_cast<int>(item_rect.x + 36.0F * scale),
+    if (is_sel && m_bold_font && m_bold_font->isValid()) {
+      m_bold_font->drawString(m_back_buffer, "#ffffff",
+                              static_cast<int>(tile_rect.x + 30.0F * scale),
+                              static_cast<int>(item_rect.y + 19.0F * scale),
+                              cat.name);
+    } else if (m_ui_font && m_ui_font->isValid()) {
+      m_ui_font->drawString(m_back_buffer, is_hov ? "#d8dbe2" : "#afb2ba",
+                            static_cast<int>(tile_rect.x + 30.0F * scale),
                             static_cast<int>(item_rect.y + 19.0F * scale),
                             cat.name);
     }
@@ -789,33 +961,44 @@ void X11AddNewItemDialog::render() {
       const bool is_hov =
           (m_hovered_template_index && *m_hovered_template_index == i);
 
+      UI::Rect tile_rect{item_rect.x + h_inset, item_rect.y + v_inset,
+                         item_rect.width - h_inset * 2.0F,
+                         item_rect.height - v_inset * 2.0F};
+
       if (is_sel) {
-        XSetForeground(m_display, m_gc, sel_tpl_blue);
+        // Deep slate selection fill & subtle border
+        XSetForeground(m_display, m_gc, sel_tpl_bg);
         XFillRectangle(m_display, m_back_buffer, m_gc,
-                       static_cast<int>(item_rect.x),
-                       static_cast<int>(item_rect.y),
-                       static_cast<unsigned int>(item_rect.width),
-                       static_cast<unsigned int>(item_rect.height));
+                       static_cast<int>(tile_rect.x),
+                       static_cast<int>(tile_rect.y),
+                       static_cast<unsigned int>(tile_rect.width),
+                       static_cast<unsigned int>(tile_rect.height));
+        XSetForeground(m_display, m_gc, sel_tpl_border);
+        XDrawRectangle(m_display, m_back_buffer, m_gc,
+                       static_cast<int>(tile_rect.x),
+                       static_cast<int>(tile_rect.y),
+                       static_cast<unsigned int>(tile_rect.width),
+                       static_cast<unsigned int>(tile_rect.height));
       } else if (is_hov) {
-        XSetForeground(m_display, m_gc, hov_item_bg);
+        XSetForeground(m_display, m_gc, hov_tpl_bg);
         XFillRectangle(m_display, m_back_buffer, m_gc,
-                       static_cast<int>(item_rect.x),
-                       static_cast<int>(item_rect.y),
-                       static_cast<unsigned int>(item_rect.width),
-                       static_cast<unsigned int>(item_rect.height));
+                       static_cast<int>(tile_rect.x),
+                       static_cast<int>(tile_rect.y),
+                       static_cast<unsigned int>(tile_rect.width),
+                       static_cast<unsigned int>(tile_rect.height));
       }
 
-      const uint8_t bg_r = is_sel ? 0 : (is_hov ? 40 : 27);
-      const uint8_t bg_g = is_sel ? 122 : (is_hov ? 40 : 27);
-      const uint8_t bg_b = is_sel ? 204 : (is_hov ? 44 : 30);
+      const uint8_t bg_r = is_sel ? 40 : (is_hov ? 42 : 30);
+      const uint8_t bg_g = is_sel ? 52 : (is_hov ? 45 : 31);
+      const uint8_t bg_b = is_sel ? 72 : (is_hov ? 52 : 34);
       draw_icon(m_back_buffer, tpl.icon_path,
-                static_cast<int>(item_rect.x + 12.0F * scale),
+                static_cast<int>(tile_rect.x + 8.0F * scale),
                 static_cast<int>(item_rect.y + 6.0F * scale),
                 static_cast<int>(16.0F * scale), bg_r, bg_g, bg_b);
 
       if (m_ui_font && m_ui_font->isValid()) {
-        m_ui_font->drawString(m_back_buffer, is_sel ? "#ffffff" : "#dcdcdc",
-                              static_cast<int>(item_rect.x + 36.0F * scale),
+        m_ui_font->drawString(m_back_buffer, is_sel ? "#ffffff" : (is_hov ? "#d8dbe2" : "#bcbec4"),
+                              static_cast<int>(tile_rect.x + 30.0F * scale),
                               static_cast<int>(item_rect.y + 19.0F * scale),
                               tpl.name);
 
@@ -823,8 +1006,8 @@ void X11AddNewItemDialog::render() {
         if (m_small_font && m_small_font->isValid()) {
           const int cat_w = m_small_font->getTextWidth(tpl.category);
           m_small_font->drawString(
-              m_back_buffer, is_sel ? "#d0e6ff" : "#787884",
-              static_cast<int>(item_rect.right() - cat_w - 14.0F * scale),
+              m_back_buffer, is_sel ? "#91aacd" : (is_hov ? "#787d87" : "#686b73"),
+              static_cast<int>(tile_rect.right() - cat_w - 8.0F * scale),
               static_cast<int>(item_rect.y + 19.0F * scale), tpl.category);
         }
       }
@@ -842,11 +1025,11 @@ void X11AddNewItemDialog::render() {
       draw_icon(m_back_buffer, tpl.icon_path,
                 static_cast<int>(m_details_pane_rect.x + 16.0F * scale),
                 static_cast<int>(m_details_pane_rect.y + 16.0F * scale),
-                static_cast<int>(24.0F * scale), 27, 27, 30);
+                static_cast<int>(24.0F * scale), 30, 31, 34);
 
       if (m_bold_font && m_bold_font->isValid()) {
         m_bold_font->drawString(
-            m_back_buffer, "#ffffff",
+            m_back_buffer, "#e1e4eb",
             static_cast<int>(m_details_pane_rect.x + 48.0F * scale),
             static_cast<int>(m_details_pane_rect.y + 32.0F * scale),
             "Type: " + tpl.category);
@@ -879,7 +1062,7 @@ void X11AddNewItemDialog::render() {
         int dy = static_cast<int>(m_details_pane_rect.y + 60.0F * scale);
         for (const auto &line : lines) {
           m_ui_font->drawString(
-              m_back_buffer, "#a0a0aa",
+              m_back_buffer, "#9196a2",
               static_cast<int>(m_details_pane_rect.x + 16.0F * scale), dy,
               line);
           dy += static_cast<int>(18.0F * scale);
@@ -890,6 +1073,7 @@ void X11AddNewItemDialog::render() {
 
   // 7. Footer Panel & Horizontal Separator Line
   const float footer_top = static_cast<float>(m_height) - 70.0F * scale;
+
   XSetForeground(m_display, m_gc, sep_col);
   XDrawLine(m_display, m_back_buffer, m_gc, 0, static_cast<int>(footer_top),
             m_width, static_cast<int>(footer_top));
@@ -897,7 +1081,7 @@ void X11AddNewItemDialog::render() {
   // Name Label
   if (m_ui_font && m_ui_font->isValid()) {
     m_ui_font->drawString(
-        m_back_buffer, "#b4b4b4", static_cast<int>(18.0F * scale),
+        m_back_buffer, "#b4b7be", static_cast<int>(18.0F * scale),
         static_cast<int>(footer_top + 24.0F * scale), "Name:");
   }
 
@@ -928,7 +1112,7 @@ void X11AddNewItemDialog::render() {
   const int text_y = static_cast<int>(m_name_input_rect.y + 18.0F * scale);
 
   if (m_ui_font && m_ui_font->isValid()) {
-    m_ui_font->drawString(m_back_buffer, "#ffffff", text_x, text_y,
+    m_ui_font->drawString(m_back_buffer, "#e1e4eb", text_x, text_y,
                           m_filename_input);
 
     // Caret
@@ -944,7 +1128,7 @@ void X11AddNewItemDialog::render() {
   // Location label & value
   if (m_small_font && m_small_font->isValid()) {
     m_small_font->drawString(
-        m_back_buffer, "#888890", static_cast<int>(18.0F * scale),
+        m_back_buffer, "#888c96", static_cast<int>(18.0F * scale),
         static_cast<int>(footer_top + 52.0F * scale), "Location:");
 
     std::string loc_str = m_target_folder.string();
@@ -960,14 +1144,14 @@ void X11AddNewItemDialog::render() {
     }
 
     m_small_font->drawString(
-        m_back_buffer, "#a0a0b0", static_cast<int>(76.0F * scale),
+        m_back_buffer, "#7d828e", static_cast<int>(76.0F * scale),
         static_cast<int>(footer_top + 52.0F * scale), loc_str);
   }
 
-  // Add Button (Synced Theme Accent Blue)
+  // Add Button (Primary CTA Accent Blue)
   const unsigned long add_bg =
-      m_add_hovered ? alloc_rgb(m_display, m_screen, 28, 151, 234)
-                    : sel_tpl_blue;
+      m_add_hovered ? alloc_rgb(m_display, m_screen, 65, 145, 240)
+                    : accent_blue;
   XSetForeground(m_display, m_gc, add_bg);
   XFillRectangle(m_display, m_back_buffer, m_gc,
                  static_cast<int>(m_add_btn_rect.x),
@@ -983,22 +1167,24 @@ void X11AddNewItemDialog::render() {
 
   // Cancel Button (Flat dark gray with subtle border)
   const unsigned long cancel_bg =
-      m_cancel_hovered ? alloc_rgb(m_display, m_screen, 45, 47, 52)
-                       : alloc_rgb(m_display, m_screen, 36, 37, 42);
+      m_cancel_hovered ? alloc_rgb(m_display, m_screen, 46, 49, 56)
+                       : alloc_rgb(m_display, m_screen, 36, 38, 43);
+  const unsigned long cancel_border =
+      alloc_rgb(m_display, m_screen, 50, 53, 60);
   XSetForeground(m_display, m_gc, cancel_bg);
   XFillRectangle(m_display, m_back_buffer, m_gc,
                  static_cast<int>(m_cancel_btn_rect.x),
                  static_cast<int>(m_cancel_btn_rect.y),
                  static_cast<unsigned int>(m_cancel_btn_rect.width),
                  static_cast<unsigned int>(m_cancel_btn_rect.height));
-  XSetForeground(m_display, m_gc, border_col);
+  XSetForeground(m_display, m_gc, cancel_border);
   XDrawRectangle(m_display, m_back_buffer, m_gc,
                  static_cast<int>(m_cancel_btn_rect.x),
                  static_cast<int>(m_cancel_btn_rect.y),
                  static_cast<unsigned int>(m_cancel_btn_rect.width),
                  static_cast<unsigned int>(m_cancel_btn_rect.height));
   if (m_ui_font && m_ui_font->isValid()) {
-    m_ui_font->drawString(m_back_buffer, "#d0d0d0",
+    m_ui_font->drawString(m_back_buffer, "#bebfca",
                           static_cast<int>(m_cancel_btn_rect.x + 16.0F * scale),
                           static_cast<int>(m_cancel_btn_rect.y + 18.0F * scale),
                           "Cancel");

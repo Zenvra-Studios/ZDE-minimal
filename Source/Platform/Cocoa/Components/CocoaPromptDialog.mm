@@ -125,8 +125,40 @@ static void init_templates(std::vector<TemplateCategory>& categories)
         }
     };
 
+    // Assembly Category (x86 16/32/64-bit and ARM 32/64-bit)
+    TemplateCategory asm_cat{
+        "asm", "Assembly", "Assets/icons/material-icon-theme/assembly.svg",
+        {
+            {"x86_64_nasm", "x86 64-bit NASM Executable (.asm)", "main.asm", ".asm", "Assembly",
+             "Creates a 64-bit x86_64/AMD64 NASM source with POSIX 64-bit syscalls.",
+             "Assets/icons/material-icon-theme/assembly.svg",
+             "default rel\nglobal _start\n\nsection .rodata\n    msg db \"Hello from x86 64-bit Assembly!\", 10\n    msg_len equ $ - msg\n\nsection .text\n_start:\n    ; write(1, msg, msg_len)\n    mov rax, 1          ; sys_write\n    mov rdi, 1          ; stdout\n    lea rsi, [msg]      ; buffer\n    mov rdx, msg_len    ; count\n    syscall\n\n    ; exit(0)\n    mov rax, 60         ; sys_exit\n    xor rdi, rdi        ; status 0\n    syscall\n"},
+            {"x86_64_gas", "x86 64-bit GAS Assembly (.s)", "main.s", ".s", "Assembly",
+             "Creates a 64-bit GNU Assembler (GAS) source file with Intel syntax.",
+             "Assets/icons/material-icon-theme/assembly.svg",
+             ".intel_syntax noprefix\n.global _start\n\n.section .rodata\nmsg:\n    .ascii \"Hello from GAS x86_64!\\n\"\n    msg_len = . - msg\n\n.section .text\n_start:\n    mov rax, 1          # sys_write\n    mov rdi, 1          # stdout\n    lea rsi, [msg]      # buffer\n    mov rdx, msg_len    # count\n    syscall\n\n    mov rax, 60         # sys_exit\n    xor rdi, rdi        # status = 0\n    syscall\n"},
+            {"x86_32_nasm", "x86 32-bit NASM Executable (.asm)", "main32.asm", ".asm", "Assembly",
+             "Creates a 32-bit x86/IA-32 NASM source with standard 32-bit int 0x80 syscalls.",
+             "Assets/icons/material-icon-theme/assembly.svg",
+             "global _start\n\nsection .rodata\n    msg db \"Hello from x86 32-bit Assembly!\", 10\n    msg_len equ $ - msg\n\nsection .text\n_start:\n    ; write(1, msg, msg_len)\n    mov eax, 4          ; sys_write\n    mov ebx, 1          ; stdout\n    mov ecx, msg        ; buffer\n    mov edx, msg_len    ; count\n    int 0x80\n\n    ; exit(0)\n    mov eax, 1          ; sys_exit\n    xor ebx, ebx        ; status 0\n    int 0x80\n"},
+            {"arm64_gas", "ARM 64-bit AArch64 Assembly (.s)", "main_arm64.s", ".s", "Assembly",
+             "Creates a 64-bit ARM AArch64 (ARMv8/ARMv9) assembly source with 64-bit svc #0.",
+             "Assets/icons/material-icon-theme/assembly.svg",
+             ".global _start\n\n.section .rodata\nmsg:\n    .ascii \"Hello from ARM 64-bit (AArch64)!\\n\"\n    msg_len = . - msg\n\n.section .text\n_start:\n    // write(1, msg, msg_len)\n    mov x0, #1          // stdout\n    adr x1, msg         // buffer address\n    mov x2, #msg_len    // length\n    mov x8, #64         // sys_write\n    svc #0\n\n    // exit(0)\n    mov x0, #0          // status\n    mov x8, #93         // sys_exit\n    svc #0\n"},
+            {"arm32_gas", "ARM 32-bit ARMv7/Thumb Assembly (.s)", "main_arm32.s", ".s", "Assembly",
+             "Creates a 32-bit ARM (ARMv7-A / Cortex-A) assembly source with svc #0.",
+             "Assets/icons/material-icon-theme/assembly.svg",
+             ".syntax unified\n.arch armv7-a\n.global _start\n\n.section .rodata\nmsg:\n    .ascii \"Hello from ARM 32-bit!\\n\"\n    msg_len = . - msg\n\n.section .text\n_start:\n    @ write(1, msg, msg_len)\n    mov r0, #1          @ stdout\n    ldr r1, =msg        @ buffer\n    mov r2, #msg_len    @ count\n    mov r7, #4          @ sys_write\n    svc #0\n\n    @ exit(0)\n    mov r0, #0          @ status\n    mov r7, #1          @ sys_exit\n    svc #0\n"},
+            {"asm_inc", "Assembly Header Include (.inc)", "defs.inc", ".inc", "Assembly",
+             "Creates an assembly definitions, structures, and macros include file.",
+             "Assets/icons/material-icon-theme/assembly.svg",
+             "; Assembly Include Definitions & Macros\n%ifndef _DEFS_INC_\n%define _DEFS_INC_\n\n; System Call Numbers (x86_64 / AArch64 ABI)\n%define SYS_READ   0\n%define SYS_WRITE  1\n%define SYS_OPEN   2\n%define SYS_CLOSE  3\n%define SYS_EXIT   60\n\n%macro PUSH_ALL 0\n    push rbx\n    push rcx\n    push rdx\n    push rsi\n    push rdi\n    push rbp\n%endmacro\n\n%macro POP_ALL 0\n    pop rbp\n    pop rdi\n    pop rsi\n    pop rdx\n    pop rcx\n    pop rbx\n%endmacro\n\n%endif ; _DEFS_INC_\n"}
+        }
+    };
+
     categories.push_back(std::move(cpp_cat));
     categories.push_back(std::move(rust_cat));
+    categories.push_back(std::move(asm_cat));
     categories.push_back(std::move(shader_cat));
     categories.push_back(std::move(build_cat));
     categories.push_back(std::move(gen_cat));

@@ -179,6 +179,10 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
     {
         candidate_names = { "gopls", "gopls-v0.23.0", "gopls-v0.23.0.exe", "gopls.exe" };
     }
+    else if (exe_str == "asm-lsp" || exe_str == "asm_lsp" || exe_str == "nasm")
+    {
+        candidate_names = { "asm-lsp", "asm_lsp", "nasm", "clangd" };
+    }
 
     for (const auto& cur_name : candidate_names)
     {
@@ -868,6 +872,15 @@ void ServerRegistry::initialize_default_profiles()
     java_profile.default_args = {};
     java_profile.root_markers = {"pom.xml", "build.gradle", ".git"};
     register_profile(std::move(java_profile));
+
+    // Assembly (asm-lsp / nasm / clangd)
+    ServerProfile asm_profile;
+    asm_profile.language_id = "asm";
+    asm_profile.extensions = {".asm", ".s", ".S", ".nasm", ".inc", ".a51"};
+    asm_profile.executable_name = "asm-lsp";
+    asm_profile.default_args = {};
+    asm_profile.root_markers = {"Makefile", "CMakeLists.txt", ".git"};
+    register_profile(std::move(asm_profile));
 }
 
 } // namespace Zenvra::Language::Registry

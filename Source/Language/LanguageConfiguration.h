@@ -28,6 +28,11 @@ struct LanguageConfiguration
         {
             config.line_comment = "#";
         }
+        else if (extension == ".asm" || extension == ".s" || extension == ".S" || extension == ".nasm" || extension == ".inc" || extension == ".a51")
+        {
+            config.auto_close_braces = false;
+            config.line_comment = ";";
+        }
         
         return config;
     }

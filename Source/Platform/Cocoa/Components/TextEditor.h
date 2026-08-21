@@ -219,9 +219,11 @@ private:
     mutable std::optional<std::size_t> m_hovered_fold_line;
     bool m_hovered_tab_scrollbar = false;
     mutable UI::Editor::BraceAnimationModel m_brace_animation;
+    mutable UI::Editor::BraceAnimationModel m_split_brace_animation;
     mutable UI::Components::Button m_empty_state_open_btn;
     mutable UI::Components::Button m_empty_state_clone_btn;
     mutable UI::Editor::TextPosition m_last_brace_caret;
+    mutable UI::Editor::TextPosition m_split_last_brace_caret;
     mutable UI::Components::CompletionPopup m_completion_popup;
     mutable UI::Components::HoverTooltip m_hover_tooltip;
     mutable UI::Components::SignatureHelpWidget m_signature_help;

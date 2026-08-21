@@ -111,7 +111,7 @@ private:
   void select_template(std::size_t index);
   void submit();
   void draw_icon(HDC dc, const std::string &icon_rel_path, int x, int y,
-                 int size) const;
+                 int size, std::optional<COLORREF> tint_color = std::nullopt) const;
   void refresh_fonts();
 
   HWND m_hwnd = nullptr;

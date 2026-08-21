@@ -15,6 +15,7 @@
 #include "UI/Components/CompletionPopup.h"
 #include "UI/Components/HoverTooltip.h"
 #include "UI/Editor/ActivityPanelModel.h"
+#include "UI/Editor/FileIconModel.h"
 #include "UI/Editor/StudioEditorModel.h"
 #include "UI/Editor/TextDocumentModel.h"
 #include "UI/Toolbar/StudioMainToolbar.h"
@@ -870,3 +871,94 @@ TEST(LanguageServerTests, ToolchainDetectionIncludesAndHeaders) {
 #endif
   }
 }
+
+TEST(LanguageServerTests, AssemblyGrammarProfileAndTemplates) {
+  // 1. Verify ServerRegistry resolves .asm, .s, .S, .nasm, .inc to asm profile
+  const auto *asm_profile =
+      Language::Registry::ServerRegistry::instance().find_profile_for_filename(
+          "main.asm");
+  ASSERT_NE(asm_profile, nullptr);
+  EXPECT_EQ(asm_profile->language_id, "asm");
+  EXPECT_EQ(asm_profile->executable_name, "asm-lsp");
+
+  const auto *s_profile =
+      Language::Registry::ServerRegistry::instance().find_profile_for_filename(
+          "kernel.s");
+  ASSERT_NE(s_profile, nullptr);
+  EXPECT_EQ(s_profile->language_id, "asm");
+
+  // 2. Verify GrammarRegistry retrieves Assembly grammar
+  const auto *asm_grammar =
+      Language::Syntax::GrammarRegistry::instance().get_grammar_for_filename(
+          "code.asm");
+  ASSERT_NE(asm_grammar, nullptr);
+  EXPECT_EQ(asm_grammar->name, "Assembly");
+  EXPECT_TRUE(asm_grammar->is_keyword("mov"));
+  EXPECT_TRUE(asm_grammar->is_keyword("MOV")); // case-insensitive check
+  EXPECT_TRUE(asm_grammar->is_keyword("syscall"));
+  EXPECT_TRUE(asm_grammar->is_keyword("svc"));
+  EXPECT_TRUE(asm_grammar->is_type("rax"));
+  EXPECT_TRUE(asm_grammar->is_type("RAX"));
+  EXPECT_TRUE(asm_grammar->is_type("x0"));
+  EXPECT_TRUE(asm_grammar->is_type("X0"));
+
+  // 3. Verify GenericGrammarEngine tokenization for Assembly
+  std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+  Language::Syntax::TokenizerState state{};
+  const std::string_view asm_line = "    mov rax, 1 ; sys_write";
+  const std::size_t token_count =
+      Language::Syntax::GenericGrammarEngine::tokenize_line(asm_line, *asm_grammar,
+                                                            tokens, state);
+  EXPECT_GT(token_count, 0);
+
+  // 4. Verify templates for Assembly exist and cover x86 (16/32/64-bit) & ARM (32/64-bit)
+  const auto templates =
+      Language::LanguageServerManager::get_templates_for_filename("main.asm");
+  EXPECT_FALSE(templates.empty());
+  EXPECT_GE(templates.size(), 8);
+
+  bool has_x86_64 = false;
+  bool has_x86_32 = false;
+  bool has_x86_16 = false;
+  bool has_arm64 = false;
+  bool has_arm32 = false;
+  bool has_win32_forbidden = false;
+
+  for (const auto &item : templates) {
+    std::string lower_label = item.label;
+    std::transform(lower_label.begin(), lower_label.end(), lower_label.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::string lower_doc = item.documentation;
+    std::transform(lower_doc.begin(), lower_doc.end(), lower_doc.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+    if (lower_label.find("x86_64") != std::string::npos) has_x86_64 = true;
+    if (lower_label.find("x86_32") != std::string::npos) has_x86_32 = true;
+    if (lower_label.find("x86_16") != std::string::npos) has_x86_16 = true;
+    if (lower_label.find("arm64") != std::string::npos) has_arm64 = true;
+    if (lower_label.find("arm32") != std::string::npos) has_arm32 = true;
+
+    // Strict validation: must NOT contain win32
+    if (lower_label.find("win32") != std::string::npos ||
+        lower_doc.find("win32") != std::string::npos) {
+      has_win32_forbidden = true;
+    }
+  }
+
+  EXPECT_TRUE(has_x86_64);
+  EXPECT_TRUE(has_x86_32);
+  EXPECT_TRUE(has_x86_16);
+  EXPECT_TRUE(has_arm64);
+  EXPECT_TRUE(has_arm32);
+  EXPECT_FALSE(has_win32_forbidden);
+
+  // 5. Verify FileIconModel icon mapping for assembly files
+  const std::string asm_icon =
+      UI::Editor::file_icon_asset_for_path(std::filesystem::path("program.asm"));
+  EXPECT_EQ(asm_icon, "material-icon-theme/assembly.svg");
+
+  const std::string s_icon =
+      UI::Editor::file_icon_asset_for_path(std::filesystem::path("driver.s"));
+  EXPECT_EQ(s_icon, "material-icon-theme/assembly.svg");
+}
+

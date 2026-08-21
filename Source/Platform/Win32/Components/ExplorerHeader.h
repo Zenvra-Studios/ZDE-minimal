@@ -22,6 +22,10 @@ enum class HeaderAction {
     More
 };
 
+/**
+ * 
+ * 
+ **/
 class ExplorerHeader
 {
 public:

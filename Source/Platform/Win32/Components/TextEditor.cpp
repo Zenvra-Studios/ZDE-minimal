@@ -2914,6 +2914,8 @@ void TextEditor::reset_split() noexcept
     m_focused_pane = SplitPaneFocus::Left;
     m_scrollbar.reset();
     m_split_scrollbar.reset();
+    m_split_brace_animation.clear();
+    m_split_last_brace_caret = {};
 }
 
 std::optional<bool> TextEditor::handle_command(std::string_view command_id)
@@ -3706,6 +3708,33 @@ bool TextEditor::tick_animations() noexcept
     if (m_brace_animation.tick())
     {
         animating = true;
+    }
+
+    if (m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size())
+    {
+        if (const UI::Editor::TextDocumentModel* split_doc = m_controller.get_document(*m_split_document_index))
+        {
+            UI::Editor::TextPosition current_split_caret{split_doc->get_caret_line(), split_doc->get_caret_column()};
+            if (m_split_last_brace_caret != current_split_caret)
+            {
+                m_split_last_brace_caret = current_split_caret;
+                auto [open_brace, close_brace] = find_enclosing_braces(*split_doc);
+                m_split_brace_animation.set_active_braces(open_brace, close_brace);
+            }
+        }
+        else
+        {
+            m_split_brace_animation.clear();
+        }
+
+        if (m_split_brace_animation.tick())
+        {
+            animating = true;
+        }
+    }
+    else
+    {
+        m_split_brace_animation.clear();
     }
     
     return needs_redraw || animating;
@@ -5208,8 +5237,81 @@ void TextEditor::draw_document(
                     for (std::size_t ti = 0; ti < rcount; ++ti)
                     {
                         const auto& t = rtokens[ti];
-                        surface.draw_text(device_context, *surface.m_editor_font, t.text, tok_x, cy, get_effective_r_token_color(t.kind, rbytes, t.text.size()));
-                        tok_x += static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, t.text));
+                        
+                        bool has_animated_brace = false;
+                        std::size_t brace_offset = 0;
+                        
+                        if (m_split_brace_animation.has_active_braces() && m_split_brace_animation.get_pulse_scale() > 1.01F)
+                        {
+                            if (auto open_pos = m_split_brace_animation.get_open_brace(); open_pos && open_pos->line == line_index)
+                            {
+                                if (open_pos->column >= rbytes && open_pos->column < rbytes + t.text.size())
+                                {
+                                    has_animated_brace = true;
+                                    brace_offset = open_pos->column - rbytes;
+                                }
+                            }
+                            if (auto close_pos = m_split_brace_animation.get_close_brace(); close_pos && close_pos->line == line_index)
+                            {
+                                if (close_pos->column >= rbytes && close_pos->column < rbytes + t.text.size())
+                                {
+                                    has_animated_brace = true;
+                                    brace_offset = close_pos->column - rbytes;
+                                }
+                            }
+                        }
+                        
+                        if (has_animated_brace)
+                        {
+                            if (brace_offset > 0)
+                            {
+                                std::string_view pre = t.text.substr(0, brace_offset);
+                                surface.draw_text(device_context, *surface.m_editor_font, pre, tok_x, cy, get_effective_r_token_color(t.kind, rbytes, brace_offset));
+                                tok_x += static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, pre));
+                            }
+                            
+                            std::string_view brace_char = t.text.substr(brace_offset, 1);
+                            float pulse = m_split_brace_animation.get_pulse_scale();
+                            float brace_w = static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, brace_char));
+                            
+                            float extra_w = (brace_w * pulse - brace_w) * 0.5F;
+                            float extra_h = (line_height * pulse - line_height) * 0.5F;
+                            float screen_y = cy - line_height * 0.5F;
+                            
+                            UI::Theme::Color pulse_color = surface.m_palette.selection_background;
+                            pulse_color.red = std::min(pulse_color.red + 30, 255);
+                            pulse_color.green = std::min(pulse_color.green + 30, 255);
+                            pulse_color.blue = std::min(pulse_color.blue + 30, 255);
+                            
+                            surface.fill_rounded_rectangle(
+                                device_context,
+                                UI::Rect{tok_x - extra_w - 2.0F, screen_y - extra_h, brace_w + extra_w * 2.0F + 4.0F, line_height + extra_h * 2.0F},
+                                pulse_color,
+                                3.0F * surface.m_dpi_scale * pulse
+                            );
+                            
+                            surface.draw_scaled_text(device_context, *surface.m_editor_font, brace_char, tok_x, cy, pulse, surface.m_palette.accent);
+                            tok_x += brace_w;
+                            
+                            if (brace_offset + 1 < t.text.size())
+                            {
+                                std::string_view post = t.text.substr(brace_offset + 1);
+                                surface.draw_text(device_context, *surface.m_editor_font, post, tok_x, cy, get_effective_r_token_color(t.kind, rbytes + brace_offset + 1, post.size()));
+                                tok_x += static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, post));
+                            }
+                        }
+                        else
+                        {
+                            surface.draw_text(
+                                device_context,
+                                *surface.m_editor_font,
+                                t.text,
+                                tok_x,
+                                cy,
+                                get_effective_r_token_color(t.kind, rbytes, t.text.size()));
+                            tok_x += static_cast<float>(surface.get_text_width(
+                                device_context, *surface.m_editor_font, t.text));
+                        }
                         rbytes += t.text.size();
                     }
                     if (rbytes < lstr.size())

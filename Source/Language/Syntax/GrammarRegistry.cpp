@@ -73,6 +73,10 @@ bool GrammarRegistry::load_grammar_from_json(std::string_view json_content)
         {
             rule.supports_preprocessor = parsed["supports_preprocessor"].get<bool>();
         }
+        if (parsed.contains("case_insensitive") && parsed["case_insensitive"].is_boolean())
+        {
+            rule.case_insensitive = parsed["case_insensitive"].get<bool>();
+        }
         if (parsed.contains("keywords") && parsed["keywords"].is_array())
         {
             for (const auto& item : parsed["keywords"])
@@ -85,6 +89,13 @@ bool GrammarRegistry::load_grammar_from_json(std::string_view json_content)
             for (const auto& item : parsed["types"])
             {
                 if (item.is_string()) rule.types.insert(item.get<std::string>());
+            }
+        }
+        if (parsed.contains("variables") && parsed["variables"].is_array())
+        {
+            for (const auto& item : parsed["variables"])
+            {
+                if (item.is_string()) rule.variables.insert(item.get<std::string>());
             }
         }
         if (parsed.contains("operators") && parsed["operators"].is_array())
@@ -698,6 +709,130 @@ void GrammarRegistry::initialize_default_grammars()
         yaml_rule.line_comment = "#";
         yaml_rule.keywords = {"true", "false", "yes", "no", "on", "off", "null", "~"};
         register_grammar(std::move(yaml_rule));
+    }
+
+    // Built-in for Assembly (x86 16/32/64-bit and ARM 32/64-bit)
+    {
+        GrammarRule asm_rule;
+        asm_rule.name = "Assembly";
+        asm_rule.extensions = {".asm", ".s", ".S", ".nasm", ".inc", ".a51"};
+        asm_rule.line_comment = ";";
+        asm_rule.block_comment_start = "/*";
+        asm_rule.block_comment_end = "*/";
+        asm_rule.supports_preprocessor = true;
+        asm_rule.case_insensitive = true;
+        asm_rule.keywords = {
+            // General / x86 Control & Movement
+            "mov", "lea", "push", "pop", "pusha", "popa", "pushad", "popad", "pushf", "popf", "pushfq", "popfq",
+            "add", "sub", "mul", "imul", "div", "idiv", "inc", "dec", "neg", "not",
+            "and", "or", "xor", "shl", "shr", "sal", "sar", "rol", "ror", "rcl", "rcr",
+            "cmp", "test", "bt", "bts", "btr", "btc", "bsf", "bsr", "bswap", "xchg", "xadd", "cmpxchg", "cmpxchg8b", "cmpxchg16b",
+            "jmp", "je", "jne", "jz", "jnz", "jg", "jge", "jl", "jle", "ja", "jae", "jb", "jbe",
+            "jc", "jnc", "jo", "jno", "js", "jns", "jp", "jnp", "jpe", "jpo", "jcxz", "jecxz", "jrcxz", "loop", "loope", "loopne", "loopz", "loopnz",
+            "call", "ret", "retn", "retf", "iret", "iretd", "iretq", "syscall", "sysenter", "sysexit", "sysret", "int", "into", "bound",
+            "nop", "hlt", "pause", "wait", "cpuid", "rdtsc", "rdtscp", "rdpmc", "cli", "sti", "cld", "std", "clc", "stc", "cmc", "lahf", "sahf",
+            "rep", "repe", "repz", "repne", "repnz", "movs", "movsb", "movsw", "movsd", "movsq",
+            "cmps", "cmpsb", "cmpsw", "cmpsd", "cmpsq", "stos", "stosb", "stosw", "stosd", "stosq",
+            "lods", "lodsb", "lodsw", "lodsd", "lodsq", "scas", "scasb", "scasw", "scasd", "scasq",
+            "enter", "leave", "cbw", "cwd", "cdq", "cqo", "cwde", "cdqe", "movzx", "movsx", "movsxd",
+            "setz", "setnz", "sete", "setne", "setg", "setge", "setl", "setle", "seta", "setae", "setb", "setbe",
+            "setc", "setnc", "seto", "setno", "sets", "setns", "setp", "setnp",
+            "cmovz", "cmovnz", "cmove", "cmovne", "cmovg", "cmovge", "cmovl", "cmovle", "cmova", "cmovae", "cmovb", "cmovbe",
+            "cmovc", "cmovnc", "cmovo", "cmovno", "cmovs", "cmovns",
+            // SSE & AVX SIMD
+            "movaps", "movups", "movdqa", "movdqu", "movss", "movsd", "movd", "movq",
+            "addps", "addss", "addpd", "addsd", "subps", "subss", "subpd", "subsd",
+            "mulps", "mulss", "mulpd", "mulsd", "divps", "divss", "divpd", "divsd",
+            "sqrtps", "sqrtss", "sqrtpd", "sqrtsd", "rsqrtps", "rsqrtss", "rcpps", "rcpss",
+            "maxps", "maxss", "maxpd", "maxsd", "minps", "minss", "minpd", "minsd",
+            "andps", "andpd", "andnps", "andnpd", "orps", "orpd", "xorps", "xorpd",
+            "vmovaps", "vmovups", "vmovdqa", "vmovdqu", "vmovss", "vmovsd", "vmovd", "vmovq",
+            "vaddps", "vaddss", "vaddpd", "vaddsd", "vsubps", "vsubss", "vsubpd", "vsubsd",
+            "vmulps", "vmulss", "vmulpd", "vmulsd", "vdivps", "vdivss", "vdivpd", "vdivsd",
+            "vsqrtps", "vsqrtss", "vsqrtpd", "vsqrtsd", "vfmadd132ps", "vfmadd213ps", "vfmadd231ps",
+            "vfmadd132pd", "vfmadd213pd", "vfmadd231pd", "vpxor", "vpor", "vpand", "vpandn",
+            "vpaddd", "vpaddq", "vpsubd", "vpsubq", "vpmulld", "vzeroupper", "vzeroall", "vbroadcastss", "vbroadcastsd",
+            // ARM 32-bit & 64-bit Instructions
+            "mvn", "mvns", "adds", "adc", "adcs", "subs", "sbc", "sbcs", "rsb", "rsbs", "rsc",
+            "mla", "mls", "umull", "smull", "umlal", "smlal", "udiv", "sdiv",
+            "orr", "eor", "bic", "bics", "asr", "lsl", "lsr", "ror", "rrx",
+            "cmn", "teq", "tst", "bx", "blx",
+            "ldr", "ldrb", "ldrh", "ldrsb", "ldrsh", "ldrsw", "ldur", "ldp", "ldm", "ldmia", "ldmfd", "ldmda", "ldmdb",
+            "str", "strb", "strh", "stur", "stp", "stm", "stmia", "stmfd", "stmda", "stmdb",
+            "cbz", "cbnz", "tbz", "tbnz", "it", "ite", "itt", "ittt", "itte", "ited", "itet",
+            "movz", "movk", "movn", "adr", "adrp", "csel", "cset", "csetm", "csinc", "csinv", "csneg",
+            "svc", "hvc", "smc", "swi", "brk", "wfi", "wfe", "sev", "isb", "dmb", "dsb",
+            "fadd", "fsub", "fmul", "fdiv", "fneg", "fabs", "fsqrt", "fmax", "fmin", "fcmp", "fmov", "fcvt",
+            "ld1", "ld2", "ld3", "ld4", "st1", "st2", "st3", "st4", "dup", "ins", "umov", "smov",
+            // Directives
+            "section", "segment", "global", "globl", "extern", "default", "bits", "equ", "org",
+            "db", "dw", "dd", "dq", "dt", "do", "dy", "dz", "resb", "resw", "resd", "resq", "rest", "reso", "resy", "resz",
+            "times", "macro", "endm", "endmacro", "struc", "endstruc", "align", "alignb", "incbin", "include",
+            ".text", ".data", ".rodata", ".bss", ".globl", ".global", ".extern", ".type", ".size",
+            ".align", ".p2align", ".byte", ".short", ".word", ".long", ".quad", ".ascii", ".asciz", ".string",
+            ".space", ".skip", ".file", ".ident", ".section", ".intel_syntax", ".att_syntax",
+            ".arch", ".cpu", ".fpu", ".thumb", ".thumb_func", ".arm", ".code", ".syntax",
+            ".cfi_startproc", ".cfi_endproc", ".cfi_def_cfa_offset", ".cfi_offset", ".cfi_restore",
+            "%define", "%macro", "%endmacro", "%include", "%ifdef", "%ifndef", "%endif", "%else", "%elif"
+        };
+        asm_rule.types = {
+            // x86 64-bit & 32-bit & 16/8-bit Registers
+            "rax", "rbx", "rcx", "rdx", "rsi", "rdi", "rbp", "rsp",
+            "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15", "rip",
+            "eax", "ebx", "ecx", "edx", "esi", "edi", "ebp", "esp",
+            "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d", "eip",
+            "ax", "bx", "cx", "dx", "si", "di", "bp", "sp",
+            "r8w", "r9w", "r10w", "r11w", "r12w", "r13w", "r14w", "r15w", "ip",
+            "al", "ah", "bl", "bh", "cl", "ch", "dl", "dh",
+            "sil", "dil", "bpl", "spl", "r8b", "r9b", "r10b", "r11b", "r12b", "r13b", "r14b", "r15b",
+            "cs", "ds", "es", "ss", "fs", "gs", "flags", "eflags", "rflags",
+            "cr0", "cr2", "cr3", "cr4", "cr8", "dr0", "dr1", "dr2", "dr3", "dr6", "dr7",
+            "st0", "st1", "st2", "st3", "st4", "st5", "st6", "st7",
+            "mm0", "mm1", "mm2", "mm3", "mm4", "mm5", "mm6", "mm7",
+            "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7",
+            "xmm8", "xmm9", "xmm10", "xmm11", "xmm12", "xmm13", "xmm14", "xmm15",
+            "xmm16", "xmm17", "xmm18", "xmm19", "xmm20", "xmm21", "xmm22", "xmm23",
+            "xmm24", "xmm25", "xmm26", "xmm27", "xmm28", "xmm29", "xmm30", "xmm31",
+            "ymm0", "ymm1", "ymm2", "ymm3", "ymm4", "ymm5", "ymm6", "ymm7",
+            "ymm8", "ymm9", "ymm10", "ymm11", "ymm12", "ymm13", "ymm14", "ymm15",
+            "ymm16", "ymm17", "ymm18", "ymm19", "ymm20", "ymm21", "ymm22", "ymm23",
+            "ymm24", "ymm25", "ymm26", "ymm27", "ymm28", "ymm29", "ymm30", "ymm31",
+            "zmm0", "zmm1", "zmm2", "zmm3", "zmm4", "zmm5", "zmm6", "zmm7",
+            "zmm8", "zmm9", "zmm10", "zmm11", "zmm12", "zmm13", "zmm14", "zmm15",
+            "zmm16", "zmm17", "zmm18", "zmm19", "zmm20", "zmm21", "zmm22", "zmm23",
+            "zmm24", "zmm25", "zmm26", "zmm27", "zmm28", "zmm29", "zmm30", "zmm31",
+            "k0", "k1", "k2", "k3", "k4", "k5", "k6", "k7",
+            // ARM 64-bit & 32-bit Registers
+            "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7",
+            "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15",
+            "x16", "x17", "x18", "x19", "x20", "x21", "x22", "x23",
+            "x24", "x25", "x26", "x27", "x28", "x29", "x30", "xzr",
+            "w0", "w1", "w2", "w3", "w4", "w5", "w6", "w7",
+            "w8", "w9", "w10", "w11", "w12", "w13", "w14", "w15",
+            "w16", "w17", "w18", "w19", "w20", "w21", "w22", "w23",
+            "w24", "w25", "w26", "w27", "w28", "w29", "w30", "wzr",
+            "r0", "r1", "r2", "r3", "r4", "r5", "r6", "r7",
+            "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15",
+            "sp", "lr", "pc", "fp", "cpsr", "spsr", "apsr", "fpscr",
+            "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7",
+            "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15",
+            "v16", "v17", "v18", "v19", "v20", "v21", "v22", "v23",
+            "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31",
+            "q0", "q1", "q2", "q3", "q4", "q5", "q6", "q7",
+            "q8", "q9", "q10", "q11", "q12", "q13", "q14", "q15",
+            "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7",
+            "d8", "d9", "d10", "d11", "d12", "d13", "d14", "d15",
+            "d16", "d17", "d18", "d19", "d20", "d21", "d22", "d23",
+            "d24", "d25", "d26", "d27", "d28", "d29", "d30", "d31",
+            "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7",
+            "s8", "s9", "s10", "s11", "s12", "s13", "s14", "s15",
+            "s16", "s17", "s18", "s19", "s20", "s21", "s22", "s23",
+            "s24", "s25", "s26", "s27", "s28", "s29", "s30", "s31",
+            // Operands & Size Specifiers
+            "byte", "word", "dword", "qword", "tword", "oword", "yword", "zword",
+            "ptr", "rel", "abs", "near", "far", "short", "offset", "wrt"
+        };
+        register_grammar(std::move(asm_rule));
     }
 }
 

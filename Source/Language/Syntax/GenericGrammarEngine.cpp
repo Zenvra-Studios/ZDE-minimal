@@ -23,6 +23,7 @@ bool is_path_or_filename(std::string_view text) noexcept
         return ext == ".mm" || ext == ".cpp" || ext == ".h" || ext == ".hpp" ||
                ext == ".c" || ext == ".cc" || ext == ".cxx" || ext == ".m" ||
                ext == ".rs" || ext == ".py" || ext == ".js" || ext == ".ts" ||
+               ext == ".asm" || ext == ".s" || ext == ".S" || ext == ".nasm" || ext == ".inc" || ext == ".a51" ||
                ext == ".txt" || ext == ".cmake" || ext == ".json" || ext == ".xml" ||
                ext == ".html" || ext == ".css" || ext == ".in" || ext == ".rc" ||
                ext == ".def" || ext == ".lib" || ext == ".a" || ext == ".so" ||
@@ -299,8 +300,9 @@ std::size_t GenericGrammarEngine::tokenize_line(
         }
 
         // 3. Single-line comment
-        if (!grammar.line_comment.empty() &&
-            line.substr(cursor).starts_with(grammar.line_comment))
+        if ((!grammar.line_comment.empty() &&
+             line.substr(cursor).starts_with(grammar.line_comment)) ||
+            (grammar.name == "Assembly" && (character == ';' || character == '@' || line.substr(cursor).starts_with("//"))))
         {
             append(line.substr(cursor), UI::Editor::EditorTokenKind::Comment);
             break;

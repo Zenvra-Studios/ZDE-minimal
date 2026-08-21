@@ -255,9 +255,11 @@ private:
   float m_text_hscroll_drag_start_x = 0.0F;
   float m_text_hscroll_drag_initial_offset = 0.0F;
   mutable UI::Editor::BraceAnimationModel m_brace_animation;
+  mutable UI::Editor::BraceAnimationModel m_split_brace_animation;
   mutable UI::Components::Button m_empty_state_open_btn;
   mutable UI::Components::Button m_empty_state_clone_btn;
   mutable UI::Editor::TextPosition m_last_brace_caret;
+  mutable UI::Editor::TextPosition m_split_last_brace_caret;
   mutable UI::Components::CompletionPopup m_completion_popup;
   mutable UI::Components::HoverTooltip m_hover_tooltip;
   mutable std::optional<HoveredDiagnosticInfo> m_hovered_diagnostic;
