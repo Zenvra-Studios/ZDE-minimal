@@ -414,7 +414,7 @@ SidebarPressResult ToolSidebar::handle_search_press(
   const std::size_t search_rows = search_viewport_row_count(layout);
   m_search_scrollbar.set_track_bounds(search_scrollbar_bounds(layout));
   m_search_scrollbar.set_metrics(visible_rows.size(), search_rows);
-  m_search_scrollbar.scroll_to(m_search_model.get_scroll_offset());
+  static_cast<void>(m_search_scrollbar.scroll_to(m_search_model.get_scroll_offset()));
   if (m_search_scrollbar.handle_pointer_press(point_x, point_y)) {
     m_search_model.set_scroll_offset(m_search_scrollbar.get_scroll_offset());
     return SidebarPressResult{.handled = true};
@@ -527,7 +527,7 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
     const std::size_t row_count = viewport_row_count(layout);
     m_project_scrollbar.set_track_bounds(scrollbar_bounds(layout));
     m_project_scrollbar.set_metrics(items.size(), row_count);
-    m_project_scrollbar.scroll_to(m_model.get_scroll_offset());
+    static_cast<void>(m_project_scrollbar.scroll_to(m_model.get_scroll_offset()));
     if (m_project_scrollbar.handle_pointer_press(point_x, point_y)) {
       m_model.set_scroll_offset(m_project_scrollbar.get_scroll_offset());
       return SidebarPressResult{.handled = true};
@@ -1073,7 +1073,7 @@ void ToolSidebar::render_search_panel(
   // Search text or placeholder
   const std::string_view query = m_search_model.get_search_query();
   if (query.empty()) {
-    surface.draw_text(device_context, *surface.m_small_font, "Search (e.g. jetbrains)",
+    surface.draw_text(device_context, *surface.m_small_font, "Search (e.g. settings)",
                       search_bounds.x + 6.0F * scale,
                       search_bounds.y + search_bounds.height * 0.5F,
                       surface.m_palette.text_muted);

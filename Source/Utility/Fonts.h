@@ -141,19 +141,6 @@ public:
     if (!m_font || !hdc || text.empty())
       return 0;
 
-    // Fast O(1) calculation for monospace ASCII text
-    bool is_ascii = true;
-    for (char c : text) {
-      if (static_cast<unsigned char>(c) >= 128) {
-        is_ascii = false;
-        break;
-      }
-    }
-
-    if (!m_ligaturesEnabled && is_ascii && m_char_width > 0) {
-      return static_cast<int>(text.length()) * m_char_width;
-    }
-
     int width = 0;
     HFONT oldFont = (HFONT)SelectObject(hdc, m_font);
 

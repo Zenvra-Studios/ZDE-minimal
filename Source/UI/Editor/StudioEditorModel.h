@@ -135,7 +135,8 @@ struct StudioEditorPalette
     Theme::Color indent_guide;
     Theme::Color indent_guide_active;
 
-    [[nodiscard]] static StudioEditorPalette jetbrains_dark() noexcept;
+    [[nodiscard]] static StudioEditorPalette dark() noexcept;
+    [[nodiscard]] static StudioEditorPalette jetbrains_dark() noexcept { return dark(); }
 };
 
 struct StudioEditorLayoutResult

@@ -2923,7 +2923,7 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
       }
     }
 
-    // Render JetBrains-style Inline Error Lens (Inspection hint at end of line)
+    // Render Inline Error Lens (Inspection hint at end of line)
     if (!line_diags.empty()) {
       const auto *top_diag = &line_diags[0];
       for (const auto &d : line_diags) {
@@ -3034,7 +3034,7 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
   // Render scrollbar
   scrollbar.render(surface, context, layout);
 
-  // Scrollbar Overview Ruler stripes (JetBrains / VS Code style)
+  // Scrollbar Overview Ruler stripes (Overview Ruler)
   if (document && total_lines > 0 && !layout.scrollbar_bounds.is_empty()) {
     const float track_x = layout.scrollbar_bounds.x;
     const float track_y = layout.scrollbar_bounds.y;

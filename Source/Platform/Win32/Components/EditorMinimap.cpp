@@ -123,12 +123,6 @@ void EditorMinimap::render(const StudioWorkspaceRenderer &surface,
 
   const float total_content_height =
       static_cast<float>(total_lines) * row_height;
-  const std::size_t max_first_line =
-      (total_lines > 1) ? (total_lines - 1) : 0;
-
-  const float scroll_progress = (max_first_line > 0)
-      ? std::clamp(static_cast<float>(first_visible_line) / static_cast<float>(max_first_line), 0.0F, 1.0F)
-      : 0.0F;
 
   float vp_h = 0.0F;
   float minimap_scroll_y = 0.0F;

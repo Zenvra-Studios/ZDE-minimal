@@ -333,6 +333,7 @@ Win32Window::~Win32Window() {
 
 bool Win32Window::initialize() {
   SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+  DisableProcessWindowsGhosting();
 
   INITCOMMONCONTROLSEX icex{};
   icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
@@ -3785,22 +3786,22 @@ void Win32Window::show_explorer_context_menu(const std::filesystem::path& target
   };
 
   m_explorer_context_menu.items = {
-    {"New File...", "", false, CmdNewFile},
-    {"New Folder...", "", false, CmdNewFolder},
-    {"", "", true, 0},
-    {"Open to the Side", "Ctrl+Enter", false, CmdOpenToSide},
-    {"Reveal in File Explorer", "Shift+Alt+R", false, CmdReveal},
-    {"Open in Integrated Terminal", "", false, CmdOpenTerminal},
-    {"", "", true, 0},
-    {"Cut", "Ctrl+X", false, CmdCut},
-    {"Copy", "Ctrl+C", false, CmdCopy},
-    {"Paste", "Ctrl+V", false, CmdPaste},
-    {"", "", true, 0},
-    {"Copy Path", "Shift+Alt+C", false, CmdCopyPath},
-    {"Copy Relative Path", "Ctrl+K Ctrl+Shift+C", false, CmdCopyRelativePath},
-    {"", "", true, 0},
-    {"Rename...", "F2", false, CmdRename},
-    {"Delete", "Delete", false, CmdDelete}
+    {"New File...", "", false, CmdNewFile, ""},
+    {"New Folder...", "", false, CmdNewFolder, ""},
+    {"", "", true, 0, ""},
+    {"Open to the Side", "Ctrl+Enter", false, CmdOpenToSide, ""},
+    {"Reveal in File Explorer", "Shift+Alt+R", false, CmdReveal, ""},
+    {"Open in Integrated Terminal", "", false, CmdOpenTerminal, ""},
+    {"", "", true, 0, ""},
+    {"Cut", "Ctrl+X", false, CmdCut, ""},
+    {"Copy", "Ctrl+C", false, CmdCopy, ""},
+    {"Paste", "Ctrl+V", false, CmdPaste, ""},
+    {"", "", true, 0, ""},
+    {"Copy Path", "Shift+Alt+C", false, CmdCopyPath, ""},
+    {"Copy Relative Path", "Ctrl+K Ctrl+Shift+C", false, CmdCopyRelativePath, ""},
+    {"", "", true, 0, ""},
+    {"Rename...", "F2", false, CmdRename, ""},
+    {"Delete", "Delete", false, CmdDelete, ""}
   };
 
   const float scale = m_chrome_layout.dpi_scale;

@@ -30,7 +30,7 @@ enum class SidebarActionKind {
 struct SidebarPressResult {
     bool handled = false;
     SidebarActionKind action = SidebarActionKind::None;
-    std::optional<std::filesystem::path> path;
+    std::optional<std::filesystem::path> path = std::nullopt;
     std::size_t line = 0;
     std::size_t column = 0;
 };

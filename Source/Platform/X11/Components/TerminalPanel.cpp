@@ -761,7 +761,7 @@ void TerminalPanel::render(
     const float content_top_padding = 5.0F * surface.m_dpi_scale;
     const float content_bottom_padding = 8.0F * surface.m_dpi_scale;
     const float usable_content_height = std::max(
-        layout.terminal_content_bounds.height - content_bottom_padding, 0.0F);
+        layout.terminal_content_bounds.height - (content_top_padding + content_bottom_padding), 0.0F);
     const std::size_t visible_rows = usable_content_height > 0.0F
         ? std::max<std::size_t>(
             static_cast<std::size_t>(std::floor(usable_content_height / line_height)), 1)
@@ -823,6 +823,10 @@ void TerminalPanel::render(
 
     for (std::size_t index = start; index < end; ++index)
     {
+        if (center_y + line_height * 0.5F > layout.terminal_content_bounds.bottom())
+        {
+            break;
+        }
         const std::string& line = lines[index];
         const std::size_t len = line.size();
 

@@ -159,9 +159,9 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
     {
         candidate_names = { "rust-analyzer", "rust-analyzer-linux", "rust-analyzer-mac" };
     }
-    else if (exe_str == "vscode-html-language-server" || exe_str == "html-languageserver" || exe_str == "html")
+    else if (exe_str == "emmet-ls" || exe_str == "vscode-html-language-server" || exe_str == "html-languageserver" || exe_str == "html")
     {
-        candidate_names = { "vscode-html-language-server", "html-languageserver", "html" };
+        candidate_names = { "emmet-ls", "vscode-html-language-server", "html-languageserver", "html" };
     }
     else if (exe_str == "vscode-css-language-server")
     {
@@ -174,6 +174,10 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
     else if (exe_str == "csharp-ls" || exe_str == "omnisharp")
     {
         candidate_names = { "csharp-ls", "omnisharp" };
+    }
+    else if (exe_str == "gopls" || exe_str == "gopls-v0.23.0" || exe_str == "golang" || exe_str == "go")
+    {
+        candidate_names = { "gopls", "gopls-v0.23.0", "gopls-v0.23.0.exe", "gopls.exe" };
     }
 
     for (const auto& cur_name : candidate_names)
@@ -194,6 +198,13 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
         {
             const std::filesystem::path app_dir = std::filesystem::path(exe_buffer.data()).parent_path();
             const std::filesystem::path app_candidates[] = {
+                app_dir / "ThirdParty" / "gopls" / "gopls-v0.23.0.exe",
+                app_dir / "ThirdParty" / "gopls" / exe_with_ext,
+                app_dir / "ThirdParty" / "emmet-ls" / exe_with_ext,
+                app_dir / "ThirdParty" / exe_with_ext,
+                app_dir / "plugins" / "lsp" / "gopls" / "gopls-v0.23.0.exe",
+                app_dir / "plugins" / "lsp" / "gopls" / exe_with_ext,
+                app_dir / "plugins" / "lsp" / "emmet-ls" / exe_with_ext,
                 app_dir / "plugins" / "lsp" / "tls" / exe_with_ext,
                 app_dir / "plugins" / "lsp" / "html" / exe_with_ext,
                 app_dir / "plugins" / "lsp" / "typescript-language-server" / exe_with_ext,
@@ -201,10 +212,16 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                 app_dir / "plugins" / "lsp" / exe_with_ext,
                 app_dir / "plugins" / "html" / exe_with_ext,
                 app_dir / "plugins" / "tls" / exe_with_ext,
+                app_dir / "plugins" / "emmet-ls" / exe_with_ext,
+                app_dir / "plugins" / "gopls" / exe_with_ext,
                 app_dir / "plugins" / exe_with_ext,
+                app_dir / "lsp" / "gopls" / exe_with_ext,
+                app_dir / "lsp" / "emmet-ls" / exe_with_ext,
                 app_dir / "lsp" / "html" / exe_with_ext,
                 app_dir / "lsp" / "tls" / exe_with_ext,
                 app_dir / "lsp" / exe_with_ext,
+                app_dir / "gopls" / exe_with_ext,
+                app_dir / "emmet-ls" / exe_with_ext,
                 app_dir / "html" / exe_with_ext,
                 app_dir / "tls" / exe_with_ext,
                 app_dir / "bin" / exe_with_ext,
@@ -225,6 +242,15 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
             for (int i = 0; i < 6; ++i)
             {
                 const std::filesystem::path direct_candidates[] = {
+                    check_dir / "ThirdParty" / "gopls" / "gopls-v0.23.0.exe",
+                    check_dir / "ThirdParty" / "gopls" / exe_with_ext,
+                    check_dir / "ThirdParty" / "emmet-ls" / exe_with_ext,
+                    check_dir / "ThirdParty" / "tls" / exe_with_ext,
+                    check_dir / "ThirdParty" / "clangd" / exe_with_ext,
+                    check_dir / "ThirdParty" / exe_with_ext,
+                    check_dir / "ThirdParty" / "bin" / exe_with_ext,
+                    check_dir / "plugins" / "lsp" / "gopls" / exe_with_ext,
+                    check_dir / "plugins" / "lsp" / "emmet-ls" / exe_with_ext,
                     check_dir / "plugins" / "lsp" / exe_with_ext,
                     check_dir / "plugins" / "lsp" / "tls" / exe_with_ext,
                     check_dir / "plugins" / "lsp" / "html" / exe_with_ext,
@@ -233,8 +259,6 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                     check_dir / "plugins" / "lsp" / cur_name / exe_with_ext,
                     check_dir / "plugins" / "lsp" / cur_name / "bin" / exe_with_ext,
                     check_dir / "plugins" / exe_with_ext,
-                    check_dir / "ThirdParty" / exe_with_ext,
-                    check_dir / "ThirdParty" / "bin" / exe_with_ext,
                     check_dir / "bin" / exe_with_ext,
                 };
                 for (const auto& candidate : direct_candidates)
@@ -252,9 +276,14 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                 {
                     for (const auto& entry : std::filesystem::recursive_directory_iterator(tp, ec))
                     {
-                        if (entry.is_regular_file() && entry.path().filename() == exe_with_ext)
+                        if (entry.is_regular_file())
                         {
-                            return cache_and_return(entry.path());
+                            const std::string filename = entry.path().filename().string();
+                            if (filename == exe_with_ext || filename == cur_name ||
+                                (cur_name.starts_with("gopls") && filename.starts_with("gopls") && filename.ends_with(".exe")))
+                            {
+                                return cache_and_return(entry.path());
+                            }
                         }
                     }
                 }
@@ -363,6 +392,18 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                             if (std::filesystem::exists(sub_bin, ec) && std::filesystem::is_regular_file(sub_bin, ec))
                             {
                                 return cache_and_return(sub_bin);
+                            }
+                            for (const auto& sub_file : std::filesystem::directory_iterator(entry.path(), ec))
+                            {
+                                if (sub_file.is_regular_file(ec))
+                                {
+                                    const std::string fn = sub_file.path().filename().string();
+                                    if (fn == exe_with_ext ||
+                                        (cur_name.starts_with("gopls") && fn.starts_with("gopls") && fn.ends_with(".exe")))
+                                    {
+                                        return cache_and_return(sub_file.path());
+                                    }
+                                }
                             }
                         }
                     }
@@ -732,7 +773,7 @@ void ServerRegistry::initialize_default_profiles()
     // Go (gopls)
     ServerProfile go_profile;
     go_profile.language_id = "go";
-    go_profile.extensions = {".go"};
+    go_profile.extensions = {".go", ".mod", ".work"};
     go_profile.executable_name = "gopls";
     go_profile.default_args = {};
     go_profile.root_markers = {"go.mod", "go.work", ".git"};
@@ -756,11 +797,11 @@ void ServerRegistry::initialize_default_profiles()
     lua_profile.root_markers = {".luarc.json", ".git"};
     register_profile(std::move(lua_profile));
 
-    // HTML (vscode-html-language-server)
+    // HTML / Emmet (emmet-ls / vscode-html-language-server)
     ServerProfile html_profile;
     html_profile.language_id = "html";
     html_profile.extensions = {".html", ".htm", ".xhtml"};
-    html_profile.executable_name = "vscode-html-language-server";
+    html_profile.executable_name = "emmet-ls";
     html_profile.default_args = {"--stdio"};
     html_profile.root_markers = {"package.json", ".git"};
     register_profile(std::move(html_profile));

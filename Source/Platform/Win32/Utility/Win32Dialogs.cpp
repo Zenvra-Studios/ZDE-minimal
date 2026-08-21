@@ -5,6 +5,8 @@
 #include <shobjidl.h>
 #include <windows.h>
 
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -13,15 +15,6 @@
 namespace Zenvra::Platform {
 
 namespace {
-
-std::wstring user_profile_directory() {
-  wchar_t buffer[MAX_PATH]{};
-  if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_PROFILE, nullptr,
-                                 SHGFP_TYPE_CURRENT, buffer))) {
-    return buffer;
-  }
-  return L"C:\\";
-}
 
 /// Modern Vista+ folder picker. Requires COM to be initialized on the
 /// calling thread.
@@ -43,6 +36,7 @@ std::optional<std::filesystem::path> show_modern_dialog() {
                FOS_FILEMUSTEXIST;
     static_cast<void>(dialog->SetOptions(options));
   }
+  dialog->SetTitle(L"Select Folder");
 
   const HRESULT shown = dialog->Show(nullptr);
   if (FAILED(shown)) {
@@ -75,72 +69,49 @@ std::optional<std::filesystem::path> show_modern_dialog() {
   return selected;
 }
 
-struct BrowseData {
-  std::wstring initial_directory;
-};
-
-int CALLBACK browse_directory_callback(HWND dialog_handle, UINT message,
-                                       LPARAM l_param, LPARAM data) {
-  static_cast<void>(l_param);
-  if (message == BFFM_INITIALIZED && data != 0) {
-    const BrowseData *browse_data = reinterpret_cast<const BrowseData *>(data);
-    SendMessageW(
-        dialog_handle, BFFM_SETSELECTIONW, TRUE,
-        reinterpret_cast<LPARAM>(browse_data->initial_directory.c_str()));
-  }
-  return 0;
-}
-
-/// Legacy fallback tree dialog. Does not require client-side COM state.
-std::optional<std::filesystem::path> show_classic_dialog() {
-  BrowseData browse_data{};
-  browse_data.initial_directory = user_profile_directory();
-
-  BROWSEINFOW browse_info{};
-  browse_info.hwndOwner = nullptr;
-  browse_info.lpfn = browse_directory_callback;
-  browse_info.lParam = reinterpret_cast<LPARAM>(&browse_data);
-  browse_info.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
-  browse_info.lpszTitle = L"Open a workspace folder";
-
-  const PIDLIST_ABSOLUTE pidl = SHBrowseForFolderW(&browse_info);
-  if (pidl == nullptr) {
-    return std::nullopt;
-  }
-
-  wchar_t path[MAX_PATH]{};
-  const bool resolved = SHGetPathFromIDListW(pidl, path);
-  CoTaskMemFree(pidl);
-  if (!resolved) {
-    return std::nullopt;
-  }
-  return std::filesystem::path{path};
-}
-
 } // namespace
 
 bool folder_dialog_available() { return true; }
 
 std::optional<std::filesystem::path> open_folder_dialog() {
   std::optional<std::filesystem::path> selected;
+  std::atomic<bool> completed = false;
 
   std::thread dialog_thread([&]() {
-    const HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    const HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED |
+                                                     COINIT_DISABLE_OLE1DDE);
     const bool com_initialized = SUCCEEDED(init);
 
-    // Always use modern dialog, do not fallback to classic
     if (com_initialized || init == RPC_E_CHANGED_MODE) {
       selected = show_modern_dialog();
-      if (com_initialized) {
-        CoUninitialize();
-      }
     }
-  });
-  dialog_thread.join();
 
-//   if (!selected) {
-//     selected = show_classic_dialog();
-//   }
+    if (com_initialized) {
+      CoUninitialize();
+    }
+    completed = true;
+  });
+
+  // Modal wait loop: keep pumping Windows messages on the main UI thread so it
+  // never freezes
+  while (!completed.load(std::memory_order_relaxed)) {
+    MSG msg{};
+    while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+      if (msg.message == WM_QUIT) {
+        PostQuitMessage(static_cast<int>(msg.wParam));
+        completed = true;
+        break;
+      }
+      TranslateMessage(&msg);
+      DispatchMessageW(&msg);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(8));
+  }
+
+  if (dialog_thread.joinable()) {
+    dialog_thread.join();
+  }
+
   return selected;
 }
 

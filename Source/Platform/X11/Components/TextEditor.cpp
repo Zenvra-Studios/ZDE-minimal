@@ -2654,7 +2654,7 @@ void TextEditor::render(
           static_cast<int>(layout.editor_bounds.height / line_height), 1));
       m_scrollbar.render(surface, drawable, layout);
 
-      // Render Scrollbar Error / Warning Stripes (JetBrains Overview Ruler)
+      // Render Scrollbar Error / Warning Stripes (Overview Ruler)
       const std::size_t total_lines = document->get_line_count();
       if (total_lines > 0) {
         const auto all_diags = document->get_diagnostics();
@@ -4679,7 +4679,9 @@ void TextEditor::draw_hover_tooltip(
   while (std::getline(stream, line)) {
     if (!line.empty() && line.back() == '\r')
       line.pop_back();
-    if (line.starts_with("```"))
+    while (!line.empty() && (line.front() == ' ' || line.front() == '\t')) line.erase(line.begin());
+    while (!line.empty() && (line.back() == ' ' || line.back() == '\t')) line.pop_back();
+    if (line.empty() || line.starts_with("```") || line == "---" || line == "***" || line == "___")
       continue;
     const int w = surface.m_ui_font->getTextWidth(line);
     if (w > max_w)

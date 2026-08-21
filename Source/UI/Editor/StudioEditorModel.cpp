@@ -34,7 +34,7 @@ constexpr std::array<SidebarItem, 7> sidebar_items{
 
 } // namespace
 
-StudioEditorPalette StudioEditorPalette::jetbrains_dark() noexcept {
+StudioEditorPalette StudioEditorPalette::dark() noexcept {
   return StudioEditorPalette{
       .workspace_background = {30, 31, 34, 255},
       .tab_background = {29, 30, 33, 255},

@@ -195,8 +195,7 @@ private:
   mutable EditorMinimap m_minimap;
   mutable EditorScrollbar m_scrollbar;
   Utility::DragDropModel m_tab_drag_drop;
-  mutable std::unordered_map<std::size_t, float> m_tab_animated_x;
-  mutable std::unordered_map<std::size_t, float> m_tab_target_x;
+  mutable std::unordered_map<std::size_t, float> m_tab_animated_offset_x;
   float m_drag_initial_tab_x = 0.0F;
   UI::Editor::CaretBlinkModel m_caret_blink;
   mutable bool m_reveal_caret_pending = true;
@@ -250,6 +249,11 @@ private:
   mutable float m_max_tab_scroll = 0.0F;
   float m_text_scroll_offset = 0.0F;
   mutable float m_max_text_scroll = 0.0F;
+  mutable UI::Rect m_text_hscrollbar_bounds{};
+  mutable bool m_hovered_text_hscrollbar = false;
+  bool m_dragging_text_hscrollbar = false;
+  float m_text_hscroll_drag_start_x = 0.0F;
+  float m_text_hscroll_drag_initial_offset = 0.0F;
   mutable UI::Editor::BraceAnimationModel m_brace_animation;
   mutable UI::Components::Button m_empty_state_open_btn;
   mutable UI::Components::Button m_empty_state_clone_btn;

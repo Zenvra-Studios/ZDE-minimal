@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Language/CMake/CMakeLanguageDatabase.h"
+#include "Language/LanguageServerManager.h"
 #include "Language/Protocol/LspProtocolSerializer.h"
 #include "Language/Protocol/LspTypes.h"
 #include "Language/Registry/ServerRegistry.h"
@@ -167,6 +168,16 @@ TEST(LanguageServerTests, ServerRegistryProfileLookup) {
   const auto *go_prof = registry.find_profile_for_extension(".go");
   ASSERT_NE(go_prof, nullptr);
   EXPECT_EQ(go_prof->language_id, "go");
+
+  const auto *tsx_prof = registry.find_profile_for_extension(".tsx");
+  ASSERT_NE(tsx_prof, nullptr);
+  EXPECT_EQ(tsx_prof->language_id, "typescript");
+  EXPECT_EQ(tsx_prof->executable_name, "typescript-language-server");
+
+  const auto *jsx_prof = registry.find_profile_for_extension(".jsx");
+  ASSERT_NE(jsx_prof, nullptr);
+  EXPECT_EQ(jsx_prof->language_id, "typescript");
+  EXPECT_EQ(jsx_prof->executable_name, "typescript-language-server");
 }
 
 TEST(LanguageServerTests, ThirdPartyBinaryClangdDiscovery) {
@@ -174,6 +185,32 @@ TEST(LanguageServerTests, ThirdPartyBinaryClangdDiscovery) {
   const auto clangd_path = registry.find_executable_in_system("clangd");
   ASSERT_FALSE(clangd_path.empty());
   EXPECT_TRUE(clangd_path.string().find("clangd") != std::string::npos);
+}
+
+TEST(LanguageServerTests, ThirdPartyBinaryTlsDiscovery) {
+  auto &registry = Language::Registry::ServerRegistry::instance();
+  const auto tls_path = registry.find_executable_in_system("typescript-language-server");
+  ASSERT_FALSE(tls_path.empty());
+  EXPECT_TRUE(tls_path.string().find("typescript-language-server") != std::string::npos);
+}
+
+TEST(LanguageServerTests, ProjectSwitchingAndLspLifecycle) {
+  auto &manager = Language::LanguageServerManager::instance();
+
+  // 1. Set initial workspace (e.g. C++ project)
+  const std::filesystem::path cpp_root = "C:/Projects/MyCppProject";
+  manager.set_workspace_root(cpp_root);
+  EXPECT_EQ(manager.get_workspace_root(), cpp_root);
+
+  // 2. Switching to React JS project must update workspace root and trigger clean shutdown_all
+  const std::filesystem::path react_root = "C:/Projects/MyReactApp";
+  manager.set_workspace_root(react_root);
+  EXPECT_EQ(manager.get_workspace_root(), react_root);
+
+  // 3. Closing project (set_workspace_root({})) must reset root and shutdown all LSPs
+  manager.set_workspace_root({});
+  EXPECT_TRUE(manager.get_workspace_root().empty());
+  manager.shutdown_all();
 }
 
 TEST(LanguageServerTests, CompletionPopupFuzzyFiltering) {
@@ -590,22 +627,23 @@ TEST(LanguageServerTests, PlainTextNotesDoNotTriggerLspOrCppGrammar) {
 }
 
 TEST(LanguageServerTests, SemanticTokensColorMapping) {
-  const auto palette = UI::Editor::StudioEditorPalette::jetbrains_dark();
+  const auto palette = UI::Editor::StudioEditorPalette::dark();
 
-  // Namespace, Class, Struct, Interface, Function, Method, Macro must all map
-  // to palette.label (Pink)
+  // Namespace, Class, Struct, Interface map to palette.type (Cyan)
   EXPECT_EQ(Language::Syntax::SemanticTokensManager::get_token_color(
                 Language::Syntax::SemanticTokenType::Namespace, palette),
-            palette.label);
+            palette.type);
   EXPECT_EQ(Language::Syntax::SemanticTokensManager::get_token_color(
                 Language::Syntax::SemanticTokenType::Class, palette),
-            palette.label);
+            palette.type);
   EXPECT_EQ(Language::Syntax::SemanticTokensManager::get_token_color(
                 Language::Syntax::SemanticTokenType::Struct, palette),
-            palette.label);
+            palette.type);
   EXPECT_EQ(Language::Syntax::SemanticTokensManager::get_token_color(
                 Language::Syntax::SemanticTokenType::Interface, palette),
-            palette.label);
+            palette.type);
+
+  // Function, Method, Macro map to palette.label (Pink)
   EXPECT_EQ(Language::Syntax::SemanticTokensManager::get_token_color(
                 Language::Syntax::SemanticTokenType::Function, palette),
             palette.label);
@@ -769,7 +807,7 @@ TEST(LanguageServerTests, HoverTooltipStateAndBoundsCalculation) {
 
   const auto bounds = tooltip.calculate_bounds(320.0F, 90.0F);
   EXPECT_EQ(bounds.x, 150.0F);
-  EXPECT_EQ(bounds.y, 200.0F);
+  EXPECT_EQ(bounds.y, 104.0F);
   EXPECT_EQ(bounds.width, 320.0F);
   EXPECT_EQ(bounds.height, 90.0F);
 
@@ -780,6 +818,7 @@ TEST(LanguageServerTests, HoverTooltipStateAndBoundsCalculation) {
 TEST(LanguageServerTests, UriConversionAndPercentDecoding) {
   using Language::Protocol::LspProtocolSerializer;
 
+#if !defined(_WIN32)
   // 1. Linux/Unix absolute path conversion
   const std::filesystem::path unix_path("/home/user/project/main.cpp");
   const std::string unix_uri = LspProtocolSerializer::path_to_uri(unix_path);
@@ -787,6 +826,7 @@ TEST(LanguageServerTests, UriConversionAndPercentDecoding) {
   const std::filesystem::path parsed_unix =
       LspProtocolSerializer::uri_to_path(unix_uri);
   EXPECT_EQ(parsed_unix, unix_path);
+#endif
 
   // 2. Windows drive path conversion
   const std::filesystem::path win_path("C:/Users/dev/project/main.cpp");

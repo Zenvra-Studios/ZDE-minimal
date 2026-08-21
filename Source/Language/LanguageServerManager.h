@@ -35,6 +35,7 @@ public:
 
     static std::vector<Protocol::CompletionItem> get_templates_for_filename(std::string_view filename);
     static std::vector<Protocol::CompletionItem> get_header_completions(std::string_view line_prefix, const std::filesystem::path& workspace_root = {});
+    static void clear_header_cache() noexcept;
 
     /// LSP queries (Powered purely by the real binary LSP e.g. clangd.exe)
     void request_completion(

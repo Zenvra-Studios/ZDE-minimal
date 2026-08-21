@@ -41,6 +41,7 @@ void transport_debug_log(const std::string& msg)
 struct StdioProcessTransport::ProcessHandle
 {
 #if defined(_WIN32)
+    HANDLE job = nullptr;
     HANDLE process = nullptr;
     HANDLE thread = nullptr;
     HANDLE stdin_write = nullptr;
@@ -150,6 +151,15 @@ bool StdioProcessTransport::start()
     std::vector<wchar_t> cmd_buffer(cmd_line.begin(), cmd_line.end());
     cmd_buffer.push_back(L'\0');
 
+    // Create Job Object with KILL_ON_JOB_CLOSE to ensure zero orphaned child processes
+    HANDLE job = CreateJobObjectW(nullptr, nullptr);
+    if (job != nullptr)
+    {
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION jeli{};
+        jeli.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        SetInformationJobObject(job, JobObjectExtendedLimitInformation, &jeli, sizeof(jeli));
+    }
+
     const BOOL success = CreateProcessW(
         nullptr,
         cmd_buffer.data(),
@@ -173,6 +183,10 @@ bool StdioProcessTransport::start()
         transport_debug_log("[zde-lsp] CreateProcessW FAILED err=" +
                             std::to_string(err) + " cmd=" +
                             std::string(cmd_line.begin(), cmd_line.end()));
+        if (job != nullptr)
+        {
+            CloseHandle(job);
+        }
         CloseHandle(stdout_read_pipe);
         CloseHandle(stdin_write_pipe);
         CloseHandle(stderr_read_pipe);
@@ -181,6 +195,12 @@ bool StdioProcessTransport::start()
 
     transport_debug_log("[zde-lsp] CreateProcessW OK pid=" +
                         std::to_string(pi.dwProcessId));
+
+    if (job != nullptr)
+    {
+        AssignProcessToJobObject(job, pi.hProcess);
+        m_process->job = job;
+    }
 
     m_process->process = pi.hProcess;
     m_process->thread = pi.hThread;
@@ -206,6 +226,9 @@ bool StdioProcessTransport::start()
 
     if (pid == 0)
     {
+        // Set new process group so entire process tree can be killed cleanly
+        setpgid(0, 0);
+
         // Unblock signals in child
         sigset_t set;
         sigemptyset(&set);
@@ -270,19 +293,63 @@ void StdioProcessTransport::stop()
     m_running.store(false);
 
 #if defined(_WIN32)
+    // 1. Close stdin to notify server of EOF
     if (m_process->stdin_write != nullptr)
     {
         CloseHandle(m_process->stdin_write);
         m_process->stdin_write = nullptr;
     }
+
+    // 2. Kill the entire process tree immediately via Job Object and TerminateProcess
+    if (m_process->job != nullptr)
+    {
+        TerminateJobObject(m_process->job, 0);
+    }
     if (m_process->process != nullptr)
     {
-        if (WaitForSingleObject(m_process->process, 100) == WAIT_TIMEOUT)
+        TerminateProcess(m_process->process, 0);
+        WaitForSingleObject(m_process->process, 200);
+    }
+
+    // 3. Join reader and stderr threads before closing stdout/stderr pipe handles
+    if (m_reader_thread.joinable())
+    {
+        if (m_reader_thread.get_id() != std::this_thread::get_id())
         {
-            TerminateProcess(m_process->process, 0);
+            m_reader_thread.join();
         }
+        else
+        {
+            m_reader_thread.detach();
+        }
+    }
+    if (m_stderr_thread.joinable())
+    {
+        if (m_stderr_thread.get_id() != std::this_thread::get_id())
+        {
+            m_stderr_thread.join();
+        }
+        else
+        {
+            m_stderr_thread.detach();
+        }
+    }
+
+    // 4. Safely close remaining handles
+    if (m_process->process != nullptr)
+    {
         CloseHandle(m_process->process);
         m_process->process = nullptr;
+    }
+    if (m_process->job != nullptr)
+    {
+        CloseHandle(m_process->job);
+        m_process->job = nullptr;
+    }
+    if (m_process->thread != nullptr)
+    {
+        CloseHandle(m_process->thread);
+        m_process->thread = nullptr;
     }
     if (m_process->stdout_read != nullptr)
     {
@@ -294,11 +361,6 @@ void StdioProcessTransport::stop()
         CloseHandle(m_process->stderr_read);
         m_process->stderr_read = nullptr;
     }
-    if (m_process->thread != nullptr)
-    {
-        CloseHandle(m_process->thread);
-        m_process->thread = nullptr;
-    }
 #else
     if (m_process->stdin_write >= 0)
     {
@@ -307,7 +369,7 @@ void StdioProcessTransport::stop()
     }
     if (m_process->pid > 0)
     {
-        kill(m_process->pid, SIGTERM);
+        kill(-m_process->pid, SIGTERM);
         int status = 0;
         for (int i = 0; i < 20; ++i)
         {
@@ -316,23 +378,12 @@ void StdioProcessTransport::stop()
             {
                 break;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
-        kill(m_process->pid, SIGKILL);
+        kill(-m_process->pid, SIGKILL);
         waitpid(m_process->pid, nullptr, WNOHANG);
         m_process->pid = -1;
     }
-    if (m_process->stdout_read >= 0)
-    {
-        close(m_process->stdout_read);
-        m_process->stdout_read = -1;
-    }
-    if (m_process->stderr_read >= 0)
-    {
-        close(m_process->stderr_read);
-        m_process->stderr_read = -1;
-    }
-#endif
 
     if (m_reader_thread.joinable())
     {
@@ -356,6 +407,18 @@ void StdioProcessTransport::stop()
             m_stderr_thread.detach();
         }
     }
+
+    if (m_process->stdout_read >= 0)
+    {
+        close(m_process->stdout_read);
+        m_process->stdout_read = -1;
+    }
+    if (m_process->stderr_read >= 0)
+    {
+        close(m_process->stderr_read);
+        m_process->stderr_read = -1;
+    }
+#endif
 }
 
 bool StdioProcessTransport::is_running() const noexcept

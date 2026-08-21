@@ -3,14 +3,20 @@
 #include <windows.h>
 #include <iostream>
 
+#if __has_include(<winrt/Windows.Foundation.h>) && \
+    __has_include(<winrt/Windows.UI.Notifications.h>) && \
+    __has_include(<winrt/Windows.Data.Xml.Dom.h>)
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.UI.Notifications.h>
 #include <winrt/Windows.Data.Xml.Dom.h>
+#define ZDE_HAS_WINRT_NOTIFICATION 1
+#endif
 
 namespace Zenvra::Platform::Win32::Runtime {
 
 bool WinRTNotification::show_toast(std::wstring_view title, std::wstring_view message, std::wstring_view tag)
 {
+#if defined(ZDE_HAS_WINRT_NOTIFICATION)
     if (!WinRTContext::initialize()) {
         return false;
     }
@@ -42,6 +48,13 @@ bool WinRTNotification::show_toast(std::wstring_view title, std::wstring_view me
     } catch (...) {
         return false;
     }
+#else
+    (void)title;
+    (void)message;
+    (void)tag;
+    return false;
+#endif
 }
 
 } // namespace Zenvra::Platform::Win32::Runtime
+

@@ -247,6 +247,13 @@ public:
         int max_size,
         const UI::Theme::Color& background) const;
 
+    [[nodiscard]] TextEditor& get_text_editor() noexcept { return m_text_editor; }
+    [[nodiscard]] const TextEditor& get_text_editor() const noexcept { return m_text_editor; }
+    [[nodiscard]] ToolSidebar& get_tool_sidebar() noexcept { return m_tool_sidebar; }
+    [[nodiscard]] const ToolSidebar& get_tool_sidebar() const noexcept { return m_tool_sidebar; }
+    [[nodiscard]] TerminalPanel& get_terminal_panel() noexcept { return m_terminal_panel; }
+    [[nodiscard]] const TerminalPanel& get_terminal_panel() const noexcept { return m_terminal_panel; }
+
 private:
     friend class ActivitySidebar;
     friend class EditorMinimap;
@@ -318,7 +325,7 @@ private:
     std::unique_ptr<AntialiasedFont> m_large_font;
     std::filesystem::path m_icon_asset_root;
     UI::Editor::StudioEditorLayout m_layout_engine;
-    UI::Editor::StudioEditorPalette m_palette = UI::Editor::StudioEditorPalette::jetbrains_dark();
+    UI::Editor::StudioEditorPalette m_palette = UI::Editor::StudioEditorPalette::dark();
     ActivitySidebar m_activity_sidebar;
     FooterToolbar m_footer_toolbar;
     ToolSidebar m_tool_sidebar;

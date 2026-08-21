@@ -1,6 +1,6 @@
 # Editor Workspace Architecture
 
-The ZDE workspace follows a JetBrains-style composition without coupling the
+The ZDE workspace follows a modern IDE composition without coupling the
 application to screenshot-specific content. Win32 and X11 expose the same
 component boundaries while keeping their native drawing implementations.
 

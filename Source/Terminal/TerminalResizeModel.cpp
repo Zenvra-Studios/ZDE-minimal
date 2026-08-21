@@ -38,8 +38,9 @@ bool TerminalResizeModel::resize_from_pointer(
     }
     const float scale = std::max(dpi_scale, 0.5F);
     const float available_height = std::max((status_top - editor_top) / scale, 0.0F);
+    const float min_terminal_height = 36.0F;
     const float requested_height = (status_top - point_y) / scale;
-    const float next_height = std::clamp(requested_height, 0.0F, available_height);
+    const float next_height = std::clamp(requested_height, min_terminal_height, available_height);
     const bool changed = std::abs(next_height - m_height) > 0.1F;
     m_height = next_height;
     m_restore_height = next_height;

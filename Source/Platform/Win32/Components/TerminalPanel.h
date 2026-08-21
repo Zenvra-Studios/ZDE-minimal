@@ -53,8 +53,12 @@ public:
   void set_working_directory(const std::filesystem::path &directory) noexcept;
 
   enum class PanelChannel { Terminal, Output };
-  [[nodiscard]] PanelChannel get_active_channel() const noexcept { return m_active_channel; }
-  void set_active_channel(PanelChannel channel) noexcept { m_active_channel = channel; }
+  [[nodiscard]] PanelChannel get_active_channel() const noexcept {
+    return m_active_channel;
+  }
+  void set_active_channel(PanelChannel channel) noexcept {
+    m_active_channel = channel;
+  }
   [[nodiscard]] bool
   contains(const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
            float point_y) const noexcept;
@@ -73,15 +77,14 @@ private:
   [[nodiscard]] UI::Rect
   session_tab_bounds(const UI::Editor::StudioEditorLayoutResult &layout,
                      std::size_t index) const noexcept;
-  [[nodiscard]] UI::Rect
-  terminal_channel_tab_bounds(const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
-  [[nodiscard]] UI::Rect
-  output_channel_tab_bounds(const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
-  [[nodiscard]] UI::Rect
-  clear_output_button_bounds(const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
-  [[nodiscard]] UI::Rect
-  add_button_bounds(const UI::Editor::StudioEditorLayoutResult &layout) const
-      noexcept;
+  [[nodiscard]] UI::Rect terminal_channel_tab_bounds(
+      const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
+  [[nodiscard]] UI::Rect output_channel_tab_bounds(
+      const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
+  [[nodiscard]] UI::Rect clear_output_button_bounds(
+      const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
+  [[nodiscard]] UI::Rect add_button_bounds(
+      const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
   [[nodiscard]] UI::Rect close_button_bounds(
       const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
   [[nodiscard]] UI::Rect resize_handle_bounds(

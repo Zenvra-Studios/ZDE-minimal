@@ -247,7 +247,7 @@ bool Application::initialize()
 {
     // Bootstrap Language Server, Toolchain, and TextMate Grammars
     Language::Syntax::GrammarRegistry::instance().initialize_default_grammars();
-    Language::LanguageServerManager::instance().set_workspace_root(std::filesystem::current_path());
+    Language::LanguageServerManager::instance().set_workspace_root({});
     Language::Toolchain::ToolchainDetector::instance().refresh();
 
     // Create the initial primary window context

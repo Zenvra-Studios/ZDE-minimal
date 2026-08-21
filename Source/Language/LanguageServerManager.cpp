@@ -36,14 +36,13 @@ void lsp_debug_log(std::string_view msg) {
   }
 }
 
-// Built-in Language Snippets and Templates (JetBrains / VS Code standard
-// snippets)
-std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
+// Built-in Language Snippets and Templates (Standard Language Templates)
+std::vector<Protocol::CompletionItem> get_cpp_templates() {
   return {
       Protocol::CompletionItem{
           .label = "struct",
           .kind = Protocol::CompletionItemKind::Class,
-          .detail = "(JetBrains Template) struct Name { ... };",
+          .detail = "(Template) struct Name { ... };",
           .documentation =
               "Generates a C++ struct definition with body and semicolon.",
           .insert_text = "struct ${1:Name}\n{\n    $0\n};",
@@ -51,7 +50,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
       Protocol::CompletionItem{
           .label = "class",
           .kind = Protocol::CompletionItemKind::Class,
-          .detail = "(JetBrains Template) class Name { public: ... };",
+          .detail = "(Template) class Name { public: ... };",
           .documentation = "Generates a C++ class definition with constructor, "
                            "destructor and private sections.",
           .insert_text = "class ${1:Name}\n{\npublic:\n    ${1:Name}();\n    "
@@ -60,8 +59,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
       Protocol::CompletionItem{
           .label = "namespace",
           .kind = Protocol::CompletionItemKind::Module,
-          .detail =
-              "(JetBrains Template) namespace Name { ... } // namespace Name",
+          .detail = "(Template) namespace Name { ... } // namespace Name",
           .documentation =
               "Generates a C++ namespace block with matching closing comment.",
           .insert_text =
@@ -70,7 +68,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
       Protocol::CompletionItem{
           .label = "ns",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) namespace Name { ... }",
+          .detail = "(Template) namespace Name { ... }",
           .documentation = "Shortcut to generate a C++ namespace block with "
                            "closing comment.",
           .insert_text =
@@ -79,21 +77,20 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
       Protocol::CompletionItem{
           .label = "enum class",
           .kind = Protocol::CompletionItemKind::Class,
-          .detail = "(JetBrains Template) enum class Name : uint32_t { ... };",
+          .detail = "(Template) enum class Name : uint32_t { ... };",
           .documentation = "Generates a strongly typed enum class definition.",
           .insert_text = "enum class ${1:Name}\n{\n    $0\n};",
           .filter_text = "enum class"},
       Protocol::CompletionItem{.label = "enum",
                                .kind = Protocol::CompletionItemKind::Class,
-                               .detail =
-                                   "(JetBrains Template) enum Name { ... };",
+                               .detail = "(Template) enum Name { ... };",
                                .documentation = "Generates an enum definition.",
                                .insert_text = "enum ${1:Name}\n{\n    $0\n};",
                                .filter_text = "enum"},
       Protocol::CompletionItem{
           .label = "interface",
           .kind = Protocol::CompletionItemKind::Interface,
-          .detail = "(JetBrains Template) struct IInterface { virtual "
+          .detail = "(Template) struct IInterface { virtual "
                     "~IInterface() = default; ... };",
           .documentation = "Generates an abstract C++ interface with virtual "
                            "default destructor.",
@@ -103,8 +100,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
       Protocol::CompletionItem{
           .label = "template struct",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail =
-              "(JetBrains Template) template <typename T> struct Name { ... };",
+          .detail = "(Template) template <typename T> struct Name { ... };",
           .documentation = "Generates a templated struct definition.",
           .insert_text =
               "template <typename ${1:T}>\nstruct ${2:Name}\n{\n    $0\n};",
@@ -112,8 +108,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
       Protocol::CompletionItem{
           .label = "template class",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail =
-              "(JetBrains Template) template <typename T> class Name { ... };",
+          .detail = "(Template) template <typename T> class Name { ... };",
           .documentation = "Generates a templated class definition.",
           .insert_text =
               "template <typename ${1:T}>\nclass ${2:Name}\n{\npublic:\n    "
@@ -122,8 +117,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
       Protocol::CompletionItem{
           .label = "template function",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail =
-              "(JetBrains Template) template <typename T> void fn() { ... }",
+          .detail = "(Template) template <typename T> void fn() { ... }",
           .documentation = "Generates a templated function signature and body.",
           .insert_text = "template <typename ${1:T}>\n${2:void} "
                          "${3:function_name}(${4:/*params*/})\n{\n    $0\n}",
@@ -131,7 +125,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
       Protocol::CompletionItem{
           .label = "fori",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) for (size_t i = 0; i < count; ++i)",
+          .detail = "(Template) for (size_t i = 0; i < count; ++i)",
           .documentation = "Generates an index-based standard for loop.",
           .insert_text = "for (std::size_t ${1:i} = 0; ${1:i} < ${2:count}; "
                          "++${1:i})\n{\n    $0\n}",
@@ -139,7 +133,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
       Protocol::CompletionItem{
           .label = "foreach",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) for (const auto& item : collection)",
+          .detail = "(Template) for (const auto& item : collection)",
           .documentation = "Generates a range-based for loop.",
           .insert_text =
               "for (const auto& ${1:item} : ${2:collection})\n{\n    $0\n}",
@@ -147,7 +141,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
       Protocol::CompletionItem{
           .label = "iter",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) for (auto it = c.begin(); it != "
+          .detail = "(Template) for (auto it = c.begin(); it != "
                     "c.end(); ++it)",
           .documentation = "Generates an iterator-based loop.",
           .insert_text = "for (auto ${1:it} = ${2:collection}.begin(); ${1:it} "
@@ -156,7 +150,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
       Protocol::CompletionItem{
           .label = "switch",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) switch (condition) { case ...: "
+          .detail = "(Template) switch (condition) { case ...: "
                     "break; default: break; }",
           .documentation =
               "Generates a switch-case statement with default branch.",
@@ -166,7 +160,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
       Protocol::CompletionItem{
           .label = "try",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) try { ... } catch (const "
+          .detail = "(Template) try { ... } catch (const "
                     "std::exception& e) { ... }",
           .documentation =
               "Generates a try-catch block catching std::exception.",
@@ -176,14 +170,14 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
       Protocol::CompletionItem{
           .label = "lambda",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) [&]() { ... }",
+          .detail = "(Template) [&]() { ... }",
           .documentation = "Generates a C++ lambda expression.",
           .insert_text = "[${1:&}](${2:/*params*/})\n{\n    $0\n}",
           .filter_text = "lambda"},
       Protocol::CompletionItem{
           .label = "main",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) int main(int argc, char* argv[])",
+          .detail = "(Template) int main(int argc, char* argv[])",
           .documentation =
               "Generates the standard C++ application entry point.",
           .insert_text =
@@ -192,15 +186,14 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
       Protocol::CompletionItem{
           .label = "guard",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) #pragma once",
+          .detail = "(Template) #pragma once",
           .documentation = "Generates a modern include guard directive.",
           .insert_text = "#pragma once\n\n$0",
           .filter_text = "guard"},
       Protocol::CompletionItem{
           .label = "singleton",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail =
-              "(JetBrains Template) static ClassName& instance() noexcept;",
+          .detail = "(Template) static ClassName& instance() noexcept;",
           .documentation =
               "Generates thread-safe Meyer's Singleton method pattern.",
           .insert_text =
@@ -210,7 +203,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
       Protocol::CompletionItem{
           .label = "pimpl",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) PImpl idiom pointer & struct",
+          .detail = "(Template) PImpl idiom pointer & struct",
           .documentation = "Generates standard Pointer-to-Implementation "
                            "(PImpl) declaration.",
           .insert_text = "struct Impl;\nstd::unique_ptr<Impl> m_impl;",
@@ -218,7 +211,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
       Protocol::CompletionItem{
           .label = "castu",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) std::make_unique<Type>(...)",
+          .detail = "(Template) std::make_unique<Type>(...)",
           .documentation =
               "Creates and wraps object in modern std::unique_ptr.",
           .insert_text = "std::make_unique<${1:Type}>(${2})$0",
@@ -226,7 +219,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
       Protocol::CompletionItem{
           .label = "casts",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) std::make_shared<Type>(...)",
+          .detail = "(Template) std::make_shared<Type>(...)",
           .documentation =
               "Creates and wraps object in modern std::shared_ptr.",
           .insert_text = "std::make_shared<${1:Type}>(${2})$0",
@@ -357,12 +350,12 @@ std::vector<Protocol::CompletionItem> get_jetbrains_cpp_templates() {
   };
 }
 
-std::vector<Protocol::CompletionItem> get_jetbrains_rust_templates() {
+std::vector<Protocol::CompletionItem> get_rust_templates() {
   return {
       Protocol::CompletionItem{
           .label = "fn",
           .kind = Protocol::CompletionItemKind::Function,
-          .detail = "(JetBrains Template) fn name(...) -> ... { ... }",
+          .detail = "(Template) fn name(...) -> ... { ... }",
           .documentation = "Generates standard Rust function with body.",
           .insert_text =
               "fn ${1:name}(${2:/*params*/}) -> ${3:()} {\n    $0\n}",
@@ -370,7 +363,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_rust_templates() {
       Protocol::CompletionItem{
           .label = "pfn",
           .kind = Protocol::CompletionItemKind::Function,
-          .detail = "(JetBrains Template) pub fn name(...) -> ... { ... }",
+          .detail = "(Template) pub fn name(...) -> ... { ... }",
           .documentation = "Generates public Rust function with body.",
           .insert_text =
               "pub fn ${1:name}(${2:/*params*/}) -> ${3:()} {\n    $0\n}",
@@ -378,7 +371,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_rust_templates() {
       Protocol::CompletionItem{
           .label = "afn",
           .kind = Protocol::CompletionItemKind::Function,
-          .detail = "(JetBrains Template) async fn name(...) -> ... { ... }",
+          .detail = "(Template) async fn name(...) -> ... { ... }",
           .documentation = "Generates asynchronous Rust function with body.",
           .insert_text =
               "async fn ${1:name}(${2:/*params*/}) -> ${3:()} {\n    $0\n}",
@@ -386,53 +379,53 @@ std::vector<Protocol::CompletionItem> get_jetbrains_rust_templates() {
       Protocol::CompletionItem{
           .label = "struct",
           .kind = Protocol::CompletionItemKind::Class,
-          .detail = "(JetBrains Template) struct Name { ... }",
+          .detail = "(Template) struct Name { ... }",
           .documentation = "Generates standard Rust struct with public fields.",
           .insert_text = "struct ${1:Name} {\n    $0\n}",
           .filter_text = "struct"},
       Protocol::CompletionItem{
           .label = "enum",
           .kind = Protocol::CompletionItemKind::Enum,
-          .detail = "(JetBrains Template) enum Name { ... }",
+          .detail = "(Template) enum Name { ... }",
           .documentation = "Generates standard Rust enum with variants.",
           .insert_text = "enum ${1:Name} {\n    $0\n}",
           .filter_text = "enum"},
       Protocol::CompletionItem{
           .label = "impl",
           .kind = Protocol::CompletionItemKind::Class,
-          .detail = "(JetBrains Template) impl Name { ... }",
+          .detail = "(Template) impl Name { ... }",
           .documentation = "Generates implementation block for struct or enum.",
           .insert_text = "impl ${1:Name} {\n    $0\n}",
           .filter_text = "impl"},
       Protocol::CompletionItem{
           .label = "match",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) match expr { ... }",
+          .detail = "(Template) match expr { ... }",
           .documentation = "Generates exhaustive pattern match expression.",
           .insert_text = "match ${1:expr} {\n    ${2:pattern} => $0,\n}",
           .filter_text = "match"},
       Protocol::CompletionItem{
           .label = "iflet",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) if let Some(...) = ... { ... }",
+          .detail = "(Template) if let Some(...) = ... { ... }",
           .documentation = "Generates if-let conditional pattern match.",
           .insert_text = "if let Some(${1:val}) = ${2:opt} {\n    $0\n}",
           .filter_text = "iflet"},
       Protocol::CompletionItem{
           .label = "println",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) println!(\"...\", ...);",
+          .detail = "(Template) println!(\"...\", ...);",
           .documentation = "Prints formatted string to stdout with newline.",
           .insert_text = "println!(\"${1:{}}\", $0);",
           .filter_text = "println"}};
 }
 
-std::vector<Protocol::CompletionItem> get_jetbrains_python_templates() {
+std::vector<Protocol::CompletionItem> get_python_templates() {
   return {
       Protocol::CompletionItem{
           .label = "def",
           .kind = Protocol::CompletionItemKind::Function,
-          .detail = "(JetBrains Template) def function_name(...):",
+          .detail = "(Template) def function_name(...):",
           .documentation = "Generates Python function definition.",
           .insert_text = "def ${1:func_name}(${2:/*args*/}):\n    \"\"\""
                          "${3:Docstring}\"\"\"\n    $0",
@@ -440,7 +433,7 @@ std::vector<Protocol::CompletionItem> get_jetbrains_python_templates() {
       Protocol::CompletionItem{
           .label = "class",
           .kind = Protocol::CompletionItemKind::Class,
-          .detail = "(JetBrains Template) class ClassName:",
+          .detail = "(Template) class ClassName:",
           .documentation =
               "Generates Python class definition with constructor.",
           .insert_text = "class ${1:ClassName}:\n    def __init__(self, "
@@ -449,40 +442,39 @@ std::vector<Protocol::CompletionItem> get_jetbrains_python_templates() {
       Protocol::CompletionItem{
           .label = "main",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) if __name__ == '__main__':",
+          .detail = "(Template) if __name__ == '__main__':",
           .documentation = "Standard Python executable script entry point.",
           .insert_text = "if __name__ == \"__main__\":\n    $0",
           .filter_text = "main"},
       Protocol::CompletionItem{
           .label = "try",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) try ... except Exception as e:",
+          .detail = "(Template) try ... except Exception as e:",
           .documentation = "Generates Python try-except error handling block.",
           .insert_text = "try:\n    $0\nexcept Exception as ${1:e}:\n    raise",
           .filter_text = "try"}};
 }
 
-std::vector<Protocol::CompletionItem>
-get_jetbrains_typescript_templates(bool is_jsx) {
+std::vector<Protocol::CompletionItem> get_typescript_templates(bool is_jsx) {
   std::vector<Protocol::CompletionItem> templates = {
       Protocol::CompletionItem{
           .label = "interface",
           .kind = Protocol::CompletionItemKind::Interface,
-          .detail = "(JetBrains Template) interface Name { ... }",
+          .detail = "(Template) interface Name { ... }",
           .documentation = "Generates TypeScript interface definition.",
           .insert_text = "interface ${1:Name} {\n    $0\n}",
           .filter_text = "interface"},
       Protocol::CompletionItem{
           .label = "type",
           .kind = Protocol::CompletionItemKind::TypeParameter,
-          .detail = "(JetBrains Template) type Name = ...;",
+          .detail = "(Template) type Name = ...;",
           .documentation = "Generates TypeScript type alias declaration.",
           .insert_text = "type ${1:Name} = $0;",
           .filter_text = "type"},
       Protocol::CompletionItem{
           .label = "afn",
           .kind = Protocol::CompletionItemKind::Function,
-          .detail = "(JetBrains Template) const name = async (...) => { ... }",
+          .detail = "(Template) const name = async (...) => { ... }",
           .documentation = "Generates asynchronous arrow function expression.",
           .insert_text =
               "const ${1:name} = async (${2:/*params*/}) => {\n    $0\n};",
@@ -490,14 +482,14 @@ get_jetbrains_typescript_templates(bool is_jsx) {
       Protocol::CompletionItem{
           .label = "clg",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) console.log(...)",
+          .detail = "(Template) console.log(...)",
           .documentation = "Logs output to developer debugging console.",
           .insert_text = "console.log($0);",
           .filter_text = "clg"},
       Protocol::CompletionItem{
           .label = "import",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) import { ... } from '...';",
+          .detail = "(Template) import { ... } from '...';",
           .documentation = "Imports named module members from a package.",
           .insert_text = "import { ${1:name} } from '${2:module}';$0",
           .filter_text = "import"}};
@@ -506,7 +498,7 @@ get_jetbrains_typescript_templates(bool is_jsx) {
     templates.push_back(Protocol::CompletionItem{
         .label = "rfc",
         .kind = Protocol::CompletionItemKind::Snippet,
-        .detail = "(JetBrains Template) export const Component: React.FC = () "
+        .detail = "(Template) export const Component: React.FC = () "
                   "=> { ... }",
         .documentation = "Generates React Functional Component with TypeScript "
                          "type signature.",
@@ -521,36 +513,106 @@ get_jetbrains_typescript_templates(bool is_jsx) {
   return templates;
 }
 
-std::vector<Protocol::CompletionItem> get_jetbrains_html_templates() {
+std::vector<Protocol::CompletionItem> get_html_templates() {
+  return {Protocol::CompletionItem{
+              .label = "html:5",
+              .kind = Protocol::CompletionItemKind::Snippet,
+              .detail = "(Template) HTML5 Document Boilerplate",
+              .documentation =
+                  "Generates standard semantic HTML5 skeleton document.",
+              .insert_text =
+                  "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    "
+                  "<meta charset=\"UTF-8\">\n    <meta "
+                  "name=\"viewport\" content=\"width=device-width, "
+                  "initial-scale=1.0\">\n    "
+                  "<title>${1:Document}</title>\n</head>\n<body>\n    "
+                  "$0\n</body>\n</html>",
+              .filter_text = "html:5"},
+          Protocol::CompletionItem{
+              .label = "div",
+              .kind = Protocol::CompletionItemKind::Snippet,
+              .detail = "(Template) <div class=\"...\">...</div>",
+              .documentation = "Generates HTML div container element.",
+              .insert_text = "<div class=\"${1:name}\">\n    $0\n</div>",
+              .filter_text = "div"},
+          Protocol::CompletionItem{
+              .label = "button",
+              .kind = Protocol::CompletionItemKind::Snippet,
+              .detail = "(Template) <button type=\"...\">...</button>",
+              .documentation = "Generates interactive HTML button element.",
+              .insert_text =
+                  "<button type=\"${1:button}\" class=\"${2:btn}\">$0</button>",
+              .filter_text = "button"}};
+}
+
+std::vector<Protocol::CompletionItem> get_go_templates() {
   return {
       Protocol::CompletionItem{
-          .label = "html:5",
-          .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) HTML5 Document Boilerplate",
-          .documentation =
-              "Generates standard semantic HTML5 skeleton document.",
-          .insert_text = "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    "
-                         "<meta charset=\"UTF-8\">\n    <meta "
-                         "name=\"viewport\" content=\"width=device-width, "
-                         "initial-scale=1.0\">\n    "
-                         "<title>${1:Document}</title>\n</head>\n<body>\n    "
-                         "$0\n</body>\n</html>",
-          .filter_text = "html:5"},
+          .label = "func",
+          .kind = Protocol::CompletionItemKind::Function,
+          .detail = "(Template) func Name(...) ... { ... }",
+          .documentation = "Generates a Go function declaration.",
+          .insert_text = "func ${1:name}(${2:/*args*/}) ${3:error} {\n\t$0\n}",
+          .filter_text = "func"},
       Protocol::CompletionItem{
-          .label = "div",
+          .label = "main",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) <div class=\"...\">...</div>",
-          .documentation = "Generates HTML div container element.",
-          .insert_text = "<div class=\"${1:name}\">\n    $0\n</div>",
-          .filter_text = "div"},
+          .detail = "(Template) package main ... func main()",
+          .documentation = "Generates a Go main package entry point.",
+          .insert_text = "package main\n\nimport (\n\t\"fmt\"\n)\n\nfunc "
+                         "main() {\n\tfmt.Println(\"$0\")\n}",
+          .filter_text = "main"},
       Protocol::CompletionItem{
-          .label = "button",
+          .label = "struct",
+          .kind = Protocol::CompletionItemKind::Struct,
+          .detail = "(Template) type Name struct { ... }",
+          .documentation = "Generates a Go struct declaration.",
+          .insert_text = "type ${1:Name} struct {\n\t$0\n}",
+          .filter_text = "struct"},
+      Protocol::CompletionItem{
+          .label = "interface",
+          .kind = Protocol::CompletionItemKind::Interface,
+          .detail = "(Template) type Name interface { ... }",
+          .documentation = "Generates a Go interface declaration.",
+          .insert_text = "type ${1:Name} interface {\n\t$0\n}",
+          .filter_text = "interface"},
+      Protocol::CompletionItem{
+          .label = "iferr",
           .kind = Protocol::CompletionItemKind::Snippet,
-          .detail = "(JetBrains Template) <button type=\"...\">...</button>",
-          .documentation = "Generates interactive HTML button element.",
+          .detail = "(Template) if err != nil { return err }",
+          .documentation = "Standard Go error check and return block.",
+          .insert_text = "if err != nil {\n\treturn ${1:err}\n}\n$0",
+          .filter_text = "iferr"},
+      Protocol::CompletionItem{
+          .label = "forr",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(Template) for i, item := range items { ... }",
+          .documentation = "Generates a Go range loop over a collection.",
           .insert_text =
-              "<button type=\"${1:button}\" class=\"${2:btn}\">$0</button>",
-          .filter_text = "button"}};
+              "for ${1:i}, ${2:v} := range ${3:collection} {\n\t$0\n}",
+          .filter_text = "forr"},
+      Protocol::CompletionItem{
+          .label = "fori",
+          .kind = Protocol::CompletionItemKind::Snippet,
+          .detail = "(Template) for i := 0; i < count; i++ { ... }",
+          .documentation = "Generates a standard Go indexed for loop.",
+          .insert_text =
+              "for ${1:i} := 0; ${1:i} < ${2:count}; ${1:i}++ {\n\t$0\n}",
+          .filter_text = "fori"},
+      Protocol::CompletionItem{.label = "goroutine",
+                               .kind = Protocol::CompletionItemKind::Snippet,
+                               .detail = "(Template) go func() { ... }()",
+                               .documentation =
+                                   "Spawns an anonymous concurrent Goroutine.",
+                               .insert_text = "go func() {\n\t$0\n}()",
+                               .filter_text = "goroutine"},
+      Protocol::CompletionItem{
+          .label = "type",
+          .kind = Protocol::CompletionItemKind::TypeParameter,
+          .detail = "(Template) type Name Type",
+          .documentation = "Generates a Go type alias definition.",
+          .insert_text = "type ${1:Name} ${2:string}",
+          .filter_text = "type"}};
 }
 
 } // namespace
@@ -561,34 +623,47 @@ LanguageServerManager::get_templates_for_filename(std::string_view filename) {
   const std::string ext = p.extension().string();
   const std::string fname = p.filename().string();
 
-  if (fname == "CMakeLists.txt" || fname == "cmakelists.txt" || ext == ".cmake") {
+  if (fname == "CMakeLists.txt" || fname == "cmakelists.txt" ||
+      ext == ".cmake") {
     return CMake::CMakeLanguageDatabase::instance().get_all_completions();
   }
   if (ext == ".cpp" || ext == ".cc" || ext == ".cxx" || ext == ".h" ||
       ext == ".hpp" || ext == ".hxx" || ext == ".c" || ext == ".inl") {
-    return get_jetbrains_cpp_templates();
+    return get_cpp_templates();
   }
   if (ext == ".rs") {
-    return get_jetbrains_rust_templates();
+    return get_rust_templates();
+  }
+  if (ext == ".go") {
+    return get_go_templates();
   }
   if (ext == ".py" || ext == ".pyw") {
-    return get_jetbrains_python_templates();
+    return get_python_templates();
   }
   if (ext == ".ts" || ext == ".tsx" || ext == ".js" || ext == ".jsx" ||
       ext == ".mjs" || ext == ".cjs") {
-    return get_jetbrains_typescript_templates(ext == ".tsx" || ext == ".jsx");
+    return get_typescript_templates(ext == ".tsx" || ext == ".jsx");
   }
   if (ext == ".html" || ext == ".htm" || ext == ".xhtml") {
-    return get_jetbrains_html_templates();
+    return get_html_templates();
   }
   return {};
 }
 
-std::vector<Protocol::CompletionItem>
-LanguageServerManager::get_header_completions(std::string_view line_prefix, const std::filesystem::path& workspace_root) {
-  std::vector<Protocol::CompletionItem> items;
-  std::unordered_set<std::string> seen;
+namespace {
+static std::mutex s_header_cache_mutex;
+static std::unordered_map<std::string, std::vector<Protocol::CompletionItem>>
+    s_header_cache;
+} // namespace
 
+void LanguageServerManager::clear_header_cache() noexcept {
+  std::lock_guard<std::mutex> lock(s_header_cache_mutex);
+  s_header_cache.clear();
+}
+
+std::vector<Protocol::CompletionItem>
+LanguageServerManager::get_header_completions(
+    std::string_view line_prefix, const std::filesystem::path &workspace_root) {
   // Determine if it is <system> or "quoted" include
   bool is_system = false;
   std::string_view path_after_delim;
@@ -596,14 +671,15 @@ LanguageServerManager::get_header_completions(std::string_view line_prefix, cons
   const auto lt_pos = line_prefix.rfind('<');
   const auto qt_pos = line_prefix.rfind('"');
 
-  if (lt_pos != std::string_view::npos && (qt_pos == std::string_view::npos || lt_pos > qt_pos)) {
+  if (lt_pos != std::string_view::npos &&
+      (qt_pos == std::string_view::npos || lt_pos > qt_pos)) {
     is_system = true;
     path_after_delim = line_prefix.substr(lt_pos + 1);
   } else if (qt_pos != std::string_view::npos) {
     is_system = false;
     path_after_delim = line_prefix.substr(qt_pos + 1);
   } else {
-    return items;
+    return {};
   }
 
   // Extract subdirectory prefix if user typed e.g. "X11/" or "Platform/X11/"
@@ -613,17 +689,33 @@ LanguageServerManager::get_header_completions(std::string_view line_prefix, cons
     sub_dir = std::string(path_after_delim.substr(0, last_slash + 1));
   }
 
-  const auto& toolchain = Toolchain::ToolchainDetector::instance().get_active_toolchain();
+  const std::string cache_key =
+      (is_system ? "sys:" : "quote:") + sub_dir + "|" + workspace_root.string();
+  {
+    std::lock_guard<std::mutex> lock(s_header_cache_mutex);
+    auto it = s_header_cache.find(cache_key);
+    if (it != s_header_cache.end()) {
+      return it->second;
+    }
+  }
 
-  auto add_entry = [&](const std::filesystem::directory_entry& entry) {
+  std::vector<Protocol::CompletionItem> items;
+  std::unordered_set<std::string> seen;
+
+  const auto &toolchain =
+      Toolchain::ToolchainDetector::instance().get_active_toolchain();
+
+  auto add_entry = [&](const std::filesystem::directory_entry &entry) {
     std::error_code ec;
     const auto name = entry.path().filename().string();
-    if (name.empty() || name.front() == '.') return;
+    if (name.empty() || name.front() == '.')
+      return;
 
     const auto status = std::filesystem::status(entry.path(), ec);
     if (std::filesystem::is_regular_file(status)) {
       const auto ext = entry.path().extension().string();
-      if (ext == ".h" || ext == ".hpp" || ext == ".hxx" || ext == ".inl" || ext.empty()) {
+      if (ext == ".h" || ext == ".hpp" || ext == ".hxx" || ext == ".inl" ||
+          ext.empty()) {
         if (seen.insert(name).second) {
           Protocol::CompletionItem it{};
           it.label = name;
@@ -636,7 +728,8 @@ LanguageServerManager::get_header_completions(std::string_view line_prefix, cons
         }
       }
     } else if (std::filesystem::is_directory(status) && sub_dir.empty()) {
-      // Only show directory candidates at top-level; once inside a folder, show only header files
+      // Only show directory candidates at top-level; once inside a folder, show
+      // only header files
       const std::string dir_label = name + "/";
       if (seen.insert(dir_label).second) {
         Protocol::CompletionItem it{};
@@ -655,12 +748,15 @@ LanguageServerManager::get_header_completions(std::string_view line_prefix, cons
     bool found_dir = false;
 
     // Scan toolchain system include paths + sub_dir
-    for (const auto& sys_inc : toolchain.system_include_paths) {
+    for (const auto &sys_inc : toolchain.system_include_paths) {
       std::error_code ec;
       const auto target = sys_inc / sub_dir;
-      if (std::filesystem::exists(target, ec) && std::filesystem::is_directory(target, ec)) {
-        for (const auto& entry : std::filesystem::directory_iterator(
-                 target, std::filesystem::directory_options::skip_permission_denied, ec)) {
+      if (std::filesystem::exists(target, ec) &&
+          std::filesystem::is_directory(target, ec)) {
+        for (const auto &entry : std::filesystem::directory_iterator(
+                 target,
+                 std::filesystem::directory_options::skip_permission_denied,
+                 ec)) {
           add_entry(entry);
         }
         found_dir = true;
@@ -675,11 +771,14 @@ LanguageServerManager::get_header_completions(std::string_view line_prefix, cons
           workspace_root / "Include" / sub_dir,
           workspace_root / "include" / sub_dir,
       };
-      for (const auto& target : roots) {
+      for (const auto &target : roots) {
         std::error_code ec;
-        if (std::filesystem::exists(target, ec) && std::filesystem::is_directory(target, ec)) {
-          for (const auto& entry : std::filesystem::directory_iterator(
-                   target, std::filesystem::directory_options::skip_permission_denied, ec)) {
+        if (std::filesystem::exists(target, ec) &&
+            std::filesystem::is_directory(target, ec)) {
+          for (const auto &entry : std::filesystem::directory_iterator(
+                   target,
+                   std::filesystem::directory_options::skip_permission_denied,
+                   ec)) {
             add_entry(entry);
           }
           found_dir = true;
@@ -694,11 +793,14 @@ LanguageServerManager::get_header_completions(std::string_view line_prefix, cons
   } else {
     // Top-level include scanning
     // A. System include top-level
-    for (const auto& sys_inc : toolchain.system_include_paths) {
+    for (const auto &sys_inc : toolchain.system_include_paths) {
       std::error_code ec;
-      if (std::filesystem::exists(sys_inc, ec) && std::filesystem::is_directory(sys_inc, ec)) {
-        for (const auto& entry : std::filesystem::directory_iterator(
-                 sys_inc, std::filesystem::directory_options::skip_permission_denied, ec)) {
+      if (std::filesystem::exists(sys_inc, ec) &&
+          std::filesystem::is_directory(sys_inc, ec)) {
+        for (const auto &entry : std::filesystem::directory_iterator(
+                 sys_inc,
+                 std::filesystem::directory_options::skip_permission_denied,
+                 ec)) {
           add_entry(entry);
         }
       }
@@ -711,11 +813,14 @@ LanguageServerManager::get_header_completions(std::string_view line_prefix, cons
           workspace_root / "Include",
           workspace_root,
       };
-      for (const auto& r : roots) {
+      for (const auto &r : roots) {
         std::error_code ec;
-        if (std::filesystem::exists(r, ec) && std::filesystem::is_directory(r, ec)) {
-          for (const auto& entry : std::filesystem::directory_iterator(
-                   r, std::filesystem::directory_options::skip_permission_denied, ec)) {
+        if (std::filesystem::exists(r, ec) &&
+            std::filesystem::is_directory(r, ec)) {
+          for (const auto &entry : std::filesystem::directory_iterator(
+                   r,
+                   std::filesystem::directory_options::skip_permission_denied,
+                   ec)) {
             add_entry(entry);
           }
         }
@@ -724,12 +829,14 @@ LanguageServerManager::get_header_completions(std::string_view line_prefix, cons
   }
 
   // Sort items: header files first, then subdirectories alphabetically
-  std::sort(items.begin(), items.end(), [](const Protocol::CompletionItem& a, const Protocol::CompletionItem& b) {
-    if (a.kind != b.kind) {
-      return a.kind == Protocol::CompletionItemKind::File;
-    }
-    return a.label < b.label;
-  });
+  std::sort(
+      items.begin(), items.end(),
+      [](const Protocol::CompletionItem &a, const Protocol::CompletionItem &b) {
+        if (a.kind != b.kind) {
+          return a.kind == Protocol::CompletionItemKind::File;
+        }
+        return a.label < b.label;
+      });
 
   return items;
 }
@@ -759,23 +866,30 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
   std::string fname_str(filename);
   const std::filesystem::path p(fname_str);
   std::string ext = p.extension().string();
-  for (char &c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  for (char &c : ext)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   std::string base_name = p.filename().string();
-  for (char &c : base_name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  for (char &c : base_name)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
   const bool is_cmake = (base_name == "cmakelists.txt" || ext == ".cmake");
 
   // Plain text, notes, log files, and markdown must NEVER start or trigger LSP
-  if (!is_cmake && (ext == ".txt" || ext == ".log" || ext == ".note" || ext == ".notes" ||
-      ext == ".md" || ext == ".markdown" || ext == ".doc" || ext == ".rtf")) {
+  if (!is_cmake &&
+      (ext == ".txt" || ext == ".log" || ext == ".note" || ext == ".notes" ||
+       ext == ".md" || ext == ".markdown" || ext == ".doc" || ext == ".rtf")) {
     return nullptr;
   }
 
   // If untitled without an explicit code extension, do not start LSP
   if (base_name.starts_with("untitled") || base_name.empty()) {
-    if (ext.empty() || (ext != ".cpp" && ext != ".c" && ext != ".h" && ext != ".hpp" &&
-                        ext != ".cc" && ext != ".cxx" && ext != ".rs" && ext != ".py" &&
-                        ext != ".go" && ext != ".js" && ext != ".ts" && ext != ".cmake")) {
+    if (ext.empty() ||
+        (ext != ".cpp" && ext != ".c" && ext != ".h" && ext != ".hpp" &&
+         ext != ".cc" && ext != ".cxx" && ext != ".rs" && ext != ".py" &&
+         ext != ".go" && ext != ".js" && ext != ".ts" && ext != ".jsx" &&
+         ext != ".tsx" && ext != ".mjs" && ext != ".cjs" && ext != ".mts" &&
+         ext != ".cts" && ext != ".cmake" && ext != ".html" && ext != ".htm" &&
+         ext != ".xhtml" && ext != ".css" && ext != ".json")) {
       return nullptr;
     }
   }
@@ -865,8 +979,10 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
           std::filesystem::is_regular_file(cand_path, ec_cand)) {
         const auto sz = std::filesystem::file_size(cand_path, ec_cand);
         if (sz > 0) {
-          const auto mtime = std::filesystem::last_write_time(cand_path, ec_cand);
-          if (best_compile_dir.empty() || mtime > best_mtime || sz > best_file_size) {
+          const auto mtime =
+              std::filesystem::last_write_time(cand_path, ec_cand);
+          if (best_compile_dir.empty() || mtime > best_mtime ||
+              sz > best_file_size) {
             best_file_size = sz;
             best_mtime = mtime;
             best_compile_dir = cand_path.parent_path();
@@ -884,21 +1000,28 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
     };
 
     for (const auto &root : unique_search_roots) {
-      // 1. Immediate root candidates (standard CMake, Meson, Visual Studio, CLion output directories)
+      // 1. Immediate root candidates (standard CMake, Meson, Visual Studio,
+      // CLion output directories)
       evaluate_candidate(root / "compile_commands.json");
       evaluate_candidate(root / "build" / "compile_commands.json");
-      evaluate_candidate(root / "build" / "linux-debug" / "compile_commands.json");
-      evaluate_candidate(root / "build" / "linux-release" / "compile_commands.json");
-      evaluate_candidate(root / "build" / "x86_64-debug" / "compile_commands.json");
-      evaluate_candidate(root / "build" / "x86_64-release" / "compile_commands.json");
+      evaluate_candidate(root / "build" / "linux-debug" /
+                         "compile_commands.json");
+      evaluate_candidate(root / "build" / "linux-release" /
+                         "compile_commands.json");
+      evaluate_candidate(root / "build" / "x86_64-debug" /
+                         "compile_commands.json");
+      evaluate_candidate(root / "build" / "x86_64-release" /
+                         "compile_commands.json");
       evaluate_candidate(root / "out" / "compile_commands.json");
       evaluate_candidate(root / "out" / "build" / "compile_commands.json");
       evaluate_candidate(root / "cmake-build-debug" / "compile_commands.json");
-      evaluate_candidate(root / "cmake-build-release" / "compile_commands.json");
+      evaluate_candidate(root / "cmake-build-release" /
+                         "compile_commands.json");
       evaluate_candidate(root / ".build" / "compile_commands.json");
       evaluate_candidate(root / "builddir" / "compile_commands.json");
 
-      // 2. Scan immediate direct child directories up to depth 1 (e.g. build subfolders)
+      // 2. Scan immediate direct child directories up to depth 1 (e.g. build
+      // subfolders)
       if (best_compile_dir.empty()) {
         std::error_code ec_iter;
         for (const auto &entry : std::filesystem::directory_iterator(
@@ -909,8 +1032,10 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
             const std::string name = entry.path().filename().string();
             if (!should_skip_dir(name)) {
               evaluate_candidate(entry.path() / "compile_commands.json");
-              evaluate_candidate(entry.path() / "build" / "compile_commands.json");
-              if (!best_compile_dir.empty()) break;
+              evaluate_candidate(entry.path() / "build" /
+                                 "compile_commands.json");
+              if (!best_compile_dir.empty())
+                break;
             }
           }
         }
@@ -918,7 +1043,8 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
     }
 
     std::erase_if(args, [](const std::string &a) {
-      return a.starts_with("--compile-commands-dir") || a.starts_with("--query-driver");
+      return a.starts_with("--compile-commands-dir") ||
+             a.starts_with("--query-driver");
     });
     if (!best_compile_dir.empty()) {
       args.push_back("--compile-commands-dir=" +
@@ -956,16 +1082,11 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
     // Fallback project include directories from search roots
     for (const auto &root : unique_search_roots) {
       const std::filesystem::path sub_candidates[] = {
-          root / "Source",
-          root / "src",
-          root / "include",
-          root / "Include",
-          root / "Drivers",
-          root / "ThirdParty",
-          root / "Utility",
-          root / "UI",
-          root / "Platform",
-          root,
+          root / "Source",   root / "src",
+          root / "include",  root / "Include",
+          root / "Drivers",  root / "ThirdParty",
+          root / "Utility",  root / "UI",
+          root / "Platform", root,
       };
       for (const auto &sub : sub_candidates) {
         if (std::filesystem::exists(sub, ec) &&
@@ -988,13 +1109,16 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
       comp_pattern = toolchain.compiler_path.generic_string() + "*,";
     }
 #if defined(_WIN32)
-    args.push_back("--query-driver=" + comp_pattern + "*,*/*,**/*,C:/*,C:/**,D:/*,D:/**,E:/*,E:/**");
+    args.push_back("--query-driver=" + comp_pattern +
+                   "*,*/*,**/*,C:/*,C:/**,D:/*,D:/**,E:/*,E:/**");
 #else
-    args.push_back("--query-driver=" + comp_pattern + "/usr/bin/*,/usr/local/bin/*,/opt/**,*,*/*,**/*");
+    args.push_back("--query-driver=" + comp_pattern +
+                   "/usr/bin/*,/usr/local/bin/*,/opt/**,*,*/*,**/*");
 #endif
 
     lsp_debug_log(best_compile_dir.empty()
-                      ? "[zde-lsp] no compile_commands.json found, using fallback includes"
+                      ? "[zde-lsp] no compile_commands.json found, using "
+                        "fallback includes"
                       : "[zde-lsp] compile-dir=" +
                             best_compile_dir.generic_string());
   }
@@ -1008,6 +1132,13 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
   if (profile->language_id == "cpp") {
     nlohmann::json init_opts = nlohmann::json::object();
     init_opts["fallbackFlags"] = fallback_flags;
+    client->set_initialization_options(std::move(init_opts));
+  } else if (profile->language_id == "html" ||
+             profile->executable_name == "emmet-ls") {
+    nlohmann::json init_opts = nlohmann::json::object();
+    init_opts["showExpandedAbbreviation"] = "always";
+    init_opts["showAbbreviationSuggestions"] = true;
+    init_opts["showSuggestionsAsSnippets"] = true;
     client->set_initialization_options(std::move(init_opts));
   }
 
@@ -1050,6 +1181,8 @@ determine_lsp_language_id(std::string_view filename,
     return "javascript";
   if (ext == ".html" || ext == ".htm" || ext == ".xhtml")
     return "html";
+  if (ext == ".go" || ext == ".mod" || ext == ".work")
+    return "go";
   return default_lang_id;
 }
 
@@ -1143,7 +1276,8 @@ void LanguageServerManager::request_completion(
             if (callback) {
               callback(std::move(items));
             }
-          }, trigger_character);
+          },
+          trigger_character);
       return;
     }
 
@@ -1153,19 +1287,28 @@ void LanguageServerManager::request_completion(
     return;
   }
 
-  // Check if cursor is immediately following a scoped or member access operator (::, ->, .)
-  const std::string_view line_before_cursor = line_text.substr(0, std::min(static_cast<std::size_t>(pos.character), line_text.size()));
+  // Check if cursor is immediately following a scoped or member access operator
+  // (::, ->, .)
+  const std::string_view line_before_cursor = line_text.substr(
+      0, std::min(static_cast<std::size_t>(pos.character), line_text.size()));
   std::size_t p_op = line_before_cursor.size();
-  while (p_op > 0 && (std::isalnum(static_cast<unsigned char>(line_before_cursor[p_op - 1])) || line_before_cursor[p_op - 1] == '_' || line_before_cursor[p_op - 1] == '~')) {
+  while (p_op > 0 && (std::isalnum(static_cast<unsigned char>(
+                          line_before_cursor[p_op - 1])) ||
+                      line_before_cursor[p_op - 1] == '_' ||
+                      line_before_cursor[p_op - 1] == '~')) {
     --p_op;
   }
   const std::string_view prefix_op = line_before_cursor.substr(0, p_op);
-  const bool is_scoped_context = prefix_op.ends_with("::") || prefix_op.ends_with("->") || prefix_op.ends_with('.');
+  const bool is_scoped_context = prefix_op.ends_with("::") ||
+                                 prefix_op.ends_with("->") ||
+                                 prefix_op.ends_with('.');
 
   // Retrieve base templates for the language only if NOT in scoped context
-  auto templates = is_scoped_context ? std::vector<Protocol::CompletionItem>{} : get_templates_for_filename(filename);
+  auto templates = is_scoped_context ? std::vector<Protocol::CompletionItem>{}
+                                     : get_templates_for_filename(filename);
 
-  // If in an include context (#include <... or #include "...), fetch header completions
+  // If in an include context (#include <... or #include "...), fetch header
+  // completions
   std::vector<Protocol::CompletionItem> header_items;
   if (line_text.find("#include") != std::string_view::npos ||
       line_text.find("#import") != std::string_view::npos ||
@@ -1211,7 +1354,8 @@ void LanguageServerManager::request_completion(
           if (callback) {
             callback(std::move(combined));
           }
-        }, trigger_character);
+        },
+        trigger_character);
   } else if (callback) {
     std::unordered_set<std::string> seen_labels;
     std::vector<Protocol::CompletionItem> fallback_items;
@@ -1368,8 +1512,8 @@ void LanguageServerManager::request_semantic_tokens(
         }
 
         const auto legend = client->get_semantic_token_legend();
-        auto spans =
-            Syntax::SemanticTokensManager::decode_lsp_tokens(tokens->data, legend);
+        auto spans = Syntax::SemanticTokensManager::decode_lsp_tokens(
+            tokens->data, legend);
         m_semantic_tokens_manager.update_document_tokens(uri, spans);
 
         if (callback) {
@@ -1406,6 +1550,7 @@ void LanguageServerManager::shutdown_all() {
   }
   m_clients.clear();
   m_unavailable_languages.clear();
+  m_document_diagnostics.clear();
   Registry::ServerRegistry::instance().clear_cache();
 }
 

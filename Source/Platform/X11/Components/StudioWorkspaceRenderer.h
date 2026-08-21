@@ -350,7 +350,7 @@ private:
     std::unique_ptr<AntialiasedFont> m_large_font;
     std::filesystem::path m_icon_asset_root;
     UI::Editor::StudioEditorLayout m_layout_engine;
-    UI::Editor::StudioEditorPalette m_palette = UI::Editor::StudioEditorPalette::jetbrains_dark();
+    UI::Editor::StudioEditorPalette m_palette = UI::Editor::StudioEditorPalette::dark();
     PalettePixels m_pixels;
     PaletteText m_text;
     ActivitySidebar m_activity_sidebar;

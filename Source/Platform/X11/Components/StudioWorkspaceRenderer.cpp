@@ -1,5 +1,6 @@
 #include "Platform/X11/Components/StudioWorkspaceRenderer.h"
 #include "Commands/CommandIds.h"
+#include "Language/LanguageServerManager.h"
 #include "Utility/Antialiasing.h"
 #include "Utility/IcoDecoder.h"
 #include "Utility/stb_image.h"
@@ -266,6 +267,7 @@ bool StudioWorkspaceRenderer::set_workspace_root(
     return false;
   }
   m_terminal_panel.set_working_directory(root);
+  Language::LanguageServerManager::instance().set_workspace_root(root);
   return true;
 }
 
@@ -273,6 +275,8 @@ bool StudioWorkspaceRenderer::close_project() {
   static_cast<void>(m_text_editor.close_all_files());
   m_tool_sidebar.clear_workspace();
   m_terminal_panel.set_working_directory({});
+  Language::LanguageServerManager::instance().shutdown_all();
+  Language::LanguageServerManager::instance().set_workspace_root({});
   return true;
 }
 
@@ -852,6 +856,9 @@ void StudioWorkspaceRenderer::render(Drawable drawable, int client_width,
     m_footer_toolbar.render(*this, drawable, layout,
                             document->get_full_breadcrumbs(),
                             document->get_status());
+  } else {
+    m_footer_toolbar.render(*this, drawable, layout, {},
+                            UI::Editor::FooterEditorStatus{});
   }
 }
 

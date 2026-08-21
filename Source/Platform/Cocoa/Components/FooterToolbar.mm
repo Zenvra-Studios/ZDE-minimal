@@ -39,14 +39,23 @@ void FooterToolbar::render(
     std::span<const UI::Editor::BreadcrumbItem> breadcrumbs,
     const UI::Editor::FooterEditorStatus &status) const {
 
+  surface.fill_rectangle(context, layout.status_bar_bounds,
+                         surface.m_colors.status_background);
+  surface.draw_line(context, 0, round_to_int(layout.status_bar_bounds.y),
+                    round_to_int(layout.status_bar_bounds.right()),
+                    round_to_int(layout.status_bar_bounds.y),
+                    surface.m_colors.border);
+
   const float dpi = surface.m_dpi_scale;
   const float center_y =
       layout.status_bar_bounds.y + layout.status_bar_bounds.height * 0.5F;
   const std::string status_text =
-      "Ln " + std::to_string(status.line) + ", Col " + std::to_string(status.column) +
-      "    " + std::string{status.line_ending} + "    " +
-      std::string{status.encoding} + "    " +
-      std::to_string(status.indent_width) + " spaces";
+      status.line > 0
+          ? ("Ln " + std::to_string(status.line) + ", Col " + std::to_string(status.column) +
+             "    " + std::string{status.line_ending} + "    " +
+             std::string{status.encoding} + "    " +
+             std::to_string(status.indent_width) + " spaces")
+          : "UTF-8    Ready";
   const float status_x =
       layout.status_bar_bounds.right() -
       (surface.m_small_font

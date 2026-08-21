@@ -2,8 +2,10 @@
 #include <windows.h>
 #include <iostream>
 
-// Menggunakan modern C++/WinRT headers bawaan Windows SDK (Visual Studio)
+#if __has_include(<winrt/Windows.Foundation.h>)
 #include <winrt/Windows.Foundation.h>
+#define ZDE_HAS_WINRT 1
+#endif
 
 namespace Zenvra::Platform::Win32::Runtime {
 
@@ -15,33 +17,34 @@ bool WinRTContext::initialize()
         return true;
     }
 
+#if defined(ZDE_HAS_WINRT)
     try {
-        // Initialize WinRT menggunakan C++/WinRT
-        // default parameter untuk winrt::init_apartment() adalah winrt::apartment_type::multi_threaded
         winrt::init_apartment();
-        
         s_is_initialized = true;
         return true;
     } catch (const winrt::hresult_error& e) {
-        // Fallback jika sudah terinisialisasi dengan concurrency model berbeda, dsb.
         std::wcerr << L"WinRT initialization warning/error: " << e.message().c_str() << std::endl;
-        
-        // Kita bisa anggap true jika error code spesifik RPC_E_CHANGED_MODE, 
-        // tapi C++/WinRT akan melempar error ini sebagai exception
         if (e.code() == RPC_E_CHANGED_MODE) {
             s_is_initialized = true;
             return true;
         }
         return false;
     }
+#else
+    s_is_initialized = false;
+    return false;
+#endif
 }
 
 void WinRTContext::shutdown()
 {
+#if defined(ZDE_HAS_WINRT)
     if (s_is_initialized) {
         winrt::uninit_apartment();
         s_is_initialized = false;
     }
+#endif
 }
 
 } // namespace Zenvra::Platform::Win32::Runtime
+

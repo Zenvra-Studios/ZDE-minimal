@@ -47,30 +47,42 @@ bool X11AddNewItemDialog::initialize(
   m_dpi_scale = std::max(dpi_scale, 1.0F);
   m_icon_asset_root = icon_asset_root;
 
-  const int base_title_size = std::max(12, static_cast<int>(13.5F * m_dpi_scale));
+  const int base_title_size =
+      std::max(12, static_cast<int>(13.5F * m_dpi_scale));
   const int base_ui_size = std::max(10, static_cast<int>(12.0F * m_dpi_scale));
-  const int base_small_size = std::max(9, static_cast<int>(11.0F * m_dpi_scale));
+  const int base_small_size =
+      std::max(9, static_cast<int>(11.0F * m_dpi_scale));
 
   char pattern[256]{};
   std::snprintf(pattern, sizeof(pattern),
-                "Open Sans, Adwaita Sans, Inter, Cantarell, sans-serif:pixelsize=%d:antialias=true:hinting=true:hintstyle=hintslight",
+                "Open Sans, Adwaita Sans, Inter, Cantarell, "
+                "sans-serif:pixelsize=%d:antialias=true:hinting=true:hintstyle="
+                "hintslight",
                 base_title_size);
-  m_title_font = std::make_unique<AntialiasedFont>(m_display, m_screen, pattern);
+  m_title_font =
+      std::make_unique<AntialiasedFont>(m_display, m_screen, pattern);
 
   std::snprintf(pattern, sizeof(pattern),
-                "Open Sans, Adwaita Sans, Inter, Cantarell, sans-serif:pixelsize=%d:weight=bold:antialias=true:hinting=true:hintstyle=hintslight",
+                "Open Sans, Adwaita Sans, Inter, Cantarell, "
+                "sans-serif:pixelsize=%d:weight=bold:antialias=true:hinting="
+                "true:hintstyle=hintslight",
                 base_ui_size);
   m_bold_font = std::make_unique<AntialiasedFont>(m_display, m_screen, pattern);
 
   std::snprintf(pattern, sizeof(pattern),
-                "Open Sans, Adwaita Sans, Inter, Cantarell, sans-serif:pixelsize=%d:antialias=true:hinting=true:hintstyle=hintslight",
+                "Open Sans, Adwaita Sans, Inter, Cantarell, "
+                "sans-serif:pixelsize=%d:antialias=true:hinting=true:hintstyle="
+                "hintslight",
                 base_ui_size);
   m_ui_font = std::make_unique<AntialiasedFont>(m_display, m_screen, pattern);
 
   std::snprintf(pattern, sizeof(pattern),
-                "Open Sans, Adwaita Sans, Inter, Cantarell, sans-serif:pixelsize=%d:antialias=true:hinting=true:hintstyle=hintslight",
+                "Open Sans, Adwaita Sans, Inter, Cantarell, "
+                "sans-serif:pixelsize=%d:antialias=true:hinting=true:hintstyle="
+                "hintslight",
                 base_small_size);
-  m_small_font = std::make_unique<AntialiasedFont>(m_display, m_screen, pattern);
+  m_small_font =
+      std::make_unique<AntialiasedFont>(m_display, m_screen, pattern);
 
   return true;
 }
@@ -127,13 +139,35 @@ void X11AddNewItemDialog::init_default_templates() {
         "Assets/icons/vscode-symbols/icons/files/rust.svg",
         "pub fn add(left: usize, right: usize) -> usize {\n    left + "
         "right\n}\n"},
-       {"cargo_toml", "Cargo Manifest (Cargo.toml)", "Cargo.toml", ".toml",
-        "Rust", "Creates a Cargo package configuration manifest.",
-        "Assets/icons/vscode-symbols/icons/files/rust.svg",
-        "[package]\nname = \"my_project\"\nversion = \"0.1.0\"\nedition = "
-        "\"2021\"\n\n[dependencies]\n"}}};
+        {"cargo_toml", "Cargo Manifest (Cargo.toml)", "Cargo.toml", ".toml",
+         "Rust", "Creates a Cargo package configuration manifest.",
+         "Assets/icons/vscode-symbols/icons/files/rust.svg",
+         "[package]\nname = \"my_project\"\nversion = \"0.1.0\"\nedition = "
+         "\"2021\"\n\n[dependencies]\n"}}};
 
-  // 3. TypeScript & JavaScript Category
+  // 3. Go Category
+  TemplateCategory go_cat{
+      "go",
+      "Go",
+      "Assets/icons/vscode-symbols/icons/files/go.svg",
+      {{"go_main", "Go Executable (main.go)", "main.go", ".go", "Go",
+        "Creates a Go main application entry point with standard main package.",
+        "Assets/icons/vscode-symbols/icons/files/go.svg",
+        "package main\n\nimport (\n\t\"fmt\"\n)\n\nfunc main() {\n\tfmt.Println(\"Hello from ZDE!\")\n}\n"},
+       {"go_file", "Go Package File (.go)", "server.go", ".go", "Go",
+        "Creates a Go package source file.",
+        "Assets/icons/vscode-symbols/icons/files/go.svg",
+        "package mypackage\n\nimport (\n\t\"context\"\n)\n\ntype Service struct {\n\tname string\n}\n\nfunc NewService(name string) *Service {\n\treturn &Service{name: name}\n}\n\nfunc (s *Service) Start(ctx context.Context) error {\n\treturn nil\n}\n"},
+       {"go_test", "Go Unit Test (_test.go)", "main_test.go", ".go", "Go",
+        "Creates a Go unit test file with standard testing package.",
+        "Assets/icons/vscode-symbols/icons/files/go.svg",
+        "package main\n\nimport (\n\t\"testing\"\n)\n\nfunc TestMain(t *testing.T) {\n\t// TODO: Add unit test assertions\n}\n"},
+       {"go_mod", "Go Module (go.mod)", "go.mod", ".mod", "Go",
+        "Creates a Go module definition and dependencies manifest.",
+        "Assets/icons/vscode-symbols/icons/files/go.svg",
+        "module my_project\n\ngo 1.23\n"}}};
+
+  // 4. TypeScript & JavaScript Category
   TemplateCategory ts_cat{
       "typescript",
       "TypeScript / JavaScript",
@@ -141,31 +175,60 @@ void X11AddNewItemDialog::init_default_templates() {
       {{"ts_file", "TypeScript File (.ts)", "index.ts", ".ts", "TypeScript",
         "Creates a modern TypeScript source file.",
         "Assets/icons/vscode-symbols/icons/files/ts.svg",
-        "export interface AppConfig {\n    title: string;\n    version: string;\n}\n\nexport const config: AppConfig = {\n    title: \"ZDE Application\",\n    version: \"1.0.0\",\n};\n\nexport function bootstrap(): void {\n    console.log(`Starting ${config.title} v${config.version}...`);\n}\n\nbootstrap();\n"},
+        "export interface AppConfig {\n    title: string;\n    version: "
+        "string;\n}\n\nexport const config: AppConfig = {\n    title: \"ZDE "
+        "Application\",\n    version: \"1.0.0\",\n};\n\nexport function "
+        "bootstrap(): void {\n    console.log(`Starting ${config.title} "
+        "v${config.version}...`);\n}\n\nbootstrap();\n"},
        {"js_file", "JavaScript File (.js)", "index.js", ".js", "JavaScript",
         "Creates a standard JavaScript source file.",
         "Assets/icons/vscode-symbols/icons/files/js.svg",
-        "// @ts-check\n\nexport function bootstrap() {\n    console.log('Hello from JavaScript in ZDE!');\n}\n\nbootstrap();\n"},
+        "// @ts-check\n\nexport function bootstrap() {\n    console.log('Hello "
+        "from JavaScript in ZDE!');\n}\n\nbootstrap();\n"},
        {"mjs_file", "ES Module File (.mjs)", "index.mjs", ".mjs", "JavaScript",
         "Creates a modern ECMAScript module file.",
         "Assets/icons/vscode-symbols/icons/files/js.svg",
-        "import { promises as fs } from 'node:fs';\n\nexport async function bootstrap() {\n    console.log('Running ES Module in ZDE...');\n}\n\nawait bootstrap();\n"},
-       {"tsx_file", "React Component (.tsx)", "Component.tsx", ".tsx", "TypeScript",
+        "import { promises as fs } from 'node:fs';\n\nexport async function "
+        "bootstrap() {\n    console.log('Running ES Module in "
+        "ZDE...');\n}\n\nawait bootstrap();\n"},
+       {"tsx_file", "React Component (.tsx)", "Component.tsx", ".tsx",
+        "TypeScript",
         "Creates a React functional component with TypeScript props.",
         "Assets/icons/vscode-symbols/icons/files/react-ts.svg",
-        "import React, { useState } from 'react';\n\nexport interface ComponentProps {\n    title?: string;\n}\n\nexport const Component: React.FC<ComponentProps> = ({\n    title = \"ZDE Component\",\n}) => {\n    const [count, setCount] = useState<number>(0);\n\n    return (\n        <div className=\"container\">\n            <h2>{title}</h2>\n            <button onClick={() => setCount(count + 1)}>Count: {count}</button>\n        </div>\n    );\n};\n\nexport default Component;\n"},
-       {"jsx_file", "React Component (.jsx)", "Component.jsx", ".jsx", "JavaScript",
-        "Creates a React functional component with JSX syntax.",
+        "import React, { useState } from 'react';\n\nexport interface "
+        "ComponentProps {\n    title?: string;\n}\n\nexport const Component: "
+        "React.FC<ComponentProps> = ({\n    title = \"ZDE Component\",\n}) => "
+        "{\n    const [count, setCount] = useState<number>(0);\n\n    return "
+        "(\n        <div className=\"container\">\n            "
+        "<h2>{title}</h2>\n            <button onClick={() => setCount(count + "
+        "1)}>Count: {count}</button>\n        </div>\n    );\n};\n\nexport "
+        "default Component;\n"},
+       {"jsx_file", "React Component (.jsx)", "Component.jsx", ".jsx",
+        "JavaScript", "Creates a React functional component with JSX syntax.",
         "Assets/icons/vscode-symbols/icons/files/react.svg",
-        "import React, { useState } from 'react';\n\nexport const Component = ({ title = 'ZDE Component' }) => {\n    const [count, setCount] = useState(0);\n\n    return (\n        <div className=\"container\">\n            <h2>{title}</h2>\n            <button onClick={() => setCount(count + 1)}>Count: {count}</button>\n        </div>\n    );\n};\n\nexport default Component;\n"},
-       {"dts_file", "TypeScript Declaration (.d.ts)", "types.d.ts", ".d.ts", "TypeScript",
+        "import React, { useState } from 'react';\n\nexport const Component = "
+        "({ title = 'ZDE Component' }) => {\n    const [count, setCount] = "
+        "useState(0);\n\n    return (\n        <div className=\"container\">\n "
+        "           <h2>{title}</h2>\n            <button onClick={() => "
+        "setCount(count + 1)}>Count: {count}</button>\n        </div>\n    "
+        ");\n};\n\nexport default Component;\n"},
+       {"dts_file", "TypeScript Declaration (.d.ts)", "types.d.ts", ".d.ts",
+        "TypeScript",
         "Creates a TypeScript ambient declaration type definitions file.",
         "Assets/icons/vscode-symbols/icons/files/dts.svg",
-        "declare namespace ZDE {\n    interface UserSession {\n        id: string;\n        username: string;\n        createdAt: Date;\n    }\n}\n"},
-       {"tsconfig", "TSConfig (tsconfig.json)", "tsconfig.json", ".json", "TypeScript",
+        "declare namespace ZDE {\n    interface UserSession {\n        id: "
+        "string;\n        username: string;\n        createdAt: Date;\n    "
+        "}\n}\n"},
+       {"tsconfig", "TSConfig (tsconfig.json)", "tsconfig.json", ".json",
+        "TypeScript",
         "Creates a standard TypeScript compiler configuration file.",
         "Assets/icons/vscode-symbols/icons/files/tsconfig.svg",
-        "{\n  \"compilerOptions\": {\n    \"target\": \"ESNext\",\n    \"module\": \"ESNext\",\n    \"moduleResolution\": \"bundler\",\n    \"strict\": true,\n    \"jsx\": \"react-jsx\",\n    \"esModuleInterop\": true,\n    \"skipLibCheck\": true,\n    \"forceConsistentCasingInFileNames\": true\n  },\n  \"include\": [\"src/**/*\"]\n}\n"}}};
+        "{\n  \"compilerOptions\": {\n    \"target\": \"ESNext\",\n    "
+        "\"module\": \"ESNext\",\n    \"moduleResolution\": \"bundler\",\n    "
+        "\"strict\": true,\n    \"jsx\": \"react-jsx\",\n    "
+        "\"esModuleInterop\": true,\n    \"skipLibCheck\": true,\n    "
+        "\"forceConsistentCasingInFileNames\": true\n  },\n  \"include\": "
+        "[\"src/**/*\"]\n}\n"}}};
 
   // 4. Shaders & Graphics Category
   TemplateCategory shader_cat{
@@ -227,15 +290,29 @@ void X11AddNewItemDialog::init_default_templates() {
       {{"html5_page", "HTML5 Page (.html)", "index.html", ".html", "HTML & Web",
         "Creates a modern HTML5 document structure with viewport and styling.",
         "Assets/icons/vscode-symbols/icons/files/code-orange.svg",
-        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta charset=\"UTF-8\">\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n    <title>ZDE App</title>\n    <link rel=\"stylesheet\" href=\"style.css\">\n</head>\n<body>\n    <div class=\"container\">\n        <h1>Hello from ZDE!</h1>\n        <p>Built with native C++ power.</p>\n    </div>\n    <script src=\"main.js\"></script>\n</body>\n</html>\n"},
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta "
+        "charset=\"UTF-8\">\n    <meta name=\"viewport\" "
+        "content=\"width=device-width, initial-scale=1.0\">\n    <title>ZDE "
+        "App</title>\n    <link rel=\"stylesheet\" "
+        "href=\"style.css\">\n</head>\n<body>\n    <div class=\"container\">\n "
+        "       <h1>Hello from ZDE!</h1>\n        <p>Built with native C++ "
+        "power.</p>\n    </div>\n    <script "
+        "src=\"main.js\"></script>\n</body>\n</html>\n"},
        {"css_style", "CSS Stylesheet (.css)", "style.css", ".css", "HTML & Web",
         "Creates a CSS stylesheet for HTML layouts.",
         "Assets/icons/vscode-symbols/icons/files/code-sky.svg",
-        "* {\n    box-sizing: border-box;\n    margin: 0;\n    padding: 0;\n}\n\nbody {\n    font-family: system-ui, -apple-system, sans-serif;\n    background-color: #1e1e1e;\n    color: #ffffff;\n    padding: 2rem;\n}\n"},
-       {"svg_graphic", "SVG Vector Graphic (.svg)", "graphic.svg", ".svg", "HTML & Web",
-        "Creates an SVG scalable vector graphics XML file.",
+        "* {\n    box-sizing: border-box;\n    margin: 0;\n    padding: "
+        "0;\n}\n\nbody {\n    font-family: system-ui, -apple-system, "
+        "sans-serif;\n    background-color: #1e1e1e;\n    color: #ffffff;\n    "
+        "padding: 2rem;\n}\n"},
+       {"svg_graphic", "SVG Vector Graphic (.svg)", "graphic.svg", ".svg",
+        "HTML & Web", "Creates an SVG scalable vector graphics XML file.",
         "Assets/icons/vscode-symbols/icons/files/svg.svg",
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n    <circle cx=\"12\" cy=\"12\" r=\"10\"></circle>\n</svg>\n"}}};
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" "
+        "viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" "
+        "stroke-width=\"2\" stroke-linecap=\"round\" "
+        "stroke-linejoin=\"round\">\n    <circle cx=\"12\" cy=\"12\" "
+        "r=\"10\"></circle>\n</svg>\n"}}};
 
   // 7. General Category
   TemplateCategory gen_cat{
@@ -256,6 +333,7 @@ void X11AddNewItemDialog::init_default_templates() {
 
   m_categories.push_back(cpp_cat);
   m_categories.push_back(rust_cat);
+  m_categories.push_back(go_cat);
   m_categories.push_back(ts_cat);
   m_categories.push_back(shader_cat);
   m_categories.push_back(build_cat);
@@ -293,7 +371,8 @@ void X11AddNewItemDialog::open(Window parent_window,
   close();
 
   m_parent_window = parent_window;
-  m_target_folder = target_folder.empty() ? std::filesystem::current_path() : target_folder;
+  m_target_folder =
+      target_folder.empty() ? std::filesystem::current_path() : target_folder;
   std::error_code ec;
   if (!std::filesystem::is_directory(m_target_folder, ec)) {
     m_target_folder = m_target_folder.parent_path();
@@ -475,7 +554,8 @@ void X11AddNewItemDialog::draw_icon(Drawable drawable, const std::string &path,
   // Fallback: filename lookup under vscode-symbols/icons/files
   if (!std::filesystem::exists(resolved_path) && !m_icon_asset_root.empty()) {
     const auto fn = std::filesystem::path(path).filename();
-    const auto candidate = m_icon_asset_root / "vscode-symbols" / "icons" / "files" / fn;
+    const auto candidate =
+        m_icon_asset_root / "vscode-symbols" / "icons" / "files" / fn;
     if (std::filesystem::exists(candidate)) {
       resolved_path = candidate;
     }
@@ -566,8 +646,7 @@ void X11AddNewItemDialog::render() {
       alloc_rgb(m_display, m_screen, 53, 132, 228);
   const unsigned long sel_tpl_blue =
       alloc_rgb(m_display, m_screen, 53, 132, 228);
-  const unsigned long hov_item_bg =
-      alloc_rgb(m_display, m_screen, 45, 47, 52);
+  const unsigned long hov_item_bg = alloc_rgb(m_display, m_screen, 45, 47, 52);
   const unsigned long input_bg = alloc_rgb(m_display, m_screen, 24, 25, 28);
   const unsigned long input_border =
       alloc_rgb(m_display, m_screen, 53, 132, 228);

@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 
 #include "Platform/Cocoa/Components/StudioWorkspaceRenderer.h"
+#include "Language/LanguageServerManager.h"
 #include "Utility/Fonts.h"
 #include "UI/Editor/EditorFileSystem.h"
 #include "Commands/CommandIds.h"
@@ -319,6 +320,7 @@ bool StudioWorkspaceRenderer::set_workspace_root(const std::filesystem::path& ro
         return false;
     }
     m_terminal_panel.set_working_directory(root);
+    Language::LanguageServerManager::instance().set_workspace_root(root);
     return true;
 }
 
@@ -330,6 +332,8 @@ bool StudioWorkspaceRenderer::close_project()
     m_text_editor.reset_split();
     m_terminal_panel.shutdown();
     m_shader_sandbox_panel.set_visible(false);
+    Language::LanguageServerManager::instance().shutdown_all();
+    Language::LanguageServerManager::instance().set_workspace_root({});
     return true;
 }
 
@@ -1072,6 +1076,11 @@ void StudioWorkspaceRenderer::render(
     {
         m_footer_toolbar.render(
             *this, context, layout, document->get_full_breadcrumbs(), document->get_status());
+    }
+    else
+    {
+        m_footer_toolbar.render(
+            *this, context, layout, {}, UI::Editor::FooterEditorStatus{});
     }
 
     if (m_explorer_context_menu.visible)

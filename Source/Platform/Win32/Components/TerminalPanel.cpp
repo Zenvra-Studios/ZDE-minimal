@@ -367,6 +367,8 @@ bool TerminalPanel::poll() {
     static_cast<void>(m_resize_model.set_hovered(false));
   }
   return changed;
+}
+
 bool TerminalPanel::tick_animations() noexcept {
   bool animating = false;
   for (auto& [id, offset_x] : m_tab_animated_offset_x) {
@@ -651,7 +653,7 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   const float content_top_padding = 8.0F * surface.m_dpi_scale;
   const float content_bottom_padding = 8.0F * surface.m_dpi_scale;
   const float usable_content_height = std::max(
-      layout.terminal_content_bounds.height - content_bottom_padding, 0.0F);
+      layout.terminal_content_bounds.height - (content_top_padding + content_bottom_padding), 0.0F);
   const std::size_t visible_rows =
       usable_content_height > 0.0F
           ? std::max<std::size_t>(static_cast<std::size_t>(std::floor(
@@ -695,6 +697,9 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   const bool has_selection = m_model.has_selection();
 
   for (std::size_t index = start; index < end; ++index) {
+    if (center_y + line_height * 0.5F > layout.terminal_content_bounds.bottom()) {
+      break;
+    }
     const std::string &line = lines[index];
     const std::size_t col_len = utf8_column_count(line);
 
@@ -766,23 +771,25 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
     const float caret_height = line_height - 2.0F * surface.m_dpi_scale;
     const float caret_width = std::max(2.0F * surface.m_dpi_scale, 1.5F);
 
-    std::string cursor_prefix;
-    if (cursor_line_idx < lines.size()) {
-      const std::string &target_line = lines[cursor_line_idx];
-      if (cursor_col_idx > 0) {
-        cursor_prefix = utf8_substr_columns(target_line, 0, cursor_col_idx);
+    if (line_center_y + line_height * 0.5F <= layout.terminal_content_bounds.bottom()) {
+      std::string cursor_prefix;
+      if (cursor_line_idx < lines.size()) {
+        const std::string &target_line = lines[cursor_line_idx];
+        if (cursor_col_idx > 0) {
+          cursor_prefix = utf8_substr_columns(target_line, 0, cursor_col_idx);
+        }
       }
-    }
 
-    const int cursor_x =
-        round_to_int(layout.terminal_content_bounds.x + padding_x) +
-        surface.get_text_width(device_context, *surface.m_editor_font,
-                               cursor_prefix);
-    const float cursor_y = line_center_y - caret_height * 0.5F;
-    surface.fill_rectangle(device_context,
-                           UI::Rect{static_cast<float>(cursor_x), cursor_y,
-                                    caret_width, caret_height},
-                           surface.m_palette.text_primary);
+      const int cursor_x =
+          round_to_int(layout.terminal_content_bounds.x + padding_x) +
+          surface.get_text_width(device_context, *surface.m_editor_font,
+                                 cursor_prefix);
+      const float cursor_y = line_center_y - caret_height * 0.5F;
+      surface.fill_rectangle(device_context,
+                             UI::Rect{static_cast<float>(cursor_x), cursor_y,
+                                      caret_width, caret_height},
+                             surface.m_palette.text_primary);
+    }
   }
 }
 
