@@ -33,6 +33,26 @@ bool is_path_or_filename(std::string_view text) noexcept
     return false;
 }
 
+bool is_all_caps_constant(std::string_view word) noexcept
+{
+    if (word.size() < 2) return false;
+    bool has_letter = false;
+    for (char c : word)
+    {
+        if (std::islower(static_cast<unsigned char>(c)) != 0) return false;
+        if (std::isupper(static_cast<unsigned char>(c)) != 0) has_letter = true;
+    }
+    return has_letter;
+}
+
+bool is_pascal_case_type(std::string_view word) noexcept
+{
+    if (word.empty()) return false;
+    if (std::isupper(static_cast<unsigned char>(word[0])) == 0) return false;
+    if (word.size() == 1) return true;
+    return !is_all_caps_constant(word);
+}
+
 } // namespace
 
 std::size_t GenericGrammarEngine::tokenize_line(
@@ -177,96 +197,85 @@ std::size_t GenericGrammarEngine::tokenize_line(
         const std::size_t token_start = cursor;
         const char character = line[cursor];
 
-        // 1. Preprocessor (e.g. #include, #define, #pragma in C/C++)
+        // 1. Preprocessor (e.g. #include, #define, #pragma, #ifdef in C/C++)
         if (grammar.supports_preprocessor && character == '#')
         {
-            std::size_t scan = cursor;
-            bool in_quotes = false;
-            char quote_char = 0;
-            std::size_t comment_start = std::string_view::npos;
-            bool is_block_comment = false;
-
-            while (scan < line.size())
+            std::size_t dir_end = cursor + 1;
+            while (dir_end < line.size() && std::isspace(static_cast<unsigned char>(line[dir_end])) != 0)
             {
-                const char c = line[scan];
-                if (in_quotes)
-                {
-                    if (c == '\\' && scan + 1 < line.size())
-                    {
-                        scan += 2;
-                        continue;
-                    }
-                    if (c == quote_char)
-                    {
-                        in_quotes = false;
-                    }
-                    ++scan;
-                    continue;
-                }
-
-                if (c == '"' || c == '\'')
-                {
-                    in_quotes = true;
-                    quote_char = c;
-                    ++scan;
-                    continue;
-                }
-
-                if (!grammar.line_comment.empty() && line.substr(scan).starts_with(grammar.line_comment))
-                {
-                    comment_start = scan;
-                    is_block_comment = false;
-                    break;
-                }
-
-                if (!grammar.block_comment_start.empty() && line.substr(scan).starts_with(grammar.block_comment_start))
-                {
-                    comment_start = scan;
-                    is_block_comment = true;
-                    break;
-                }
-
-                ++scan;
+                ++dir_end;
             }
-
-            if (comment_start == std::string_view::npos)
+            std::size_t dir_name_start = dir_end;
+            while (dir_end < line.size() && (std::isalnum(static_cast<unsigned char>(line[dir_end])) != 0 || line[dir_end] == '_'))
             {
-                append(line.substr(cursor), UI::Editor::EditorTokenKind::Keyword);
-                break;
+                ++dir_end;
             }
-            else
-            {
-                if (comment_start > cursor)
-                {
-                    append(line.substr(cursor, comment_start - cursor), UI::Editor::EditorTokenKind::Keyword);
-                }
+            std::string_view directive = line.substr(dir_name_start, dir_end - dir_name_start);
+            append(line.substr(cursor, dir_end - cursor), UI::Editor::EditorTokenKind::Keyword);
+            cursor = dir_end;
 
-                if (!is_block_comment)
+            if (directive == "include")
+            {
+                while (cursor < line.size() && std::isspace(static_cast<unsigned char>(line[cursor])) != 0)
                 {
-                    append(line.substr(comment_start), UI::Editor::EditorTokenKind::Comment);
-                    break;
+                    append(line.substr(cursor, 1), UI::Editor::EditorTokenKind::Plain);
+                    ++cursor;
                 }
-                else
+                if (cursor < line.size())
                 {
-                    cursor = comment_start + grammar.block_comment_start.size();
-                    const std::size_t end_pos = line.find(grammar.block_comment_end, cursor);
-                    if (end_pos != std::string_view::npos)
+                    const char open_c = line[cursor];
+                    if (open_c == '<' || open_c == '"')
                     {
-                        cursor = end_pos + grammar.block_comment_end.size();
+                        const char close_c = (open_c == '<') ? '>' : '"';
+                        std::size_t path_end = cursor + 1;
+                        while (path_end < line.size() && line[path_end] != close_c)
+                        {
+                            ++path_end;
+                        }
+                        if (path_end < line.size() && line[path_end] == close_c)
+                        {
+                            ++path_end;
+                        }
+                        append(line.substr(cursor, path_end - cursor), UI::Editor::EditorTokenKind::String);
+                        cursor = path_end;
                     }
-                    else
-                    {
-                        cursor = line.size();
-                        state.kind = TokenizerState::StateKind::BlockComment;
-                    }
-                    append(line.substr(comment_start, cursor - comment_start), UI::Editor::EditorTokenKind::Comment);
-                    if (state.kind == TokenizerState::StateKind::BlockComment)
-                    {
-                        return token_count;
-                    }
-                    continue;
                 }
             }
+            else if (directive == "define")
+            {
+                while (cursor < line.size() && std::isspace(static_cast<unsigned char>(line[cursor])) != 0)
+                {
+                    append(line.substr(cursor, 1), UI::Editor::EditorTokenKind::Plain);
+                    ++cursor;
+                }
+                if (cursor < line.size() && (std::isalpha(static_cast<unsigned char>(line[cursor])) != 0 || line[cursor] == '_'))
+                {
+                    std::size_t macro_start = cursor;
+                    while (cursor < line.size() && (std::isalnum(static_cast<unsigned char>(line[cursor])) != 0 || line[cursor] == '_'))
+                    {
+                        ++cursor;
+                    }
+                    append(line.substr(macro_start, cursor - macro_start), UI::Editor::EditorTokenKind::Label);
+                }
+            }
+            else if (directive == "ifdef" || directive == "ifndef" || directive == "undef")
+            {
+                while (cursor < line.size() && std::isspace(static_cast<unsigned char>(line[cursor])) != 0)
+                {
+                    append(line.substr(cursor, 1), UI::Editor::EditorTokenKind::Plain);
+                    ++cursor;
+                }
+                if (cursor < line.size() && (std::isalpha(static_cast<unsigned char>(line[cursor])) != 0 || line[cursor] == '_'))
+                {
+                    std::size_t macro_start = cursor;
+                    while (cursor < line.size() && (std::isalnum(static_cast<unsigned char>(line[cursor])) != 0 || line[cursor] == '_'))
+                    {
+                        ++cursor;
+                    }
+                    append(line.substr(macro_start, cursor - macro_start), UI::Editor::EditorTokenKind::Label);
+                }
+            }
+            continue;
         }
 
         // 2. Whitespace
@@ -624,6 +633,7 @@ std::size_t GenericGrammarEngine::tokenize_line(
             }
 
             const bool followed_by_paren = (next_idx < line.size() && line[next_idx] == '(');
+            const bool followed_by_scope = (next_idx + 1 < line.size() && line[next_idx] == ':' && line[next_idx + 1] == ':');
 
             if (grammar.is_keyword(identifier))
             {
@@ -634,7 +644,8 @@ std::size_t GenericGrammarEngine::tokenize_line(
                     decl_context = DeclContext::Namespace;
                 }
                 else if (identifier == "class" || identifier == "struct" || identifier == "interface" ||
-                         identifier == "enum" || identifier == "trait" || identifier == "record" || identifier == "union")
+                         identifier == "enum" || identifier == "trait" || identifier == "record" || identifier == "union" ||
+                         identifier == "typename")
                 {
                     decl_context = DeclContext::Class;
                 }
@@ -651,8 +662,27 @@ std::size_t GenericGrammarEngine::tokenize_line(
                     decl_context = DeclContext::None;
                 }
             }
-            else if (grammar.is_variable(identifier))
+            else if (decl_context == DeclContext::Namespace || decl_context == DeclContext::Class)
             {
+                append(identifier, UI::Editor::EditorTokenKind::Label);
+                if (decl_context != DeclContext::Namespace)
+                {
+                    decl_context = DeclContext::None;
+                }
+            }
+            else if (followed_by_scope)
+            {
+                // Part of scope resolution A::B::C (e.g. EditorScrollbar::reset, Zenvra::Platform)
+                append(identifier, UI::Editor::EditorTokenKind::Label);
+            }
+            else if (is_pascal_case_type(identifier))
+            {
+                // PascalCase user-defined types (e.g. StudioWorkspaceRenderer, Drawable, SidebarItem, MyComponent)
+                append(identifier, UI::Editor::EditorTokenKind::Type);
+            }
+            else if (is_all_caps_constant(identifier))
+            {
+                // ALL_CAPS macro constants / defines (e.g. MAX_PATH, NOMINMAX, NDEBUG, NULL)
                 append(identifier, UI::Editor::EditorTokenKind::Label);
             }
             else if (followed_by_paren)
@@ -669,7 +699,8 @@ std::size_t GenericGrammarEngine::tokenize_line(
             }
             else
             {
-                append(identifier, UI::Editor::EditorTokenKind::Label);
+                // Variables, parameters, members, plain identifiers -> WHITE (Plain)
+                append(identifier, UI::Editor::EditorTokenKind::Plain);
             }
             continue;
         }

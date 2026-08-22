@@ -216,6 +216,17 @@ bool StudioWorkspaceRenderer::initialize(float dpi_scale)
     m_text.accent = color_to_hex(m_palette.accent);
     m_text.warning = color_to_hex(m_palette.warning);
     m_text.success = color_to_hex(m_palette.success);
+
+    m_text_dimmed.primary = color_to_hex(UI::Theme::dim_color(m_palette.text_primary, m_palette.editor_background));
+    m_text_dimmed.muted = color_to_hex(UI::Theme::dim_color(m_palette.text_muted, m_palette.editor_background));
+    m_text_dimmed.keyword = color_to_hex(UI::Theme::dim_color(m_palette.keyword, m_palette.editor_background));
+    m_text_dimmed.number = color_to_hex(UI::Theme::dim_color(m_palette.number, m_palette.editor_background));
+    m_text_dimmed.label = color_to_hex(UI::Theme::dim_color(m_palette.label, m_palette.editor_background));
+    m_text_dimmed.type = color_to_hex(UI::Theme::dim_color(m_palette.type, m_palette.editor_background));
+    m_text_dimmed.comment = color_to_hex(UI::Theme::dim_color(m_palette.comment, m_palette.editor_background));
+    m_text_dimmed.accent = color_to_hex(UI::Theme::dim_color(m_palette.accent, m_palette.editor_background));
+    m_text_dimmed.warning = color_to_hex(UI::Theme::dim_color(m_palette.warning, m_palette.editor_background));
+    m_text_dimmed.success = color_to_hex(UI::Theme::dim_color(m_palette.success, m_palette.editor_background));
     static_cast<void>(m_tool_sidebar.initialize());
     static_cast<void>(m_terminal_panel.toggle());
     m_terminal_panel.set_focused(false);
@@ -248,6 +259,7 @@ float StudioWorkspaceRenderer::get_animated_titlebar_left_offset() const noexcep
 UI::Editor::StudioEditorLayoutResult StudioWorkspaceRenderer::calculate_layout(
     int client_width, int client_height, float content_top) const noexcept
 {
+    const std::size_t line_count = m_text_editor.get_active_document_line_count();
     return m_layout_engine.calculate(
         static_cast<float>(client_width),
         static_cast<float>(client_height),
@@ -260,7 +272,8 @@ UI::Editor::StudioEditorLayoutResult StudioWorkspaceRenderer::calculate_layout(
         m_tool_sidebar.get_width(),
         m_shader_sandbox_panel.is_visible(),
         m_shader_sandbox_panel.get_width(),
-        m_animated_titlebar_left_offset);
+        m_animated_titlebar_left_offset,
+        line_count);
 }
 
 void StudioWorkspaceRenderer::sync_shader_sandbox() const

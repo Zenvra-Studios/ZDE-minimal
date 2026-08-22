@@ -95,6 +95,10 @@ public:
         float point_x, float point_y) const noexcept;
     [[nodiscard]] bool is_split_resizing() const noexcept { return m_is_resizing_split; }
     [[nodiscard]] bool is_split_active() const noexcept { return m_is_split && m_split_document_index.has_value(); }
+    [[nodiscard]] std::size_t get_active_document_line_count() const noexcept {
+        const auto* doc = m_controller.get_active_document();
+        return doc != nullptr ? doc->get_line_count() : 1;
+    }
     void reset_split() noexcept;
     void split_editor() noexcept;
     void close_all_documents();
@@ -217,6 +221,7 @@ private:
     std::optional<std::size_t> m_hovered_tab_index;
     std::optional<std::size_t> m_hovered_tab_close_index;
     mutable std::optional<std::size_t> m_hovered_fold_line;
+    mutable std::optional<std::size_t> m_hovered_gutter_line;
     bool m_hovered_tab_scrollbar = false;
     mutable UI::Editor::BraceAnimationModel m_brace_animation;
     mutable UI::Editor::BraceAnimationModel m_split_brace_animation;
@@ -228,6 +233,8 @@ private:
     mutable UI::Components::HoverTooltip m_hover_tooltip;
     mutable UI::Components::SignatureHelpWidget m_signature_help;
     mutable std::mutex m_lsp_mutex;
+    mutable bool m_lsp_sync_pending = false;
+    mutable std::chrono::steady_clock::time_point m_last_edit_time{};
 
     // Split state
     bool m_is_split = false;
@@ -246,6 +253,13 @@ private:
     mutable std::array<UI::Rect, 4> m_tab_action_bounds{};
     mutable std::optional<std::size_t> m_hovered_tab_action;
     mutable TabActionPopupMenu m_tab_action_menu;
+
+public:
+    void queue_lsp_document_sync() noexcept {
+        m_lsp_sync_pending = true;
+        m_last_edit_time = std::chrono::steady_clock::now();
+    }
+    void flush_lsp_document_sync_if_needed(bool force = false);
 };
 
 } // namespace Zenvra::Platform::Cocoa::Components

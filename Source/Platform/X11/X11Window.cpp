@@ -430,6 +430,11 @@ void X11Window::poll_events() {
     }
   }
 
+  if (m_pending_render) {
+    m_pending_render = false;
+    render();
+  }
+
   if (m_should_close) {
     return;
   }
@@ -937,6 +942,14 @@ void X11Window::render(std::optional<UI::Rect> dirty_rect) {
     return;
   }
 
+  // If there are pending input events still queued in the X connection,
+  // defer rendering until all queued events are processed to prevent lag backlog
+  if (XPending(m_display) > 0) {
+    m_pending_render = true;
+    return;
+  }
+  m_pending_render = false;
+
   if (!m_custom_chrome_enabled) {
     XClearWindow(m_display, m_window_handle);
     return;
@@ -1293,6 +1306,25 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
     bool horizontal = (event.state & ShiftMask) != 0 || event.button == 6 ||
                       event.button == 7;
     int delta = (event.button == Button4 || event.button == 6) ? -3 : 3;
+
+    // Coalesce additional queued scroll events to ensure smooth aggressive scrolling
+    XEvent next_ev;
+    while (XCheckTypedWindowEvent(m_display, m_window_handle, ButtonPress, &next_ev)) {
+      if (next_ev.xbutton.button >= Button4 && next_ev.xbutton.button <= 7) {
+        const bool next_horiz = (next_ev.xbutton.state & ShiftMask) != 0 ||
+                                next_ev.xbutton.button == 6 || next_ev.xbutton.button == 7;
+        const int next_delta = (next_ev.xbutton.button == Button4 || next_ev.xbutton.button == 6) ? -3 : 3;
+        if (next_horiz == horizontal) {
+          delta += next_delta;
+        } else {
+          XPutBackEvent(m_display, &next_ev);
+          break;
+        }
+      } else {
+        XPutBackEvent(m_display, &next_ev);
+        break;
+      }
+    }
 
     if (over_tool_sidebar &&
         m_chrome_renderer.handle_tool_sidebar_scroll(

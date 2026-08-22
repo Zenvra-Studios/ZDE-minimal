@@ -3,33 +3,109 @@
 #include <algorithm>
 #include <sstream>
 
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#include <sys/utsname.h>
+#elif defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#elif defined(__linux__) || defined(__unix__)
+#include <sys/utsname.h>
+#endif
+
 namespace Zenvra::UI::Components {
 
 AboutModal::AboutModal()
     : m_theme(ModalTheme::from_theme(Theme::StudioTheme::zenvra_dark()))
 {
+    std::string os_info;
+    std::string arch_info;
+
 #if defined(_WIN32)
-    m_platform = "Windows - 64Bit";
+    SYSTEM_INFO sys_info{};
+    GetNativeSystemInfo(&sys_info);
+    if (sys_info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64) {
+        m_platform = "Windows - ARM64 (64-Bit)";
+        arch_info = "ARM64 (AArch64 64-Bit)";
+    } else if (sys_info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64) {
+        m_platform = "Windows - x64 (64-Bit)";
+        arch_info = "x86_64 (AMD64 / Intel 64-Bit)";
+    } else if (sys_info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_INTEL) {
+        m_platform = "Windows - x86 (32-Bit)";
+        arch_info = "x86 (Intel 32-Bit)";
+    } else if (sys_info.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM) {
+        m_platform = "Windows - ARM32 (32-Bit)";
+        arch_info = "ARM (32-Bit)";
+    } else {
+        m_platform = "Windows - 64-Bit";
+        arch_info = "Generic CPU Architecture";
+    }
+    os_info = "Windows_NT x64 (Win32 API)";
+
 #elif defined(__APPLE__)
-    m_platform = "macOS - Apple Silicon / x64";
+    struct utsname uts{};
+    if (uname(&uts) == 0) {
+        os_info = std::string("Darwin ") + uts.release + " (macOS)";
+    } else {
+        os_info = "Darwin / macOS";
+    }
+#if defined(__aarch64__) || defined(__arm64__)
+    m_platform = "macOS - Apple Silicon (ARM64)";
+    arch_info = "Apple Silicon (AArch64 64-Bit)";
 #else
-    m_platform = "Linux - 64Bit";
+    m_platform = "macOS - Intel (x64)";
+    arch_info = "x86_64 (Intel 64-Bit)";
+#endif
+
+#elif defined(__linux__) || defined(__unix__)
+    struct utsname uts{};
+    if (uname(&uts) == 0) {
+        os_info = std::string("Linux ") + uts.release;
+        std::string_view m(uts.machine);
+        if (m == "x86_64" || m == "amd64") {
+            m_platform = "Linux - x64 (64-Bit)";
+            arch_info = "x86_64 (AMD64 / Intel 64-Bit)";
+        } else if (m.starts_with("aarch64") || m.starts_with("arm64")) {
+            m_platform = "Linux - ARM64 (64-Bit)";
+            arch_info = "AArch64 (ARM 64-Bit)";
+        } else if (m.starts_with("arm")) {
+            m_platform = "Linux - ARM32 (32-Bit)";
+            arch_info = "ARMv7 / Cortex (32-Bit)";
+        } else if (m == "i386" || m == "i686") {
+            m_platform = "Linux - x86 (32-Bit)";
+            arch_info = "x86 (Intel/AMD 32-Bit)";
+        } else if (m.starts_with("riscv64")) {
+            m_platform = "Linux - RISC-V (64-Bit)";
+            arch_info = "RISC-V 64-Bit (RV64)";
+        } else {
+            m_platform = std::string("Linux - ") + uts.machine;
+            arch_info = std::string(uts.machine) + " Architecture";
+        }
+    } else {
+        m_platform = "Linux - x64 (64-Bit)";
+        arch_info = "x86_64 (64-Bit)";
+        os_info = "Linux (POSIX)";
+    }
+#else
+    m_platform = "Unix - 64-Bit";
+    arch_info = "Generic CPU Architecture";
+    os_info = "Generic Unix";
 #endif
 
     m_specs = {
-        {"Version", "0.1.0-preview"},
-        {"Studio", "Zenvra Studios"},
+        {"Version", std::string(ZDE_VERSION_STRING) + "-preview"},
+        {"Studio", m_studio_name},
+        {"Architecture", arch_info},
+        {"OS", os_info},
         {"Engine", "ZDE Native MVVM Engine"},
-        {"Graphics", "OpenGL Core"},
+        {"Graphics", "OpenGL Core / Platform Native"},
         {"Commit", "zde-minimal-main (Release)"},
-        {"Date", "2026-08-14"},
-#if defined(_WIN32)
-        {"OS", "Windows_NT x64 10.0.19045"},
-#elif defined(__APPLE__)
-        {"OS", "Darwin x64 / ARM64"},
-#else
-        {"OS", "Linux x86_64"},
-#endif
+        {"Date", "2026-08-22"},
         {"Language Server", "Clang/LLVM C++20 / Clangd"}
     };
 }

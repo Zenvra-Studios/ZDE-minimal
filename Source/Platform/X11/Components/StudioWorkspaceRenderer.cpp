@@ -218,6 +218,17 @@ bool StudioWorkspaceRenderer::initialize(Display *display, int screen,
   m_text.accent = to_xft_color(m_palette.accent);
   m_text.warning = to_xft_color(m_palette.warning);
   m_text.success = to_xft_color(m_palette.success);
+
+  m_text_dimmed.primary = to_xft_color(UI::Theme::dim_color(m_palette.text_primary, m_palette.editor_background));
+  m_text_dimmed.muted = to_xft_color(UI::Theme::dim_color(m_palette.text_muted, m_palette.editor_background));
+  m_text_dimmed.keyword = to_xft_color(UI::Theme::dim_color(m_palette.keyword, m_palette.editor_background));
+  m_text_dimmed.number = to_xft_color(UI::Theme::dim_color(m_palette.number, m_palette.editor_background));
+  m_text_dimmed.label = to_xft_color(UI::Theme::dim_color(m_palette.label, m_palette.editor_background));
+  m_text_dimmed.type = to_xft_color(UI::Theme::dim_color(m_palette.type, m_palette.editor_background));
+  m_text_dimmed.comment = to_xft_color(UI::Theme::dim_color(m_palette.comment, m_palette.editor_background));
+  m_text_dimmed.accent = to_xft_color(UI::Theme::dim_color(m_palette.accent, m_palette.editor_background));
+  m_text_dimmed.warning = to_xft_color(UI::Theme::dim_color(m_palette.warning, m_palette.editor_background));
+  m_text_dimmed.success = to_xft_color(UI::Theme::dim_color(m_palette.success, m_palette.editor_background));
   static_cast<void>(m_tool_sidebar.initialize());
   static_cast<void>(m_shader_sandbox_panel.initialize());
   return true;
@@ -835,12 +846,14 @@ void StudioWorkspaceRenderer::shutdown() {
 UI::Editor::StudioEditorLayoutResult
 StudioWorkspaceRenderer::calculate_layout(int client_width, int client_height,
                                           float content_top) const noexcept {
+  const std::size_t line_count = m_text_editor.get_active_document_line_count();
   return m_layout_engine.calculate(
       static_cast<float>(client_width), static_cast<float>(client_height),
       content_top, m_dpi_scale, m_terminal_panel.is_visible(),
       m_terminal_panel.get_height(), m_terminal_panel.is_maximized(),
       m_tool_sidebar.is_visible(), m_tool_sidebar.get_width(),
-      m_shader_sandbox_panel.is_visible(), m_shader_sandbox_panel.get_width());
+      m_shader_sandbox_panel.is_visible(), m_shader_sandbox_panel.get_width(),
+      std::nullopt, line_count);
 }
 
 void StudioWorkspaceRenderer::render(Drawable drawable, int client_width,

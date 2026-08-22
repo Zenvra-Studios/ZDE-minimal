@@ -77,12 +77,23 @@ bool has_gutter_marker(std::string_view line)
 std::size_t visual_row_to_physical_line(const UI::Components::EditorFoldingModel &folding,
                                         std::size_t visual_row,
                                         std::size_t total_lines) {
+  if (folding.get_collapsed().empty() || total_lines == 0) {
+    return std::min(visual_row, total_lines > 0 ? total_lines - 1 : 0);
+  }
   std::size_t current_visual = 0;
-  for (std::size_t i = 0; i < total_lines; ++i) {
-    if (!folding.is_line_hidden(i)) {
-      if (current_visual == visual_row) return i;
-      current_visual++;
+  std::size_t physical = 0;
+  while (physical < total_lines) {
+    if (folding.get_collapsed().count(physical)) {
+      if (current_visual == visual_row) return physical;
+      if (const auto* r = folding.get_range_at(physical)) {
+        physical = r->end_line + 1;
+        current_visual++;
+        continue;
+      }
     }
+    if (current_visual == visual_row) return physical;
+    physical++;
+    current_visual++;
   }
   return total_lines > 0 ? total_lines - 1 : 0;
 }
@@ -90,22 +101,46 @@ std::size_t visual_row_to_physical_line(const UI::Components::EditorFoldingModel
 std::size_t physical_line_to_visual_row(const UI::Components::EditorFoldingModel &folding,
                                         std::size_t physical_line,
                                         std::size_t total_lines) {
+  if (folding.get_collapsed().empty() || total_lines == 0) {
+    return std::min(physical_line, total_lines);
+  }
   std::size_t visual_row = 0;
-  for (std::size_t i = 0; i < physical_line && i < total_lines; ++i) {
-    if (!folding.is_line_hidden(i)) {
-      visual_row++;
+  std::size_t physical = 0;
+  const std::size_t target = std::min(physical_line, total_lines);
+  while (physical < target) {
+    if (folding.get_collapsed().count(physical)) {
+      if (const auto* r = folding.get_range_at(physical)) {
+        if (target <= r->end_line) {
+          return visual_row;
+        }
+        physical = r->end_line + 1;
+        visual_row++;
+        continue;
+      }
     }
+    physical++;
+    visual_row++;
   }
   return visual_row;
 }
 
 std::size_t count_visible_lines(const UI::Components::EditorFoldingModel &folding,
                                 std::size_t total_lines) {
-  std::size_t visible = 0;
-  for (std::size_t i = 0; i < total_lines; ++i) {
-    if (!folding.is_line_hidden(i)) visible++;
+  if (folding.get_collapsed().empty() || total_lines == 0) {
+    return total_lines;
   }
-  return visible;
+  std::size_t hidden_count = 0;
+  for (const std::size_t start : folding.get_collapsed()) {
+    if (const auto* r = folding.get_range_at(start)) {
+      if (r->end_line >= r->start_line && r->start_line < total_lines) {
+        const std::size_t clamped_end = std::min(r->end_line, total_lines > 0 ? total_lines - 1 : 0);
+        if (clamped_end > r->start_line) {
+          hidden_count += (clamped_end - r->start_line);
+        }
+      }
+    }
+  }
+  return total_lines > hidden_count ? (total_lines - hidden_count) : 1;
 }
 
 std::optional<std::size_t>
@@ -1622,17 +1657,17 @@ bool TextEditor::handle_pointer_press(
             const float right_gutter_w = layout.gutter_bounds.width;
             const float fold_margin = UI::Editor::StudioEditorMetrics::fold_margin_width * scale;
             const float fold_margin_left = splitter_x + 2.0F * scale + right_gutter_w - fold_margin;
+            const float line_height = 20.0F * scale;
+            const std::size_t visible_count = static_cast<std::size_t>(std::max(
+                static_cast<int>(layout.editor_bounds.height / line_height), 1));
+            const std::size_t split_total_lines = right_doc->get_line_count();
+            const std::size_t clicked_row = static_cast<std::size_t>(std::max(
+                static_cast<int>((point_y - layout.editor_bounds.y) / line_height), 0));
+            const std::size_t split_line = visual_row_to_physical_line(
+                m_split_folding, m_split_scrollbar.get_first_visible_line() + clicked_row, split_total_lines);
+
             if (point_x >= fold_margin_left && point_x <= splitter_x + 2.0F * scale + right_gutter_w)
             {
-                const float line_height = 20.0F * scale;
-                const std::size_t visible_count = static_cast<std::size_t>(std::max(
-                    static_cast<int>(layout.editor_bounds.height / line_height), 1));
-                const std::size_t split_total_lines = right_doc->get_line_count();
-                const std::size_t clicked_row = static_cast<std::size_t>(std::max(
-                    static_cast<int>((point_y - layout.editor_bounds.y) / line_height), 0));
-                const std::size_t split_line = visual_row_to_physical_line(
-                    m_split_folding, m_split_scrollbar.get_first_visible_line() + clicked_row, split_total_lines);
-
                 if (m_split_folding.is_fold_start(split_line))
                 {
                     m_split_folding.toggle_fold(split_line);
@@ -1642,6 +1677,12 @@ bool TextEditor::handle_pointer_press(
                     if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
                     return true;
                 }
+            }
+            if (point_x < fold_margin_left && split_line < split_total_lines)
+            {
+                const_cast<UI::Editor::TextDocumentModel*>(right_doc)->toggle_breakpoint(split_line);
+                if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+                return true;
             }
 
             m_pointer_selecting = true;
@@ -1666,17 +1707,17 @@ bool TextEditor::handle_pointer_press(
 
             const float fold_margin = UI::Editor::StudioEditorMetrics::fold_margin_width * scale;
             const float fold_margin_left = layout.gutter_bounds.right() - fold_margin;
+            const float line_height = 20.0F * scale;
+            const std::size_t visible_count = static_cast<std::size_t>(std::max(
+                static_cast<int>(layout.editor_bounds.height / line_height), 1));
+            const std::size_t total_lines = left_doc->get_line_count();
+            const std::size_t clicked_row = static_cast<std::size_t>(std::max(
+                static_cast<int>((point_y - layout.editor_bounds.y) / line_height), 0));
+            const std::size_t line_index = visual_row_to_physical_line(
+                m_folding, m_scrollbar.get_first_visible_line() + clicked_row, total_lines);
+
             if (point_x >= fold_margin_left && point_x <= layout.gutter_bounds.right())
             {
-                const float line_height = 20.0F * scale;
-                const std::size_t visible_count = static_cast<std::size_t>(std::max(
-                    static_cast<int>(layout.editor_bounds.height / line_height), 1));
-                const std::size_t total_lines = left_doc->get_line_count();
-                const std::size_t clicked_row = static_cast<std::size_t>(std::max(
-                    static_cast<int>((point_y - layout.editor_bounds.y) / line_height), 0));
-                const std::size_t line_index = visual_row_to_physical_line(
-                    m_folding, m_scrollbar.get_first_visible_line() + clicked_row, total_lines);
-
                 if (m_folding.is_fold_start(line_index))
                 {
                     m_folding.toggle_fold(line_index);
@@ -1686,6 +1727,12 @@ bool TextEditor::handle_pointer_press(
                     if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
                     return true;
                 }
+            }
+            if (point_x < fold_margin_left && line_index < total_lines)
+            {
+                const_cast<UI::Editor::TextDocumentModel*>(left_doc)->toggle_breakpoint(line_index);
+                if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+                return true;
             }
 
             m_pointer_selecting = true;
@@ -1821,6 +1868,20 @@ bool TextEditor::handle_pointer_press(
         m_scrollbar.synchronize(count_visible_lines(m_folding, total_lines), visible_count);
         m_reveal_caret_pending = true;
         return true;
+    }
+
+    if (layout.gutter_bounds.contains(point_x, point_y))
+    {
+        const std::size_t clicked_row = static_cast<std::size_t>(std::max(
+            static_cast<int>((point_y - layout.editor_bounds.y) / line_height), 0));
+        const std::size_t line_index = visual_row_to_physical_line(
+            m_folding, m_scrollbar.get_first_visible_line() + clicked_row, total_lines);
+        if (line_index < total_lines)
+        {
+            document->toggle_breakpoint(line_index);
+            m_reveal_caret_pending = false;
+            return true;
+        }
     }
 
     m_completion_popup.hide();
@@ -1979,6 +2040,31 @@ bool TextEditor::handle_pointer_move(
     if (split_close_hover != m_hovered_split_close)
     {
         m_hovered_split_close = split_close_hover;
+        changed = true;
+    }
+
+    // Gutter hover detection for breakpoint preview
+    std::optional<std::size_t> next_gutter_hover;
+    if (layout.gutter_bounds.contains(point_x, point_y))
+    {
+        if (const UI::Editor::TextDocumentModel* doc = m_controller.get_active_document())
+        {
+            const float line_h = 20.0F * layout.dpi_scale;
+            const std::size_t first_line = m_scrollbar.get_first_visible_line();
+            const std::size_t clicked_row = static_cast<std::size_t>(std::max(
+                static_cast<int>((point_y - layout.editor_bounds.y) / line_h), 0));
+            const std::size_t line_index = visual_row_to_physical_line(
+                m_folding, first_line + clicked_row, doc->get_line_count());
+            if (line_index < doc->get_line_count())
+            {
+                next_gutter_hover = line_index;
+            }
+        }
+    }
+
+    if (next_gutter_hover != m_hovered_gutter_line)
+    {
+        m_hovered_gutter_line = next_gutter_hover;
         changed = true;
     }
 
@@ -2809,16 +2895,7 @@ bool TextEditor::handle_input(
 
         if (auto* doc = m_controller.get_active_document(); doc != nullptr)
         {
-            const std::string uri = get_active_document_uri();
-            const std::string fname = get_active_document_filename();
-            std::string content;
-            for (std::size_t i = 0; i < doc->get_line_count(); ++i)
-            {
-                content += doc->get_line(i);
-                content += "\n";
-            }
-            Language::LanguageServerManager::instance().on_document_changed(
-                uri, fname, 1, content);
+            queue_lsp_document_sync();
 
             // Auto-hide signature help on newline, cursor movement, or outside parens
             if (command == UI::Editor::EditorInputCommand::InsertNewLine ||
@@ -3158,17 +3235,10 @@ bool TextEditor::handle_text_input(std::string_view utf8_text)
             doc->set_caret(initial_caret_line, initial_caret_col + 1);
             m_reveal_caret_pending = true;
             m_caret_blink.reset();
+            queue_lsp_document_sync();
 
             const std::string fname = get_active_document_filename();
             const std::string uri = get_active_document_uri();
-            std::string content;
-            for (std::size_t i = 0; i < doc->get_line_count(); ++i)
-            {
-                content += doc->get_line(i);
-                content += "\n";
-            }
-            Language::LanguageServerManager::instance().on_document_changed(
-                uri, fname, 1, content);
 
             if (utf8_text == "(")
             {
@@ -3725,8 +3795,36 @@ bool TextEditor::check_external_file_changes()
     return true;
 }
 
+void TextEditor::flush_lsp_document_sync_if_needed(bool force)
+{
+    if (!m_lsp_sync_pending)
+    {
+        return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    if (!force && std::chrono::duration_cast<std::chrono::milliseconds>(now - m_last_edit_time).count() < 250)
+    {
+        return;
+    }
+    m_lsp_sync_pending = false;
+    if (auto* doc = m_controller.get_active_document(); doc != nullptr)
+    {
+        const std::string fname = get_active_document_filename();
+        const std::string uri = get_active_document_uri();
+        std::string content;
+        content.reserve(doc->get_line_count() * 40);
+        for (std::size_t i = 0; i < doc->get_line_count(); ++i)
+        {
+            content += doc->get_line(i);
+            content += '\n';
+        }
+        Language::LanguageServerManager::instance().on_document_changed(uri, fname, 1, content);
+    }
+}
+
 bool TextEditor::tick_animations() noexcept
 {
+    flush_lsp_document_sync_if_needed(false);
     bool needs_redraw = m_focused && m_controller.get_active_document() != nullptr && m_caret_blink.tick();
     
     // Check for external file modifications
@@ -4227,7 +4325,7 @@ void TextEditor::draw_document(
         const float logo_size = 180.0F * dpi;
         const float logo_gap = 32.0F * dpi;
 
-        const std::string title = "Zenvra Development Studio 2026";
+        const std::string title = "Zenvra Development Studio";
         const int title_w = surface.m_large_font
             ? surface.m_large_font->getTextWidth(device_context, title)
             : (surface.m_ui_font ? surface.m_ui_font->getTextWidth(device_context, title) : static_cast<int>(240.0F * dpi));
@@ -4303,14 +4401,6 @@ void TextEditor::draw_document(
         ? document->get_status().indent_width
         : 4;
 
-    // Rebuild folding model only when document or line count changes (high-performance caching)
-    if (m_last_folded_doc != document || m_last_folded_line_count != total_lines)
-    {
-        m_folding.rebuild(document->get_lines(), tab_size);
-        m_last_folded_doc = document;
-        m_last_folded_line_count = total_lines;
-    }
-
     const float scale = surface.m_dpi_scale;
     const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
     const float half_w = is_split_active ? ((layout.editor_bounds.width - 2.0F * scale) * m_split_ratio) : layout.editor_bounds.width;
@@ -4351,6 +4441,20 @@ void TextEditor::draw_document(
     const std::size_t first_visual_row = m_scrollbar.get_first_visible_line();
     const std::size_t first_line = visual_row_to_physical_line(
         m_folding, first_visual_row, total_lines);
+
+    // Rebuild folding model windowed around visible line (instant on 5M+ line documents)
+    const bool needs_window_shift =
+        (total_lines > 25000 &&
+         (first_line < m_folding.get_window_offset() ||
+          first_line + visible_count >=
+              m_folding.get_window_offset() + m_folding.get_window_size()));
+
+    if (m_last_folded_doc != document || m_last_folded_line_count != total_lines || needs_window_shift)
+    {
+        m_folding.rebuild(document->get_lines(), tab_size, first_line, 2500);
+        m_last_folded_doc = document;
+        m_last_folded_line_count = total_lines;
+    }
     const std::size_t render_count = visible_count;
     const bool syntax_highlighting =
         UI::Editor::supports_editor_syntax_highlighting(document->get_file_name());
@@ -4455,10 +4559,15 @@ void TextEditor::draw_document(
                     left_code_limit - layout.gutter_bounds.x, line_height},
                 surface.m_palette.active_line_background);
         }
+        // Dedicated breakpoint lane metrics (never overlapped by line numbers)
+        const float bp_lane_width = 20.0F * surface.m_dpi_scale;
+        const float bp_x = layout.gutter_bounds.x + 10.0F * surface.m_dpi_scale;
+        const float bp_r = 4.5F * surface.m_dpi_scale;
+
         const std::string number = std::to_string(line_index + 1);
-        const float number_x = layout.gutter_bounds.right() - fold_margin - 5.0F * surface.m_dpi_scale -
-            static_cast<float>(surface.get_text_width(
-                device_context, *surface.m_editor_font, number));
+        const float line_num_right = layout.gutter_bounds.right() - fold_margin - 10.0F * surface.m_dpi_scale;
+        const float num_w = static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, number));
+        const float number_x = std::max(line_num_right - num_w, layout.gutter_bounds.x + bp_lane_width);
         surface.draw_text(
             device_context,
             *surface.m_editor_font,
@@ -4467,25 +4576,17 @@ void TextEditor::draw_document(
             center_y,
             active_line ? surface.m_palette.text_primary : surface.m_palette.text_muted);
 
-        const auto gutter_diags = document->get_diagnostics_for_line(line_index);
-        if (!gutter_diags.empty())
+        // Breakpoint marker (red circle / hover preview) centered in dedicated breakpoint lane
+        const bool has_bp = document->has_breakpoint(line_index);
+        const bool is_bp_hovered = (!has_bp && m_hovered_gutter_line && *m_hovered_gutter_line == line_index);
+        if (has_bp || is_bp_hovered)
         {
-            bool has_error = false;
-            bool has_warn = false;
-            for (const auto& gd : gutter_diags)
-            {
-                if (gd.severity == Language::Protocol::DiagnosticSeverity::Error) has_error = true;
-                else if (gd.severity == Language::Protocol::DiagnosticSeverity::Warning) has_warn = true;
-            }
-
-            const float dot_x = layout.gutter_bounds.x + 4.0F * surface.m_dpi_scale;
-            const float dot_r = 3.0F * surface.m_dpi_scale;
-            const UI::Theme::Color dot_color = has_error
-                ? UI::Theme::Color{247, 84, 100, 255}
-                : (has_warn ? UI::Theme::Color{240, 167, 50, 255} : UI::Theme::Color{86, 182, 194, 255});
+            const UI::Theme::Color bp_color = has_bp
+                ? UI::Theme::Color{229, 20, 0, 255}
+                : UI::Theme::Color{130, 20, 20, 255};
             surface.fill_rounded_rectangle(device_context,
-                UI::Rect{dot_x, center_y - dot_r, dot_r * 2.0F, dot_r * 2.0F},
-                dot_color, dot_r);
+                UI::Rect{bp_x - bp_r, center_y - bp_r, bp_r * 2.0F, bp_r * 2.0F},
+                bp_color, bp_r);
         }
 
         if (has_gutter_marker(line))
@@ -4650,6 +4751,21 @@ void TextEditor::draw_document(
         const std::string doc_uri = get_active_document_uri();
         const auto semantic_spans = Language::LanguageServerManager::instance().get_semantic_tokens_manager().get_tokens_for_line(doc_uri, line_index);
 
+        auto is_token_unused = [&](std::size_t tok_start, std::size_t tok_len) -> bool
+        {
+            const std::size_t tok_end = tok_start + tok_len;
+            for (const auto& diag : line_diags)
+            {
+                if (!diag.is_unnecessary()) continue;
+                if (line.find("#include") != std::string::npos) return true;
+                std::size_t diag_start = (diag.range.start.line == line_index) ? diag.range.start.character : 0;
+                std::size_t diag_end = (diag.range.end.line == line_index) ? diag.range.end.character : line.size();
+                if (diag_start >= diag_end) { diag_start = 0; diag_end = line.size(); }
+                if (tok_start < diag_end && tok_end > diag_start) return true;
+            }
+            return false;
+        };
+
         auto get_effective_token_color = [&](UI::Editor::EditorTokenKind kind, std::size_t tok_start, std::size_t tok_len) -> UI::Theme::Color
         {
             // If this token is hovered while Ctrl is held, highlight with vibrant accent color (VS Code link style)
@@ -4661,7 +4777,12 @@ void TextEditor::draw_document(
                 }
             }
 
-            return token_color(kind);
+            const UI::Theme::Color base = token_color(kind);
+            if (is_token_unused(tok_start, tok_len))
+            {
+                return UI::Theme::dim_color(base, surface.m_palette.editor_background);
+            }
+            return base;
         };
 
         if (syntax_highlighting)
@@ -4755,20 +4876,24 @@ void TextEditor::draw_document(
             }
             if (rendered_bytes < line.size())
             {
+                const bool leftover_unused = is_token_unused(rendered_bytes, line.size() - rendered_bytes);
                 surface.draw_text(device_context, *surface.m_editor_font,
                     line.substr(rendered_bytes), token_x, center_y,
-                    surface.m_palette.text_primary);
+                    leftover_unused ? UI::Theme::dim_color(surface.m_palette.text_primary, surface.m_palette.editor_background)
+                                    : surface.m_palette.text_primary);
             }
         }
         else
         {
+            const bool line_unused = is_token_unused(0, line.size());
             surface.draw_text(
                 device_context,
                 *surface.m_editor_font,
                 line,
                 code_x,
                 center_y,
-                surface.m_palette.text_primary);
+                line_unused ? UI::Theme::dim_color(surface.m_palette.text_primary, surface.m_palette.editor_background)
+                            : surface.m_palette.text_primary);
         }
 
         // Render diagnostics squiggles under erroneous tokens
@@ -5092,29 +5217,20 @@ void TextEditor::draw_document(
                 }
 
                 const std::string num_str = std::to_string(line_index + 1);
-                const float nx = right_gutter.right() - fold_margin - 5.0F * scale -
+                const float nx = right_gutter.right() - fold_margin - 6.0F * scale -
                     static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, num_str));
                 surface.draw_text(device_context, *surface.m_editor_font, num_str, nx, cy,
                     is_active_line ? surface.m_palette.text_primary : surface.m_palette.text_muted);
 
-                const auto gutter_diags = split_doc.get_diagnostics_for_line(line_index);
-                if (!gutter_diags.empty())
+                const bool has_bp = split_doc.has_breakpoint(line_index);
+                if (has_bp)
                 {
-                    bool has_error = false;
-                    bool has_warn = false;
-                    for (const auto& gd : gutter_diags)
-                    {
-                        if (gd.severity == Language::Protocol::DiagnosticSeverity::Error) has_error = true;
-                        else if (gd.severity == Language::Protocol::DiagnosticSeverity::Warning) has_warn = true;
-                    }
-                    const float dot_x = right_gutter.x + 4.0F * scale;
-                    const float dot_r = 3.0F * scale;
-                    const UI::Theme::Color dot_color = has_error
-                        ? UI::Theme::Color{247, 84, 100, 255}
-                        : (has_warn ? UI::Theme::Color{240, 167, 50, 255} : UI::Theme::Color{86, 182, 194, 255});
+                    const float bp_x = right_gutter.x + 9.0F * scale;
+                    const float bp_r = 4.5F * scale;
+                    const UI::Theme::Color bp_color{229, 20, 0, 255};
                     surface.fill_rounded_rectangle(device_context,
-                        UI::Rect{dot_x, cy - dot_r, dot_r * 2.0F, dot_r * 2.0F},
-                        dot_color, dot_r);
+                        UI::Rect{bp_x - bp_r, cy - bp_r, bp_r * 2.0F, bp_r * 2.0F},
+                        bp_color, bp_r);
                 }
 
                 // Right Pane Fold Markers
@@ -5267,6 +5383,21 @@ void TextEditor::draw_document(
                 const std::string r_doc_uri = make_lsp_uri(split_doc.get_file_name());
                 const auto r_semantic_spans = Language::LanguageServerManager::instance().get_semantic_tokens_manager().get_tokens_for_line(r_doc_uri, line_index);
 
+                auto is_r_token_unused = [&](std::size_t tok_start, std::size_t tok_len) -> bool
+                {
+                    const std::size_t tok_end = tok_start + tok_len;
+                    for (const auto& diag : r_diags)
+                    {
+                        if (!diag.is_unnecessary()) continue;
+                        if (lstr.find("#include") != std::string::npos) return true;
+                        std::size_t diag_start = (diag.range.start.line == line_index) ? diag.range.start.character : 0;
+                        std::size_t diag_end = (diag.range.end.line == line_index) ? diag.range.end.character : lstr.size();
+                        if (diag_start >= diag_end) { diag_start = 0; diag_end = lstr.size(); }
+                        if (tok_start < diag_end && tok_end > diag_start) return true;
+                    }
+                    return false;
+                };
+
                 auto get_effective_r_token_color = [&](UI::Editor::EditorTokenKind kind, std::size_t tok_start, std::size_t tok_len) -> UI::Theme::Color
                 {
                     if (m_ctrl_hovered_token && m_ctrl_hovered_token->line == line_index)
@@ -5276,7 +5407,12 @@ void TextEditor::draw_document(
                             return surface.m_palette.accent;
                         }
                     }
-                    return token_color(kind);
+                    const UI::Theme::Color base = token_color(kind);
+                    if (is_r_token_unused(tok_start, tok_len))
+                    {
+                        return UI::Theme::dim_color(base, surface.m_palette.editor_background);
+                    }
+                    return base;
                 };
 
                 if (right_syntax)
@@ -5367,12 +5503,19 @@ void TextEditor::draw_document(
                     }
                     if (rbytes < lstr.size())
                     {
-                        surface.draw_text(device_context, *surface.m_editor_font, lstr.substr(rbytes), tok_x, cy, surface.m_palette.text_primary);
+                        const bool leftover_unused = is_r_token_unused(rbytes, lstr.size() - rbytes);
+                        surface.draw_text(device_context, *surface.m_editor_font,
+                            lstr.substr(rbytes), tok_x, cy,
+                            leftover_unused ? UI::Theme::dim_color(surface.m_palette.text_primary, surface.m_palette.editor_background)
+                                            : surface.m_palette.text_primary);
                     }
                 }
                 else
                 {
-                    surface.draw_text(device_context, *surface.m_editor_font, lstr, tok_x, cy, surface.m_palette.text_primary);
+                    const bool line_unused = is_r_token_unused(0, lstr.size());
+                    surface.draw_text(device_context, *surface.m_editor_font, lstr, tok_x, cy,
+                        line_unused ? UI::Theme::dim_color(surface.m_palette.text_primary, surface.m_palette.editor_background)
+                                    : surface.m_palette.text_primary);
                 }
 
                 // Diagnostics squiggles for right pane

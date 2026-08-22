@@ -173,24 +173,35 @@ void EditorMinimap::render(const StudioWorkspaceRenderer &surface,
   const float right_padding = 4.0F * layout.dpi_scale;
 
   const auto token_color =
-      [&surface](UI::Editor::EditorTokenKind kind) -> const UI::Theme::Color & {
+      [&surface](UI::Editor::EditorTokenKind kind, bool is_dimmed = false) -> UI::Theme::Color {
+    UI::Theme::Color base = surface.m_palette.text_primary;
     switch (kind) {
     case UI::Editor::EditorTokenKind::Keyword:
-      return surface.m_palette.keyword;
+      base = surface.m_palette.keyword;
+      break;
     case UI::Editor::EditorTokenKind::Number:
-      return surface.m_palette.number;
+      base = surface.m_palette.number;
+      break;
     case UI::Editor::EditorTokenKind::Label:
-      return surface.m_palette.label;
+      base = surface.m_palette.label;
+      break;
     case UI::Editor::EditorTokenKind::Type:
-      return surface.m_palette.type;
+      base = surface.m_palette.type;
+      break;
     case UI::Editor::EditorTokenKind::Comment:
-      return surface.m_palette.comment;
+      base = surface.m_palette.comment;
+      break;
     case UI::Editor::EditorTokenKind::String:
-      return surface.m_palette.success;
+      base = surface.m_palette.success;
+      break;
     case UI::Editor::EditorTokenKind::Plain:
-      return surface.m_palette.text_primary;
+      base = surface.m_palette.text_primary;
+      break;
     }
-    return surface.m_palette.text_primary;
+    if (is_dimmed) {
+      return UI::Theme::dim_color(base, surface.m_palette.editor_background);
+    }
+    return base;
   };
 
   for (std::size_t line_index = start_line; line_index < end_line;
@@ -204,7 +215,22 @@ void EditorMinimap::render(const StudioWorkspaceRenderer &surface,
       continue;
     }
 
+    const auto line_diags = document.get_diagnostics_for_line(line_index);
+    auto is_token_unused = [&](std::size_t tok_start, std::size_t tok_len) -> bool {
+      const std::size_t tok_end = tok_start + tok_len;
+      for (const auto &diag : line_diags) {
+        if (!diag.is_unnecessary()) continue;
+        if (line.find("#include") != std::string::npos) return true;
+        std::size_t diag_start = diag.range.start.line == line_index ? diag.range.start.character : 0;
+        std::size_t diag_end = diag.range.end.line == line_index ? diag.range.end.character : line.size();
+        if (diag_start >= diag_end) { diag_start = 0; diag_end = line.size(); }
+        if (tok_start < diag_end && tok_end > diag_start) return true;
+      }
+      return false;
+    };
+
     float token_x = bounds.x + left_padding;
+    std::size_t rendered_bytes = 0;
     std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens>
         tokens{};
     auto line_state = document.get_line_state(line_index);
@@ -217,6 +243,7 @@ void EditorMinimap::render(const StudioWorkspaceRenderer &surface,
         break;
       }
       const UI::Editor::EditorToken &token = tokens[token_index];
+      const std::size_t tok_len = token.text.size();
       if (token.text.empty()) {
         continue;
       }
@@ -235,14 +262,17 @@ void EditorMinimap::render(const StudioWorkspaceRenderer &surface,
           space_count += (c == '\t' ? 4 : 1);
         }
         token_x += static_cast<float>(space_count) * char_width;
+        rendered_bytes += tok_len;
         continue;
       }
 
+      const bool unused = is_token_unused(rendered_bytes, tok_len);
       const std::string text = normalize_minimap_text(token.text);
       const float token_width = static_cast<float>(text.size()) * char_width;
       surface.draw_text(device_context, *surface.m_minimap_font, text,
-                        token_x, center_y, token_color(token.kind));
+                        token_x, center_y, token_color(token.kind, unused));
       token_x += token_width;
+      rendered_bytes += tok_len;
     }
 
     if (line_index == document.get_caret_line()) {

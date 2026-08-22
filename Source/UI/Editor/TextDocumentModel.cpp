@@ -1199,6 +1199,11 @@ void TextDocumentModel::mark_saved() noexcept
 
 void TextDocumentModel::insert_new_line()
 {
+    if (m_lines.size() + 2 > m_lines.capacity())
+    {
+        m_lines.reserve(m_lines.size() + std::max(m_lines.size() / 4, std::size_t{1024}));
+    }
+
     std::string previous_line_content = m_lines[m_caret_line].substr(0, m_caret_column);
     std::string remainder = m_lines[m_caret_line].substr(m_caret_column);
     
@@ -1490,6 +1495,32 @@ Language::Syntax::TokenizerState TextDocumentModel::get_line_state(std::size_t l
     }
 
     return m_line_states[line_index];
+}
+
+bool TextDocumentModel::toggle_breakpoint(std::size_t line_index)
+{
+    if (m_breakpoints.contains(line_index))
+    {
+        m_breakpoints.erase(line_index);
+        return false;
+    }
+    m_breakpoints.insert(line_index);
+    return true;
+}
+
+bool TextDocumentModel::has_breakpoint(std::size_t line_index) const noexcept
+{
+    return m_breakpoints.contains(line_index);
+}
+
+const std::unordered_set<std::size_t>& TextDocumentModel::get_breakpoints() const noexcept
+{
+    return m_breakpoints;
+}
+
+void TextDocumentModel::clear_all_breakpoints() noexcept
+{
+    m_breakpoints.clear();
 }
 
 } // namespace Zenvra::UI::Editor

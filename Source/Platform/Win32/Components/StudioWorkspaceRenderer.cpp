@@ -222,12 +222,14 @@ void StudioWorkspaceRenderer::update_dpi(UINT dpi) {
 UI::Editor::StudioEditorLayoutResult
 StudioWorkspaceRenderer::calculate_layout(int client_width, int client_height,
                                           float content_top) const noexcept {
+  const std::size_t line_count = m_text_editor.get_active_document_line_count();
   return m_layout_engine.calculate(
       static_cast<float>(client_width), static_cast<float>(client_height),
       content_top, m_dpi_scale, m_terminal_panel.is_visible(),
       m_terminal_panel.get_height(), m_terminal_panel.is_maximized(),
       m_tool_sidebar.is_visible(), m_tool_sidebar.get_width(),
-      m_shader_sandbox_panel.is_visible(), m_shader_sandbox_panel.get_width());
+      m_shader_sandbox_panel.is_visible(), m_shader_sandbox_panel.get_width(),
+      std::nullopt, line_count);
 }
 
 void StudioWorkspaceRenderer::sync_shader_sandbox() const {

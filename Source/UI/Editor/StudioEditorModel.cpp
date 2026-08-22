@@ -67,14 +67,15 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
     bool terminal_visible, float terminal_height, bool terminal_maximized,
     bool tool_sidebar_visible, float tool_sidebar_width,
     bool shader_panel_visible, float shader_panel_width,
-    std::optional<float> custom_nav_width) const noexcept {
+    std::optional<float> custom_nav_width,
+    std::size_t line_count) const noexcept {
   const float safe_width = std::max(client_width, 0.0F);
   const float safe_height = std::max(client_height, 0.0F);
   const float safe_scale = std::max(dpi_scale, 0.5F);
   const float safe_top = std::clamp(content_top, 0.0F, safe_height);
   const float activity_width = StudioEditorMetrics::activity_width * safe_scale;
   const float status_height = StudioEditorMetrics::status_height * safe_scale;
-  const float gutter_width = StudioEditorMetrics::gutter_width * safe_scale;
+  const float gutter_width = StudioEditorMetrics::calculate_gutter_width(line_count, safe_scale);
   const float scrollbar_width = 14.0F * safe_scale;
   const float splitter_width = shader_panel_visible ? (4.0F * safe_scale) : 0.0F;
 

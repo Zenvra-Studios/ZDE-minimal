@@ -169,8 +169,28 @@ struct StudioEditorMetrics final
     static constexpr float tab_height = 30.0F;
     static constexpr float status_height = 24.0F;
     static constexpr float editor_header_height = 26.0F;
-    static constexpr float gutter_width = 66.0F;
+    static constexpr float breakpoint_margin_width = 22.0F;
     static constexpr float fold_margin_width = 14.0F;
+    static constexpr float gutter_width = 68.0F;
+
+    [[nodiscard]] static constexpr float calculate_gutter_width(std::size_t line_count = 1, float dpi_scale = 1.0F) noexcept
+    {
+        std::size_t digits = 3;
+        std::size_t temp = line_count;
+        if (temp >= 1000)
+        {
+            digits = 0;
+            while (temp > 0)
+            {
+                ++digits;
+                temp /= 10;
+            }
+        }
+        const float char_w = 8.5F;
+        const float line_num_w = static_cast<float>(digits) * char_w + 6.0F;
+        const float total_w = breakpoint_margin_width + line_num_w + fold_margin_width + 4.0F;
+        return std::max(total_w, 68.0F) * dpi_scale;
+    }
     static constexpr float sidebar_item_height = 36.0F;
     static constexpr float sidebar_item_spacing = 40.0F;
     static constexpr float sidebar_top_offset = 21.0F;
@@ -203,7 +223,8 @@ public:
         float tool_sidebar_width = 260.0F,
         bool shader_panel_visible = false,
         float shader_panel_width = 380.0F,
-        std::optional<float> custom_nav_width = std::nullopt) const noexcept;
+        std::optional<float> custom_nav_width = std::nullopt,
+        std::size_t line_count = 1) const noexcept;
 };
 
 [[nodiscard]] std::span<const SidebarItem> get_studio_sidebar_items() noexcept;

@@ -105,6 +105,10 @@ public:
         float point_y) const noexcept;
     [[nodiscard]] bool is_split_resizing() const noexcept { return m_is_resizing_split; }
     [[nodiscard]] bool is_split_active() const noexcept { return m_is_split && m_split_document_index.has_value(); }
+    [[nodiscard]] std::size_t get_active_document_line_count() const noexcept {
+        const auto* doc = m_controller.get_active_document();
+        return doc != nullptr ? doc->get_line_count() : 1;
+    }
     void reset_split() noexcept;
     [[nodiscard]] bool is_fold_margin_point(
         const StudioWorkspaceRenderer& surface,
@@ -242,11 +246,11 @@ private:
     bool m_focused = false;
     bool m_pointer_selecting = false;
     bool m_is_drag_selecting = false; ///< True only during actual mouse drag, not on click
-  public:
+public:
     bool is_pointer_selecting() const noexcept { return m_pointer_selecting || m_is_drag_selecting; }
     bool is_resizing_split() const noexcept { return m_is_resizing_split; }
     bool is_tab_dragging() const noexcept { return m_tab_drag_drop.is_dragging(); }
-  private:
+private:
     mutable std::array<UI::Rect, max_visible_tabs> m_tab_bounds{};
     mutable std::size_t m_tab_count = 0;
     std::optional<std::size_t> m_hovered_tab_index;
@@ -272,6 +276,7 @@ private:
     mutable UI::Rect m_split_close_btn_bounds{};
     mutable bool m_hovered_split_close = false;
     mutable std::optional<std::size_t> m_hovered_fold_line;
+    mutable std::optional<std::size_t> m_hovered_gutter_line;
     bool m_hovered_tab_scrollbar = false;
     bool m_dragging_tab_scrollbar = false;
     float m_tab_scroll_drag_start_x = 0.0F;
@@ -292,7 +297,16 @@ private:
     mutable UI::Components::SignatureHelpWidget m_signature_help;
     mutable std::recursive_mutex m_lsp_mutex;
     mutable bool m_lsp_dirty = false;
+    mutable bool m_lsp_sync_pending = false;
+    mutable std::chrono::steady_clock::time_point m_last_edit_time{};
     mutable std::chrono::steady_clock::time_point m_last_file_check_time{};
+
+public:
+    void queue_lsp_document_sync() noexcept {
+      m_lsp_sync_pending = true;
+      m_last_edit_time = std::chrono::steady_clock::now();
+    }
+    void flush_lsp_document_sync_if_needed(bool force = false);
 };
 
 } // namespace Zenvra::Platform::X11::Components

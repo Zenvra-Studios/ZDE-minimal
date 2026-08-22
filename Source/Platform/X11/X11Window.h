@@ -158,6 +158,7 @@ private:
     bool m_is_minimized = false;
     bool m_is_focused = false;
     bool m_custom_chrome_enabled = false;
+    bool m_pending_render = false;
     bool m_context_acquired = false;
     bool m_ewmh_move_resize_supported = false;
     bool m_ewmh_maximize_supported = false;

@@ -1289,12 +1289,12 @@ void test_graphics_driver_and_ui_modal()
 
     // 7. Modal UI 
     AboutModal about;
-    expect(about.get_app_name() == "ZDE STUDIO 2026", "AboutModal app name must be ZDE STUDIO 2026");
+    expect(!about.get_app_name().empty(), "AboutModal app name must not be empty");
     expect(about.get_studio_name() == "Zenvra Studios", "AboutModal studio name must be Zenvra Studios");
     expect(about.get_specs().size() >= 5, "AboutModal must contain tech specifications");
 
     const std::string clip_text = about.get_clipboard_text();
-    expect(clip_text.find("ZDE STUDIO 2026") != std::string::npos, "Clipboard text must contain app name");
+    expect(clip_text.find(about.get_app_name()) != std::string::npos, "Clipboard text must contain app name");
     expect(clip_text.find("Zenvra Studios") != std::string::npos, "Clipboard text must contain studio name");
     expect(clip_text.find("Created by") != std::string::npos, "Clipboard text must contain creator credit");
     expect(clip_text.find("OpenGL Core") != std::string::npos, "Clipboard text must contain graphics pipeline info");

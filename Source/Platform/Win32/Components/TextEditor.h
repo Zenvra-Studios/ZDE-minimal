@@ -93,6 +93,10 @@ public:
   [[nodiscard]] bool is_split_active() const noexcept {
     return m_is_split && m_split_document_index.has_value();
   }
+  [[nodiscard]] std::size_t get_active_document_line_count() const noexcept {
+    const auto* doc = m_controller.get_active_document();
+    return doc != nullptr ? doc->get_line_count() : 1;
+  }
   void reset_split() noexcept;
   [[nodiscard]] bool
   is_fold_margin_point(const UI::Editor::StudioEditorLayoutResult &layout,
@@ -241,6 +245,7 @@ private:
   mutable UI::Rect m_split_close_btn_bounds{};
   mutable bool m_hovered_split_close = false;
   mutable std::optional<std::size_t> m_hovered_fold_line;
+  mutable std::optional<std::size_t> m_hovered_gutter_line;
   bool m_hovered_tab_scrollbar = false;
   bool m_dragging_tab_scrollbar = false;
   float m_tab_scroll_drag_start_x = 0.0F;
@@ -272,6 +277,8 @@ private:
   mutable std::chrono::steady_clock::time_point m_hover_start_time{};
   mutable bool m_hover_requested = false;
   mutable std::chrono::steady_clock::time_point m_last_file_check_time{};
+  mutable bool m_lsp_sync_pending = false;
+  mutable std::chrono::steady_clock::time_point m_last_edit_time{};
 
   struct CtrlHoverTokenInfo {
     std::size_t line = 0;
@@ -281,6 +288,13 @@ private:
   };
   mutable std::optional<CtrlHoverTokenInfo> m_ctrl_hovered_token;
   mutable float m_cached_char_width = 0.0F;
+
+public:
+  void queue_lsp_document_sync() noexcept {
+    m_lsp_sync_pending = true;
+    m_last_edit_time = std::chrono::steady_clock::now();
+  }
+  void flush_lsp_document_sync_if_needed(bool force = false);
 };
 
 } // namespace Zenvra::Platform::Win32::Components

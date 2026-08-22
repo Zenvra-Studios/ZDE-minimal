@@ -354,6 +354,7 @@ private:
     UI::Editor::StudioEditorPalette m_palette = UI::Editor::StudioEditorPalette::dark();
     PalettePixels m_pixels;
     PaletteText m_text;
+    PaletteText m_text_dimmed;
     ActivitySidebar m_activity_sidebar;
     FooterToolbar m_footer_toolbar;
     ToolSidebar m_tool_sidebar;

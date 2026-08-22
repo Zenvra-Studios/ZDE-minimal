@@ -9,6 +9,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <unordered_set>
 #include <mutex>
 #include <memory>
 
@@ -137,6 +138,11 @@ public:
     [[nodiscard]] std::vector<Language::Protocol::Diagnostic> get_diagnostics_for_line(std::size_t line) const;
     [[nodiscard]] Language::Syntax::TokenizerState get_line_state(std::size_t line_index) const noexcept;
 
+    bool toggle_breakpoint(std::size_t line_index);
+    [[nodiscard]] bool has_breakpoint(std::size_t line_index) const noexcept;
+    [[nodiscard]] const std::unordered_set<std::size_t>& get_breakpoints() const noexcept;
+    void clear_all_breakpoints() noexcept;
+
 private:
     void insert_new_line();
     void delete_backward();
@@ -156,6 +162,7 @@ private:
     std::vector<TextCursor> m_secondary_cursors;
     mutable std::shared_ptr<std::mutex> m_diagnostics_mutex = std::make_shared<std::mutex>();
     std::vector<Language::Protocol::Diagnostic> m_diagnostics;
+    std::unordered_set<std::size_t> m_breakpoints;
     mutable std::vector<Language::Syntax::TokenizerState> m_line_states;
     mutable std::size_t m_line_states_valid_up_to = 0;
     mutable std::size_t m_line_states_revision = 0;

@@ -12,6 +12,15 @@ set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON CACHE BOOL "Export all symbols on Window
 
 project("ZDE" LANGUAGES CXX C VERSION 0.1.0)
 
+add_compile_definitions(
+    ZDE_VERSION_STRING="${PROJECT_VERSION}"
+    ZDE_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+    ZDE_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+    ZDE_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+    ZDE_APP_NAME="Zenvra Development Studio"
+    ZDE_EDITION_NAME="Community Edition"
+)
+
 include(CTest)
 
 # Objective-C++ is only used by the Cocoa platform (Apple). Enabling it on

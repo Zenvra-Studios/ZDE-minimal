@@ -44,8 +44,9 @@ class EditorFoldingModel
 {
 public:
     /// Re-analyse the document lines and rebuild the fold-range table and indent guides.
-    /// Call this whenever the document text changes.
-    void rebuild(std::span<const std::string> lines, std::size_t tab_size = 4);
+    /// Supports windowed focus for massive files (e.g. 5M+ lines) to ensure instant performance.
+    void rebuild(std::span<const std::string> lines, std::size_t tab_size = 4,
+                 std::size_t focus_center = 0, std::size_t focus_radius = 0);
 
     /// Toggle the collapsed state of the fold that starts at `line_index`.
     /// Returns true if the state actually changed.
@@ -90,10 +91,19 @@ public:
     [[nodiscard]] const FoldRange* get_active_indent_range(
         std::size_t line_index) const noexcept;
 
+    /// Returns the starting line index of the active window.
+    [[nodiscard]] std::size_t get_window_offset() const noexcept { return m_window_offset; }
+
+    /// Returns the number of lines covered by the active window.
+    [[nodiscard]] std::size_t get_window_size() const noexcept { return m_effective_indents.size(); }
+
 private:
     std::vector<FoldRange> m_ranges;
     std::unordered_set<std::size_t> m_collapsed;
     std::vector<std::size_t> m_effective_indents;
+    std::size_t m_window_offset = 0;
+    std::vector<int> m_raw_indents;
+    std::vector<int> m_next_indents;
 };
 
 } // namespace Zenvra::UI::Components

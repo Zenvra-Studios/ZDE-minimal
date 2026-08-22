@@ -80,9 +80,11 @@ void ExplorerHeader::render(
     const int icon_size = std::max(round_to_int(14.0F * scale), 11);
     
     auto draw_icon = [&](ActionIcon icon_type, const char* path, float center_x) {
-        const auto& color = (m_hovered_icon == icon_type) ? surface.m_palette.text_primary : surface.m_palette.text_muted;
+        const bool is_hovered = (m_hovered_icon == icon_type);
+        const auto& color = is_hovered ? surface.m_palette.text_primary : surface.m_palette.text_muted;
+        const auto& bg_color = is_hovered ? surface.m_palette.hover_background : surface.m_palette.sidebar_background;
         
-        if (m_hovered_icon == icon_type) {
+        if (is_hovered) {
             // Draw hover background
             UI::Rect hover_bg{
                 center_x - 12.0F * scale,
@@ -93,7 +95,7 @@ void ExplorerHeader::render(
             surface.fill_rounded_rectangle(context, hover_bg, surface.m_colors.hover_background, 4.0F * scale);
         }
         
-        surface.draw_svg_icon(context, path, round_to_int(center_x), header_center_y, icon_size, color, surface.m_palette.sidebar_background, false);
+        surface.draw_svg_icon(context, path, round_to_int(center_x), header_center_y, icon_size, color, bg_color, false);
     };
 
     float current_x = panel.right() - right_margin * scale;

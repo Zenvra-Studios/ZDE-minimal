@@ -14,6 +14,7 @@
 #include "Tools/Builder/CMakeBuilder.h"
 #include "Tools/Runner/ProcessRunner.h"
 #include "UI/Components/CompletionPopup.h"
+#include "UI/Components/EditorFolding.h"
 #include "UI/Components/HoverTooltip.h"
 #include "UI/Editor/ActivityPanelModel.h"
 #include "UI/Editor/FileIconModel.h"
@@ -1103,6 +1104,270 @@ TEST(LanguageServerTests, ExtensionlessStlHeaderGrammarAndLspRecognition) {
   const std::string icon =
       UI::Editor::file_icon_asset_for_path(std::filesystem::path("string"));
   EXPECT_EQ(icon, "vscode-symbols/files/cplus.svg");
+}
+
+TEST(LanguageServerTests, DimUnusedDiagnosticsAndColors) {
+  // Test Diagnostic::is_unnecessary()
+  Language::Protocol::Diagnostic diag_tag;
+  diag_tag.tags = {Language::Protocol::DiagnosticTag::Unnecessary};
+  EXPECT_TRUE(diag_tag.is_unnecessary());
+
+  Language::Protocol::Diagnostic diag_code;
+  diag_code.code = "unused-includes";
+  EXPECT_TRUE(diag_code.is_unnecessary());
+
+  Language::Protocol::Diagnostic diag_msg;
+  diag_msg.message = "Included header <iostream> is not used directly";
+  EXPECT_TRUE(diag_msg.is_unnecessary());
+
+  Language::Protocol::Diagnostic diag_error;
+  diag_error.message = "syntax error: unexpected token";
+  EXPECT_FALSE(diag_error.is_unnecessary());
+
+  // Test UI::Theme::dim_color blending
+  UI::Theme::Color fg{255, 255, 255, 255};
+  UI::Theme::Color bg{0, 0, 0, 255};
+  UI::Theme::Color dimmed = UI::Theme::dim_color(fg, bg, 0.45F);
+  EXPECT_GT(dimmed.red, 0);
+  EXPECT_LT(dimmed.red, 255);
+  EXPECT_EQ(dimmed.red, dimmed.green);
+  EXPECT_EQ(dimmed.green, dimmed.blue);
+}
+
+TEST(LanguageServerTests, SyntaxHighlightingDistinguishesClassesVariablesAndDefines) {
+  const auto* grammar =
+      Language::Syntax::GrammarRegistry::instance().get_grammar_for_extension(".cpp");
+  ASSERT_NE(grammar, nullptr);
+
+  // 1. Check classes vs variables vs function calls
+  {
+    std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        "const StudioWorkspaceRenderer& surface, Drawable drawable",
+        *grammar, tokens);
+    ASSERT_GT(count, 0u);
+
+    bool found_renderer_type = false;
+    bool found_surface_var = false;
+    bool found_drawable_type = false;
+    bool found_drawable_var = false;
+
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "StudioWorkspaceRenderer" &&
+          tokens[i].kind == UI::Editor::EditorTokenKind::Type)
+        found_renderer_type = true;
+      if (tokens[i].text == "surface" &&
+          tokens[i].kind == UI::Editor::EditorTokenKind::Plain)
+        found_surface_var = true;
+      if (tokens[i].text == "Drawable" &&
+          tokens[i].kind == UI::Editor::EditorTokenKind::Type)
+        found_drawable_type = true;
+      if (tokens[i].text == "drawable" &&
+          tokens[i].kind == UI::Editor::EditorTokenKind::Plain)
+        found_drawable_var = true;
+    }
+
+    EXPECT_TRUE(found_renderer_type);
+    EXPECT_TRUE(found_surface_var);
+    EXPECT_TRUE(found_drawable_type);
+    EXPECT_TRUE(found_drawable_var);
+  }
+
+  // 2. Check variable declaration and function call
+  {
+    std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        "const int center_x = round_to_int(layout.activity_bar_bounds.x);",
+        *grammar, tokens);
+    ASSERT_GT(count, 0u);
+
+    bool found_int_type = false;
+    bool found_center_x_var = false;
+    bool found_round_func = false;
+    bool found_layout_var = false;
+    bool found_bounds_var = false;
+
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "int" &&
+          tokens[i].kind == UI::Editor::EditorTokenKind::Type)
+        found_int_type = true;
+      if (tokens[i].text == "center_x" &&
+          tokens[i].kind == UI::Editor::EditorTokenKind::Plain)
+        found_center_x_var = true;
+      if (tokens[i].text == "round_to_int" &&
+          tokens[i].kind == UI::Editor::EditorTokenKind::Label)
+        found_round_func = true;
+      if (tokens[i].text == "layout" &&
+          tokens[i].kind == UI::Editor::EditorTokenKind::Plain)
+        found_layout_var = true;
+      if (tokens[i].text == "activity_bar_bounds" &&
+          tokens[i].kind == UI::Editor::EditorTokenKind::Plain)
+        found_bounds_var = true;
+    }
+
+    EXPECT_TRUE(found_int_type);
+    EXPECT_TRUE(found_center_x_var);
+    EXPECT_TRUE(found_round_func);
+    EXPECT_TRUE(found_layout_var);
+    EXPECT_TRUE(found_bounds_var);
+  }
+
+  // 3. Check preprocessor #define definition and #include
+  {
+    std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        "#define MAX_BUFFER_SIZE 4096",
+        *grammar, tokens);
+    ASSERT_GT(count, 0u);
+
+    bool found_define_kw = false;
+    bool found_macro_label = false;
+    bool found_num = false;
+
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "#define" &&
+          tokens[i].kind == UI::Editor::EditorTokenKind::Keyword)
+        found_define_kw = true;
+      if (tokens[i].text == "MAX_BUFFER_SIZE" &&
+          tokens[i].kind == UI::Editor::EditorTokenKind::Label)
+        found_macro_label = true;
+      if (tokens[i].text == "4096" &&
+          tokens[i].kind == UI::Editor::EditorTokenKind::Number)
+        found_num = true;
+    }
+
+    EXPECT_TRUE(found_define_kw);
+    EXPECT_TRUE(found_macro_label);
+    EXPECT_TRUE(found_num);
+  }
+
+  // 4. Check #include <filesystem>
+  {
+    std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        "#include <filesystem>",
+        *grammar, tokens);
+    ASSERT_GT(count, 0u);
+
+    bool found_include_kw = false;
+    bool found_header_str = false;
+
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "#include" &&
+          tokens[i].kind == UI::Editor::EditorTokenKind::Keyword)
+        found_include_kw = true;
+      if (tokens[i].text == "<filesystem>" &&
+          tokens[i].kind == UI::Editor::EditorTokenKind::String)
+        found_header_str = true;
+    }
+
+    EXPECT_TRUE(found_include_kw);
+    EXPECT_TRUE(found_header_str);
+  }
+}
+
+TEST(LanguageServerTests, BreakpointManagementInTextDocumentModel) {
+  UI::Editor::TextDocumentModel doc;
+  doc.replace_contents(
+      {"int main() {", "    int x = 10;", "    return 0;", "}"},
+      "main.cpp", {}, "LF");
+
+  EXPECT_FALSE(doc.has_breakpoint(0));
+  EXPECT_FALSE(doc.has_breakpoint(1));
+  EXPECT_TRUE(doc.get_breakpoints().empty());
+
+  // Toggle breakpoint on line 1
+  bool added = doc.toggle_breakpoint(1);
+  EXPECT_TRUE(added);
+  EXPECT_TRUE(doc.has_breakpoint(1));
+  EXPECT_EQ(doc.get_breakpoints().size(), 1u);
+
+  // Toggle breakpoint on line 2
+  added = doc.toggle_breakpoint(2);
+  EXPECT_TRUE(added);
+  EXPECT_TRUE(doc.has_breakpoint(2));
+  EXPECT_EQ(doc.get_breakpoints().size(), 2u);
+
+  // Toggle off breakpoint on line 1
+  bool removed = doc.toggle_breakpoint(1);
+  EXPECT_FALSE(removed);
+  EXPECT_FALSE(doc.has_breakpoint(1));
+  EXPECT_TRUE(doc.has_breakpoint(2));
+  EXPECT_EQ(doc.get_breakpoints().size(), 1u);
+
+  // Clear all breakpoints
+  doc.clear_all_breakpoints();
+  EXPECT_FALSE(doc.has_breakpoint(2));
+  EXPECT_TRUE(doc.get_breakpoints().empty());
+}
+
+TEST(LanguageServerTests, DynamicGutterWidthProtectsBreakpointLane) {
+  // 1 to 3 digits (e.g. 50 lines)
+  const float w_small = Zenvra::UI::Editor::StudioEditorMetrics::calculate_gutter_width(50, 1.0F);
+  EXPECT_GE(w_small, 68.0F);
+
+  // 4 digits (e.g. 1500 lines)
+  const float w_4digit = Zenvra::UI::Editor::StudioEditorMetrics::calculate_gutter_width(1500, 1.0F);
+  EXPECT_GT(w_4digit, w_small);
+
+  // 5 digits (e.g. 10656 lines like user's file)
+  const float w_5digit = Zenvra::UI::Editor::StudioEditorMetrics::calculate_gutter_width(10656, 1.0F);
+  EXPECT_GT(w_5digit, w_4digit);
+  EXPECT_GE(w_5digit, 80.0F);
+
+  // 6 digits (e.g. 100000 lines)
+  const float w_6digit = Zenvra::UI::Editor::StudioEditorMetrics::calculate_gutter_width(100000, 1.0F);
+  EXPECT_GT(w_6digit, w_5digit);
+}
+
+TEST(LanguageServerTests, LargeDocumentFoldingAndNavigationPerformance100k) {
+  // Create a 100,000 line document
+  std::vector<std::string> lines;
+  lines.reserve(100000);
+  for (std::size_t i = 0; i < 100000; ++i) {
+    if (i % 100 == 0) {
+      lines.push_back("void func_" + std::to_string(i) + "() {");
+    } else if (i % 100 == 50) {
+      lines.push_back("}");
+    } else if (i % 10 == 0) {
+      lines.push_back("    int val = " + std::to_string(i) + ";");
+    } else {
+      lines.push_back("");
+    }
+  }
+
+  Zenvra::UI::Components::EditorFoldingModel folding;
+  folding.rebuild(lines, 4, 50000, 2500);
+
+  EXPECT_FALSE(folding.get_ranges().empty());
+  EXPECT_TRUE(folding.get_collapsed().empty());
+
+  // Test active indent scope near line 50000
+  const auto scope = folding.get_active_indent_scope(50010, 4);
+  EXPECT_TRUE(scope.valid);
+}
+
+TEST(LanguageServerTests, LargeDocumentFoldingAndNavigationPerformance5M) {
+  // Simulate a 5,200,000 line document structure with windowed rebuild
+  std::vector<std::string> lines;
+  lines.resize(5200000);
+  lines[5196800] = "void massive_function() {";
+  lines[5196810] = "    int val = 42;";
+  lines[5196820] = "}";
+
+  Zenvra::UI::Components::EditorFoldingModel folding;
+  // Window centered at line 5196800 with radius 2500
+  folding.rebuild(lines, 4, 5196800, 2500);
+
+  EXPECT_FALSE(folding.get_ranges().empty());
+  EXPECT_TRUE(folding.is_fold_start(5196800));
+  EXPECT_FALSE(folding.is_fold_start(5196801));
+
+  // Test indent scope at line 5196810
+  const auto scope = folding.get_active_indent_scope(5196810, 4);
+  EXPECT_TRUE(scope.valid);
+  EXPECT_EQ(scope.start_line, 5196800u);
+  EXPECT_EQ(scope.end_line, 5196820u);
 }
 
 

@@ -68,7 +68,10 @@ struct Diagnostic
         {
             if (tag == DiagnosticTag::Unnecessary) return true;
         }
-        if (code == "unused-includes" || code == "unused" || code == "unused-variable" || code == "unused-function")
+        if (code == "unused-includes" || code == "unused" || code == "unused-variable" ||
+            code == "unused-function" || code == "unused-parameter" || code == "dead_code" ||
+            code.find("unused") != std::string::npos || code.find("Unused") != std::string::npos ||
+            code.find("redundant") != std::string::npos)
         {
             return true;
         }
@@ -76,8 +79,15 @@ struct Diagnostic
             message.find("unused") != std::string::npos ||
             message.find("Unused") != std::string::npos ||
             message.find("never used") != std::string::npos ||
+            message.find("never read") != std::string::npos ||
             message.find("not referenced") != std::string::npos ||
-            message.find("is not needed") != std::string::npos)
+            message.find("is not needed") != std::string::npos ||
+            message.find("is redundant") != std::string::npos ||
+            message.find("is never read") != std::string::npos ||
+            message.find("declared but its value is never read") != std::string::npos ||
+            message.find("is not accessed") != std::string::npos ||
+            message.find("defined but not used") != std::string::npos ||
+            (message.find("Included header") != std::string::npos && message.find("not used") != std::string::npos))
         {
             return true;
         }

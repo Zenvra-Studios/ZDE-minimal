@@ -282,7 +282,7 @@ void Application::show_about(Platform::IPlatformWindow* window) const
     }
     else
     {
-        std::cout << m_specification.name << " v0.1.0\n"
+        std::cout << m_specification.name << " v" << ZDE_VERSION_STRING << "\n"
                   << "ZDE-owned application foundation (MVVM).\n";
     }
 }
