@@ -36,7 +36,11 @@ X11ChromeRenderer::X11ChromeRenderer()
   const auto arch = HostSystem::get_native_architecture();
   if (arch == HostSystem::Architecture::Arm64) {
     m_run_config_state.active_architecture = UI::Toolbar::TargetArchitecture::Arm64;
-  } else if (arch == HostSystem::Architecture::X86_64) {
+  } else if (arch == HostSystem::Architecture::Arm32) {
+    m_run_config_state.active_architecture = UI::Toolbar::TargetArchitecture::Arm32;
+  } else if (arch == HostSystem::Architecture::X86) {
+    m_run_config_state.active_architecture = UI::Toolbar::TargetArchitecture::X86;
+  } else {
     m_run_config_state.active_architecture = UI::Toolbar::TargetArchitecture::X86_64;
   }
   m_run_config_state.active_preset_name = HostSystem::get_system_info().default_preset_debug;

@@ -161,26 +161,6 @@ std::size_t GenericGrammarEngine::tokenize_line(
         }
     }
 
-    // Check for leading comment decorations like in JSDoc / Doxygen (* or /**)
-    if (cursor == 0)
-    {
-        const std::size_t first_non_ws = line.find_first_not_of(" \t");
-        if (first_non_ws != std::string_view::npos)
-        {
-            const std::string_view trimmed = line.substr(first_non_ws);
-            if (trimmed.starts_with("/**") || trimmed.starts_with("/*") ||
-                trimmed.starts_with("*/") || trimmed.starts_with("* ") ||
-                trimmed == "*" || trimmed.starts_with("**/"))
-            {
-                if (!output.empty())
-                {
-                    output[0] = UI::Editor::EditorToken{line, UI::Editor::EditorTokenKind::Comment};
-                    return 1;
-                }
-            }
-        }
-    }
-
     enum class DeclContext
     {
         None,

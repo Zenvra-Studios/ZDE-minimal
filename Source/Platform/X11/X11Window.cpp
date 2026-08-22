@@ -2737,14 +2737,21 @@ void X11Window::execute_popup_selection() {
   } else if (command_id == Commands::CommandIds::build_release) {
     m_chrome_renderer.set_active_mode(
         UI::Toolbar::BuildConfigurationMode::Release);
+  } else if (command_id == Commands::CommandIds::platform_x64) {
+    m_chrome_renderer.set_active_architecture(
+        UI::Toolbar::TargetArchitecture::X86_64);
+  } else if (command_id == Commands::CommandIds::platform_x86 ||
+             command_id == Commands::CommandIds::platform_win32) {
+    m_chrome_renderer.set_active_architecture(
+        UI::Toolbar::TargetArchitecture::X86);
   } else if (command_id == Commands::CommandIds::platform_arm64 ||
              command_id == Commands::CommandIds::platform_aarch64 ||
              command_id == Commands::CommandIds::platform_apple_arm) {
     m_chrome_renderer.set_active_architecture(
         UI::Toolbar::TargetArchitecture::Arm64);
-  } else if (command_id == Commands::CommandIds::platform_x64) {
+  } else if (command_id == Commands::CommandIds::platform_arm32) {
     m_chrome_renderer.set_active_architecture(
-        UI::Toolbar::TargetArchitecture::X86_64);
+        UI::Toolbar::TargetArchitecture::Arm32);
   } else if (command_id == Commands::CommandIds::run_zde) {
     m_chrome_renderer.set_active_target("ZDE");
   } else if (command_id == Commands::CommandIds::run_tests) {
@@ -3358,6 +3365,255 @@ void X11Window::reset_layout() {
   render();
 }
 
+namespace {
+
+inline float rounded_rect_sdf(float px, float py, float rx, float ry, float rw, float rh, float r) {
+  const float cx = rx + rw * 0.5F;
+  const float cy = ry + rh * 0.5F;
+  const float hx = std::max(rw * 0.5F - r, 0.0F);
+  const float hy = std::max(rh * 0.5F - r, 0.0F);
+  const float dx = std::abs(px - cx) - hx;
+  const float dy = std::abs(py - cy) - hy;
+  const float ax = std::max(dx, 0.0F);
+  const float ay = std::max(dy, 0.0F);
+  return std::sqrt(ax * ax + ay * ay) + std::min(std::max(dx, dy), 0.0F) - r;
+}
+
+} // namespace
+
+void apply_backdrop_blur(Display *display, Drawable drawable, GC gc,
+                         int width, int height, float scale,
+                         const UI::Rect *dialog_bounds = nullptr,
+                         float dialog_radius = 0.0F) {
+  if (display == nullptr || gc == nullptr || width <= 0 || height <= 0) {
+    return;
+  }
+
+  XImage *src_image = XGetImage(display, drawable, 0, 0,
+                                static_cast<unsigned int>(width),
+                                static_cast<unsigned int>(height),
+                                AllPlanes, ZPixmap);
+  if (src_image == nullptr || src_image->data == nullptr) {
+    return;
+  }
+
+  const int down_w = std::max(width / 4, 1);
+  const int down_h = std::max(height / 4, 1);
+  const int total_down = down_w * down_h;
+
+  std::vector<uint32_t> downscaled(total_down);
+  const bool is_32bit = (src_image->bits_per_pixel == 32);
+  const int bytes_per_line = src_image->bytes_per_line;
+  const char *raw_data = src_image->data;
+
+  // 1. Downsample 4x from src_image to downscaled buffer
+  for (int dy = 0; dy < down_h; ++dy) {
+    const int sy = std::min(dy * 4, height - 1);
+    const int out_row = dy * down_w;
+    if (is_32bit) {
+      const auto *src_row = reinterpret_cast<const uint32_t *>(raw_data + sy * bytes_per_line);
+      for (int dx = 0; dx < down_w; ++dx) {
+        const int sx = std::min(dx * 4, width - 1);
+        downscaled[out_row + dx] = src_row[sx];
+      }
+    } else {
+      for (int dx = 0; dx < down_w; ++dx) {
+        const int sx = std::min(dx * 4, width - 1);
+        downscaled[out_row + dx] = static_cast<uint32_t>(XGetPixel(src_image, sx, sy));
+      }
+    }
+  }
+
+  const int radius = std::max(static_cast<int>(14.0F * scale), 8);
+  std::vector<uint32_t> temp(total_down);
+
+  // Fast O(1) sliding-window box blur passes (3 passes mathematically converge to true Gaussian Blur)
+  auto blur_horizontal = [&](const uint32_t *src, uint32_t *dst, int r) {
+    const float inv_w = 1.0F / static_cast<float>(2 * r + 1);
+    for (int y = 0; y < down_h; ++y) {
+      const int row = y * down_w;
+      int sum_r = 0, sum_g = 0, sum_b = 0;
+
+      for (int x = -r; x <= r; ++x) {
+        const int clamped_x = std::clamp(x, 0, down_w - 1);
+        const uint32_t px = src[row + clamped_x];
+        sum_r += (px >> 16) & 0xFF;
+        sum_g += (px >> 8) & 0xFF;
+        sum_b += px & 0xFF;
+      }
+
+      for (int x = 0; x < down_w; ++x) {
+        dst[row + x] = (static_cast<uint32_t>(sum_r * inv_w) << 16) |
+                       (static_cast<uint32_t>(sum_g * inv_w) << 8) |
+                       static_cast<uint32_t>(sum_b * inv_w);
+
+        const int remove_x = std::clamp(x - r, 0, down_w - 1);
+        const int add_x = std::clamp(x + r + 1, 0, down_w - 1);
+        const uint32_t p_remove = src[row + remove_x];
+        const uint32_t p_add = src[row + add_x];
+
+        sum_r += ((p_add >> 16) & 0xFF) - ((p_remove >> 16) & 0xFF);
+        sum_g += ((p_add >> 8) & 0xFF) - ((p_remove >> 8) & 0xFF);
+        sum_b += (p_add & 0xFF) - (p_remove & 0xFF);
+      }
+    }
+  };
+
+  auto blur_vertical = [&](const uint32_t *src, uint32_t *dst, int r) {
+    const float inv_h = 1.0F / static_cast<float>(2 * r + 1);
+    for (int x = 0; x < down_w; ++x) {
+      int sum_r = 0, sum_g = 0, sum_b = 0;
+
+      for (int y = -r; y <= r; ++y) {
+        const int clamped_y = std::clamp(y, 0, down_h - 1);
+        const uint32_t px = src[clamped_y * down_w + x];
+        sum_r += (px >> 16) & 0xFF;
+        sum_g += (px >> 8) & 0xFF;
+        sum_b += px & 0xFF;
+      }
+
+      for (int y = 0; y < down_h; ++y) {
+        dst[y * down_w + x] = (static_cast<uint32_t>(sum_r * inv_h) << 16) |
+                              (static_cast<uint32_t>(sum_g * inv_h) << 8) |
+                              static_cast<uint32_t>(sum_b * inv_h);
+
+        const int remove_y = std::clamp(y - r, 0, down_h - 1);
+        const int add_y = std::clamp(y + r + 1, 0, down_h - 1);
+        const uint32_t p_remove = src[remove_y * down_w + x];
+        const uint32_t p_add = src[add_y * down_w + x];
+
+        sum_r += ((p_add >> 16) & 0xFF) - ((p_remove >> 16) & 0xFF);
+        sum_g += ((p_add >> 8) & 0xFF) - ((p_remove >> 8) & 0xFF);
+        sum_b += (p_add & 0xFF) - (p_remove & 0xFF);
+      }
+    }
+  };
+
+  // Pass 1
+  blur_horizontal(downscaled.data(), temp.data(), radius);
+  blur_vertical(temp.data(), downscaled.data(), radius);
+
+  // Pass 2
+  blur_horizontal(downscaled.data(), temp.data(), radius);
+  blur_vertical(temp.data(), downscaled.data(), radius);
+
+  // Pass 3 (Gaussian convergence for Fluent Acrylic)
+  blur_horizontal(downscaled.data(), temp.data(), radius);
+  blur_vertical(temp.data(), downscaled.data(), radius);
+
+  // Fluent Acrylic Compositing: Saturation Boost + Deep Acrylic Tint + Frosted Glass Noise
+  const float tint_r = 16.0F, tint_g = 18.0F, tint_b = 24.0F;
+  const float tint_a = 0.35F;
+  const float saturation = 1.40F;
+
+  for (int y = 0; y < down_h; ++y) {
+    const int row = y * down_w;
+    for (int x = 0; x < down_w; ++x) {
+      const uint32_t px = downscaled[row + x];
+      float br = static_cast<float>((px >> 16) & 0xFF);
+      float bg = static_cast<float>((px >> 8) & 0xFF);
+      float bb = static_cast<float>(px & 0xFF);
+
+      float lum = br * 0.2126F + bg * 0.7152F + bb * 0.0722F;
+      float sr = lum + (br - lum) * saturation;
+      float sg = lum + (bg - lum) * saturation;
+      float sb = lum + (bb - lum) * saturation;
+
+      float mr = sr * (1.0F - tint_a) + tint_r * tint_a;
+      float mg = sg * (1.0F - tint_a) + tint_g * tint_a;
+      float mb = sb * (1.0F - tint_a) + tint_b * tint_a;
+
+      float noise = std::fmod(
+          52.9829189F * std::fmod(static_cast<float>(x) * 0.06711056F +
+                                      static_cast<float>(y) * 0.00583715F,
+                                  1.0F),
+          1.0F) -
+          0.5F;
+      float grain = noise * 3.5F;
+
+      uint32_t fr = static_cast<uint32_t>(std::clamp(mr + grain, 0.0F, 255.0F));
+      uint32_t fg = static_cast<uint32_t>(std::clamp(mg + grain, 0.0F, 255.0F));
+      uint32_t fb = static_cast<uint32_t>(std::clamp(mb + grain, 0.0F, 255.0F));
+
+      downscaled[row + x] = (fr << 16) | (fg << 8) | fb;
+    }
+  }
+
+  // Upscale blurred downscaled buffer back into src_image
+  for (int y = 0; y < height; ++y) {
+    const int dy = std::min(y / 4, down_h - 1);
+    const int down_row = dy * down_w;
+    if (is_32bit) {
+      auto *dst_row = reinterpret_cast<uint32_t *>(src_image->data + y * bytes_per_line);
+      for (int x = 0; x < width; ++x) {
+        const int dx = std::min(x / 4, down_w - 1);
+        dst_row[x] = downscaled[down_row + dx];
+      }
+    } else {
+      for (int x = 0; x < width; ++x) {
+        const int dx = std::min(x / 4, down_w - 1);
+        XPutPixel(src_image, x, y, static_cast<unsigned long>(downscaled[down_row + dx]));
+      }
+    }
+  }
+
+  // 2. Composite Windows 10/11 Fluent Design Elevation Drop Shadow with SDF Anti-Aliasing
+  if (dialog_bounds != nullptr && is_32bit) {
+    struct FluentShadowLayer {
+      float dx;
+      float dy;
+      float spread;
+      float alpha;
+    };
+    // Windows 10/11 Fluent Design Elevation-32 / Flyout Shadow
+    const FluentShadowLayer fluent_modal_shadows[] = {
+      {0.0F, 6.0F * scale, 24.0F * scale, 0.08F}, // Soft ambient glow on all sides
+      {0.0F, 4.0F * scale, 14.0F * scale, 0.10F}, // Outer penumbra
+      {0.0F, 2.0F * scale,  7.0F * scale, 0.14F}, // Mid elevation shadow
+      {0.0F, 1.0F * scale,  2.5F * scale, 0.18F}, // Crisp contact rim
+    };
+
+    for (const auto &layer : fluent_modal_shadows) {
+      const float lx = dialog_bounds->x - layer.spread + layer.dx;
+      const float ly = dialog_bounds->y - layer.spread + layer.dy;
+      const float lw = dialog_bounds->width + layer.spread * 2.0F;
+      const float lh = dialog_bounds->height + layer.spread * 2.0F;
+      const float lr = dialog_radius + layer.spread;
+
+      const int min_x = std::max(0, static_cast<int>(std::floor(lx)));
+      const int max_x = std::min(width - 1, static_cast<int>(std::ceil(lx + lw)));
+      const int min_y = std::max(0, static_cast<int>(std::floor(ly)));
+      const int max_y = std::min(height - 1, static_cast<int>(std::ceil(ly + lh)));
+
+      for (int y = min_y; y <= max_y; ++y) {
+        const float py = static_cast<float>(y) + 0.5F;
+        auto *dst_row = reinterpret_cast<uint32_t *>(src_image->data + y * bytes_per_line);
+        for (int x = min_x; x <= max_x; ++x) {
+          const float px = static_cast<float>(x) + 0.5F;
+          const float dist = rounded_rect_sdf(px, py, lx, ly, lw, lh, lr);
+          if (dist < 1.0F) {
+            const float coverage = (dist <= 0.0F) ? 1.0F : (1.0F - dist);
+            const float a = layer.alpha * coverage;
+            const float inv_a = 1.0F - a;
+            const uint32_t val = dst_row[x];
+            const auto r = static_cast<uint8_t>(((val >> 16) & 0xFF) * inv_a);
+            const auto g = static_cast<uint8_t>(((val >> 8) & 0xFF) * inv_a);
+            const auto b = static_cast<uint8_t>((val & 0xFF) * inv_a);
+            dst_row[x] = (r << 16) | (g << 8) | b;
+          }
+        }
+      }
+    }
+  }
+
+  // Write back to X11 Drawable
+  XPutImage(display, drawable, gc, src_image, 0, 0, 0, 0,
+            static_cast<unsigned int>(width),
+            static_cast<unsigned int>(height));
+
+  XDestroyImage(src_image);
+}
+
 void X11Window::draw_about_modal(Drawable drawable, int client_width,
                                  int client_height) {
   if (!m_about_modal.is_visible()) {
@@ -3368,38 +3624,14 @@ void X11Window::draw_about_modal(Drawable drawable, int client_width,
                           static_cast<float>(client_height)};
   const float scale = m_dpi_scale;
   const auto layout = m_about_modal.calculate_layout(viewport, scale);
-
-  // 1. Sleek semi-transparent dark acrylic backdrop veil
-  surface.fill_rectangle(
-      drawable, viewport,
-      surface.allocate_color(UI::Theme::Color{10, 12, 16, 175}));
-
   const float dialog_radius = 10.0F * scale;
 
-  // 2. Acrylic Multi-Layer Ambient Drop Shadows
-  const UI::Rect outer_shadow{
-      layout.base_layout.dialog_bounds.x - 5.0F * scale,
-      layout.base_layout.dialog_bounds.y - 3.0F * scale,
-      layout.base_layout.dialog_bounds.width + 10.0F * scale,
-      layout.base_layout.dialog_bounds.height + 10.0F * scale};
-  surface.fill_rounded_rectangle(
-      drawable, outer_shadow,
-      surface.allocate_color(UI::Theme::Color{6, 7, 10, 255}),
-      dialog_radius + 4.0F * scale,
-      surface.allocate_color(UI::Theme::Color{10, 12, 16, 255}));
+  // 1. Draw Fluent Acrylic frosted glass backdrop overlay with macOS-style soft diffuse elevation drop shadow
+  apply_backdrop_blur(m_display, drawable,
+                      surface.m_graphics_context, client_width, client_height,
+                      scale, &layout.base_layout.dialog_bounds, dialog_radius);
 
-  const UI::Rect mid_shadow{
-      layout.base_layout.dialog_bounds.x - 2.0F * scale,
-      layout.base_layout.dialog_bounds.y - 1.0F * scale,
-      layout.base_layout.dialog_bounds.width + 4.0F * scale,
-      layout.base_layout.dialog_bounds.height + 4.0F * scale};
-  surface.fill_rounded_rectangle(
-      drawable, mid_shadow,
-      surface.allocate_color(UI::Theme::Color{14, 15, 20, 255}),
-      dialog_radius + 2.0F * scale,
-      surface.allocate_color(UI::Theme::Color{10, 12, 16, 255}));
-
-  // 3. Modal container card (Dark theme matching Studio)
+  // 2. Modal container card (Dark theme matching Studio)
   const UI::Theme::Color dialog_bg{28, 29, 36, 255};
   surface.fill_rounded_rectangle(
       drawable, layout.base_layout.dialog_bounds,

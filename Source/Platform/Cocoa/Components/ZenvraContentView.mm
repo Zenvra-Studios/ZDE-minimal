@@ -265,11 +265,17 @@ using namespace Zenvra::Platform::Cocoa::Components;
                             checked = (cfg.active_mode == Zenvra::UI::Toolbar::BuildConfigurationMode::Debug);
                         } else if (item_model.command_id == Zenvra::Commands::CommandIds::build_release) {
                             checked = (cfg.active_mode == Zenvra::UI::Toolbar::BuildConfigurationMode::Release);
-                        } else if (item_model.command_id == Zenvra::Commands::CommandIds::platform_arm64 ||
-                                   item_model.command_id == Zenvra::Commands::CommandIds::platform_apple_arm) {
-                            checked = (cfg.active_architecture == Zenvra::UI::Toolbar::TargetArchitecture::Arm64);
                         } else if (item_model.command_id == Zenvra::Commands::CommandIds::platform_x64) {
                             checked = (cfg.active_architecture == Zenvra::UI::Toolbar::TargetArchitecture::X86_64);
+                        } else if (item_model.command_id == Zenvra::Commands::CommandIds::platform_x86 ||
+                                   item_model.command_id == Zenvra::Commands::CommandIds::platform_win32) {
+                            checked = (cfg.active_architecture == Zenvra::UI::Toolbar::TargetArchitecture::X86);
+                        } else if (item_model.command_id == Zenvra::Commands::CommandIds::platform_arm64 ||
+                                   item_model.command_id == Zenvra::Commands::CommandIds::platform_aarch64 ||
+                                   item_model.command_id == Zenvra::Commands::CommandIds::platform_apple_arm) {
+                            checked = (cfg.active_architecture == Zenvra::UI::Toolbar::TargetArchitecture::Arm64);
+                        } else if (item_model.command_id == Zenvra::Commands::CommandIds::platform_arm32) {
+                            checked = (cfg.active_architecture == Zenvra::UI::Toolbar::TargetArchitecture::Arm32);
                         } else if (item_model.command_id == Zenvra::Commands::CommandIds::run_zde) {
                             checked = (cfg.active_target_name == "ZDE");
                         } else if (item_model.command_id == Zenvra::Commands::CommandIds::run_tests) {
@@ -327,11 +333,17 @@ using namespace Zenvra::Platform::Cocoa::Components;
                 _renderer->set_active_mode(Zenvra::UI::Toolbar::BuildConfigurationMode::Debug);
             } else if (cmd == Zenvra::Commands::CommandIds::build_release) {
                 _renderer->set_active_mode(Zenvra::UI::Toolbar::BuildConfigurationMode::Release);
-            } else if (cmd == Zenvra::Commands::CommandIds::platform_arm64 ||
-                       cmd == Zenvra::Commands::CommandIds::platform_apple_arm) {
-                _renderer->set_active_architecture(Zenvra::UI::Toolbar::TargetArchitecture::Arm64);
             } else if (cmd == Zenvra::Commands::CommandIds::platform_x64) {
                 _renderer->set_active_architecture(Zenvra::UI::Toolbar::TargetArchitecture::X86_64);
+            } else if (cmd == Zenvra::Commands::CommandIds::platform_x86 ||
+                       cmd == Zenvra::Commands::CommandIds::platform_win32) {
+                _renderer->set_active_architecture(Zenvra::UI::Toolbar::TargetArchitecture::X86);
+            } else if (cmd == Zenvra::Commands::CommandIds::platform_arm64 ||
+                       cmd == Zenvra::Commands::CommandIds::platform_aarch64 ||
+                       cmd == Zenvra::Commands::CommandIds::platform_apple_arm) {
+                _renderer->set_active_architecture(Zenvra::UI::Toolbar::TargetArchitecture::Arm64);
+            } else if (cmd == Zenvra::Commands::CommandIds::platform_arm32) {
+                _renderer->set_active_architecture(Zenvra::UI::Toolbar::TargetArchitecture::Arm32);
             } else if (cmd == Zenvra::Commands::CommandIds::run_zde) {
                 _renderer->set_active_target("ZDE");
             } else if (cmd == Zenvra::Commands::CommandIds::run_tests) {

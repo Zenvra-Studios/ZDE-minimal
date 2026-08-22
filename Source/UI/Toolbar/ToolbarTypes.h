@@ -19,8 +19,10 @@ enum class BuildConfigurationMode : std::uint8_t
 enum class TargetArchitecture : std::uint8_t
 {
     HostDefault,
-    Arm64,
     X86_64,
+    X86,
+    Arm64,
+    Arm32,
     Universal
 };
 
@@ -85,12 +87,14 @@ struct RunConfigurationState
 {
     switch (arch)
     {
-    case TargetArchitecture::HostDefault: return "Default";
-    case TargetArchitecture::Arm64: return "arm64";
+    case TargetArchitecture::HostDefault: return "x86_64";
     case TargetArchitecture::X86_64: return "x86_64";
+    case TargetArchitecture::X86: return "x86";
+    case TargetArchitecture::Arm64: return "ARM64";
+    case TargetArchitecture::Arm32: return "ARM32";
     case TargetArchitecture::Universal: return "Universal";
     }
-    return "Default";
+    return "x86_64";
 }
 
 } // namespace Zenvra::UI::Toolbar

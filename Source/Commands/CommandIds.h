@@ -114,6 +114,7 @@ inline constexpr std::string_view platform_x64 = "zde.platform.x64";
 inline constexpr std::string_view platform_x86 = "zde.platform.x86";
 inline constexpr std::string_view platform_win32 = "zde.platform.win32";
 inline constexpr std::string_view platform_arm64 = "zde.platform.arm64";
+inline constexpr std::string_view platform_arm32 = "zde.platform.arm32";
 inline constexpr std::string_view platform_aarch64 = "zde.platform.aarch64";
 inline constexpr std::string_view platform_apple_arm = "zde.platform.appleArm";
 inline constexpr std::string_view run_zde = "zde.run.zde";

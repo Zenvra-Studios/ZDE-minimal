@@ -4162,7 +4162,7 @@ void TextEditor::draw_document(
         const float logo_size = 180.0F * dpi;
         const float logo_gap = 32.0F * dpi;
 
-        const std::string title = "Zenvra Development Studio";
+        const std::string title = "Zenvra Development Studio 2026";
         const int title_w = surface.m_large_font
             ? surface.m_large_font->getTextWidth(device_context, title)
             : (surface.m_ui_font ? surface.m_ui_font->getTextWidth(device_context, title) : static_cast<int>(240.0F * dpi));
@@ -4258,7 +4258,9 @@ void TextEditor::draw_document(
     const float available_code_width = std::max(left_code_limit - (layout.editor_bounds.x + 14.0F * scale), 20.0F * scale);
 
     m_scrollbar.synchronize(count_visible_lines(m_folding, total_lines), visible_count);
-    if (m_reveal_caret_pending)
+    const bool is_this_pane_focused =
+        !m_is_split || (m_focused_pane == SplitPaneFocus::Left);
+    if (m_reveal_caret_pending && is_this_pane_focused)
     {
         static_cast<void>(m_scrollbar.reveal_line(physical_line_to_visual_row(
             m_folding, document->get_caret_line(), total_lines)));
@@ -5004,6 +5006,12 @@ void TextEditor::draw_document(
                 m_split_last_folded_line_count = split_total_lines;
             }
             m_split_scrollbar.synchronize(count_visible_lines(m_split_folding, split_total_lines), visible_count);
+            if (m_reveal_caret_pending && m_focused_pane == SplitPaneFocus::Right)
+            {
+                static_cast<void>(m_split_scrollbar.reveal_line(physical_line_to_visual_row(
+                    m_split_folding, split_doc.get_caret_line(), split_total_lines)));
+                m_reveal_caret_pending = false;
+            }
             const std::size_t split_first_line = m_split_scrollbar.get_first_visible_line();
 
             // Right Pass 1: Gutter and active line background

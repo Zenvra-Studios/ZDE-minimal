@@ -172,10 +172,34 @@ bool StudioViewModel::register_available_commands()
 
     // Active Platforms / Architectures
     registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::platform_x64),
+                     .name = "x86_64",
+                     .description = "Target x86_64 (64-bit) architecture.",
+                     .category = "Architecture",
+                     .shortcut_binding = {},
+                     .execute = [this] { m_active_arch = "x86_64"; },
+                     .is_enabled = [] { return true; },
+                     .is_checked = [this] { return m_active_arch == "x86_64" || m_active_arch == "x64"; },
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::platform_x86),
+                     .name = "x86",
+                     .description = "Target x86 (32-bit) architecture.",
+                     .category = "Architecture",
+                     .shortcut_binding = {},
+                     .execute = [this] { m_active_arch = "x86"; },
+                     .is_enabled = [] { return true; },
+                     .is_checked = [this] { return m_active_arch == "x86"; },
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
                      .id = std::string(Commands::CommandIds::platform_arm64),
                      .name = "ARM64",
-                     .description = "Target ARM64 platform.",
-                     .category = "Platform",
+                     .description = "Target ARM64 (AArch64) architecture.",
+                     .category = "Architecture",
                      .shortcut_binding = {},
                      .execute = [this] { m_active_arch = "arm64"; },
                      .is_enabled = [] { return true; },
@@ -184,10 +208,22 @@ bool StudioViewModel::register_available_commands()
         registered;
 
     registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::platform_arm32),
+                     .name = "ARM32",
+                     .description = "Target ARM32 architecture.",
+                     .category = "Architecture",
+                     .shortcut_binding = {},
+                     .execute = [this] { m_active_arch = "arm32"; },
+                     .is_enabled = [] { return true; },
+                     .is_checked = [this] { return m_active_arch == "arm32"; },
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
                      .id = std::string(Commands::CommandIds::platform_apple_arm),
                      .name = "Apple ARM",
                      .description = "Target Apple ARM platform.",
-                     .category = "Platform",
+                     .category = "Architecture",
                      .shortcut_binding = {},
                      .execute = [this] { m_active_arch = "arm64"; },
                      .is_enabled = [] { return true; },
@@ -199,7 +235,7 @@ bool StudioViewModel::register_available_commands()
                      .id = std::string(Commands::CommandIds::platform_aarch64),
                      .name = "AArch64",
                      .description = "Target AArch64 platform.",
-                     .category = "Platform",
+                     .category = "Architecture",
                      .shortcut_binding = {},
                      .execute = [this] { m_active_arch = "arm64"; },
                      .is_enabled = [] { return true; },
@@ -208,34 +244,10 @@ bool StudioViewModel::register_available_commands()
         registered;
 
     registered = m_command_registry.register_command(Commands::Command{
-                     .id = std::string(Commands::CommandIds::platform_x64),
-                     .name = "x64",
-                     .description = "Target x64 platform.",
-                     .category = "Platform",
-                     .shortcut_binding = {},
-                     .execute = [this] { m_active_arch = "x64"; },
-                     .is_enabled = [] { return true; },
-                     .is_checked = [this] { return m_active_arch == "x64"; },
-                 }) &&
-        registered;
-
-    registered = m_command_registry.register_command(Commands::Command{
-                     .id = std::string(Commands::CommandIds::platform_x86),
-                     .name = "x86",
-                     .description = "Target x86 platform.",
-                     .category = "Platform",
-                     .shortcut_binding = {},
-                     .execute = [this] { m_active_arch = "x86"; },
-                     .is_enabled = [] { return true; },
-                     .is_checked = [this] { return m_active_arch == "x86"; },
-                 }) &&
-        registered;
-
-    registered = m_command_registry.register_command(Commands::Command{
                      .id = std::string(Commands::CommandIds::platform_win32),
                      .name = "Win32",
                      .description = "Target Win32 platform.",
-                     .category = "Platform",
+                     .category = "Architecture",
                      .shortcut_binding = {},
                      .execute = [this] { m_active_arch = "x86"; },
                      .is_enabled = [] { return true; },

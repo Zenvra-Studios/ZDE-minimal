@@ -3147,7 +3147,7 @@ void TextEditor::draw_document(
     const float logo_size = 180.0F * dpi;
     const float logo_gap = 32.0F * dpi;
 
-    const std::string title = "Zenvra Development Studio";
+    const std::string title = "Zenvra Development Studio 2026";
     const int title_w =
         surface.m_large_font
             ? surface.get_text_width(*surface.m_large_font, title)
@@ -3301,7 +3301,13 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
                         ? const_cast<EditorScrollbar &>(m_split_scrollbar)
                         : const_cast<EditorScrollbar &>(m_scrollbar);
   scrollbar.synchronize(count_visible_lines(folding, total_lines), vis_count);
-  if (m_reveal_caret_pending) {
+
+  const bool is_focused_pane =
+      is_split_pane
+          ? (m_focused_pane == SplitPaneFocus::Right)
+          : (!m_is_split || m_focused_pane == SplitPaneFocus::Left);
+
+  if (m_reveal_caret_pending && is_focused_pane) {
     static_cast<void>(scrollbar.reveal_line(physical_line_to_visual_row(
         folding, doc->get_caret_line(), total_lines)));
     const_cast<TextEditor *>(this)->m_reveal_caret_pending = false;

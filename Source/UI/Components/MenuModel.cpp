@@ -155,12 +155,10 @@ constexpr std::array compiler_items{
 };
 
 constexpr std::array platform_items{
-    MenuItem{"x64", Commands::CommandIds::platform_x64},
+    MenuItem{"x86_64", Commands::CommandIds::platform_x64},
     MenuItem{"x86", Commands::CommandIds::platform_x86},
-    MenuItem{"Win32", Commands::CommandIds::platform_win32},
     MenuItem{"ARM64", Commands::CommandIds::platform_arm64},
-    MenuItem{"AArch64", Commands::CommandIds::platform_aarch64},
-    MenuItem{"Apple ARM", Commands::CommandIds::platform_apple_arm},
+    MenuItem{"ARM32", Commands::CommandIds::platform_arm32},
 };
 
 constexpr std::array binary_items{
