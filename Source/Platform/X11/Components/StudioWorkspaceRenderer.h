@@ -58,7 +58,8 @@ public:
         bool extend_selection,
         int click_count,
         Time event_time,
-        std::string& command_out);
+        std::string& command_out,
+        bool is_control_down = false);
     [[nodiscard]] bool handle_pointer_move(
         float point_x,
         float point_y,

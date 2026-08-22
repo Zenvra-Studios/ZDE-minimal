@@ -390,6 +390,10 @@ bool supports_editor_syntax_highlighting(std::string_view file_name) noexcept {
   if (grammar != nullptr) {
     return true;
   }
+  const auto* base_grammar = Language::Syntax::GrammarRegistry::instance().get_grammar_for_filename(base_name);
+  if (base_grammar != nullptr) {
+    return true;
+  }
 
   return false;
 }

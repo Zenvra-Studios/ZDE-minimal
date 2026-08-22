@@ -185,8 +185,27 @@ Location LspProtocolSerializer::parse_location(const nlohmann::json& j)
     Location loc;
     if (j.is_object())
     {
-        if (j.contains("uri") && j["uri"].is_string()) loc.uri = j["uri"].get<std::string>();
-        if (j.contains("range")) loc.range = parse_range(j["range"]);
+        if (j.contains("uri") && j["uri"].is_string())
+        {
+            loc.uri = j["uri"].get<std::string>();
+        }
+        else if (j.contains("targetUri") && j["targetUri"].is_string())
+        {
+            loc.uri = j["targetUri"].get<std::string>();
+        }
+
+        if (j.contains("range"))
+        {
+            loc.range = parse_range(j["range"]);
+        }
+        else if (j.contains("targetSelectionRange"))
+        {
+            loc.range = parse_range(j["targetSelectionRange"]);
+        }
+        else if (j.contains("targetRange"))
+        {
+            loc.range = parse_range(j["targetRange"]);
+        }
     }
     return loc;
 }

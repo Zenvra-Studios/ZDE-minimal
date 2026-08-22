@@ -54,7 +54,9 @@ std::size_t GenericGrammarEngine::tokenize_line(
     // Handle resumed state from previous lines
     if (state.kind == TokenizerState::StateKind::BlockComment)
     {
-        const std::string_view end_token = !grammar.block_comment_end.empty() ? grammar.block_comment_end : "*/";
+        const std::string_view end_token = !grammar.block_comment_end.empty()
+            ? std::string_view(grammar.block_comment_end)
+            : std::string_view("*/");
         const std::size_t end_pos = line.find(end_token);
         if (end_pos != std::string_view::npos)
         {
@@ -622,7 +624,6 @@ std::size_t GenericGrammarEngine::tokenize_line(
             }
 
             const bool followed_by_paren = (next_idx < line.size() && line[next_idx] == '(');
-            const bool followed_by_scope = (next_idx + 1 < line.size() && line[next_idx] == ':' && line[next_idx + 1] == ':');
 
             if (grammar.is_keyword(identifier))
             {
@@ -668,39 +669,7 @@ std::size_t GenericGrammarEngine::tokenize_line(
             }
             else
             {
-                bool is_label = false;
-
-                if (decl_context == DeclContext::Namespace ||
-                    decl_context == DeclContext::Class ||
-                    decl_context == DeclContext::Function)
-                {
-                    is_label = true;
-                    if (decl_context != DeclContext::Namespace)
-                    {
-                        decl_context = DeclContext::None;
-                    }
-                }
-                else if (identifier.find("::") != std::string_view::npos)
-                {
-                    is_label = (grammar.name == "CMake");
-                }
-                else if (grammar.name != "CMake" && std::isupper(static_cast<unsigned char>(identifier.front())) != 0)
-                {
-                    is_label = true;
-                }
-                else if (grammar.name != "CMake" && followed_by_scope)
-                {
-                    is_label = true;
-                }
-
-                if (is_label)
-                {
-                    append(identifier, UI::Editor::EditorTokenKind::Label);
-                }
-                else
-                {
-                    append(identifier, UI::Editor::EditorTokenKind::Plain);
-                }
+                append(identifier, UI::Editor::EditorTokenKind::Label);
             }
             continue;
         }

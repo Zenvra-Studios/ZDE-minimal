@@ -97,7 +97,8 @@ bool LanguageClient::start()
                     {"contentFormat", nlohmann::json::array({"markdown", "plaintext"})}
                 }},
                 {"definition", {
-                    {"dynamicRegistration", true}
+                    {"dynamicRegistration", true},
+                    {"linkSupport", true}
                 }},
                 {"signatureHelp", {
                     {"signatureInformation", {

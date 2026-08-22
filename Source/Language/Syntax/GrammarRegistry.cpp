@@ -4,6 +4,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <unordered_set>
 
 namespace Zenvra::Language::Syntax
 {
@@ -190,11 +191,63 @@ const GrammarRule* GrammarRegistry::get_grammar_for_filename(std::string_view fi
     std::transform(lower_ext.begin(), lower_ext.end(), lower_ext.begin(), [](unsigned char c) {
         return static_cast<char>(std::tolower(c));
     });
-    if (const auto* rule = get_grammar_for_extension(lower_ext))
+
+    if (!ext.empty())
     {
-        return rule;
+        if (const auto* rule = get_grammar_for_extension(lower_ext))
+        {
+            return rule;
+        }
+        if (const auto* rule = get_grammar_for_extension(ext))
+        {
+            return rule;
+        }
     }
-    return get_grammar_for_extension(ext);
+
+    // Support C++ Standard Library (STL) and CRT headers without extension (e.g. string, vector, iostream, memory, xstring)
+    static const std::unordered_set<std::string_view> s_stl_header_names = {
+        "algorithm", "any", "array", "atomic", "barrier", "bit", "bitset", "charconv",
+        "chrono", "codecvt", "compare", "complex", "concepts", "condition_variable",
+        "coroutine", "csetjmp", "csignal", "cstdarg", "cstddef", "cstdint", "cstdio",
+        "cstdlib", "cstring", "ctime", "cuchar", "cwchar", "cwctype", "deque",
+        "exception", "execution", "expected", "filesystem", "flat_map", "flat_set",
+        "format", "forward_list", "fstream", "functional", "future", "generator",
+        "initializer_list", "iomanip", "ios", "iosfwd", "iostream", "istream",
+        "iterator", "latch", "limits", "list", "locale", "map", "mdspan", "memory",
+        "memory_resource", "mutex", "new", "numbers", "numeric", "optional", "ostream",
+        "print", "queue", "random", "ranges", "ratio", "regex", "scoped_allocator",
+        "semaphore", "set", "shared_mutex", "source_location", "span", "spanstream",
+        "sstream", "stack", "stacktrace", "stdexcept", "stdfloat", "stop_token",
+        "streambuf", "string", "string_view", "strstream", "syncstream", "system_error",
+        "text_encoding", "thread", "tuple", "typeindex", "typeinfo", "type_traits",
+        "unordered_map", "unordered_set", "utility", "valarray", "variant", "vector",
+        "version",
+        "xstring", "xmemory", "xutility", "xtr1common", "xatomic.h", "xiosbase",
+        "xlocale", "xlocinfo", "xlocmon", "xlocnum", "xloctime", "xlocmes",
+        "xnode_handle.h", "xpolymorphic_allocator.h", "xstddef", "xthreads.h",
+        "xatomic", "yvals", "yvals_core.h", "crtdbg.h", "corecrt.h",
+        "c++config.h", "stl_algobase.h", "stl_vector.h", "stl_construct.h",
+        "stl_uninitialized.h", "stl_tree.h", "stl_map.h", "stl_set.h",
+        "stl_list.h", "stl_deque.h", "stl_queue.h", "stl_stack.h", "stl_pair.h",
+        "stl_function.h", "stl_iterator.h", "stl_raw_storage_iter.h",
+        "stl_tempbuf.h", "basic_string.h", "basic_string.tcc"
+    };
+
+    if (s_stl_header_names.contains(lower_fname))
+    {
+        return get_grammar_for_extension(".cpp");
+    }
+
+    const std::string full_path = path.generic_string();
+    if (full_path.find("/include/c++/") != std::string::npos ||
+        full_path.find("/VC/Tools/MSVC/") != std::string::npos ||
+        full_path.find("/usr/include/c++/") != std::string::npos ||
+        full_path.find("/usr/include/x86_64-linux-gnu/c++/") != std::string::npos)
+    {
+        return get_grammar_for_extension(".cpp");
+    }
+
+    return nullptr;
 }
 
 void GrammarRegistry::initialize_default_grammars()

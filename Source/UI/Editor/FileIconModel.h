@@ -148,6 +148,25 @@ file_icon_asset_for_path(const std::filesystem::path &path) {
     return Detail::symbol_icon("gear");
   }
 
+  // C++ Standard Library & STL headers without extension
+  if (extension.empty()) {
+    if (filename == "string" || filename == "vector" || filename == "map" ||
+        filename == "set" || filename == "unordered_map" || filename == "unordered_set" ||
+        filename == "iostream" || filename == "ostream" || filename == "istream" ||
+        filename == "fstream" || filename == "sstream" || filename == "memory" ||
+        filename == "algorithm" || filename == "utility" || filename == "tuple" ||
+        filename == "chrono" || filename == "filesystem" || filename == "optional" ||
+        filename == "variant" || filename == "any" || filename == "thread" ||
+        filename == "mutex" || filename == "atomic" || filename == "future" ||
+        filename == "type_traits" || filename == "functional" || filename == "array" ||
+        filename == "deque" || filename == "list" || filename == "span" ||
+        filename == "string_view" || filename == "format" || filename == "ranges" ||
+        filename == "xstring" || filename == "xmemory" || filename == "xutility" ||
+        filename == "yvals" || filename == "yvals_core") {
+      return Detail::symbol_icon("cplus");
+    }
+  }
+
   // --- Shaders: Kept unchanged (material-icon-theme/shader.svg) ---
   if (extension == ".glsl" || extension == ".hlsl" || extension == ".wgsl" ||
       extension == ".vert" || extension == ".frag" || extension == ".geom" ||

@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Language/CMake/CMakeLanguageDatabase.h"
+#include "Language/Definition/SymbolDefinitionResolver.h"
 #include "Language/LanguageServerManager.h"
 #include "Language/Protocol/LspProtocolSerializer.h"
 #include "Language/Protocol/LspTypes.h"
@@ -677,7 +678,7 @@ TEST(LanguageServerTests, ToolbarRunConfigurationWidgetState) {
             UI::Toolbar::BuildConfigurationMode::Debug);
   EXPECT_EQ(widget.get_state().active_architecture,
             UI::Toolbar::TargetArchitecture::Arm64);
-  EXPECT_EQ(widget.get_summary_label(), "ZDE | Debug | arm64");
+  EXPECT_EQ(widget.get_summary_label(), "ZDE | Debug | ARM64");
 
   widget.set_active_mode(UI::Toolbar::BuildConfigurationMode::Release);
   widget.set_active_architecture(UI::Toolbar::TargetArchitecture::X86_64);
@@ -961,4 +962,147 @@ TEST(LanguageServerTests, AssemblyGrammarProfileAndTemplates) {
       UI::Editor::file_icon_asset_for_path(std::filesystem::path("driver.s"));
   EXPECT_EQ(s_icon, "material-icon-theme/assembly.svg");
 }
+
+TEST(LanguageServerTests, LocationAndLocationLinkParsing) {
+  // 1. Standard Location
+  nlohmann::json loc_json = {
+      {"uri", "file:///c:/project/main.cpp"},
+      {"range", {{"start", {{"line", 10}, {"character", 5}}}, {"end", {{"line", 10}, {"character", 15}}}}}
+  };
+  auto loc = Language::Protocol::LspProtocolSerializer::parse_location(loc_json);
+  EXPECT_EQ(loc.uri, "file:///c:/project/main.cpp");
+  EXPECT_EQ(loc.range.start.line, 10);
+  EXPECT_EQ(loc.range.start.character, 5);
+
+  // 2. LSP 3.14+ LocationLink
+  nlohmann::json link_json = {
+      {"targetUri", "file:///usr/include/c++/11/string"},
+      {"targetSelectionRange", {{"start", {{"line", 102}, {"character", 8}}}, {"end", {{"line", 102}, {"character", 20}}}}},
+      {"targetRange", {{"start", {{"line", 100}, {"character", 0}}}, {"end", {{"line", 200}, {"character", 0}}}}}
+  };
+  auto link_loc = Language::Protocol::LspProtocolSerializer::parse_location(link_json);
+  EXPECT_EQ(link_loc.uri, "file:///usr/include/c++/11/string");
+  EXPECT_EQ(link_loc.range.start.line, 102);
+  EXPECT_EQ(link_loc.range.start.character, 8);
+
+  // 3. Array of LocationLinks
+  nlohmann::json list_json = nlohmann::json::array({link_json, loc_json});
+  auto locations = Language::Protocol::LspProtocolSerializer::parse_locations(list_json);
+  ASSERT_EQ(locations.size(), 2);
+  EXPECT_EQ(locations[0].uri, "file:///usr/include/c++/11/string");
+  EXPECT_EQ(locations[1].uri, "file:///c:/project/main.cpp");
+}
+
+TEST(LanguageServerTests, SymbolExtractionAndRange) {
+  using Language::Definition::SymbolDefinitionResolver;
+
+  // C++ Standard Library Symbol
+  std::string_view line1 = "    std::string text = \"hello\";";
+  EXPECT_EQ(SymbolDefinitionResolver::extract_symbol_at(line1, 10), "std::string");
+  auto [s1, e1] = SymbolDefinitionResolver::extract_symbol_range(line1, 10);
+  EXPECT_EQ(line1.substr(s1, e1 - s1), "string");
+
+  // Include directive
+  std::string_view line2 = "#include <vector>";
+  EXPECT_EQ(SymbolDefinitionResolver::extract_symbol_at(line2, 12), "vector");
+  auto [s2, e2] = SymbolDefinitionResolver::extract_symbol_range(line2, 12);
+  EXPECT_EQ(line2.substr(s2, e2 - s2), "vector");
+
+  // Include directive with full path
+  std::string_view line_inc = "#include \"Platform/Win32/Components/StudioWorkspaceRenderer.h\"";
+  auto [s_inc, e_inc] = SymbolDefinitionResolver::extract_symbol_range(line_inc, 25);
+  EXPECT_EQ(line_inc.substr(s_inc, e_inc - s_inc), "Platform/Win32/Components/StudioWorkspaceRenderer.h");
+
+  // Variable assignment
+  std::string_view line_var = "    m_model = UI::Editor::EditorScrollModel{};";
+  auto [s_var, e_var] = SymbolDefinitionResolver::extract_symbol_range(line_var, 6);
+  EXPECT_EQ(line_var.substr(s_var, e_var - s_var), "m_model");
+
+  // Multi-language custom symbol
+  std::string_view line3 = "def calculate_matrix_norm(matrix):";
+  EXPECT_EQ(SymbolDefinitionResolver::extract_symbol_at(line3, 8), "calculate_matrix_norm");
+  auto [s3, e3] = SymbolDefinitionResolver::extract_symbol_range(line3, 8);
+  EXPECT_EQ(line3.substr(s3, e3 - s3), "calculate_matrix_norm");
+}
+
+TEST(LanguageServerTests, SymbolDefinitionResolverCppStdHeaders) {
+  using Language::Definition::SymbolDefinitionResolver;
+
+  std::string_view line = "std::string msg = \"test\";";
+  Language::Protocol::Position pos{.line = 0, .character = 7};
+
+  auto results = SymbolDefinitionResolver::instance().resolve_definition(
+      "file:///test.cpp", "test.cpp", pos, line, std::filesystem::current_path());
+
+  if (!results.empty()) {
+    std::filesystem::path resolved_path =
+        Language::Protocol::LspProtocolSerializer::uri_to_path(results[0].uri);
+    std::string filename = resolved_path.filename().string();
+    EXPECT_TRUE(filename == "string" || filename == "xstring" ||
+                filename == "basic_string.h" || filename == "string.h");
+  }
+}
+
+TEST(LanguageServerTests, SymbolDefinitionResolverWorkspaceAndOpenDocs) {
+  using Language::Definition::SymbolDefinitionResolver;
+  using Language::Definition::DocumentContext;
+
+  DocumentContext doc;
+  doc.uri = "file:///c:/project/MyClass.h";
+  doc.filename = "c:/project/MyClass.h";
+  doc.lines = {
+      "#pragma once",
+      "",
+      "class MyCustomEngine {",
+      "public:",
+      "    void initialize();",
+      "};"
+  };
+
+  std::string_view line = "    MyCustomEngine engine;";
+  Language::Protocol::Position pos{.line = 0, .character = 7};
+
+  auto locs = SymbolDefinitionResolver::instance().resolve_definition(
+      "file:///c:/project/main.cpp", "c:/project/main.cpp", pos, line,
+      "c:/project", {doc});
+
+  ASSERT_FALSE(locs.empty());
+  EXPECT_EQ(locs[0].uri, "file:///c:/project/MyClass.h");
+  EXPECT_EQ(locs[0].range.start.line, 2); // line 2: class MyCustomEngine
+}
+
+TEST(LanguageServerTests, ExtensionlessStlHeaderGrammarAndLspRecognition) {
+  // Verify that extensionless C++ STL headers get full C/C++ grammar syntax highlighting
+  const auto* string_grammar =
+      Language::Syntax::GrammarRegistry::instance().get_grammar_for_filename("string");
+  ASSERT_NE(string_grammar, nullptr);
+  EXPECT_EQ(string_grammar->name, "C/C++");
+
+  const auto* vector_grammar =
+      Language::Syntax::GrammarRegistry::instance().get_grammar_for_filename("vector");
+  ASSERT_NE(vector_grammar, nullptr);
+  EXPECT_EQ(vector_grammar->name, "C/C++");
+
+  const auto* iostream_grammar =
+      Language::Syntax::GrammarRegistry::instance().get_grammar_for_filename("iostream");
+  ASSERT_NE(iostream_grammar, nullptr);
+  EXPECT_EQ(iostream_grammar->name, "C/C++");
+
+  const auto* xstring_grammar =
+      Language::Syntax::GrammarRegistry::instance().get_grammar_for_filename("xstring");
+  ASSERT_NE(xstring_grammar, nullptr);
+  EXPECT_EQ(xstring_grammar->name, "C/C++");
+
+  // Verify LSP profile lookup
+  const auto* cpp_profile =
+      Language::Registry::ServerRegistry::instance().find_profile_for_filename("string");
+  ASSERT_NE(cpp_profile, nullptr);
+  EXPECT_EQ(cpp_profile->language_id, "cpp");
+
+  // Verify file icon
+  const std::string icon =
+      UI::Editor::file_icon_asset_for_path(std::filesystem::path("string"));
+  EXPECT_EQ(icon, "vscode-symbols/files/cplus.svg");
+}
+
 

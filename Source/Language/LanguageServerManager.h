@@ -55,7 +55,8 @@ public:
         const std::string& uri,
         std::string_view filename,
         const Protocol::Position& pos,
-        std::function<void(std::vector<Protocol::Location>)> callback);
+        std::function<void(std::vector<Protocol::Location>)> callback,
+        std::string_view line_text = {});
 
     void request_signature_help(
         const std::string& uri,

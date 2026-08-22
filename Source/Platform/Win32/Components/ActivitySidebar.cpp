@@ -4,9 +4,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 
 /**
- * 
  * 
  **/
 namespace Zenvra::Platform::Win32::Components

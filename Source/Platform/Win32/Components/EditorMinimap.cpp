@@ -10,7 +10,6 @@
 #include <string_view>
 
 namespace Zenvra::Platform::Win32::Components {
-
 namespace {
 
 std::string normalize_minimap_text(std::string_view text) {

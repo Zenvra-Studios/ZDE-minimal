@@ -272,6 +272,15 @@ private:
   mutable std::chrono::steady_clock::time_point m_hover_start_time{};
   mutable bool m_hover_requested = false;
   mutable std::chrono::steady_clock::time_point m_last_file_check_time{};
+
+  struct CtrlHoverTokenInfo {
+    std::size_t line = 0;
+    std::size_t start_col = 0;
+    std::size_t end_col = 0;
+    std::string symbol;
+  };
+  mutable std::optional<CtrlHoverTokenInfo> m_ctrl_hovered_token;
+  mutable float m_cached_char_width = 0.0F;
 };
 
 } // namespace Zenvra::Platform::Win32::Components

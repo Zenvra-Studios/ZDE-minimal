@@ -313,7 +313,7 @@ bool StudioWorkspaceRenderer::create_buffer() {
 bool StudioWorkspaceRenderer::handle_pointer_press(
     float point_x, float point_y, int client_width, int client_height,
     float content_top, bool extend_selection, int click_count, Time event_time,
-    std::string &command_out) {
+    std::string &command_out, bool is_control_down) {
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
   if (const std::optional<std::size_t> sidebar_index =
@@ -376,7 +376,7 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
   m_terminal_panel.set_focused(false);
   const bool editor_pressed = m_text_editor.handle_pointer_press(
       *this, layout, point_x, point_y, extend_selection, click_count,
-      command_out);
+      command_out, is_control_down);
   if (editor_pressed) {
     sync_shader_sandbox();
   }

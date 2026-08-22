@@ -54,7 +54,8 @@ public:
         float point_y,
         bool extend_selection,
         int click_count,
-        std::string& command_out);
+        std::string& command_out,
+        bool is_control_down = false);
     [[nodiscard]] bool is_tab_interactive_point(
         const StudioWorkspaceRenderer& surface,
         const UI::Editor::StudioEditorLayoutResult& layout,

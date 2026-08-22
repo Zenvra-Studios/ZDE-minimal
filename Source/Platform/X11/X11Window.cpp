@@ -1594,11 +1594,12 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
   m_workspace_click_count = click_count;
 
   std::string command_out;
+  const bool is_ctrl_pressed = (event.state & ControlMask) != 0;
   if (m_chrome_renderer.handle_workspace_pointer_press(
           point_x, point_y, m_client_width, m_client_height,
           m_chrome_layout.titlebar_bounds.bottom(),
           (event.state & ShiftMask) != 0, click_count, event.time,
-          command_out)) {
+          command_out, is_ctrl_pressed)) {
     if (!command_out.empty()) {
       if (command_out.starts_with("zde.explorer.")) {
         execute_explorer_command(command_out);

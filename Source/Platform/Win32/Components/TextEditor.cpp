@@ -1,7 +1,9 @@
 #include "Platform/Win32/Components/TextEditor.h"
 
 #include "Commands/CommandIds.h"
+#include "Language/Definition/SymbolDefinitionResolver.h"
 #include "Language/LanguageServerManager.h"
+#include "Language/Protocol/LspProtocolSerializer.h"
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
 #include "UI/Editor/FileIconModel.h"
 #include "Utility/Flex.h"
@@ -324,9 +326,10 @@ bool TextEditor::open_file_at_location(const std::filesystem::path& path, std::s
         const std::size_t line_idx = (line > 0) ? (line - 1) : 0;
         doc->set_caret(line_idx, column, false);
         m_reveal_caret_pending = true;
-        if (line_idx > 5)
+        m_caret_blink.reset();
+        if (line_idx > 8)
         {
-            static_cast<void>(m_scrollbar.scroll_to(line_idx - 5));
+            static_cast<void>(m_scrollbar.scroll_to(line_idx - 8));
         }
         else
         {
@@ -346,10 +349,15 @@ bool TextEditor::go_to_definition()
 
     const std::string uri = get_active_document_uri();
     const std::string fname = get_active_document_filename();
+    const std::size_t caret_line = doc->get_caret_line();
+    const std::size_t caret_col = doc->get_caret_column();
     const Language::Protocol::Position pos{
-        .line = doc->get_caret_line(),
-        .character = doc->get_caret_column()
+        .line = caret_line,
+        .character = caret_col
     };
+    const std::string line_text = (caret_line < doc->get_line_count())
+        ? std::string(doc->get_line(caret_line))
+        : std::string();
 
     Language::LanguageServerManager::instance().request_definition(
         uri, fname, pos,
@@ -359,17 +367,14 @@ bool TextEditor::go_to_definition()
                 return;
             }
             const auto& loc = locations[0];
-            std::string path_str = loc.uri;
-            if (path_str.rfind("file:///", 0) == 0)
+            std::filesystem::path target_path =
+                Language::Protocol::LspProtocolSerializer::uri_to_path(loc.uri);
+            if (target_path.empty())
             {
-                path_str = path_str.substr(8);
+                return;
             }
-            else if (path_str.rfind("file://", 0) == 0)
-            {
-                path_str = path_str.substr(7);
-            }
-            std::filesystem::path target_path(path_str);
-            if (std::filesystem::exists(target_path))
+            std::error_code ec;
+            if (std::filesystem::exists(target_path, ec))
             {
                 static_cast<void>(this->open_file_at_location(
                     target_path,
@@ -380,7 +385,8 @@ bool TextEditor::go_to_definition()
                     InvalidateRect(m_window_handle, nullptr, FALSE);
                 }
             }
-        });
+        },
+        line_text);
     return true;
 }
 
@@ -2157,6 +2163,65 @@ bool TextEditor::handle_pointer_move(
             m_last_hovered_word.clear();
             changed = true;
         }
+    }
+
+    // Ctrl + Hover detection for VS Code style hyperlink underline
+    const bool is_ctrl_pressed = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    std::optional<CtrlHoverTokenInfo> ctrl_hover_token;
+    if (is_ctrl_pressed && document != nullptr && !layout.editor_bounds.is_empty() && layout.editor_bounds.contains(point_x, point_y))
+    {
+        const float scale = layout.dpi_scale;
+        const float line_height = 20.0F * scale;
+        const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
+        const float splitter_x = layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) * m_split_ratio;
+        const bool is_right_pane = is_split_active && (point_x > splitter_x);
+        const UI::Editor::TextDocumentModel* target_doc = is_right_pane ? m_controller.get_document(*m_split_document_index) : document;
+        const auto& target_folding = is_right_pane ? m_split_folding : m_folding;
+        const auto& target_scrollbar = is_right_pane ? m_split_scrollbar : m_scrollbar;
+
+        if (target_doc != nullptr)
+        {
+            const std::size_t total_lines = target_doc->get_line_count();
+            const std::size_t first_line = target_scrollbar.get_first_visible_line();
+            const float clamped_y = std::clamp(point_y, layout.editor_bounds.y, std::max(layout.editor_bounds.bottom() - 1.0F, layout.editor_bounds.y));
+            const std::size_t row = static_cast<std::size_t>(std::max(static_cast<int>((clamped_y - layout.editor_bounds.y) / line_height), 0));
+            const std::size_t line_index = visual_row_to_physical_line(target_folding, first_line + row, total_lines);
+
+            if (line_index < total_lines)
+            {
+                const std::string_view line_str = target_doc->get_line(line_index);
+                const float code_x = is_right_pane
+                    ? (splitter_x + 2.0F * scale + layout.gutter_bounds.width + 14.0F * scale)
+                    : (layout.editor_bounds.x + 14.0F * scale - m_text_scroll_offset);
+                const float rel_x = point_x - code_x;
+
+                if (rel_x >= 0.0F && !line_str.empty())
+                {
+                    const float char_w = (m_cached_char_width > 0.0F) ? m_cached_char_width : (8.0F * scale);
+                    const std::size_t col = std::min<std::size_t>(static_cast<std::size_t>(rel_x / char_w), line_str.size() - 1);
+                    const auto [start_col, end_col] = Language::Definition::SymbolDefinitionResolver::extract_symbol_range(line_str, col);
+                    if (end_col > start_col)
+                    {
+                        CtrlHoverTokenInfo info;
+                        info.line = line_index;
+                        info.start_col = start_col;
+                        info.end_col = end_col;
+                        info.symbol = std::string(line_str.substr(start_col, end_col - start_col));
+                        ctrl_hover_token = info;
+                    }
+                }
+            }
+        }
+    }
+
+    if (ctrl_hover_token.has_value() != m_ctrl_hovered_token.has_value() ||
+        (ctrl_hover_token.has_value() && m_ctrl_hovered_token.has_value() &&
+         (ctrl_hover_token->line != m_ctrl_hovered_token->line ||
+          ctrl_hover_token->start_col != m_ctrl_hovered_token->start_col ||
+          ctrl_hover_token->end_col != m_ctrl_hovered_token->end_col)))
+    {
+        m_ctrl_hovered_token = ctrl_hover_token;
+        changed = true;
     }
 
     if (hovered_tab != m_hovered_tab_index || hovered_close != m_hovered_tab_close_index)
@@ -4318,6 +4383,7 @@ void TextEditor::draw_document(
     {
         const float space_width = static_cast<float>(
             surface.get_text_width(device_context, *surface.m_editor_font, " "));
+        m_cached_char_width = space_width;
         const UI::Components::ActiveIndentScope active_scope =
             m_folding.get_active_indent_scope(document->get_caret_line(), tab_size);
 
@@ -4500,8 +4566,6 @@ void TextEditor::draw_document(
         static_cast<int>(layout.editor_bounds.bottom() - hscroll_height));
 
     // Selection Highlight: Direct & Instant (0 animation delay)
-    const bool is_this_pane_focused =
-        !m_is_split || (m_focused_pane == SplitPaneFocus::Left);
     if (is_this_pane_focused)
     {
         for (const auto& cursor : document->get_all_cursors())
@@ -4588,33 +4652,16 @@ void TextEditor::draw_document(
 
         auto get_effective_token_color = [&](UI::Editor::EditorTokenKind kind, std::size_t tok_start, std::size_t tok_len) -> UI::Theme::Color
         {
-            UI::Theme::Color base = token_color(kind);
-
-            bool is_unnecessary = false;
-            for (const auto& d : line_diags)
+            // If this token is hovered while Ctrl is held, highlight with vibrant accent color (VS Code link style)
+            if (m_ctrl_hovered_token && m_ctrl_hovered_token->line == line_index)
             {
-                if (d.is_unnecessary())
+                if (tok_start < m_ctrl_hovered_token->end_col && (tok_start + tok_len) > m_ctrl_hovered_token->start_col)
                 {
-                    const std::size_t d_start = (d.range.start.line == line_index) ? d.range.start.character : 0;
-                    const std::size_t d_end = (d.range.end.line == line_index) ? (d.range.end.character == 0 ? line.size() : d.range.end.character) : line.size();
-                    if (tok_start < d_end && (tok_start + tok_len) > d_start)
-                    {
-                        is_unnecessary = true;
-                        break;
-                    }
+                    return surface.m_palette.accent;
                 }
             }
-            if (is_unnecessary)
-            {
-                // Dimmed / faded gray like VS Code unused code
-                return UI::Theme::Color{
-                    static_cast<uint8_t>((base.red * 35 + 115 * 65) / 100),
-                    static_cast<uint8_t>((base.green * 35 + 120 * 65) / 100),
-                    static_cast<uint8_t>((base.blue * 35 + 130 * 65) / 100),
-                    170
-                };
-            }
-            return base;
+
+            return token_color(kind);
         };
 
         if (syntax_highlighting)
@@ -4715,21 +4762,13 @@ void TextEditor::draw_document(
         }
         else
         {
-            bool has_unnecessary = false;
-            for (const auto& d : line_diags)
-            {
-                if (d.is_unnecessary()) { has_unnecessary = true; break; }
-            }
-            const UI::Theme::Color text_col = has_unnecessary
-                ? UI::Theme::Color{115, 120, 130, 170}
-                : surface.m_palette.text_primary;
             surface.draw_text(
                 device_context,
                 *surface.m_editor_font,
                 line,
                 code_x,
                 center_y,
-                text_col);
+                surface.m_palette.text_primary);
         }
 
         // Render diagnostics squiggles under erroneous tokens
@@ -4792,6 +4831,27 @@ void TextEditor::draw_document(
                     squiggle_color);
                 wave_x = next_x;
                 wave_up = !wave_up;
+            }
+        }
+
+        // Render VS Code style Ctrl + Hover hyperlink underline
+        if (m_ctrl_hovered_token && m_ctrl_hovered_token->line == line_index)
+        {
+            const std::size_t sc = std::min(m_ctrl_hovered_token->start_col, line.size());
+            const std::size_t ec = std::min(m_ctrl_hovered_token->end_col, line.size());
+            if (ec > sc)
+            {
+                const float u_start_x = code_x + static_cast<float>(surface.get_text_width(
+                    device_context, *surface.m_editor_font, line.substr(0, sc)));
+                const float u_width = static_cast<float>(surface.get_text_width(
+                    device_context, *surface.m_editor_font, line.substr(sc, ec - sc)));
+                const float u_y = center_y + line_height * 0.42F;
+
+                surface.draw_line(
+                    device_context,
+                    round_to_int(u_start_x), round_to_int(u_y),
+                    round_to_int(u_start_x + u_width), round_to_int(u_y),
+                    surface.m_palette.accent);
             }
         }
 
@@ -5209,31 +5269,14 @@ void TextEditor::draw_document(
 
                 auto get_effective_r_token_color = [&](UI::Editor::EditorTokenKind kind, std::size_t tok_start, std::size_t tok_len) -> UI::Theme::Color
                 {
-                    UI::Theme::Color base = token_color(kind);
-                    bool is_unnecessary = false;
-                    for (const auto& d : r_diags)
+                    if (m_ctrl_hovered_token && m_ctrl_hovered_token->line == line_index)
                     {
-                        if (d.is_unnecessary())
+                        if (tok_start < m_ctrl_hovered_token->end_col && (tok_start + tok_len) > m_ctrl_hovered_token->start_col)
                         {
-                            const std::size_t d_start = (d.range.start.line == line_index) ? d.range.start.character : 0;
-                            const std::size_t d_end = (d.range.end.line == line_index) ? (d.range.end.character == 0 ? lstr.size() : d.range.end.character) : lstr.size();
-                            if (tok_start < d_end && (tok_start + tok_len) > d_start)
-                            {
-                                is_unnecessary = true;
-                                break;
-                            }
+                            return surface.m_palette.accent;
                         }
                     }
-                    if (is_unnecessary)
-                    {
-                        return UI::Theme::Color{
-                            static_cast<uint8_t>((base.red * 35 + 115 * 65) / 100),
-                            static_cast<uint8_t>((base.green * 35 + 120 * 65) / 100),
-                            static_cast<uint8_t>((base.blue * 35 + 130 * 65) / 100),
-                            170
-                        };
-                    }
-                    return base;
+                    return token_color(kind);
                 };
 
                 if (right_syntax)
@@ -5329,15 +5372,7 @@ void TextEditor::draw_document(
                 }
                 else
                 {
-                    bool has_unnecessary = false;
-                    for (const auto& d : r_diags)
-                    {
-                        if (d.is_unnecessary()) { has_unnecessary = true; break; }
-                    }
-                    const UI::Theme::Color text_col = has_unnecessary
-                        ? UI::Theme::Color{115, 120, 130, 170}
-                        : surface.m_palette.text_primary;
-                    surface.draw_text(device_context, *surface.m_editor_font, lstr, tok_x, cy, text_col);
+                    surface.draw_text(device_context, *surface.m_editor_font, lstr, tok_x, cy, surface.m_palette.text_primary);
                 }
 
                 // Diagnostics squiggles for right pane

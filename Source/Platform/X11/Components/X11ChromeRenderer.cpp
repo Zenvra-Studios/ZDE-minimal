@@ -187,10 +187,10 @@ bool X11ChromeRenderer::create_workspace_buffer() {
 bool X11ChromeRenderer::handle_workspace_pointer_press(
     float point_x, float point_y, int client_width, int client_height,
     float content_top, bool extend_selection, int click_count, Time event_time,
-    std::string &command_out) {
+    std::string &command_out, bool is_control_down) {
   return m_workspace_renderer.handle_pointer_press(
       point_x, point_y, client_width, client_height, content_top,
-      extend_selection, click_count, event_time, command_out);
+      extend_selection, click_count, event_time, command_out, is_control_down);
 }
 
 bool X11ChromeRenderer::handle_workspace_pointer_move(

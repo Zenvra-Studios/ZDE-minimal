@@ -1,6 +1,7 @@
 #include "Platform/Cocoa/Components/TextEditor.h"
 #include "Commands/CommandIds.h"
 #include "Language/LanguageServerManager.h"
+#include "Language/Protocol/LspProtocolSerializer.h"
 #include "Platform/Cocoa/Components/StudioWorkspaceRenderer.h"
 #include "UI/Editor/FileIconModel.h"
 #include "Utility/Fonts.h"
@@ -391,8 +392,12 @@ bool TextEditor::go_to_definition() {
 
   const std::string uri = get_active_document_uri();
   const std::string fname = get_active_document_filename();
-  const Language::Protocol::Position pos{doc->get_caret_line(),
-                                         doc->get_caret_column()};
+  const std::size_t caret_line = doc->get_caret_line();
+  const std::size_t caret_col = doc->get_caret_column();
+  const Language::Protocol::Position pos{caret_line, caret_col};
+  const std::string line_text = (caret_line < doc->get_line_count())
+      ? std::string(doc->get_line(caret_line))
+      : std::string();
 
   Language::LanguageServerManager::instance().request_definition(
       uri, fname, pos,
@@ -400,12 +405,12 @@ bool TextEditor::go_to_definition() {
         if (locations.empty())
           return;
         const auto &loc = locations[0];
-        std::string path_str = loc.uri;
-        if (path_str.rfind("file://", 0) == 0) {
-          path_str = path_str.substr(7);
-        }
-        std::filesystem::path target_path(path_str);
-        if (std::filesystem::exists(target_path)) {
+        std::filesystem::path target_path =
+            Language::Protocol::LspProtocolSerializer::uri_to_path(loc.uri);
+        if (target_path.empty())
+          return;
+        std::error_code ec;
+        if (std::filesystem::exists(target_path, ec)) {
           static_cast<void>(this->open_file(target_path));
           if (auto *target_doc = this->get_focused_document()) {
             target_doc->set_caret(loc.range.start.line,
@@ -413,7 +418,8 @@ bool TextEditor::go_to_definition() {
             this->m_reveal_caret_pending = true;
           }
         }
-      });
+      },
+      line_text);
   return true;
 }
 
@@ -810,6 +816,10 @@ bool TextEditor::handle_pointer_press(
       }
       m_reveal_caret_pending = true;
       m_caret_blink.reset();
+      const NSEventModifierFlags flags = [NSEvent modifierFlags];
+      if ((flags & (NSEventModifierFlagCommand | NSEventModifierFlagControl)) != 0) {
+        static_cast<void>(go_to_definition());
+      }
       return true;
     }
 
@@ -848,6 +858,9 @@ bool TextEditor::handle_pointer_press(
       }
       m_reveal_caret_pending = true;
       m_caret_blink.reset();
+      if ((flags & (NSEventModifierFlagCommand | NSEventModifierFlagControl)) != 0) {
+        static_cast<void>(go_to_definition());
+      }
       return true;
     }
   }
@@ -927,6 +940,10 @@ bool TextEditor::handle_pointer_press(
   }
   m_reveal_caret_pending = true;
   m_caret_blink.reset();
+  const NSEventModifierFlags flags = [NSEvent modifierFlags];
+  if ((flags & (NSEventModifierFlagCommand | NSEventModifierFlagControl)) != 0) {
+    static_cast<void>(go_to_definition());
+  }
   return true;
 }
 
@@ -2718,31 +2735,6 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
     };
 
     const auto line_diags = document->get_diagnostics_for_line(line_index);
-    auto get_effective_token_color =
-        [&](UI::Editor::EditorTokenKind kind, std::size_t tok_start,
-            std::size_t tok_len) -> const std::string & {
-      bool is_unnecessary = false;
-      for (const auto &d : line_diags) {
-        if (d.is_unnecessary()) {
-          const std::size_t d_start =
-              (d.range.start.line == line_index) ? d.range.start.character : 0;
-          const std::size_t d_end =
-              (d.range.end.line == line_index)
-                  ? (d.range.end.character == 0 ? line.size()
-                                                : d.range.end.character)
-                  : line.size();
-          if (tok_start < d_end && (tok_start + tok_len) > d_start) {
-            is_unnecessary = true;
-            break;
-          }
-        }
-      }
-      if (is_unnecessary) {
-        return surface.m_text.muted;
-      }
-      return token_color(kind);
-    };
-
     if (syntax_highlighting) {
       float token_x = code_x;
       std::size_t rendered_bytes = 0;
@@ -2761,78 +2753,69 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
         if (m_brace_animation.has_active_braces() &&
             m_brace_animation.get_pulse_scale() > 1.01F) {
           if (auto open_pos = m_brace_animation.get_open_brace();
-              open_pos && open_pos->line == line_index &&
-              open_pos->column >= rendered_bytes &&
-              open_pos->column < rendered_bytes + token.text.size()) {
-            has_animated_brace = true;
-            brace_offset = open_pos->column - rendered_bytes;
+              open_pos && open_pos->line == line_index) {
+            if (open_pos->column >= rendered_bytes &&
+                open_pos->column < rendered_bytes + token.text.size()) {
+              has_animated_brace = true;
+              brace_offset = open_pos->column - rendered_bytes;
+            }
           }
           if (auto close_pos = m_brace_animation.get_close_brace();
-              close_pos && close_pos->line == line_index &&
-              close_pos->column >= rendered_bytes &&
-              close_pos->column < rendered_bytes + token.text.size()) {
-            has_animated_brace = true;
-            brace_offset = close_pos->column - rendered_bytes;
+              close_pos && close_pos->line == line_index) {
+            if (close_pos->column >= rendered_bytes &&
+                close_pos->column < rendered_bytes + token.text.size()) {
+              has_animated_brace = true;
+              brace_offset = close_pos->column - rendered_bytes;
+            }
           }
         }
 
         if (has_animated_brace) {
           if (brace_offset > 0) {
-            const std::string_view pre = token.text.substr(0, brace_offset);
+            std::string_view pre = token.text.substr(0, brace_offset);
             surface.draw_text(context, *surface.m_editor_font, pre, token_x,
-                              center_y,
-                              get_effective_token_color(
-                                  token.kind, rendered_bytes, pre.size()));
+                              center_y, token_color(token.kind));
             token_x += static_cast<float>(
-                surface.m_editor_font->getTextWidth(std::string{pre}));
+                surface.get_text_width(context, *surface.m_editor_font, pre));
           }
 
-          const std::string_view brace_char =
-              token.text.substr(brace_offset, 1);
-          const float pulse = m_brace_animation.get_pulse_scale();
-          const float brace_w = static_cast<float>(
-              surface.m_editor_font->getTextWidth(std::string{brace_char}));
-          const float extra_w = (brace_w * pulse - brace_w) * 0.5F;
-          const float extra_h = (line_height * pulse - line_height) * 0.5F;
-          const float screen_y = center_y - line_height * 0.5F;
+          std::string_view brace_char = token.text.substr(brace_offset, 1);
+          float pulse = m_brace_animation.get_pulse_scale();
+          float brace_w = static_cast<float>(surface.get_text_width(
+              context, *surface.m_editor_font, brace_char));
+          float extra_w = (brace_w * pulse - brace_w) * 0.5F;
+          float extra_h = (line_height * pulse - line_height) * 0.5F;
+          float screen_y = center_y - line_height * 0.5F;
 
           UI::Theme::Color pulse_color = surface.m_palette.selection_background;
-          pulse_color.red =
-              std::min(static_cast<unsigned int>(pulse_color.red) + 30U, 255U);
-          pulse_color.green = std::min(
-              static_cast<unsigned int>(pulse_color.green) + 30U, 255U);
-          pulse_color.blue =
-              std::min(static_cast<unsigned int>(pulse_color.blue) + 30U, 255U);
-          CGFloat rgba[4];
-          StudioWorkspaceRenderer::color_to_rgba(pulse_color, rgba);
+          pulse_color.red = std::min(pulse_color.red + 30, 255);
+          pulse_color.green = std::min(pulse_color.green + 30, 255);
+          pulse_color.blue = std::min(pulse_color.blue + 30, 255);
+
           surface.fill_rounded_rectangle(
               context,
               UI::Rect{token_x - extra_w - 2.0F, screen_y - extra_h,
                        brace_w + extra_w * 2.0F + 4.0F,
                        line_height + extra_h * 2.0F},
-              rgba, 3.0F * dpi * pulse);
+              pulse_color, 3.0F * surface.m_dpi_scale * pulse);
 
-          surface.draw_text(context, *surface.m_editor_font, brace_char,
-                            token_x, center_y, surface.m_text.accent);
+          surface.draw_scaled_text(context, *surface.m_editor_font, brace_char,
+                                   token_x, center_y, pulse,
+                                   surface.m_text.accent);
           token_x += brace_w;
 
           if (brace_offset + 1 < token.text.size()) {
-            const std::string_view post = token.text.substr(brace_offset + 1);
+            std::string_view post = token.text.substr(brace_offset + 1);
             surface.draw_text(context, *surface.m_editor_font, post, token_x,
-                              center_y,
-                              get_effective_token_color(
-                                  token.kind, rendered_bytes + brace_offset + 1,
-                                  post.size()));
+                              center_y, token_color(token.kind));
             token_x += static_cast<float>(
-                surface.m_editor_font->getTextWidth(std::string{post}));
+                surface.get_text_width(context, *surface.m_editor_font, post));
           }
         } else {
-          surface.draw_text(context, *surface.m_editor_font, token.text,
-                            token_x, center_y,
-                            get_effective_token_color(
-                                token.kind, rendered_bytes, token.text.size()));
-          token_x += static_cast<float>(
-              surface.m_editor_font->getTextWidth(std::string{token.text}));
+          surface.draw_text(context, *surface.m_editor_font, token.text, token_x,
+                            center_y, token_color(token.kind));
+          token_x += static_cast<float>(surface.get_text_width(
+              context, *surface.m_editor_font, token.text));
         }
         rendered_bytes += token.text.size();
       }
@@ -2842,16 +2825,8 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
                           surface.m_text.primary);
       }
     } else {
-      bool is_unnecessary = false;
-      for (const auto &d : line_diags) {
-        if (d.is_unnecessary()) {
-          is_unnecessary = true;
-          break;
-        }
-      }
       surface.draw_text(context, *surface.m_editor_font, line, code_x, center_y,
-                        is_unnecessary ? surface.m_text.muted
-                                       : surface.m_text.primary);
+                        surface.m_text.primary);
     }
 
     // Render diagnostics squiggles under erroneous tokens

@@ -218,10 +218,15 @@ bool TextEditor::go_to_definition() {
 
   const std::string uri = get_active_document_uri();
   const std::string fname = get_active_document_filename();
+  const std::size_t caret_line = doc->get_caret_line();
+  const std::size_t caret_col = doc->get_caret_column();
   const Language::Protocol::Position pos{
-      .line = doc->get_caret_line(),
-      .character = doc->get_caret_column(),
+      .line = caret_line,
+      .character = caret_col,
   };
+  const std::string line_text = (caret_line < doc->get_line_count())
+      ? std::string(doc->get_line(caret_line))
+      : std::string();
 
   Language::LanguageServerManager::instance().request_definition(
       uri, fname, pos,
@@ -235,9 +240,13 @@ bool TextEditor::go_to_definition() {
         if (target_path.empty()) {
           return;
         }
-        static_cast<void>(open_file_at_location(
-            target_path, loc.range.start.line, loc.range.start.character));
-      });
+        std::error_code ec;
+        if (std::filesystem::exists(target_path, ec)) {
+          static_cast<void>(open_file_at_location(
+              target_path, loc.range.start.line + 1, loc.range.start.character));
+        }
+      },
+      line_text);
 
   return true;
 }
@@ -855,7 +864,7 @@ bool TextEditor::handle_pointer_press(
     const StudioWorkspaceRenderer &surface,
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y, bool extend_selection, int click_count,
-    std::string &command_out) {
+    std::string &command_out, bool is_control_down) {
   m_focused = true;
   {
     std::lock_guard<std::recursive_mutex> lock(m_lsp_mutex);
@@ -1115,6 +1124,9 @@ bool TextEditor::handle_pointer_press(
       }
       m_reveal_caret_pending = true;
       m_caret_blink.reset();
+      if (is_control_down) {
+        static_cast<void>(go_to_definition());
+      }
       return true;
     }
 
@@ -1162,6 +1174,9 @@ bool TextEditor::handle_pointer_press(
       }
       m_reveal_caret_pending = true;
       m_caret_blink.reset();
+      if (is_control_down) {
+        static_cast<void>(go_to_definition());
+      }
       return true;
     }
   }
@@ -1284,6 +1299,9 @@ bool TextEditor::handle_pointer_press(
       m_pointer_selecting = true;
       m_reveal_caret_pending = true;
       m_caret_blink.reset();
+      if (is_control_down) {
+        static_cast<void>(go_to_definition());
+      }
     }
     return true;
   }
@@ -3605,46 +3623,6 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
     max_line_w = std::max(max_line_w, line_width);
 
     const auto line_diags = doc->get_diagnostics_for_line(line_index);
-    auto get_effective_token_color = [&](UI::Editor::EditorTokenKind kind,
-                                         std::size_t tok_start,
-                                         std::size_t tok_len) -> std::string {
-      const std::string &base_color = token_color(kind);
-      bool is_unnecessary = false;
-      for (const auto &d : line_diags) {
-        if (d.is_unnecessary()) {
-          const std::size_t d_start =
-              (d.range.start.line == line_index) ? d.range.start.character : 0;
-          const std::size_t d_end =
-              (d.range.end.line == line_index)
-                  ? (d.range.end.character == 0 ? line.size()
-                                                : d.range.end.character)
-                  : line.size();
-          if (tok_start < d_end && (tok_start + tok_len) > d_start) {
-            is_unnecessary = true;
-            break;
-          }
-        }
-      }
-      if (is_unnecessary) {
-        if (base_color.size() >= 7 && base_color[0] == '#') {
-          unsigned int r = 0, g = 0, b = 0;
-          if (std::sscanf(base_color.c_str() + 1, "%02x%02x%02x", &r, &g, &b) ==
-              3) {
-            // Softly dim the token color hue (55% base hue + 45% dark
-            // background)
-            const unsigned int dim_r = (r * 55 + 30 * 45) / 100;
-            const unsigned int dim_g = (g * 55 + 31 * 45) / 100;
-            const unsigned int dim_b = (b * 55 + 34 * 45) / 100;
-            char buf[16];
-            std::snprintf(buf, sizeof(buf), "#%02x%02x%02x", dim_r, dim_g,
-                          dim_b);
-            return std::string(buf);
-          }
-        }
-      }
-      return base_color;
-    };
-
     // Text rendering with syntax highlighting and clip rect
     if (syntax_highlighting) {
       float token_x = code_x;
@@ -3661,7 +3639,7 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
         if (token_x < code_limit) {
           surface.draw_text(
               drawable, *surface.m_editor_font, tok.text, token_x, center_y,
-              get_effective_token_color(tok.kind, rendered_bytes, tok_len),
+              token_color(tok.kind),
               &code_clip);
         }
         token_x +=
@@ -3669,16 +3647,9 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
         rendered_bytes += tok_len;
       }
     } else {
-      bool is_unnecessary = false;
-      for (const auto &d : line_diags) {
-        if (d.is_unnecessary()) {
-          is_unnecessary = true;
-          break;
-        }
-      }
       surface.draw_text(
           drawable, *surface.m_editor_font, line, code_x, center_y,
-          is_unnecessary ? "#808590" : surface.m_text.primary, &code_clip);
+          surface.m_text.primary, &code_clip);
     }
 
     // Diagnostics squiggles under erroneous tokens (crisp sinusoidal wavy

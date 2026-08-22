@@ -9,6 +9,10 @@
 #include <cstddef>
 #include <optional>
 
+/**
+ * 
+ * 
+ **/
 namespace Zenvra::Platform::Win32::Components
 {
 

@@ -1,5 +1,6 @@
 #include "Language/LanguageServerManager.h"
 #include "Language/CMake/CMakeLanguageDatabase.h"
+#include "Language/Definition/SymbolDefinitionResolver.h"
 #include "Language/Syntax/GrammarRegistry.h"
 #include "Language/Toolchain/ToolchainDetector.h"
 #include "Language/Transport/StdioProcessTransport.h"
@@ -1736,12 +1737,37 @@ void LanguageServerManager::request_hover(
 void LanguageServerManager::request_definition(
     const std::string &uri, std::string_view filename,
     const Protocol::Position &pos,
-    std::function<void(std::vector<Protocol::Location>)> callback) {
+    std::function<void(std::vector<Protocol::Location>)> callback,
+    std::string_view line_text) {
   auto *client = get_or_start_client_for_file(filename);
   if (client != nullptr) {
-    client->request_definition(uri, pos, std::move(callback));
-  } else if (callback) {
-    callback({});
+    client->request_definition(
+        uri, pos,
+        [this, uri, filename = std::string(filename), pos,
+         line_text = std::string(line_text),
+         cb = std::move(callback)](std::vector<Protocol::Location> locations) {
+          if (!locations.empty()) {
+            if (cb) {
+              cb(std::move(locations));
+            }
+            return;
+          }
+
+          // Seamless fallback to standard library / workspace symbol resolver
+          auto fallback_locs =
+              Definition::SymbolDefinitionResolver::instance().resolve_definition(
+                  uri, filename, pos, line_text, m_workspace_root);
+          if (cb) {
+            cb(std::move(fallback_locs));
+          }
+        });
+  } else {
+    auto fallback_locs =
+        Definition::SymbolDefinitionResolver::instance().resolve_definition(
+            uri, filename, pos, line_text, m_workspace_root);
+    if (callback) {
+      callback(std::move(fallback_locs));
+    }
   }
 }
 
