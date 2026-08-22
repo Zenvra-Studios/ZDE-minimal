@@ -3,10 +3,27 @@
 #include <filesystem>
 
 ValidationResult ValidateDependencies(const std::filesystem::path& base_path, const std::vector<Dependency>& dependencies) {
+    const std::vector<std::filesystem::path> search_dirs = {
+        base_path,
+        base_path / "lib",
+        base_path / "lib" / "zde",
+        base_path.parent_path() / "lib" / "zde",
+        base_path.parent_path() / "lib64" / "zde",
+        std::filesystem::path{"/usr/lib/zde"},
+        std::filesystem::path{"/usr/lib64/zde"},
+        std::filesystem::path{"/usr/local/lib/zde"},
+    };
     for (const auto& dep : dependencies) {
         if (dep.required) {
-            std::filesystem::path dep_path = std::filesystem::path(base_path) / dep.file;
-            if (!std::filesystem::exists(dep_path)) {
+            bool found = false;
+            std::error_code ec;
+            for (const auto& dir : search_dirs) {
+                if (std::filesystem::is_regular_file(dir / dep.file, ec)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
                 return {false, dep.file, "The installation may be incomplete or corrupted."};
             }
         }

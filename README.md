@@ -74,6 +74,9 @@ cmake --preset linux-debug
 cmake --build --preset linux-debug
 ```
 
+For creating Linux packages (.deb, .rpm, .pkg.tar.zst) and managing installation/uninstallation on Linux, see the detailed guide:
+- [Linux Packaging, Installation & Uninstall Guide](Docs/LINUX_PACKAGING_AND_INSTALLATION.md)
+
 ```bash
 cmake --preset macos-debug
 cmake --build --preset macos-debug

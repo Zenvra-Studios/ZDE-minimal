@@ -131,6 +131,7 @@ private:
     void show_editor_context_menu(int client_x, int client_y);
     void execute_explorer_command(std::string_view command);
     void copy_to_clipboard(const std::string& text);
+    void discard_pointer_events();
 
     [[nodiscard]] float calculate_dpi_scale() const;
     [[nodiscard]] WorkArea get_work_area() const;

@@ -108,3 +108,9 @@ foreach(subdir IN LISTS ZDE_SUBDIRECTORIES)
         add_subdirectory("${subdir}")
     endif()
 endforeach()
+
+# --- Linux Packaging Configuration (DEB, RPM, TXZ, Arch) --------------------
+if(NOT APPLE AND NOT WIN32)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/Cmake/Packaging.cmake")
+endif()
+

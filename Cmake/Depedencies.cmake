@@ -9,12 +9,21 @@
 
 # zlib - Compression library
 set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
+set(SKIP_INSTALL_LIBRARIES ON CACHE BOOL "" FORCE)
+set(SKIP_INSTALL_HEADERS ON CACHE BOOL "" FORCE)
+set(SKIP_INSTALL_FILES ON CACHE BOOL "" FORCE)
 CPMAddPackage(
     NAME zlib
     VERSION 1.3.1
     URL "https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz"
+    EXCLUDE_FROM_ALL YES
     OPTIONS
         "ZLIB_BUILD_EXAMPLES OFF"
+        "SKIP_INSTALL_ALL ON"
+        "SKIP_INSTALL_LIBRARIES ON"
+        "SKIP_INSTALL_HEADERS ON"
+        "SKIP_INSTALL_FILES ON"
 )
 
 # plutovg - 2D vector graphics library (required by lunasvg)
@@ -23,6 +32,7 @@ CPMAddPackage(
     NAME plutovg
     VERSION 1.3.3
     URL "https://github.com/sammycage/plutovg/archive/refs/tags/v1.3.3.tar.gz"
+    EXCLUDE_FROM_ALL YES
     OPTIONS
         "PLUTOVG_BUILD_EXAMPLES OFF"
 )
@@ -33,6 +43,7 @@ CPMAddPackage(
     NAME lunasvg
     VERSION 3.0.0
     URL "https://github.com/sammycage/lunasvg/archive/refs/tags/v3.0.0.tar.gz"
+    EXCLUDE_FROM_ALL YES
     OPTIONS
         "LUNASVG_BUILD_EXAMPLES OFF"
 )
@@ -48,6 +59,7 @@ CPMAddPackage(
     NAME fmt
     VERSION 10.1.1
     URL "https://github.com/fmtlib/fmt/archive/refs/tags/10.1.1.tar.gz"
+    EXCLUDE_FROM_ALL YES
     OPTIONS
         "FMT_INSTALL OFF"
 )
@@ -57,6 +69,7 @@ CPMAddPackage(
     NAME enet
     VERSION 1.3.18
     URL "https://github.com/lsalzman/enet/archive/refs/tags/v1.3.18.tar.gz"
+    EXCLUDE_FROM_ALL YES
 )
 
 # nlohmann/json - JSON for Modern C++
@@ -64,8 +77,10 @@ CPMAddPackage(
     NAME nlohmann_json
     VERSION 3.11.3
     URL "https://github.com/nlohmann/json/archive/refs/tags/v3.11.3.tar.gz"
+    EXCLUDE_FROM_ALL YES
     OPTIONS
         "JSON_BuildTests OFF"
+        "JSON_Install OFF"
 )
 
 # gtest - Google Testing and Mocking Framework
@@ -74,6 +89,7 @@ CPMAddPackage(
     NAME googletest
     VERSION 1.14.0
     URL "https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz"
+    EXCLUDE_FROM_ALL YES
     OPTIONS
         "INSTALL_GTEST OFF"
 )

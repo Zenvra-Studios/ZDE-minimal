@@ -24,7 +24,8 @@ enum class SidebarActionKind {
     NewFile,
     NewFolder,
     Refresh,
-    CollapseAll
+    CollapseAll,
+    CloneRepository
 };
 
 struct SidebarPressResult {

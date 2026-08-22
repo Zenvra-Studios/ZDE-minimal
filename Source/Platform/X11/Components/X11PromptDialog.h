@@ -18,7 +18,8 @@ enum class PromptDialogMode {
     NewFile,
     NewFolder,
     Rename,
-    ConfirmDelete
+    ConfirmDelete,
+    CloneRepository
 };
 
 class X11PromptDialog {
@@ -40,8 +41,11 @@ public:
                      std::function<void(const std::string&)> on_confirm);
     bool open_delete(Window parent, const std::filesystem::path& item_path,
                      std::function<void()> on_confirm);
+    bool open_clone_repository(Window parent,
+                               std::function<void(const std::string&)> on_confirm);
 
     void close();
+    void shutdown();
     [[nodiscard]] bool is_open() const noexcept { return m_open; }
     [[nodiscard]] Window window() const noexcept { return m_window; }
 

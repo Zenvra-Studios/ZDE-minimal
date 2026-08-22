@@ -197,24 +197,11 @@ if(NOT WIN32)
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_SOURCE_DIR}/Assets/fonts"
             "$<TARGET_FILE_DIR:ZDE>/Resources/fonts"
-        COMMENT "Deploying Resources folder (icons and fonts only)..."
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/Assets"
+            "$<TARGET_FILE_DIR:ZDE>/Assets"
+        COMMENT "Deploying Assets and Resources folders post-build..."
     )
-
-    if(EXISTS "${CMAKE_SOURCE_DIR}/Assets/grammars")
-        add_custom_command(TARGET ZDE POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${CMAKE_SOURCE_DIR}/Assets/grammars"
-                "$<TARGET_FILE_DIR:ZDE>/Assets/grammars"
-            COMMENT "Deploying TextMate Grammars to Assets/grammars..."
-        )
-    elseif(EXISTS "${CMAKE_SOURCE_DIR}/Assets/Grammars")
-        add_custom_command(TARGET ZDE POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${CMAKE_SOURCE_DIR}/Assets/Grammars"
-                "$<TARGET_FILE_DIR:ZDE>/Assets/Grammars"
-            COMMENT "Deploying TextMate Grammars to Assets/Grammars..."
-        )
-    endif()
 endif()
 
 # These folders are reserved module boundaries from the product roadmap.

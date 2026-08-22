@@ -63,7 +63,24 @@ int main(int argument_count, char** argument_values)
 #else
     exe_path = std::filesystem::path(argument_values[0]).parent_path();
 #endif
-    std::filesystem::path manifest_path = exe_path / "manifest" / "runtime.json";
+    std::filesystem::path manifest_path;
+    const std::vector<std::filesystem::path> manifest_candidates = {
+        exe_path / "manifest" / "runtime.json",
+        exe_path.parent_path() / "manifest" / "runtime.json",
+        exe_path.parent_path() / "share" / "zde" / "manifest" / "runtime.json",
+        std::filesystem::path{"/usr/share/zde/manifest/runtime.json"},
+        std::filesystem::path{"/usr/local/share/zde/manifest/runtime.json"},
+    };
+    for (const auto& cand : manifest_candidates) {
+        std::error_code ec_cand;
+        if (std::filesystem::is_regular_file(cand, ec_cand)) {
+            manifest_path = cand;
+            break;
+        }
+    }
+    if (manifest_path.empty()) {
+        manifest_path = exe_path / "manifest" / "runtime.json";
+    }
 
     std::string manifest_content = ReadFile(manifest_path.string());
     if (manifest_content.empty()) {

@@ -624,6 +624,21 @@ void X11AddNewItemDialog::close() {
   }
 }
 
+void X11AddNewItemDialog::shutdown() {
+  close();
+  m_title_font.reset();
+  m_bold_font.reset();
+  m_ui_font.reset();
+  m_small_font.reset();
+  for (auto &pair : m_svg_cache) {
+    if (pair.second) {
+      XDestroyImage(pair.second);
+    }
+  }
+  m_svg_cache.clear();
+  m_display = nullptr;
+}
+
 void X11AddNewItemDialog::submit() {
   if (m_filename_input.empty()) {
     return;

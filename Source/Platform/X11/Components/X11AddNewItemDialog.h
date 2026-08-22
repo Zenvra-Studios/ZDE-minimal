@@ -51,6 +51,7 @@ public:
   void open(Window parent_window, const std::filesystem::path &target_folder,
             const std::string &project_name, CreateCallback callback);
   void close();
+  void shutdown();
   [[nodiscard]] bool is_open() const noexcept { return m_open; }
   [[nodiscard]] Window window() const noexcept { return m_window; }
 

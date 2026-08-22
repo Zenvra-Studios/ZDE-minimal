@@ -48,6 +48,14 @@ bool StudioWorkspaceRenderer::initialize(Display *display, int screen,
   }
 
   std::error_code path_error;
+  std::filesystem::path exe_dir;
+  const std::filesystem::path executable_path =
+      std::filesystem::canonical("/proc/self/exe", path_error);
+  if (!path_error) {
+    exe_dir = executable_path.parent_path();
+  }
+
+  path_error.clear();
   const std::filesystem::path current_path =
       std::filesystem::current_path(path_error);
   std::optional<std::filesystem::path> project_root;
@@ -55,18 +63,35 @@ bool StudioWorkspaceRenderer::initialize(Display *display, int screen,
     project_root =
         UI::Editor::EditorFileSystem::find_project_root(current_path);
   }
-  if (!project_root) {
-    path_error.clear();
-    const std::filesystem::path executable_path =
-        std::filesystem::read_symlink("/proc/self/exe", path_error);
-    if (!path_error) {
-      project_root =
-          UI::Editor::EditorFileSystem::find_project_root(executable_path);
+  if (!project_root && !exe_dir.empty()) {
+    project_root =
+        UI::Editor::EditorFileSystem::find_project_root(exe_dir);
+  }
+
+  // 1. Resolve Icon Directory (prioritizes project_root/Assets/icons then local/installed Resources/icons)
+  const std::vector<std::filesystem::path> icon_candidates = {
+      project_root ? (*project_root / "Assets" / "icons") : std::filesystem::path{},
+      project_root ? (*project_root / "Resources" / "icons") : std::filesystem::path{},
+      exe_dir.empty() ? std::filesystem::path{} : (exe_dir / "Resources" / "icons"),
+      exe_dir.empty() ? std::filesystem::path{} : (exe_dir / "Assets" / "icons"),
+      exe_dir.empty() ? std::filesystem::path{} : (exe_dir.parent_path() / "Resources" / "icons"),
+      exe_dir.empty() ? std::filesystem::path{} : (exe_dir.parent_path() / "Assets" / "icons"),
+      exe_dir.empty() ? std::filesystem::path{} : (exe_dir.parent_path().parent_path() / "Resources" / "icons"),
+      exe_dir.empty() ? std::filesystem::path{} : (exe_dir.parent_path().parent_path() / "Assets" / "icons"),
+      current_path / "Assets" / "icons",
+      current_path / "Resources" / "icons",
+      std::filesystem::path{"/usr/share/zde/Assets/icons"},
+      std::filesystem::path{"/usr/share/zde/Resources/icons"},
+      std::filesystem::path{"/usr/local/share/zde/Assets/icons"},
+      std::filesystem::path{"/usr/local/share/zde/Resources/icons"},
+  };
+  for (const auto &candidate : icon_candidates) {
+    if (!candidate.empty() && std::filesystem::is_directory(candidate, path_error)) {
+      m_icon_asset_root = candidate;
+      break;
     }
   }
-  if (project_root) {
-    m_icon_asset_root = *project_root / "Assets" / "icons";
-  }
+
   m_graphics_context =
       XCreateGC(m_display, RootWindow(m_display, m_screen), 0, nullptr);
   if (m_graphics_context == nullptr) {
@@ -74,46 +99,42 @@ bool StudioWorkspaceRenderer::initialize(Display *display, int screen,
     return false;
   }
 
-  // Load bundled fonts from Assets/fonts/. For each valid TTF font, register
-  // the file with Fontconfig.
-  if (project_root) {
-    const std::filesystem::path hack_dir =
-        *project_root / "Assets" / "fonts" / "Hack" / "ttf";
-    const std::filesystem::path jb_dir =
-        *project_root / "Assets" / "fonts" / "JetBrainsMono";
-    std::error_code ec;
-
-    if (std::filesystem::is_directory(hack_dir, ec)) {
-      for (const auto &entry :
-           std::filesystem::directory_iterator(hack_dir, ec)) {
-        if (entry.is_regular_file(ec) && entry.path().extension() == ".ttf" &&
-            entry.file_size(ec) > 1000) {
-          FcConfigAppFontAddFile(nullptr, reinterpret_cast<const FcChar8 *>(
-                                              entry.path().string().c_str()));
-        }
-      }
+  // 2. Resolve Fonts Directory
+  std::filesystem::path fonts_dir;
+  const std::vector<std::filesystem::path> font_candidates = {
+      project_root ? (*project_root / "Assets" / "fonts") : std::filesystem::path{},
+      project_root ? (*project_root / "Resources" / "fonts") : std::filesystem::path{},
+      exe_dir.empty() ? std::filesystem::path{} : (exe_dir / "Resources" / "fonts"),
+      exe_dir.empty() ? std::filesystem::path{} : (exe_dir / "Assets" / "fonts"),
+      exe_dir.empty() ? std::filesystem::path{} : (exe_dir.parent_path() / "Resources" / "fonts"),
+      exe_dir.empty() ? std::filesystem::path{} : (exe_dir.parent_path() / "Assets" / "fonts"),
+      exe_dir.empty() ? std::filesystem::path{} : (exe_dir.parent_path().parent_path() / "Resources" / "fonts"),
+      exe_dir.empty() ? std::filesystem::path{} : (exe_dir.parent_path().parent_path() / "Assets" / "fonts"),
+      current_path / "Assets" / "fonts",
+      current_path / "Resources" / "fonts",
+      std::filesystem::path{"/usr/share/zde/Assets/fonts"},
+      std::filesystem::path{"/usr/share/zde/Resources/fonts"},
+      std::filesystem::path{"/usr/local/share/zde/Assets/fonts"},
+      std::filesystem::path{"/usr/local/share/zde/Resources/fonts"},
+  };
+  for (const auto &candidate : font_candidates) {
+    if (!candidate.empty() && std::filesystem::is_directory(candidate, path_error)) {
+      fonts_dir = candidate;
+      break;
     }
+  }
 
-    if (std::filesystem::is_directory(jb_dir, ec)) {
-      for (const auto &entry :
-           std::filesystem::directory_iterator(jb_dir, ec)) {
-        if (entry.is_regular_file(ec) && entry.path().extension() == ".ttf" &&
-            entry.file_size(ec) > 1000) {
-          FcConfigAppFontAddFile(nullptr, reinterpret_cast<const FcChar8 *>(
-                                              entry.path().string().c_str()));
-        }
-      }
-    }
-
-    const std::filesystem::path opensans_dir = *project_root / "Assets" / "fonts" / "OpenSans";
-    if (std::filesystem::is_directory(opensans_dir, ec)) {
-      for (const auto &entry :
-           std::filesystem::directory_iterator(opensans_dir, ec)) {
-        if (entry.is_regular_file(ec) && entry.path().extension() == ".ttf" &&
-            entry.file_size(ec) > 1000) {
-          FcConfigAppFontAddFile(nullptr, reinterpret_cast<const FcChar8 *>(
-                                              entry.path().string().c_str()));
-        }
+  // Load bundled fonts from fonts_dir into Fontconfig
+  if (!fonts_dir.empty() && std::filesystem::is_directory(fonts_dir, path_error)) {
+    for (const auto &entry :
+         std::filesystem::recursive_directory_iterator(
+             fonts_dir,
+             std::filesystem::directory_options::skip_permission_denied,
+             path_error)) {
+      if (!path_error && entry.is_regular_file(path_error) &&
+          entry.path().extension() == ".ttf") {
+        FcConfigAppFontAddFile(nullptr, reinterpret_cast<const FcChar8 *>(
+                                            entry.path().string().c_str()));
       }
     }
   }
@@ -337,6 +358,8 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
       command_out = "zde.explorer.refresh";
     } else if (sidebar_result.action == SidebarActionKind::CollapseAll) {
       command_out = "zde.explorer.collapseAll";
+    } else if (sidebar_result.action == SidebarActionKind::CloneRepository) {
+      command_out = "zde.git.clone";
     }
     return true;
   }
@@ -1339,8 +1362,12 @@ void StudioWorkspaceRenderer::draw_png_icon(
     std::string rel_str = resolved_path.string();
     if (rel_str.starts_with("Assets/icons/") || rel_str.starts_with("Assets\\icons\\")) {
       rel_str = rel_str.substr(13);
+    } else if (rel_str.starts_with("Resources/icons/") || rel_str.starts_with("Resources\\icons\\")) {
+      rel_str = rel_str.substr(16);
     } else if (rel_str.starts_with("Assets/") || rel_str.starts_with("Assets\\")) {
       rel_str = rel_str.substr(7);
+    } else if (rel_str.starts_with("Resources/") || rel_str.starts_with("Resources\\")) {
+      rel_str = rel_str.substr(10);
     }
     const std::filesystem::path direct_path = m_icon_asset_root / rel_str;
     const std::filesystem::path filename_path = m_icon_asset_root / resolved_path.filename();

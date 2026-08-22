@@ -1,0 +1,24 @@
+# Maintainer: Zenvra Studios <support@zenvra.com>
+pkgname=zde
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Zenvra Development Editor - Lightweight C++ IDE"
+arch=('x86_64')
+url="https://github.com/zenvra-studios/ZDE-minimal"
+license=('GPL3')
+depends=('libx11' 'libxft' 'fontconfig' 'libxext')
+makedepends=('cmake' 'ninja' 'gcc')
+source=("$pkgname-$pkgver::git+https://github.com/zenvra-studios/ZDE-minimal.git")
+sha256sums=('SKIP')
+
+build() {
+    cmake -B build -S "$srcdir/$pkgname-$pkgver" \
+        -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr
+    cmake --build build
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install build
+}

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=ZDE
+GenericName=Code Editor
+Comment=Zenvra Development Editor - Lightweight C++ IDE
+Exec=ZDE %F
+Icon=zde
+Terminal=false
+Categories=Development;IDE;TextEditor;
+MimeType=text/plain;text/x-c;text/x-c++;text/x-cmake;application/json;
+StartupNotify=true
+StartupWMClass=ZenvraDevelopmentStudio

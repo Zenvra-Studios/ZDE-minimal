@@ -3,10 +3,29 @@
 #include <X11/Xatom.h>
 #include <X11/Xutil.h>
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cstdio>
 #include <lunasvg.h>
 
 namespace Zenvra::Platform::X11::Components {
+
+static std::string get_clipboard_text() {
+    std::string text;
+    // NOLINTNEXTLINE(cert-env33-c)
+    FILE* pipe = ::popen("wl-paste 2>/dev/null || xclip -o -selection clipboard 2>/dev/null || xsel -b -o 2>/dev/null", "r");
+    if (pipe != nullptr) {
+        std::array<char, 1024> buffer{};
+        while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
+            text += buffer.data();
+        }
+        ::pclose(pipe);
+    }
+    while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) {
+        text.pop_back();
+    }
+    return text;
+}
 
 static unsigned long alloc_rgb(Display* dpy, int scr, unsigned char r, unsigned char g, unsigned char b) {
     XColor c{};
@@ -181,6 +200,7 @@ void X11PromptDialog::layout_and_create_window(Window parent, int width, int hei
     m_win_y = std::clamp(m_win_y, 0, std::max(screen_h - height, 0));
 
     XSetWindowAttributes attrs{};
+    attrs.override_redirect = True;
     attrs.background_pixel = alloc_rgb(m_display, m_screen, 30, 31, 36);
     attrs.save_under = True;
     attrs.event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask |
@@ -192,7 +212,7 @@ void X11PromptDialog::layout_and_create_window(Window parent, int width, int hei
         m_win_x, m_win_y, static_cast<unsigned int>(width), static_cast<unsigned int>(height),
         0, DefaultDepth(m_display, m_screen), InputOutput,
         DefaultVisual(m_display, m_screen),
-        CWBackPixel | CWSaveUnder | CWEventMask,
+        CWOverrideRedirect | CWBackPixel | CWSaveUnder | CWEventMask,
         &attrs);
 
     // Set transient for parent window
@@ -337,6 +357,24 @@ bool X11PromptDialog::open_delete(Window parent, const std::filesystem::path& it
     return true;
 }
 
+bool X11PromptDialog::open_clone_repository(Window parent,
+                                             std::function<void(const std::string&)> on_confirm) {
+    m_mode = PromptDialogMode::CloneRepository;
+    m_title = "Clone Repository";
+    m_subtitle.clear();
+    m_placeholder = "https://github.com/user/repo.git";
+    m_confirm_label = "Clone";
+    m_text.clear();
+    m_icon_path = "vscode-codicons/icons/repo.svg";
+    m_on_confirm_string = std::move(on_confirm);
+    m_on_confirm_void = nullptr;
+
+    const int width = static_cast<int>(480.0F * m_dpi_scale);
+    const int height = static_cast<int>(96.0F * m_dpi_scale);
+    layout_and_create_window(parent, width, height);
+    return true;
+}
+
 void X11PromptDialog::close() {
     if (m_open && m_display != nullptr) {
         if (m_window != 0) {
@@ -354,6 +392,21 @@ void X11PromptDialog::close() {
         m_open = false;
         m_dragging = false;
     }
+}
+
+void X11PromptDialog::shutdown() {
+    close();
+    m_title_font.reset();
+    m_ui_font.reset();
+    m_editor_font.reset();
+    m_small_font.reset();
+    for (auto& [k, img] : m_svg_cache) {
+        if (img) {
+            XDestroyImage(img);
+        }
+    }
+    m_svg_cache.clear();
+    m_display = nullptr;
 }
 
 void X11PromptDialog::submit() {
@@ -495,10 +548,6 @@ bool X11PromptDialog::handle_event(const XEvent& event) {
         render();
         return true;
 
-    case FocusOut:
-        close();
-        return true;
-
     case MotionNotify: {
         if (m_dragging) {
             const int dx = event.xmotion.x_root - m_drag_start_root_x;
@@ -558,12 +607,22 @@ bool X11PromptDialog::handle_event(const XEvent& event) {
     case KeyPress: {
         m_last_input_time = std::chrono::steady_clock::now();
         KeySym sym = XLookupKeysym(const_cast<XKeyEvent*>(&event.xkey), 0);
+        const bool ctrl_pressed = (event.xkey.state & ControlMask) != 0;
+
         if (sym == XK_Escape) {
             close();
             return true;
         }
         if (sym == XK_Return || sym == XK_KP_Enter) {
             submit();
+            return true;
+        }
+        if (ctrl_pressed && (sym == XK_v || sym == XK_V)) {
+            std::string clip = get_clipboard_text();
+            if (!clip.empty()) {
+                m_text.append(clip);
+                render();
+            }
             return true;
         }
         if (sym == XK_BackSpace) {

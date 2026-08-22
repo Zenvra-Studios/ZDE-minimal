@@ -96,10 +96,9 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
       m_model.get_project_items().empty()) {
     const float scale = layout.dpi_scale;
     const UI::Rect panel = layout.tool_sidebar_bounds;
-    const float tree_top = panel.y + header_height * scale;
-    const float content_y = tree_top + 22.0F * scale;
+    const float msg_y = panel.y + (header_height + 22.0F) * scale;
 
-    float btn_y = content_y + 14.0F * scale;
+    float btn_y = msg_y + 36.0F * scale;
     const float btn_w = std::max(panel.width - 28.0F * scale, 0.0F);
     const float btn_h = 28.0F * scale;
     const float btn_x = panel.x + 14.0F * scale;
@@ -112,7 +111,7 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
       return SidebarPressResult{.handled = true, .action = SidebarActionKind::OpenFile, .path = "::OPEN_FOLDER::"};
     }
     if (m_empty_state_clone_btn.handle_pointer_press(point_x, point_y)) {
-      return SidebarPressResult{.handled = true};
+      return SidebarPressResult{.handled = true, .action = SidebarActionKind::CloneRepository};
     }
   }
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {

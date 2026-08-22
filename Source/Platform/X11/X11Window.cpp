@@ -48,10 +48,10 @@ unsigned long to_argb(const UI::Theme::Color &color) {
          static_cast<unsigned long>(color.blue);
 }
 
-/// High-quality area-averaging (box filter) resampler with premultiplied alpha for clean anti-aliasing.
+/// High-quality area-averaging (box filter) resampler with premultiplied alpha
+/// for clean anti-aliasing.
 std::vector<unsigned char> downsample_rgba(const unsigned char *source,
-                                           int source_width,
-                                           int source_height,
+                                           int source_width, int source_height,
                                            int target_width,
                                            int target_height) {
   std::vector<unsigned char> result(
@@ -93,8 +93,8 @@ std::vector<unsigned char> downsample_rgba(const unsigned char *source,
 
       for (int sy = sy_min; sy < sy_max; ++sy) {
         const float sy_f = static_cast<float>(sy);
-        const float weight_y = std::max(
-            0.0F, std::min(sy_f + 1.0F, y_end) - std::max(sy_f, y_start));
+        const float weight_y = std::max(0.0F, std::min(sy_f + 1.0F, y_end) -
+                                                  std::max(sy_f, y_start));
         if (weight_y <= 0.0F) {
           continue;
         }
@@ -104,8 +104,8 @@ std::vector<unsigned char> downsample_rgba(const unsigned char *source,
 
         for (int sx = sx_min; sx < sx_max; ++sx) {
           const float sx_f = static_cast<float>(sx);
-          const float weight_x = std::max(
-              0.0F, std::min(sx_f + 1.0F, x_end) - std::max(sx_f, x_start));
+          const float weight_x = std::max(0.0F, std::min(sx_f + 1.0F, x_end) -
+                                                    std::max(sx_f, x_start));
           const float weight = weight_x * weight_y;
           if (weight <= 0.0F) {
             continue;
@@ -165,7 +165,8 @@ Bool event_matches_window(Display *display, XEvent *event,
     return True;
   }
   if (event->type == SelectionRequest) {
-    return (event->xselectionrequest.owner == target->main_window) ? True : False;
+    return (event->xselectionrequest.owner == target->main_window) ? True
+                                                                   : False;
   }
   const Window w = event->xany.window;
   if (w == target->main_window) {
@@ -177,7 +178,8 @@ Bool event_matches_window(Display *display, XEvent *event,
   if (target->prompt_dialog_window != 0 && w == target->prompt_dialog_window) {
     return True;
   }
-  if (target->add_item_dialog_window != 0 && w == target->add_item_dialog_window) {
+  if (target->add_item_dialog_window != 0 &&
+      w == target->add_item_dialog_window) {
     return True;
   }
   return False;
@@ -200,6 +202,7 @@ X11Window::~X11Window() {
   release_native_resources();
   if (m_context_acquired) {
     Runtime::X11Context::shutdown();
+    m_context_acquired = false;
   }
 }
 
@@ -220,19 +223,22 @@ bool X11Window::initialize() {
   const Window root_window = RootWindow(m_display, m_screen);
 
   XColor bg_xcolor{};
-  bg_xcolor.red = static_cast<unsigned short>(m_theme.window_background.red * 257U);
-  bg_xcolor.green = static_cast<unsigned short>(m_theme.window_background.green * 257U);
-  bg_xcolor.blue = static_cast<unsigned short>(m_theme.window_background.blue * 257U);
+  bg_xcolor.red =
+      static_cast<unsigned short>(m_theme.window_background.red * 257U);
+  bg_xcolor.green =
+      static_cast<unsigned short>(m_theme.window_background.green * 257U);
+  bg_xcolor.blue =
+      static_cast<unsigned short>(m_theme.window_background.blue * 257U);
   bg_xcolor.flags = DoRed | DoGreen | DoBlue;
   unsigned long bg_pixel = BlackPixel(m_display, m_screen);
-  if (XAllocColor(m_display, DefaultColormap(m_display, m_screen), &bg_xcolor) != 0) {
+  if (XAllocColor(m_display, DefaultColormap(m_display, m_screen),
+                  &bg_xcolor) != 0) {
     bg_pixel = bg_xcolor.pixel;
   }
 
   m_window_handle = XCreateSimpleWindow(
       m_display, root_window, 0, 0, static_cast<unsigned int>(m_client_width),
-      static_cast<unsigned int>(m_client_height), 0,
-      bg_pixel, bg_pixel);
+      static_cast<unsigned int>(m_client_height), 0, bg_pixel, bg_pixel);
   if (m_window_handle == 0) {
     return false;
   }
@@ -305,17 +311,18 @@ bool X11Window::initialize() {
   Language::LanguageServerManager::instance().set_diagnostics_callback(
       [this](const std::string &uri,
              const std::vector<Language::Protocol::Diagnostic> &diags) {
-        // Queue diagnostics for main thread — never touch UI/Xlib state from LSP thread
+        // Queue diagnostics for main thread — never touch UI/Xlib state from
+        // LSP thread
         std::lock_guard<std::mutex> lock(m_pending_diag_mutex);
         m_pending_diagnostics.push_back({uri, diags});
         m_has_pending_diagnostics.store(true, std::memory_order_release);
       });
 
-  m_chrome_renderer.get_workspace_renderer().get_terminal_panel().set_copy_callback(
-      [this](const std::string &text) {
-        copy_to_clipboard(text);
-      });
-  
+  m_chrome_renderer.get_workspace_renderer()
+      .get_terminal_panel()
+      .set_copy_callback(
+          [this](const std::string &text) { copy_to_clipboard(text); });
+
   apply_window_icon();
   refresh_chrome_layout();
   apply_size_hints();
@@ -362,25 +369,26 @@ void X11Window::poll_events() {
       if (req->target == targets) {
         Atom supported_targets[] = {utf8_string, XA_STRING};
         XChangeProperty(m_display, req->requestor, req->property, XA_ATOM, 32,
-                        PropModeReplace, reinterpret_cast<unsigned char *>(supported_targets), 2);
+                        PropModeReplace,
+                        reinterpret_cast<unsigned char *>(supported_targets),
+                        2);
       } else if (req->target == utf8_string || req->target == XA_STRING) {
-        XChangeProperty(m_display, req->requestor, req->property, req->target, 8,
-                        PropModeReplace, reinterpret_cast<const unsigned char *>(m_clipboard_text.data()),
-                        m_clipboard_text.size());
+        XChangeProperty(
+            m_display, req->requestor, req->property, req->target, 8,
+            PropModeReplace,
+            reinterpret_cast<const unsigned char *>(m_clipboard_text.data()),
+            m_clipboard_text.size());
       } else {
         sel_ev.property = None;
       }
-      XSendEvent(m_display, req->requestor, False, 0, reinterpret_cast<XEvent *>(&sel_ev));
+      XSendEvent(m_display, req->requestor, False, 0,
+                 reinterpret_cast<XEvent *>(&sel_ev));
       XFlush(m_display);
       continue;
     }
     if (m_prompt_dialog.is_open()) {
       if (event.xany.window == m_prompt_dialog.window()) {
         m_prompt_dialog.handle_event(event);
-        continue;
-      }
-      if (event.type == ButtonPress) {
-        m_prompt_dialog.close();
         continue;
       }
     }
@@ -390,7 +398,8 @@ void X11Window::poll_events() {
         continue;
       }
     }
-    if (target.popup_window != 0 && event.xany.window == target.popup_window && event.type != MappingNotify) {
+    if (target.popup_window != 0 && event.xany.window == target.popup_window &&
+        event.type != MappingNotify) {
       static_cast<void>(m_chrome_renderer.handle_popup_event(event));
       if (const auto command = m_chrome_renderer.take_popup_command()) {
         m_interaction_state.open_menu_index.reset();
@@ -426,10 +435,13 @@ void X11Window::poll_events() {
   }
 
   const auto now = std::chrono::steady_clock::now();
-  const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_last_animation_frame_time).count();
+  const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           now - m_last_animation_frame_time)
+                           .count();
   if (elapsed >= 4) {
     m_last_animation_frame_time = now;
-    if (!m_is_minimized && m_custom_chrome_enabled && m_chrome_renderer.tick_animations()) {
+    if (!m_is_minimized && m_custom_chrome_enabled &&
+        m_chrome_renderer.tick_animations()) {
       render();
     }
     if (m_prompt_dialog.is_open()) {
@@ -575,6 +587,7 @@ bool X11Window::open_project_folder() {
   }
   const std::optional<std::filesystem::path> selected =
       Zenvra::Platform::open_folder_dialog();
+  discard_pointer_events();
   if (!selected || selected->empty()) {
     return true;
   }
@@ -588,13 +601,11 @@ bool X11Window::open_project_folder() {
   std::error_code path_error;
   const std::filesystem::path canonical =
       std::filesystem::weakly_canonical(*selected, path_error);
-  const std::filesystem::path display_root =
-      path_error ? *selected : canonical;
+  const std::filesystem::path display_root = path_error ? *selected : canonical;
   const std::string folder_name = display_root.filename().empty()
                                       ? display_root.string()
                                       : display_root.filename().string();
-  const std::string window_title =
-      folder_name + " - " + m_specification.title;
+  const std::string window_title = folder_name + " - " + m_specification.title;
   m_specification.title = window_title;
   XStoreName(m_display, m_window_handle, m_specification.title.c_str());
   XChangeProperty(
@@ -605,6 +616,21 @@ bool X11Window::open_project_folder() {
   XSetIconName(m_display, m_window_handle, m_specification.title.c_str());
   render();
   return true;
+}
+
+void X11Window::discard_pointer_events() {
+  if (m_display == nullptr || m_window_handle == 0) {
+    return;
+  }
+  XEvent discarded{};
+  while (XCheckMaskEvent(
+      m_display, ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+      &discarded)) {
+    // Drain events queued while modal dialog was active
+  }
+  m_last_workspace_click_time = 0;
+  m_workspace_click_count = 0;
+  m_last_titlebar_click_time = 0;
 }
 
 void X11Window::initialize_atoms() {
@@ -639,7 +665,8 @@ void X11Window::initialize_cursors() {
   m_pointer_cursor = XCreateFontCursor(m_display, XC_hand2);
   m_text_cursor = XCreateFontCursor(m_display, XC_xterm);
   m_split_resize_cursor = XCreateFontCursor(m_display, XC_sb_v_double_arrow);
-  m_horizontal_split_resize_cursor = XCreateFontCursor(m_display, XC_sb_h_double_arrow);
+  m_horizontal_split_resize_cursor =
+      XCreateFontCursor(m_display, XC_sb_h_double_arrow);
   m_move_resize_cursors[static_cast<std::size_t>(
       MoveResizeDirection::SizeTopLeft)] =
       XCreateFontCursor(m_display, XC_top_left_corner);
@@ -686,6 +713,8 @@ void X11Window::release_native_resources() {
     static_cast<void>(m_chrome_renderer.handle_workspace_pointer_release());
   }
   m_file_drop_target.shutdown();
+  m_prompt_dialog.shutdown();
+  m_add_item_dialog.shutdown();
   m_chrome_renderer.shutdown();
   Language::LanguageServerManager::instance().stop_all();
   for (Cursor &cursor : m_move_resize_cursors) {
@@ -721,13 +750,15 @@ void X11Window::release_native_resources() {
 }
 
 void X11Window::apply_window_icon() const {
-  constexpr std::array<int, 9> icon_sizes{16, 24, 32, 48, 64, 96, 128, 256, 512};
+  constexpr std::array<int, 9> icon_sizes{16, 24,  32,  48, 64,
+                                          96, 128, 256, 512};
 
   std::vector<unsigned long> icon_data;
 
   // Use the compiled-in bundled logo asset
-  std::optional<Utility::DecodedImage> decoded = Utility::decode_ico_memory(
-      Assets_icons_zenvra_logo_build_ico, Assets_icons_zenvra_logo_build_ico_len);
+  std::optional<Utility::DecodedImage> decoded =
+      Utility::decode_ico_memory(Assets_icons_zenvra_logo_build_ico,
+                                 Assets_icons_zenvra_logo_build_ico_len);
 
   if (decoded.has_value() && !decoded->pixels.empty()) {
     std::size_t icon_data_size = 0;
@@ -737,9 +768,9 @@ void X11Window::apply_window_icon() const {
     icon_data.reserve(icon_data_size);
 
     for (const int icon_size : icon_sizes) {
-      const std::vector<unsigned char> resampled = downsample_rgba(
-          decoded->pixels.data(), decoded->width, decoded->height, icon_size,
-          icon_size);
+      const std::vector<unsigned char> resampled =
+          downsample_rgba(decoded->pixels.data(), decoded->width,
+                          decoded->height, icon_size, icon_size);
       icon_data.push_back(static_cast<unsigned long>(icon_size));
       icon_data.push_back(static_cast<unsigned long>(icon_size));
       for (std::size_t pixel = 0;
@@ -748,11 +779,10 @@ void X11Window::apply_window_icon() const {
         const unsigned char green = resampled[pixel * 4 + 1];
         const unsigned char blue = resampled[pixel * 4 + 2];
         const unsigned char alpha = resampled[pixel * 4 + 3];
-        icon_data.push_back(
-            static_cast<unsigned long>(alpha) << 24U |
-            static_cast<unsigned long>(red) << 16U |
-            static_cast<unsigned long>(green) << 8U |
-            static_cast<unsigned long>(blue));
+        icon_data.push_back(static_cast<unsigned long>(alpha) << 24U |
+                            static_cast<unsigned long>(red) << 16U |
+                            static_cast<unsigned long>(green) << 8U |
+                            static_cast<unsigned long>(blue));
       }
     }
   } else {
@@ -902,7 +932,8 @@ void X11Window::refresh_window_state() {
 }
 
 void X11Window::render(std::optional<UI::Rect> dirty_rect) {
-  if (m_display == nullptr || m_window_handle == 0 || m_is_minimized || m_should_close) {
+  if (m_display == nullptr || m_window_handle == 0 || m_is_minimized ||
+      m_should_close) {
     return;
   }
 
@@ -1074,7 +1105,8 @@ void X11Window::handle_event(XEvent &event) {
 void X11Window::handle_motion(const XMotionEvent &event) {
   XMotionEvent latest_event = event;
   XEvent next_event;
-  while (XCheckTypedWindowEvent(m_display, m_window_handle, MotionNotify, &next_event)) {
+  while (XCheckTypedWindowEvent(m_display, m_window_handle, MotionNotify,
+                                &next_event)) {
     latest_event = next_event.xmotion;
   }
 
@@ -1084,9 +1116,12 @@ void X11Window::handle_motion(const XMotionEvent &event) {
   }
 
   if (m_about_modal.is_visible()) {
-    const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(m_client_width), static_cast<float>(m_client_height)};
+    const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(m_client_width),
+                            static_cast<float>(m_client_height)};
     const auto layout = m_about_modal.calculate_layout(viewport, m_dpi_scale);
-    if (m_about_modal.handle_pointer_move(static_cast<float>(latest_event.x), static_cast<float>(latest_event.y), layout)) {
+    if (m_about_modal.handle_pointer_move(static_cast<float>(latest_event.x),
+                                          static_cast<float>(latest_event.y),
+                                          layout)) {
       render();
     }
     return;
@@ -1094,8 +1129,8 @@ void X11Window::handle_motion(const XMotionEvent &event) {
 
   if ((latest_event.state & Button1Mask) != 0 &&
       m_chrome_renderer.handle_workspace_pointer_drag(
-          static_cast<float>(latest_event.x), static_cast<float>(latest_event.y),
-          m_client_width, m_client_height,
+          static_cast<float>(latest_event.x),
+          static_cast<float>(latest_event.y), m_client_width, m_client_height,
           m_chrome_layout.titlebar_bounds.bottom())) {
     render();
     return;
@@ -1115,7 +1150,8 @@ void X11Window::handle_motion(const XMotionEvent &event) {
       static_cast<float>(latest_event.x), static_cast<float>(latest_event.y));
   const bool command_center_hovered =
       m_chrome_layout.command_center_bounds.contains(
-          static_cast<float>(latest_event.x), static_cast<float>(latest_event.y));
+          static_cast<float>(latest_event.x),
+          static_cast<float>(latest_event.y));
   const bool run_button_hovered = m_chrome_layout.is_run_button(
       static_cast<float>(latest_event.x), static_cast<float>(latest_event.y));
   const bool debug_button_hovered = m_chrome_layout.is_debug_button(
@@ -1137,7 +1173,8 @@ void X11Window::handle_motion(const XMotionEvent &event) {
       hovered_control != m_interaction_state.hovered_control ||
       hovered_menu != m_interaction_state.hovered_menu_index ||
       hovered_popup_item != m_interaction_state.hovered_popup_item_index ||
-      hovered_overflow_menu != m_interaction_state.hovered_overflow_menu_index ||
+      hovered_overflow_menu !=
+          m_interaction_state.hovered_overflow_menu_index ||
       overflow_menu_hovered != m_interaction_state.overflow_menu_hovered ||
       command_center_hovered != m_interaction_state.command_center_hovered ||
       run_button_hovered != m_interaction_state.run_button_hovered ||
@@ -1153,8 +1190,7 @@ void X11Window::handle_motion(const XMotionEvent &event) {
       overflow_menu_hovered || run_button_hovered || debug_button_hovered ||
       ellipsis_button_hovered || compiler_button_hovered ||
       platform_button_hovered || binary_button_hovered ||
-      build_button_hovered || gear_button_hovered ||
-      hovered_menu.has_value();
+      build_button_hovered || gear_button_hovered || hovered_menu.has_value();
 
   bool workspace_changed = false;
   if (m_interaction_state.open_menu_index.has_value() ||
@@ -1187,11 +1223,16 @@ void X11Window::handle_motion(const XMotionEvent &event) {
 
   std::optional<std::size_t> combined_hovered_menu = hovered_menu;
   if (!combined_hovered_menu) {
-    if (compiler_button_hovered) combined_hovered_menu = 10;
-    else if (platform_button_hovered) combined_hovered_menu = 11;
-    else if (binary_button_hovered) combined_hovered_menu = 12;
-    else if (gear_button_hovered) combined_hovered_menu = 13;
-    else if (ellipsis_button_hovered) combined_hovered_menu = 14;
+    if (compiler_button_hovered)
+      combined_hovered_menu = 10;
+    else if (platform_button_hovered)
+      combined_hovered_menu = 11;
+    else if (binary_button_hovered)
+      combined_hovered_menu = 12;
+    else if (gear_button_hovered)
+      combined_hovered_menu = 13;
+    else if (ellipsis_button_hovered)
+      combined_hovered_menu = 14;
   }
 
   // Hover-switching is now active for all dropdowns (menubar and overlays).
@@ -1249,13 +1290,13 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
     const bool over_tab_bar = m_chrome_renderer.is_tab_bar_point(
         point_x, point_y, m_client_width, m_client_height, content_top);
 
-    bool horizontal = (event.state & ShiftMask) != 0 || event.button == 6 || event.button == 7;
+    bool horizontal = (event.state & ShiftMask) != 0 || event.button == 6 ||
+                      event.button == 7;
     int delta = (event.button == Button4 || event.button == 6) ? -3 : 3;
 
     if (over_tool_sidebar &&
         m_chrome_renderer.handle_tool_sidebar_scroll(
-            delta, m_client_width, m_client_height,
-            content_top)) {
+            delta, m_client_width, m_client_height, content_top)) {
       render();
       return;
     }
@@ -1284,8 +1325,10 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
     const float point_y = static_cast<float>(event.y);
     const float content_top = m_chrome_layout.titlebar_bounds.bottom();
 
-    if (m_chrome_renderer.is_tool_sidebar_point(point_x, point_y, m_client_width, m_client_height, content_top)) {
-      const auto opt_target = m_chrome_renderer.handle_right_click(point_x, point_y, m_client_width, m_client_height, content_top);
+    if (m_chrome_renderer.is_tool_sidebar_point(
+            point_x, point_y, m_client_width, m_client_height, content_top)) {
+      const auto opt_target = m_chrome_renderer.handle_right_click(
+          point_x, point_y, m_client_width, m_client_height, content_top);
       if (opt_target) {
         show_explorer_context_menu(*opt_target, event.x, event.y);
         return;
@@ -1312,9 +1355,11 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
   }
 
   if (m_about_modal.is_visible()) {
-    const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(m_client_width), static_cast<float>(m_client_height)};
+    const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(m_client_width),
+                            static_cast<float>(m_client_height)};
     const auto layout = m_about_modal.calculate_layout(viewport, m_dpi_scale);
-    static_cast<void>(m_about_modal.handle_pointer_press(static_cast<float>(event.x), static_cast<float>(event.y), layout));
+    static_cast<void>(m_about_modal.handle_pointer_press(
+        static_cast<float>(event.x), static_cast<float>(event.y), layout));
     render();
     return;
   }
@@ -1439,8 +1484,8 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
   // Overlay toolbar dropdowns — mutual exclusion + toggle
   static constexpr std::size_t compiler_menu_index = 10;
   static constexpr std::size_t platform_menu_index = 11;
-  static constexpr std::size_t binary_menu_index   = 12;
-  static constexpr std::size_t gear_menu_index     = 13;
+  static constexpr std::size_t binary_menu_index = 12;
+  static constexpr std::size_t gear_menu_index = 13;
   static constexpr std::size_t ellipsis_menu_index = 14;
 
   auto open_or_close_overlay = [&](std::size_t idx) {
@@ -1536,8 +1581,6 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
     return;
   }
 
-
-
   const bool is_repeat_click =
       m_last_workspace_click_time != 0 &&
       event.time - m_last_workspace_click_time <= double_click_interval_ms &&
@@ -1559,12 +1602,58 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
     if (!command_out.empty()) {
       if (command_out.starts_with("zde.explorer.")) {
         execute_explorer_command(command_out);
-      } else if (command_out == "zde.project.open") {
-        if (const auto folder = open_folder_dialog()) {
-          static_cast<void>(m_chrome_renderer.set_workspace_root(*folder));
-          Language::LanguageServerManager::instance().set_workspace_root(*folder);
-          render();
-        }
+      } else if (command_out == "zde.project.open" ||
+                 command_out == Commands::CommandIds::project_open ||
+                 command_out == Commands::CommandIds::folder_open) {
+        static_cast<void>(open_project_folder());
+      } else if (command_out == "zde.git.clone") {
+        m_prompt_dialog.open_clone_repository(
+            m_window_handle, [this](const std::string &repo_url) {
+              if (repo_url.empty()) {
+                return;
+              }
+              const auto destination = open_folder_dialog();
+              discard_pointer_events();
+              if (!destination) {
+                return;
+              }
+
+              std::string repo_name;
+              {
+                std::string url_str = repo_url;
+                if (url_str.size() > 4 &&
+                    url_str.substr(url_str.size() - 4) == ".git") {
+                  url_str = url_str.substr(0, url_str.size() - 4);
+                }
+                while (!url_str.empty() && url_str.back() == '/') {
+                  url_str.pop_back();
+                }
+                const auto last_slash = url_str.rfind('/');
+                repo_name = (last_slash != std::string::npos)
+                                ? url_str.substr(last_slash + 1)
+                                : url_str;
+              }
+              if (repo_name.empty()) {
+                repo_name = "cloned-repo";
+              }
+
+              const std::filesystem::path clone_target =
+                  *destination / repo_name;
+              const std::string clone_cmd = "git clone --progress \"" +
+                                            repo_url + "\" \"" +
+                                            clone_target.string() + "\" 2>&1";
+              const int exit_code = std::system(clone_cmd.c_str());
+              if (exit_code == 0) {
+                std::error_code ec;
+                if (std::filesystem::is_directory(clone_target, ec)) {
+                  static_cast<void>(
+                      m_chrome_renderer.set_workspace_root(clone_target));
+                  Language::LanguageServerManager::instance()
+                      .set_workspace_root(clone_target);
+                  render();
+                }
+              }
+            });
       } else if (m_command_invoked_callback) {
         m_command_invoked_callback(command_out);
       }
@@ -1577,7 +1666,8 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
                m_chrome_renderer.is_sidebar_resizing()) {
       XGrabPointer(m_display, m_window_handle, False,
                    ButtonReleaseMask | PointerMotionMask, GrabModeAsync,
-                   GrabModeAsync, None, m_horizontal_split_resize_cursor, event.time);
+                   GrabModeAsync, None, m_horizontal_split_resize_cursor,
+                   event.time);
     }
     render();
     return;
@@ -1615,11 +1705,12 @@ void X11Window::handle_button_release(const XButtonEvent &event) {
   }
 
   if (m_about_modal.is_visible()) {
-    const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(m_client_width), static_cast<float>(m_client_height)};
+    const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(m_client_width),
+                            static_cast<float>(m_client_height)};
     const auto layout = m_about_modal.calculate_layout(viewport, m_dpi_scale);
-    static_cast<void>(m_about_modal.handle_pointer_release(static_cast<float>(event.x), static_cast<float>(event.y), layout, [this](const std::string& text) {
-      copy_to_clipboard(text);
-    }));
+    static_cast<void>(m_about_modal.handle_pointer_release(
+        static_cast<float>(event.x), static_cast<float>(event.y), layout,
+        [this](const std::string &text) { copy_to_clipboard(text); }));
     render();
     return;
   }
@@ -1687,7 +1778,7 @@ void X11Window::handle_button_release(const XButtonEvent &event) {
 
     const std::optional<std::size_t> menu_index =
         m_chrome_layout.get_menu_index(static_cast<float>(event.x),
-                                         static_cast<float>(event.y));
+                                       static_cast<float>(event.y));
     if (menu_index) {
       open_menu(*menu_index, false);
       return;
@@ -1739,17 +1830,23 @@ void X11Window::handle_key_press(XKeyEvent &event) {
 
   if (m_chrome_renderer.is_prompt_modal_visible()) {
     if (key_symbol == XK_Escape) {
-      static_cast<void>(m_chrome_renderer.get_workspace_renderer().get_prompt_modal().handle_escape());
+      static_cast<void>(m_chrome_renderer.get_workspace_renderer()
+                            .get_prompt_modal()
+                            .handle_escape());
       render();
       return;
     }
     if (key_symbol == XK_Return || key_symbol == XK_KP_Enter) {
-      static_cast<void>(m_chrome_renderer.get_workspace_renderer().get_prompt_modal().handle_enter());
+      static_cast<void>(m_chrome_renderer.get_workspace_renderer()
+                            .get_prompt_modal()
+                            .handle_enter());
       render();
       return;
     }
     if (key_symbol == XK_BackSpace) {
-      static_cast<void>(m_chrome_renderer.get_workspace_renderer().get_prompt_modal().handle_backspace());
+      static_cast<void>(m_chrome_renderer.get_workspace_renderer()
+                            .get_prompt_modal()
+                            .handle_backspace());
       render();
       return;
     }
@@ -1757,8 +1854,10 @@ void X11Window::handle_key_press(XKeyEvent &event) {
     KeySym sym{};
     int len = XLookupString(&event, buf, sizeof(buf), &sym, nullptr);
     if (len > 0 && !std::iscntrl(static_cast<unsigned char>(buf[0]))) {
-      static_cast<void>(m_chrome_renderer.get_workspace_renderer().get_prompt_modal().handle_char(
-          static_cast<char32_t>(static_cast<unsigned char>(buf[0]))));
+      static_cast<void>(m_chrome_renderer.get_workspace_renderer()
+                            .get_prompt_modal()
+                            .handle_char(static_cast<char32_t>(
+                                static_cast<unsigned char>(buf[0]))));
       render();
       return;
     }
@@ -1839,8 +1938,11 @@ void X11Window::handle_key_press(XKeyEvent &event) {
     const bool shift_pressed = (event.state & ShiftMask) != 0;
     if (shift_pressed && (key_symbol == XK_Up || key_symbol == XK_KP_Up ||
                           key_symbol == XK_Down || key_symbol == XK_KP_Down)) {
-      std::ptrdiff_t delta = (key_symbol == XK_Up || key_symbol == XK_KP_Up) ? 3 : -3;
-      if (m_chrome_renderer.get_workspace_renderer().get_terminal_panel().handle_scroll(delta, false)) {
+      std::ptrdiff_t delta =
+          (key_symbol == XK_Up || key_symbol == XK_KP_Up) ? 3 : -3;
+      if (m_chrome_renderer.get_workspace_renderer()
+              .get_terminal_panel()
+              .handle_scroll(delta, false)) {
         render();
         return;
       }
@@ -1848,25 +1950,36 @@ void X11Window::handle_key_press(XKeyEvent &event) {
 
     if ((event.state & ControlMask) != 0) {
       if ((key_symbol == XK_c || key_symbol == XK_C) &&
-          m_chrome_renderer.get_workspace_renderer().get_terminal_panel().get_model().has_selection()) {
-        copy_to_clipboard(
-            m_chrome_renderer.get_workspace_renderer().get_terminal_panel().get_model().get_selected_text());
-        m_chrome_renderer.get_workspace_renderer().get_terminal_panel().get_model().clear_selection();
+          m_chrome_renderer.get_workspace_renderer()
+              .get_terminal_panel()
+              .get_model()
+              .has_selection()) {
+        copy_to_clipboard(m_chrome_renderer.get_workspace_renderer()
+                              .get_terminal_panel()
+                              .get_model()
+                              .get_selected_text());
+        m_chrome_renderer.get_workspace_renderer()
+            .get_terminal_panel()
+            .get_model()
+            .clear_selection();
         render();
         return;
       }
       if (shift_pressed && (key_symbol == XK_v || key_symbol == XK_V)) {
         if (!m_clipboard_text.empty()) {
-          static_cast<void>(m_chrome_renderer.get_workspace_renderer().get_terminal_panel().handle_text_input(m_clipboard_text));
+          static_cast<void>(m_chrome_renderer.get_workspace_renderer()
+                                .get_terminal_panel()
+                                .handle_text_input(m_clipboard_text));
           render();
           return;
         }
       }
       if ((key_symbol >= XK_a && key_symbol <= XK_z) ||
           (key_symbol >= XK_A && key_symbol <= XK_Z)) {
-        handled = m_chrome_renderer.handle_terminal_control(static_cast<char>(
-            key_symbol >= XK_A && key_symbol <= XK_Z ? key_symbol - XK_A + 'A'
-                                                     : key_symbol - XK_a + 'a'));
+        handled = m_chrome_renderer.handle_terminal_control(
+            static_cast<char>(key_symbol >= XK_A && key_symbol <= XK_Z
+                                  ? key_symbol - XK_A + 'A'
+                                  : key_symbol - XK_a + 'a'));
       }
     } else {
       std::optional<Terminal::TerminalInputKey> terminal_key;
@@ -1960,11 +2073,13 @@ void X11Window::handle_key_press(XKeyEvent &event) {
         return;
       }
     } else if (key_symbol == XK_F11) {
-      if (dispatch_shortcut_command(Commands::CommandIds::window_toggle_fullscreen)) {
+      if (dispatch_shortcut_command(
+              Commands::CommandIds::window_toggle_fullscreen)) {
         return;
       }
     } else if (key_symbol == XK_F12) {
-      if (dispatch_shortcut_command(Commands::CommandIds::editor_goto_definition)) {
+      if (dispatch_shortcut_command(
+              Commands::CommandIds::editor_goto_definition)) {
         return;
       }
     }
@@ -1972,53 +2087,67 @@ void X11Window::handle_key_press(XKeyEvent &event) {
 
   if (!m_interaction_state.open_menu_index &&
       !m_interaction_state.overflow_menu_open &&
-      (event.state & ControlMask) != 0 &&
-      (event.state & Mod1Mask) == 0) {
+      (event.state & ControlMask) != 0 && (event.state & Mod1Mask) == 0) {
     if ((event.state & ShiftMask) != 0) {
       switch (key_symbol) {
       case XK_b:
       case XK_B:
-        if (dispatch_shortcut_command(Commands::CommandIds::build_build_project)) return;
+        if (dispatch_shortcut_command(
+                Commands::CommandIds::build_build_project))
+          return;
         break;
       case XK_n:
       case XK_N:
-        if (dispatch_shortcut_command(Commands::CommandIds::window_new)) return;
+        if (dispatch_shortcut_command(Commands::CommandIds::window_new))
+          return;
         break;
       case XK_w:
       case XK_W:
-        if (dispatch_shortcut_command(Commands::CommandIds::window_close)) return;
+        if (dispatch_shortcut_command(Commands::CommandIds::window_close))
+          return;
         break;
       case XK_s:
       case XK_S:
-        if (dispatch_shortcut_command(Commands::CommandIds::file_save_as)) return;
+        if (dispatch_shortcut_command(Commands::CommandIds::file_save_as))
+          return;
         break;
       case XK_p:
       case XK_P:
-        if (dispatch_shortcut_command(Commands::CommandIds::help_show_all_commands)) return;
+        if (dispatch_shortcut_command(
+                Commands::CommandIds::help_show_all_commands))
+          return;
         break;
       case XK_f:
       case XK_F:
-        if (dispatch_shortcut_command(Commands::CommandIds::edit_find_in_project)) return;
+        if (dispatch_shortcut_command(
+                Commands::CommandIds::edit_find_in_project))
+          return;
         break;
       case XK_e:
       case XK_E:
-        if (dispatch_shortcut_command(Commands::CommandIds::view_project_panel)) return;
+        if (dispatch_shortcut_command(Commands::CommandIds::view_project_panel))
+          return;
         break;
       case XK_g:
       case XK_G:
-        if (dispatch_shortcut_command(Commands::CommandIds::view_git_panel)) return;
+        if (dispatch_shortcut_command(Commands::CommandIds::view_git_panel))
+          return;
         break;
       case XK_d:
       case XK_D:
-        if (dispatch_shortcut_command(Commands::CommandIds::view_debugger_panel)) return;
+        if (dispatch_shortcut_command(
+                Commands::CommandIds::view_debugger_panel))
+          return;
         break;
       case XK_x:
       case XK_X:
-        if (dispatch_shortcut_command(Commands::CommandIds::open_plugins)) return;
+        if (dispatch_shortcut_command(Commands::CommandIds::open_plugins))
+          return;
         break;
       case XK_m:
       case XK_M:
-        if (dispatch_shortcut_command(Commands::CommandIds::view_diagnostics)) return;
+        if (dispatch_shortcut_command(Commands::CommandIds::view_diagnostics))
+          return;
         break;
       default:
         break;
@@ -2027,38 +2156,51 @@ void X11Window::handle_key_press(XKeyEvent &event) {
       switch (key_symbol) {
       case XK_o:
       case XK_O:
-        if (dispatch_shortcut_command(Commands::CommandIds::file_open)) return;
+        if (dispatch_shortcut_command(Commands::CommandIds::file_open))
+          return;
         break;
       case XK_b:
       case XK_B:
-        if (dispatch_shortcut_command(Commands::CommandIds::view_toggle_left_dock)) return;
+        if (dispatch_shortcut_command(
+                Commands::CommandIds::view_toggle_left_dock))
+          return;
         break;
       case XK_j:
       case XK_J:
-        if (dispatch_shortcut_command(Commands::CommandIds::view_toggle_bottom_dock)) return;
+        if (dispatch_shortcut_command(
+                Commands::CommandIds::view_toggle_bottom_dock))
+          return;
         break;
       case XK_comma:
-        if (dispatch_shortcut_command(Commands::CommandIds::open_settings)) return;
+        if (dispatch_shortcut_command(Commands::CommandIds::open_settings))
+          return;
         break;
       case XK_grave:
       case XK_asciitilde:
-        if (dispatch_shortcut_command(Commands::CommandIds::view_terminal_panel)) return;
+        if (dispatch_shortcut_command(
+                Commands::CommandIds::view_terminal_panel))
+          return;
         break;
       case XK_backslash:
-        if (dispatch_shortcut_command("zde.editor.split_right")) return;
+        if (dispatch_shortcut_command("zde.editor.split_right"))
+          return;
         break;
       case XK_1:
-        if (dispatch_shortcut_command("zde.editor.focus_first_group")) return;
+        if (dispatch_shortcut_command("zde.editor.focus_first_group"))
+          return;
         break;
       case XK_2:
-        if (dispatch_shortcut_command("zde.editor.focus_second_group")) return;
+        if (dispatch_shortcut_command("zde.editor.focus_second_group"))
+          return;
         break;
       case XK_w:
       case XK_W:
-        if (dispatch_shortcut_command("workbench.action.closeActiveEditor")) return;
+        if (dispatch_shortcut_command("workbench.action.closeActiveEditor"))
+          return;
         break;
       case XK_space:
-        if (dispatch_shortcut_command("editor.action.triggerSuggest")) return;
+        if (dispatch_shortcut_command("editor.action.triggerSuggest"))
+          return;
         break;
       default:
         break;
@@ -2068,12 +2210,13 @@ void X11Window::handle_key_press(XKeyEvent &event) {
 
   if (!m_interaction_state.open_menu_index &&
       !m_interaction_state.overflow_menu_open &&
-      (event.state & ControlMask) != 0 &&
-      (event.state & Mod1Mask) != 0) {
+      (event.state & ControlMask) != 0 && (event.state & Mod1Mask) != 0) {
     switch (key_symbol) {
     case XK_b:
     case XK_B:
-      if (dispatch_shortcut_command(Commands::CommandIds::view_toggle_right_dock)) return;
+      if (dispatch_shortcut_command(
+              Commands::CommandIds::view_toggle_right_dock))
+        return;
       break;
     default:
       break;
@@ -2108,7 +2251,8 @@ void X11Window::handle_key_press(XKeyEvent &event) {
         break;
       case XK_c:
       case XK_C:
-        if (const auto *doc = m_chrome_renderer.get_text_editor().get_focused_document()) {
+        if (const auto *doc =
+                m_chrome_renderer.get_text_editor().get_focused_document()) {
           if (doc->has_selection()) {
             copy_to_clipboard(doc->get_selected_text());
           }
@@ -2117,7 +2261,8 @@ void X11Window::handle_key_press(XKeyEvent &event) {
         break;
       case XK_x:
       case XK_X:
-        if (const auto *doc = m_chrome_renderer.get_text_editor().get_focused_document()) {
+        if (const auto *doc =
+                m_chrome_renderer.get_text_editor().get_focused_document()) {
           if (doc->has_selection()) {
             copy_to_clipboard(doc->get_selected_text());
           }
@@ -2151,17 +2296,22 @@ void X11Window::handle_key_press(XKeyEvent &event) {
     const bool shift_pressed = (event.state & ShiftMask) != 0;
 
     if (key_symbol == XK_Escape) {
-      if (m_chrome_renderer.handle_editor_input(UI::Editor::EditorInputCommand::Escape, false)) {
+      if (m_chrome_renderer.handle_editor_input(
+              UI::Editor::EditorInputCommand::Escape, false)) {
         render();
         return;
       }
     }
 
-    if ((ctrl_pressed && shift_pressed && (key_symbol == XK_Up || key_symbol == XK_KP_Up || key_symbol == XK_Down || key_symbol == XK_KP_Down)) ||
-        (ctrl_pressed && alt_pressed && (key_symbol == XK_Up || key_symbol == XK_KP_Up || key_symbol == XK_Down || key_symbol == XK_KP_Down))) {
+    if ((ctrl_pressed && shift_pressed &&
+         (key_symbol == XK_Up || key_symbol == XK_KP_Up ||
+          key_symbol == XK_Down || key_symbol == XK_KP_Down)) ||
+        (ctrl_pressed && alt_pressed &&
+         (key_symbol == XK_Up || key_symbol == XK_KP_Up ||
+          key_symbol == XK_Down || key_symbol == XK_KP_Down))) {
       const auto cmd = (key_symbol == XK_Up || key_symbol == XK_KP_Up)
-          ? UI::Editor::EditorInputCommand::AddCursorAbove
-          : UI::Editor::EditorInputCommand::AddCursorBelow;
+                           ? UI::Editor::EditorInputCommand::AddCursorAbove
+                           : UI::Editor::EditorInputCommand::AddCursorBelow;
       if (m_chrome_renderer.handle_editor_input(cmd, false)) {
         render();
       }
@@ -2320,9 +2470,9 @@ void X11Window::update_cursor(int point_x, int point_y) {
                   m_chrome_layout.titlebar_bounds.bottom()) &&
               m_chrome_renderer.get_text_editor().get_document() != nullptr) ||
              m_chrome_renderer.is_terminal_point(
-                  static_cast<float>(point_x), static_cast<float>(point_y),
-                  m_client_width, m_client_height,
-                  m_chrome_layout.titlebar_bounds.bottom())) {
+                 static_cast<float>(point_x), static_cast<float>(point_y),
+                 m_client_width, m_client_height,
+                 m_chrome_layout.titlebar_bounds.bottom())) {
     desired_cursor = m_text_cursor;
   } else {
     desired_cursor = m_default_cursor;
@@ -2473,7 +2623,8 @@ void X11Window::send_maximized_state(long operation) {
   XFlush(m_display);
 }
 
-void X11Window::open_menu(std::size_t menu_index, bool select_first_item, [[maybe_unused]] const UI::Rect* anchor_override) {
+void X11Window::open_menu(std::size_t menu_index, bool select_first_item,
+                          [[maybe_unused]] const UI::Rect *anchor_override) {
   const std::span<const UI::Components::Menu> menus =
       UI::Components::get_window_menus();
   if (menu_index >= menus.size()) {
@@ -2483,14 +2634,16 @@ void X11Window::open_menu(std::size_t menu_index, bool select_first_item, [[mayb
   m_chrome_renderer.close_popup();
 
   const bool opened_from_overflow =
-      m_interaction_state.overflow_menu_open && m_chrome_layout.has_overflow_menu() &&
+      m_interaction_state.overflow_menu_open &&
+      m_chrome_layout.has_overflow_menu() &&
       menu_index >= m_chrome_layout.first_overflow_menu_index;
   if (!opened_from_overflow) {
     m_interaction_state.overflow_menu_open = false;
   }
 
   m_interaction_state.open_menu_index = menu_index;
-  m_interaction_state.hovered_popup_item_index = select_first_item ? 0 : std::optional<std::size_t>();
+  m_interaction_state.hovered_popup_item_index =
+      select_first_item ? 0 : std::optional<std::size_t>();
   m_pressed_popup_item_index.reset();
   m_menu_pointer_tracking = true;
   render();
@@ -2579,15 +2732,19 @@ void X11Window::execute_popup_selection() {
     return;
   }
   if (command_id == Commands::CommandIds::build_debug) {
-    m_chrome_renderer.set_active_mode(UI::Toolbar::BuildConfigurationMode::Debug);
+    m_chrome_renderer.set_active_mode(
+        UI::Toolbar::BuildConfigurationMode::Debug);
   } else if (command_id == Commands::CommandIds::build_release) {
-    m_chrome_renderer.set_active_mode(UI::Toolbar::BuildConfigurationMode::Release);
+    m_chrome_renderer.set_active_mode(
+        UI::Toolbar::BuildConfigurationMode::Release);
   } else if (command_id == Commands::CommandIds::platform_arm64 ||
              command_id == Commands::CommandIds::platform_aarch64 ||
              command_id == Commands::CommandIds::platform_apple_arm) {
-    m_chrome_renderer.set_active_architecture(UI::Toolbar::TargetArchitecture::Arm64);
+    m_chrome_renderer.set_active_architecture(
+        UI::Toolbar::TargetArchitecture::Arm64);
   } else if (command_id == Commands::CommandIds::platform_x64) {
-    m_chrome_renderer.set_active_architecture(UI::Toolbar::TargetArchitecture::X86_64);
+    m_chrome_renderer.set_active_architecture(
+        UI::Toolbar::TargetArchitecture::X86_64);
   } else if (command_id == Commands::CommandIds::run_zde) {
     m_chrome_renderer.set_active_target("ZDE");
   } else if (command_id == Commands::CommandIds::run_tests) {
@@ -2637,10 +2794,12 @@ float X11Window::calculate_dpi_scale() const {
     }
   }
 
-  // 3. Under Wayland sessions (XWayland), compositors handle scaling. Default to 1.0F.
+  // 3. Under Wayland sessions (XWayland), compositors handle scaling. Default
+  // to 1.0F.
   const char *wayland_display = std::getenv("WAYLAND_DISPLAY");
   const char *session_type = std::getenv("XDG_SESSION_TYPE");
-  if (wayland_display != nullptr || (session_type != nullptr && std::strcmp(session_type, "wayland") == 0)) {
+  if (wayland_display != nullptr ||
+      (session_type != nullptr && std::strcmp(session_type, "wayland") == 0)) {
     return 1.0F;
   }
 
@@ -2820,7 +2979,8 @@ X11Window::get_overflow_popup_menu_index(int point_x, int point_y) const {
 
 bool X11Window::is_popup_item_enabled(std::size_t menu_index,
                                       std::size_t item_index) const {
-  const std::span<const UI::Components::Menu> menus = UI::Components::get_window_menus();
+  const std::span<const UI::Components::Menu> menus =
+      UI::Components::get_window_menus();
   if (menu_index >= menus.size() ||
       item_index >= menus[menu_index].items.size()) {
     return false;
@@ -2906,62 +3066,103 @@ void X11Window::show_explorer_context_menu(
 
   const UI::Rect anchor{static_cast<float>(client_x),
                         static_cast<float>(client_y), 0.0F, 0.0F};
-  static_cast<void>(
-      m_chrome_renderer.open_popup(m_window_handle, anchor, items, false, false));
+  static_cast<void>(m_chrome_renderer.open_popup(m_window_handle, anchor, items,
+                                                 false, false));
 }
 
 void X11Window::show_editor_context_menu(int client_x, int client_y) {
-  const bool has_doc = m_chrome_renderer.get_text_editor().get_document() != nullptr;
+  const bool has_doc =
+      m_chrome_renderer.get_text_editor().get_document() != nullptr;
   std::vector<Components::PopupMenuItem> items;
 
   if (has_doc) {
     items = {
         // 1. Navigation / LSP
-        {"Go to Definition", std::string{Commands::CommandIds::edit_goto_definition}, false, true, false, "F12"},
-        {"Go to Declaration", std::string{Commands::CommandIds::edit_goto_declaration}, false, true, false, ""},
-        {"Go to Type Definition", std::string{Commands::CommandIds::edit_goto_type_definition}, false, true, false, ""},
-        {"Go to Implementations", std::string{Commands::CommandIds::edit_goto_implementations}, false, true, false, "Ctrl+F12"},
-        {"Go to References", std::string{Commands::CommandIds::edit_goto_references}, false, true, false, "Shift+F12"},
+        {"Go to Definition",
+         std::string{Commands::CommandIds::edit_goto_definition}, false, true,
+         false, "F12"},
+        {"Go to Declaration",
+         std::string{Commands::CommandIds::edit_goto_declaration}, false, true,
+         false, ""},
+        {"Go to Type Definition",
+         std::string{Commands::CommandIds::edit_goto_type_definition}, false,
+         true, false, ""},
+        {"Go to Implementations",
+         std::string{Commands::CommandIds::edit_goto_implementations}, false,
+         true, false, "Ctrl+F12"},
+        {"Go to References",
+         std::string{Commands::CommandIds::edit_goto_references}, false, true,
+         false, "Shift+F12"},
         {"", "", true, true, false, ""},
 
         // 2. References & Hierarchy
-        {"Find All References", std::string{Commands::CommandIds::edit_find_all_references}, false, true, false, "Shift+Alt+F12"},
-        {"Find All Implementations", std::string{Commands::CommandIds::edit_find_all_implementations}, false, true, false, ""},
-        {"Show Call Hierarchy", std::string{Commands::CommandIds::edit_show_call_hierarchy}, false, true, false, "Shift+Alt+H"},
-        {"Show Type Hierarchy", std::string{Commands::CommandIds::edit_show_type_hierarchy}, false, true, false, ""},
-        {"Switch Between Source/Header", std::string{Commands::CommandIds::edit_switch_header_source}, false, true, false, "Alt+O"},
+        {"Find All References",
+         std::string{Commands::CommandIds::edit_find_all_references}, false,
+         true, false, "Shift+Alt+F12"},
+        {"Find All Implementations",
+         std::string{Commands::CommandIds::edit_find_all_implementations},
+         false, true, false, ""},
+        {"Show Call Hierarchy",
+         std::string{Commands::CommandIds::edit_show_call_hierarchy}, false,
+         true, false, "Shift+Alt+H"},
+        {"Show Type Hierarchy",
+         std::string{Commands::CommandIds::edit_show_type_hierarchy}, false,
+         true, false, ""},
+        {"Switch Between Source/Header",
+         std::string{Commands::CommandIds::edit_switch_header_source}, false,
+         true, false, "Alt+O"},
         {"", "", true, true, false, ""},
 
         // 3. Refactoring & Editing
-        {"Rename Symbol", std::string{Commands::CommandIds::edit_rename_symbol}, false, true, false, "F2"},
-        {"Change All Occurrences", std::string{Commands::CommandIds::selection_select_all_occurrences}, false, true, false, "Ctrl+F2"},
-        {"Format Document", std::string{Commands::CommandIds::edit_format_document}, false, true, false, "Ctrl+Shift+I"},
-        {"Refactor...", std::string{Commands::CommandIds::edit_refactor}, false, true, false, "Ctrl+Shift+R"},
+        {"Rename Symbol", std::string{Commands::CommandIds::edit_rename_symbol},
+         false, true, false, "F2"},
+        {"Change All Occurrences",
+         std::string{Commands::CommandIds::selection_select_all_occurrences},
+         false, true, false, "Ctrl+F2"},
+        {"Format Document",
+         std::string{Commands::CommandIds::edit_format_document}, false, true,
+         false, "Ctrl+Shift+I"},
+        {"Refactor...", std::string{Commands::CommandIds::edit_refactor}, false,
+         true, false, "Ctrl+Shift+R"},
         {"", "", true, true, false, ""},
 
         // 4. Clipboard Operations
-        {"Cut", std::string{Commands::CommandIds::edit_cut}, false, true, false, "Ctrl+X"},
-        {"Copy", std::string{Commands::CommandIds::edit_copy}, false, true, false, "Ctrl+C"},
-        {"Paste", std::string{Commands::CommandIds::edit_paste}, false, true, false, "Ctrl+V"},
+        {"Cut", std::string{Commands::CommandIds::edit_cut}, false, true, false,
+         "Ctrl+X"},
+        {"Copy", std::string{Commands::CommandIds::edit_copy}, false, true,
+         false, "Ctrl+C"},
+        {"Paste", std::string{Commands::CommandIds::edit_paste}, false, true,
+         false, "Ctrl+V"},
         {"", "", true, true, false, ""},
 
         // 5. Palette & Tools
-        {"Command Palette...", std::string{Commands::CommandIds::help_show_all_commands}, false, true, false, "Ctrl+Shift+P"},
-        {"Show AST", std::string{Commands::CommandIds::edit_show_ast}, false, true, false, ""},
+        {"Command Palette...",
+         std::string{Commands::CommandIds::help_show_all_commands}, false, true,
+         false, "Ctrl+Shift+P"},
+        {"Show AST", std::string{Commands::CommandIds::edit_show_ast}, false,
+         true, false, ""},
     };
   } else {
     items = {
-        {"New Text File", std::string{Commands::CommandIds::file_new}, false, true, false, "Ctrl+N"},
-        {"Open File...", std::string{Commands::CommandIds::file_open}, false, true, false, "Ctrl+P"},
+        {"New Text File", std::string{Commands::CommandIds::file_new}, false,
+         true, false, "Ctrl+N"},
+        {"Open File...", std::string{Commands::CommandIds::file_open}, false,
+         true, false, "Ctrl+P"},
         {"", "", true, true, false, ""},
-        {"New Terminal", std::string{Commands::CommandIds::view_terminal_panel}, false, true, false, ""},
+        {"New Terminal", std::string{Commands::CommandIds::view_terminal_panel},
+         false, true, false, ""},
         {"", "", true, true, false, ""},
-        {"Split Up", std::string{Commands::CommandIds::view_split_up}, false, true, false, "Ctrl+K Ctrl+\\"},
-        {"Split Down", std::string{Commands::CommandIds::view_split_down}, false, true, false, ""},
-        {"Split Left", std::string{Commands::CommandIds::view_split_left}, false, true, false, ""},
-        {"Split Right", std::string{Commands::CommandIds::view_split_right}, false, true, false, ""},
+        {"Split Up", std::string{Commands::CommandIds::view_split_up}, false,
+         true, false, "Ctrl+K Ctrl+\\"},
+        {"Split Down", std::string{Commands::CommandIds::view_split_down},
+         false, true, false, ""},
+        {"Split Left", std::string{Commands::CommandIds::view_split_left},
+         false, true, false, ""},
+        {"Split Right", std::string{Commands::CommandIds::view_split_right},
+         false, true, false, ""},
         {"", "", true, true, false, ""},
-        {"New Window", std::string{Commands::CommandIds::window_new}, false, true, false, ""},
+        {"New Window", std::string{Commands::CommandIds::window_new}, false,
+         true, false, ""},
         {"", "", true, true, false, ""},
         {"Lock Group", "", false, false, false, ""},
     };
@@ -2969,8 +3170,8 @@ void X11Window::show_editor_context_menu(int client_x, int client_y) {
 
   const UI::Rect anchor{static_cast<float>(client_x),
                         static_cast<float>(client_y), 0.0F, 0.0F};
-  static_cast<void>(
-      m_chrome_renderer.open_popup(m_window_handle, anchor, items, false, false));
+  static_cast<void>(m_chrome_renderer.open_popup(m_window_handle, anchor, items,
+                                                 false, false));
 }
 
 void X11Window::execute_explorer_command(std::string_view command) {
@@ -3012,8 +3213,8 @@ void X11Window::execute_explorer_command(std::string_view command) {
           } else {
             static_cast<void>(
                 m_chrome_renderer.get_text_editor().create_buffer());
-            if (auto *doc =
-                    m_chrome_renderer.get_text_editor().get_focused_document()) {
+            if (auto *doc = m_chrome_renderer.get_text_editor()
+                                .get_focused_document()) {
               if (!initial_content.empty()) {
                 std::vector<std::string> lines;
                 std::stringstream ss(initial_content);
@@ -3058,8 +3259,9 @@ void X11Window::execute_explorer_command(std::string_view command) {
     if (!m_chrome_renderer.get_workspace_renderer()
              .get_terminal_panel()
              .is_visible()) {
-      static_cast<void>(
-          m_chrome_renderer.get_workspace_renderer().get_terminal_panel().toggle());
+      static_cast<void>(m_chrome_renderer.get_workspace_renderer()
+                            .get_terminal_panel()
+                            .toggle());
     }
     std::string cd_cmd = "cd \"" + term_dir.string() + "\"\n";
     static_cast<void>(m_chrome_renderer.get_workspace_renderer()
@@ -3078,7 +3280,8 @@ void X11Window::execute_explorer_command(std::string_view command) {
     copy_to_clipboard(ec ? target_path.string() : rel.string());
   } else if (command == "zde.explorer.rename") {
     m_prompt_dialog.open_rename(
-        m_window_handle, target_path, [this, target_path](const std::string &new_name) {
+        m_window_handle, target_path,
+        [this, target_path](const std::string &new_name) {
           std::filesystem::path new_p;
           if (m_chrome_renderer.get_workspace_renderer()
                   .get_tool_sidebar()
@@ -3125,11 +3328,13 @@ void X11Window::show_about_dialog() {
 }
 
 bool X11Window::is_modal_active() const {
-  return m_prompt_dialog.is_open() || m_add_item_dialog.is_open() || m_about_modal.is_visible();
+  return m_prompt_dialog.is_open() || m_add_item_dialog.is_open() ||
+         m_about_modal.is_visible();
 }
 
 void X11Window::toggle_fullscreen() {
-  if (m_display == nullptr || m_window_handle == 0) return;
+  if (m_display == nullptr || m_window_handle == 0)
+    return;
   Atom wm_state = XInternAtom(m_display, "_NET_WM_STATE", False);
   Atom fullscreen = XInternAtom(m_display, "_NET_WM_STATE_FULLSCREEN", False);
   XEvent xev{};
@@ -3146,126 +3351,146 @@ void X11Window::toggle_fullscreen() {
   m_is_fullscreen = !m_is_fullscreen;
 }
 
-bool X11Window::is_fullscreen() const {
-  return m_is_fullscreen;
-}
+bool X11Window::is_fullscreen() const { return m_is_fullscreen; }
 
 void X11Window::reset_layout() {
   m_chrome_renderer.get_workspace_renderer().reset_layout();
   render();
 }
 
-void X11Window::draw_about_modal(Drawable drawable, int client_width, int client_height) {
+void X11Window::draw_about_modal(Drawable drawable, int client_width,
+                                 int client_height) {
   if (!m_about_modal.is_visible()) {
     return;
   }
-  auto& surface = m_chrome_renderer.get_workspace_renderer();
-  const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(client_width), static_cast<float>(client_height)};
+  auto &surface = m_chrome_renderer.get_workspace_renderer();
+  const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(client_width),
+                          static_cast<float>(client_height)};
   const float scale = m_dpi_scale;
   const auto layout = m_about_modal.calculate_layout(viewport, scale);
 
   // 1. Sleek semi-transparent dark acrylic backdrop veil
-  surface.fill_rectangle(drawable, viewport,
-                         surface.allocate_color(UI::Theme::Color{10, 12, 16, 175}));
+  surface.fill_rectangle(
+      drawable, viewport,
+      surface.allocate_color(UI::Theme::Color{10, 12, 16, 175}));
 
   const float dialog_radius = 10.0F * scale;
 
   // 2. Acrylic Multi-Layer Ambient Drop Shadows
-  const UI::Rect outer_shadow{layout.base_layout.dialog_bounds.x - 5.0F * scale,
-                              layout.base_layout.dialog_bounds.y - 3.0F * scale,
-                              layout.base_layout.dialog_bounds.width + 10.0F * scale,
-                              layout.base_layout.dialog_bounds.height + 10.0F * scale};
-  surface.fill_rounded_rectangle(drawable, outer_shadow,
-                                 surface.allocate_color(UI::Theme::Color{6, 7, 10, 255}),
-                                 dialog_radius + 4.0F * scale,
-                                 surface.allocate_color(UI::Theme::Color{10, 12, 16, 255}));
+  const UI::Rect outer_shadow{
+      layout.base_layout.dialog_bounds.x - 5.0F * scale,
+      layout.base_layout.dialog_bounds.y - 3.0F * scale,
+      layout.base_layout.dialog_bounds.width + 10.0F * scale,
+      layout.base_layout.dialog_bounds.height + 10.0F * scale};
+  surface.fill_rounded_rectangle(
+      drawable, outer_shadow,
+      surface.allocate_color(UI::Theme::Color{6, 7, 10, 255}),
+      dialog_radius + 4.0F * scale,
+      surface.allocate_color(UI::Theme::Color{10, 12, 16, 255}));
 
-  const UI::Rect mid_shadow{layout.base_layout.dialog_bounds.x - 2.0F * scale,
-                            layout.base_layout.dialog_bounds.y - 1.0F * scale,
-                            layout.base_layout.dialog_bounds.width + 4.0F * scale,
-                            layout.base_layout.dialog_bounds.height + 4.0F * scale};
-  surface.fill_rounded_rectangle(drawable, mid_shadow,
-                                 surface.allocate_color(UI::Theme::Color{14, 15, 20, 255}),
-                                 dialog_radius + 2.0F * scale,
-                                 surface.allocate_color(UI::Theme::Color{10, 12, 16, 255}));
+  const UI::Rect mid_shadow{
+      layout.base_layout.dialog_bounds.x - 2.0F * scale,
+      layout.base_layout.dialog_bounds.y - 1.0F * scale,
+      layout.base_layout.dialog_bounds.width + 4.0F * scale,
+      layout.base_layout.dialog_bounds.height + 4.0F * scale};
+  surface.fill_rounded_rectangle(
+      drawable, mid_shadow,
+      surface.allocate_color(UI::Theme::Color{14, 15, 20, 255}),
+      dialog_radius + 2.0F * scale,
+      surface.allocate_color(UI::Theme::Color{10, 12, 16, 255}));
 
   // 3. Modal container card (Dark theme matching Studio)
   const UI::Theme::Color dialog_bg{28, 29, 36, 255};
-  surface.fill_rounded_rectangle(drawable, layout.base_layout.dialog_bounds,
-                                 surface.allocate_color(dialog_bg),
-                                 dialog_radius,
-                                 surface.allocate_color(UI::Theme::Color{10, 12, 16, 255}));
+  surface.fill_rounded_rectangle(
+      drawable, layout.base_layout.dialog_bounds,
+      surface.allocate_color(dialog_bg), dialog_radius,
+      surface.allocate_color(UI::Theme::Color{10, 12, 16, 255}));
 
   // 4. Rounded hairline border
-  surface.draw_rounded_rectangle(drawable, layout.base_layout.dialog_bounds,
-                                 surface.allocate_color(UI::Theme::Color{65, 68, 82, 255}),
-                                 dialog_radius);
+  surface.draw_rounded_rectangle(
+      drawable, layout.base_layout.dialog_bounds,
+      surface.allocate_color(UI::Theme::Color{65, 68, 82, 255}), dialog_radius);
 
   // Logo
-  const int logo_cx = static_cast<int>(layout.logo_bounds.x + layout.logo_bounds.width * 0.5F);
-  const int logo_cy = static_cast<int>(layout.logo_bounds.y + layout.logo_bounds.height * 0.5F);
+  const int logo_cx =
+      static_cast<int>(layout.logo_bounds.x + layout.logo_bounds.width * 0.5F);
+  const int logo_cy =
+      static_cast<int>(layout.logo_bounds.y + layout.logo_bounds.height * 0.5F);
   const int logo_sz = static_cast<int>(layout.logo_bounds.width);
-  surface.draw_png_icon(drawable, "Assets/icons/zenvra_logo.png", logo_cx, logo_cy,
-                        logo_sz, dialog_bg);
+  surface.draw_png_icon(drawable, "Assets/icons/zenvra_logo.png", logo_cx,
+                        logo_cy, logo_sz, dialog_bg);
 
   // Headline & Edition
   surface.draw_text(drawable, *surface.m_ui_font, m_about_modal.get_app_name(),
                     layout.headline_bounds.x,
-                    layout.headline_bounds.y + layout.headline_bounds.height * 0.5F,
+                    layout.headline_bounds.y +
+                        layout.headline_bounds.height * 0.5F,
                     UI::Theme::Color{242, 244, 248, 255});
-  surface.draw_text(drawable, *surface.m_small_font, m_about_modal.get_edition(),
-                    layout.edition_bounds.x,
-                    layout.edition_bounds.y + layout.edition_bounds.height * 0.5F,
+  surface.draw_text(drawable, *surface.m_small_font,
+                    m_about_modal.get_edition(), layout.edition_bounds.x,
+                    layout.edition_bounds.y +
+                        layout.edition_bounds.height * 0.5F,
                     UI::Theme::Color{145, 150, 162, 255});
 
   // Specs Table rows
-  const auto& specs = m_about_modal.get_specs();
+  const auto &specs = m_about_modal.get_specs();
   const float key_col_w = 125.0F * scale;
-  for (std::size_t i = 0; i < specs.size() && i < layout.spec_row_bounds.size(); ++i) {
-    const auto& row_r = layout.spec_row_bounds[i];
+  for (std::size_t i = 0; i < specs.size() && i < layout.spec_row_bounds.size();
+       ++i) {
+    const auto &row_r = layout.spec_row_bounds[i];
     const float row_cy = row_r.y + row_r.height * 0.5F;
     surface.draw_text(drawable, *surface.m_small_font, specs[i].key + ":",
                       row_r.x, row_cy, UI::Theme::Color{138, 144, 155, 255});
     surface.draw_text(drawable, *surface.m_small_font, specs[i].value,
-                      row_r.x + key_col_w, row_cy, UI::Theme::Color{220, 224, 232, 255});
+                      row_r.x + key_col_w, row_cy,
+                      UI::Theme::Color{220, 224, 232, 255});
   }
 
   // Action Buttons: "Copy" and "OK"
   const bool copy_h = m_about_modal.is_copy_hovered();
-  const UI::Theme::Color copy_bg = copy_h ? UI::Theme::Color{58, 62, 72, 255} : UI::Theme::Color{44, 48, 56, 255};
+  const UI::Theme::Color copy_bg = copy_h ? UI::Theme::Color{58, 62, 72, 255}
+                                          : UI::Theme::Color{44, 48, 56, 255};
   surface.fill_rounded_rectangle(drawable, layout.copy_button_bounds,
                                  surface.allocate_color(copy_bg), 4.0F * scale,
                                  surface.allocate_color(dialog_bg));
   surface.draw_text(drawable, *surface.m_small_font, "Copy",
-                    layout.copy_button_bounds.x + layout.copy_button_bounds.width * 0.5F - 14.0F * scale,
-                    layout.copy_button_bounds.y + layout.copy_button_bounds.height * 0.5F,
+                    layout.copy_button_bounds.x +
+                        layout.copy_button_bounds.width * 0.5F - 14.0F * scale,
+                    layout.copy_button_bounds.y +
+                        layout.copy_button_bounds.height * 0.5F,
                     UI::Theme::Color{215, 220, 228, 255});
 
   const bool ok_h = m_about_modal.is_ok_hovered();
-  const UI::Theme::Color ok_bg = ok_h ? UI::Theme::Color{17, 119, 187, 255} : UI::Theme::Color{14, 99, 156, 255};
+  const UI::Theme::Color ok_bg = ok_h ? UI::Theme::Color{17, 119, 187, 255}
+                                      : UI::Theme::Color{14, 99, 156, 255};
   surface.fill_rounded_rectangle(drawable, layout.ok_button_bounds,
                                  surface.allocate_color(ok_bg), 4.0F * scale,
                                  surface.allocate_color(dialog_bg));
   surface.draw_text(drawable, *surface.m_small_font, "OK",
-                    layout.ok_button_bounds.x + layout.ok_button_bounds.width * 0.5F - 8.0F * scale,
-                    layout.ok_button_bounds.y + layout.ok_button_bounds.height * 0.5F,
+                    layout.ok_button_bounds.x +
+                        layout.ok_button_bounds.width * 0.5F - 8.0F * scale,
+                    layout.ok_button_bounds.y +
+                        layout.ok_button_bounds.height * 0.5F,
                     UI::Theme::Color{255, 255, 255, 255});
 
   // Close button (x)
-  const int close_cx = static_cast<int>(layout.close_button_bounds.x + layout.close_button_bounds.width * 0.5F);
-  const int close_cy = static_cast<int>(layout.close_button_bounds.y + layout.close_button_bounds.height * 0.5F);
+  const int close_cx = static_cast<int>(
+      layout.close_button_bounds.x + layout.close_button_bounds.width * 0.5F);
+  const int close_cy = static_cast<int>(
+      layout.close_button_bounds.y + layout.close_button_bounds.height * 0.5F);
   if (m_about_modal.is_close_hovered()) {
-    surface.fill_rounded_rectangle(drawable, layout.close_button_bounds,
-                                   surface.allocate_color(UI::Theme::Color{232, 17, 35, 255}),
-                                   4.0F * scale,
-                                   surface.allocate_color(dialog_bg));
+    surface.fill_rounded_rectangle(
+        drawable, layout.close_button_bounds,
+        surface.allocate_color(UI::Theme::Color{232, 17, 35, 255}),
+        4.0F * scale, surface.allocate_color(dialog_bg));
   }
-  surface.draw_svg_icon(drawable, "Assets/icons/diagnostic-error.svg", close_cx, close_cy,
-                        std::max(static_cast<int>(10.0F * scale), 8),
-                        m_about_modal.is_close_hovered() ? UI::Theme::Color{255, 255, 255, 255}
-                                                         : UI::Theme::Color{175, 180, 190, 255},
-                        m_about_modal.is_close_hovered() ? UI::Theme::Color{232, 17, 35, 255}
-                                                         : dialog_bg);
+  surface.draw_svg_icon(
+      drawable, "Assets/icons/diagnostic-error.svg", close_cx, close_cy,
+      std::max(static_cast<int>(10.0F * scale), 8),
+      m_about_modal.is_close_hovered() ? UI::Theme::Color{255, 255, 255, 255}
+                                       : UI::Theme::Color{175, 180, 190, 255},
+      m_about_modal.is_close_hovered() ? UI::Theme::Color{232, 17, 35, 255}
+                                       : dialog_bg);
 }
 
 } // namespace Zenvra::Platform::X11

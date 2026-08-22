@@ -97,14 +97,21 @@ bool is_app_or_system_dir(const std::filesystem::path& directory)
 {
     std::error_code error;
     if (std::filesystem::exists(directory / "ZDE.exe", error) ||
+        std::filesystem::exists(directory / "ZDE", error) ||
         std::filesystem::exists(directory / "unins000.exe", error) ||
-        std::filesystem::exists(directory / "BootstrapperLib.dll", error))
+        std::filesystem::exists(directory / "BootstrapperLib.dll", error) ||
+        std::filesystem::exists(directory / "libBootstrapperLib.so", error) ||
+        std::filesystem::exists(directory / "libBootstrapperLib.dylib", error) ||
+        std::filesystem::exists(directory / "CMakeCache.txt", error) ||
+        std::filesystem::is_directory(directory / "CMakeFiles", error))
     {
         return true;
     }
     const std::string path_str = directory.string();
     if (path_str.find("Program Files") != std::string::npos ||
-        path_str.find("Windows\\System32") != std::string::npos)
+        path_str.find("Windows\\System32") != std::string::npos ||
+        path_str.find("/usr/bin") != std::string::npos ||
+        path_str.find("/usr/lib") != std::string::npos)
     {
         return true;
     }

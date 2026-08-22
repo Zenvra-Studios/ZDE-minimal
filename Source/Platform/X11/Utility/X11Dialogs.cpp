@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 namespace Zenvra::Platform
 {
@@ -52,42 +53,112 @@ static bool command_exists(const char* name)
 
 std::optional<std::filesystem::path> open_folder_dialog()
 {
-    if (!folder_dialog_available())
-    {
-        return std::nullopt;
-    }
-    std::string selected;
-
-    // Prefer kdialog (KDE / DWM with KDE services installed)
     if (command_exists("kdialog"))
     {
-        selected = run_dialog_command(
-            "kdialog --getexistingdirectory \"$HOME\" 2>/dev/null");
-    }
-    // Fallback: zenity (GTK / GNOME)
-    else if (command_exists("zenity"))
-    {
-        selected = run_dialog_command(
-            "zenity --file-selection --directory --title=\"Open Folder\" 2>/dev/null");
-    }
-    // Fallback: yad (Yet Another Dialog)
-    else if (command_exists("yad"))
-    {
-        selected = run_dialog_command(
-            "yad --file-selection --directory --title=\"Open Folder\" 2>/dev/null");
+        const std::string selected = run_dialog_command(
+            "kdialog --title \"Open Folder\" --getexistingdirectory \"$HOME\" 2>/dev/null");
+        if (selected.empty())
+        {
+            return std::nullopt;
+        }
+        return std::filesystem::path{selected};
     }
 
-    if (selected.empty())
+    if (command_exists("zenity"))
     {
-        return std::nullopt;
+        const std::string selected = run_dialog_command(
+            "zenity --file-selection --directory --title=\"Open Folder\" 2>/dev/null");
+        if (selected.empty())
+        {
+            return std::nullopt;
+        }
+        return std::filesystem::path{selected};
     }
-    return std::filesystem::path{selected};
+
+    if (command_exists("yad"))
+    {
+        const std::string selected = run_dialog_command(
+            "yad --file-selection --directory --title=\"Open Folder\" 2>/dev/null");
+        if (selected.empty())
+        {
+            return std::nullopt;
+        }
+        return std::filesystem::path{selected};
+    }
+
+    return std::nullopt;
 }
 
 bool folder_dialog_available()
 {
     return command_exists("kdialog") || command_exists("zenity") ||
         command_exists("yad");
+}
+
+std::optional<std::string> input_dialog(
+    const std::string& title, const std::string& label,
+    const std::string& default_value)
+{
+    if (command_exists("kdialog"))
+    {
+        std::string cmd = "kdialog --title \"" + title + "\" --inputbox \"" + label + "\"";
+        if (!default_value.empty())
+        {
+            cmd += " \"" + default_value + "\"";
+        }
+        else
+        {
+            cmd += " \"\"";
+        }
+        cmd += " 2>/dev/null";
+        const std::string result = run_dialog_command(cmd.c_str());
+        if (result.empty())
+        {
+            return std::nullopt;
+        }
+        return result;
+    }
+
+    if (command_exists("zenity"))
+    {
+        std::string cmd = "zenity --entry --title=\"" + title +
+                          "\" --text=\"" + label + "\"";
+        if (!default_value.empty())
+        {
+            cmd += " --entry-text=\"" + default_value + "\"";
+        }
+        cmd += " 2>/dev/null";
+        const std::string result = run_dialog_command(cmd.c_str());
+        if (result.empty())
+        {
+            return std::nullopt;
+        }
+        return result;
+    }
+
+    if (command_exists("yad"))
+    {
+        std::string cmd = "yad --entry --title=\"" + title +
+                          "\" --text=\"" + label + "\"";
+        if (!default_value.empty())
+        {
+            cmd += " --entry-text=\"" + default_value + "\"";
+        }
+        cmd += " 2>/dev/null";
+        const std::string result = run_dialog_command(cmd.c_str());
+        if (result.empty())
+        {
+            return std::nullopt;
+        }
+        return result;
+    }
+
+    return std::nullopt;
+}
+
+std::optional<std::filesystem::path> clone_repository_dialog()
+{
+    return open_folder_dialog();
 }
 
 } // namespace Zenvra::Platform
