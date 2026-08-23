@@ -90,7 +90,7 @@ void ExplorerHeader::render(
                 22.0F * scale,
                 22.0F * scale
             };
-            surface.fill_rounded_rectangle(device_context, hover_bg, surface.m_palette.hover_background, 3.0F * scale, surface.m_palette.sidebar_background);
+            surface.fill_rounded_rectangle(device_context, hover_bg, surface.m_palette.hover_background, 3.0F * scale);
         }
         
         surface.draw_svg_icon(device_context, path, round_to_int(center_x), header_center_y, icon_size, color, bg_color);

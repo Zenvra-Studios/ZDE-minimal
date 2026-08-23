@@ -411,7 +411,7 @@ bool Win32Window::initialize() {
                         &dark_mode_enabled, sizeof(dark_mode_enabled));
   enable_menu_dark_mode(m_window_handle);
 
-  const MARGINS frame_margins{0, 0, 0, 0};
+  const MARGINS frame_margins{1, 1, 1, 1};
   DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
 
   if (!m_menubar.load(m_instance_handle) ||
@@ -602,7 +602,7 @@ void Win32Window::set_custom_chrome_enabled(bool enabled) {
 
   if (m_custom_chrome_enabled) {
     static_cast<void>(m_menubar.detach());
-    const MARGINS frame_margins{0, 0, 0, 0};
+    const MARGINS frame_margins{1, 1, 1, 1};
     DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
     apply_system_corner_preference();
   } else {
@@ -2626,21 +2626,9 @@ LRESULT Win32Window::hit_test_non_client(LPARAM l_param) {
 
   const float point_x = static_cast<float>(cursor_position.x);
   const float point_y = static_cast<float>(cursor_position.y);
-  RECT client_bounds{};
-  GetClientRect(m_window_handle, &client_bounds);
-  const bool tab_point = m_workspace_renderer.is_tab_bar_point(
-      point_x, point_y, client_bounds.right - client_bounds.left,
-      client_bounds.bottom - client_bounds.top,
-      m_chrome_layout.titlebar_bounds.bottom());
-  // Tabs sit close to the top frame; let a real tab hit win over the resize
-  // border so the file buffer remains clickable at its rounded top edge.
-  if (!tab_point) {
-    const LRESULT resize_result = hit_test_resize_border(cursor_position);
-    if (resize_result != HTNOWHERE) {
-      return resize_result;
-    }
-  }
 
+  // 1. Check window caption controls (Minimize, Maximize, Close) FIRST
+  // This ensures the top-right close button works reliably and is not hijacked by resize borders
   switch (m_chrome_layout.get_window_control(point_x, point_y)) {
   case UI::Chrome::WindowControl::Minimize:
     return HTMINBUTTON;
@@ -2650,6 +2638,21 @@ LRESULT Win32Window::hit_test_non_client(LPARAM l_param) {
     return HTCLOSE;
   case UI::Chrome::WindowControl::NoControl:
     break;
+  }
+
+  RECT client_bounds{};
+  GetClientRect(m_window_handle, &client_bounds);
+  const bool tab_point = m_workspace_renderer.is_tab_bar_point(
+      point_x, point_y, client_bounds.right - client_bounds.left,
+      client_bounds.bottom - client_bounds.top,
+      m_chrome_layout.titlebar_bounds.bottom());
+
+  // 2. Check resize border
+  if (!tab_point) {
+    const LRESULT resize_result = hit_test_resize_border(cursor_position);
+    if (resize_result != HTNOWHERE) {
+      return resize_result;
+    }
   }
 
   if (m_chrome_layout.logo_bounds.contains(point_x, point_y)) {
@@ -2716,19 +2719,32 @@ void Win32Window::apply_system_corner_preference() {
     return;
   }
 
-  // Let the OS decide window corner rounding, adapting to the Windows
-  // version the app is running on:
-  // - Windows 10: corners are naturally square (attribute is ignored).
-  // - Windows 11: follows the system's own corner preference.
-  // No corner policy is forced here; the app stays consistent with the
-  // platform default while keeping the native frame and drop shadow.
+  // 1. Enforce DWM no-rounding preference (DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_DONOTROUND = 1)
   constexpr DWORD dwm_window_corner_preference_attribute = 33;
-  const DWORD corner_preference = 0; // DWMWCP_DEFAULT
+  const DWORD corner_preference = 1; // DWMWCP_DONOTROUND
   DwmSetWindowAttribute(m_window_handle, dwm_window_corner_preference_attribute,
                         &corner_preference, sizeof(corner_preference));
 
-  // Clear any custom clipping region so DWM renders the native frame
-  SetWindowRgn(m_window_handle, nullptr, TRUE);
+  // 2. Set DWM border color matching subtle dark theme border (DWMWA_BORDER_COLOR = 34)
+  constexpr DWORD dwm_border_color_attribute = 34;
+  const COLORREF border_color = to_color_ref(m_theme.titlebar_border);
+  DwmSetWindowAttribute(m_window_handle, dwm_border_color_attribute,
+                        &border_color, sizeof(border_color));
+
+  // 3. Physical window region enforcement (forces 100% sharp 90-degree rectangular corners on all Windows versions)
+  if (m_custom_chrome_enabled && !is_maximized()) {
+    RECT window_bounds{};
+    if (GetWindowRect(m_window_handle, &window_bounds) != FALSE) {
+      const int width = window_bounds.right - window_bounds.left;
+      const int height = window_bounds.bottom - window_bounds.top;
+      if (width > 0 && height > 0) {
+        HRGN rectangular_region = CreateRectRgn(0, 0, width, height);
+        SetWindowRgn(m_window_handle, rectangular_region, TRUE);
+      }
+    }
+  } else {
+    SetWindowRgn(m_window_handle, nullptr, TRUE);
+  }
 }
 
 void Win32Window::paint_custom_chrome() {
@@ -2846,25 +2862,6 @@ void Win32Window::paint_custom_chrome() {
   LineTo(buffer_context, client_width, titlebar_bottom_y);
   SelectObject(buffer_context, prev_border_pen);
   DeleteObject(titlebar_border_pen);
-
-  const int minimize_state =
-      caption_button_state(UI::Chrome::WindowControl::Minimize,
-                           m_hovered_control, m_pressed_control);
-  const int maximize_state =
-      caption_button_state(UI::Chrome::WindowControl::MaximizeRestore,
-                           m_hovered_control, m_pressed_control);
-  const int close_state = caption_button_state(
-      UI::Chrome::WindowControl::Close, m_hovered_control, m_pressed_control);
-
-  draw_custom_caption_button(buffer_context, m_chrome_layout.minimize_bounds,
-                             UI::Chrome::WindowControl::Minimize,
-                             minimize_state, is_maximized(), m_theme, scale);
-  draw_custom_caption_button(buffer_context, m_chrome_layout.maximize_bounds,
-                             UI::Chrome::WindowControl::MaximizeRestore,
-                             maximize_state, is_maximized(), m_theme, scale);
-  draw_custom_caption_button(buffer_context, m_chrome_layout.close_bounds,
-                             UI::Chrome::WindowControl::Close, close_state,
-                             is_maximized(), m_theme, scale);
 
   auto draw_toolbar_hover = [&](const UI::Rect &bounds) {
     UI::Rect hover_bounds = bounds;
@@ -3054,17 +3051,24 @@ void Win32Window::paint_custom_chrome() {
         m_binary_button_hovered ? m_theme.hover : m_theme.titlebar_background);
   }
 
-  if (!is_maximized()) {
-    HPEN window_border_pen =
-        CreatePen(PS_SOLID, 1, to_color_ref(m_theme.titlebar_border));
-    HGDIOBJ prev_w_pen = SelectObject(buffer_context, window_border_pen);
-    HGDIOBJ prev_w_brush =
-        SelectObject(buffer_context, GetStockObject(NULL_BRUSH));
-    Rectangle(buffer_context, 0, 0, client_width, client_height);
-    SelectObject(buffer_context, prev_w_brush);
-    SelectObject(buffer_context, prev_w_pen);
-    DeleteObject(window_border_pen);
-  }
+  const int minimize_state =
+      caption_button_state(UI::Chrome::WindowControl::Minimize,
+                           m_hovered_control, m_pressed_control);
+  const int maximize_state =
+      caption_button_state(UI::Chrome::WindowControl::MaximizeRestore,
+                           m_hovered_control, m_pressed_control);
+  const int close_state = caption_button_state(
+      UI::Chrome::WindowControl::Close, m_hovered_control, m_pressed_control);
+
+  draw_custom_caption_button(buffer_context, m_chrome_layout.minimize_bounds,
+                             UI::Chrome::WindowControl::Minimize,
+                             minimize_state, is_maximized(), m_theme, scale);
+  draw_custom_caption_button(buffer_context, m_chrome_layout.maximize_bounds,
+                             UI::Chrome::WindowControl::MaximizeRestore,
+                             maximize_state, is_maximized(), m_theme, scale);
+  draw_custom_caption_button(buffer_context, m_chrome_layout.close_bounds,
+                             UI::Chrome::WindowControl::Close, close_state,
+                             is_maximized(), m_theme, scale);
 
   draw_menu_overlay(buffer_context);
   draw_explorer_context_menu(buffer_context);

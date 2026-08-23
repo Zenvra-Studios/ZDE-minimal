@@ -10,7 +10,7 @@ StudioTheme StudioTheme::zenvra_dark() noexcept
         // Keep the chrome base identical to the editor buffer strip so the
         // integrated file tabs read as one continuous titlebar surface.
         .titlebar_background = {29, 30, 33, 255},
-        .titlebar_border = {48, 50, 55, 255},
+        .titlebar_border = {43, 43, 43, 255},
         .panel_background = {28, 29, 32, 255},
         .text_primary = {188, 190, 196, 255},
         .text_secondary = {104, 107, 115, 255},
@@ -18,7 +18,7 @@ StudioTheme StudioTheme::zenvra_dark() noexcept
         .hover = {58, 62, 70, 255},
         .pressed = {68, 72, 82, 255},
         .command_center_background = {36, 37, 42, 255},
-        .command_center_border = {48, 50, 55, 255},
+        .command_center_border = {43, 43, 43, 255},
         .close_hover = {196, 43, 28, 255},
     };
 }

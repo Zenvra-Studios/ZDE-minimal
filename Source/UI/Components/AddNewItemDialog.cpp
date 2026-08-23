@@ -733,16 +733,16 @@ void AddNewItemDialog::open(HWND parent_hwnd,
     DwmSetWindowAttribute(m_hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark,
                           sizeof(dark));
 
-    // 2. Window corner preference (Windows 11 rounded corners)
+    // 2. Window corner preference (enforce normal square corners)
     constexpr DWORD dwm_corner_pref_attr = 33; // DWMWA_WINDOW_CORNER_PREFERENCE
-    const DWORD corner_preference = 2;         // DWMWCP_ROUND
+    const DWORD corner_preference = 1;         // DWMWCP_DONOTROUND
     DwmSetWindowAttribute(m_hwnd, dwm_corner_pref_attr, &corner_preference,
                           sizeof(corner_preference));
 
     // 3. Border color matching dark IDE theme (prevents high-contrast white
     // border artifact)
     constexpr DWORD dwm_border_color_attr = 34; // DWMWA_BORDER_COLOR
-    const COLORREF border_color = RGB(48, 50, 55);
+    const COLORREF border_color = RGB(43, 43, 43);
     DwmSetWindowAttribute(m_hwnd, dwm_border_color_attr, &border_color,
                           sizeof(border_color));
 
@@ -1106,7 +1106,7 @@ void AddNewItemDialog::render(HDC dc, const LayoutResult &layout,
 
   // 1. Clean Dark Background & Frame (Matching Text Editor Slate-Gray Palette)
   const COLORREF bg_col = RGB(30, 31, 34);
-  const COLORREF border_col = RGB(48, 50, 55);
+  const COLORREF border_col = RGB(43, 43, 43);
 
   HBRUSH bg_brush = CreateSolidBrush(bg_col);
   HPEN border_pen = CreatePen(PS_SOLID, 1, border_col);
@@ -1129,7 +1129,7 @@ void AddNewItemDialog::render(HDC dc, const LayoutResult &layout,
   DeleteObject(title_brush);
 
   // Titlebar separator (1px crisp border under titlebar)
-  HPEN sep_pen = CreatePen(PS_SOLID, 1, RGB(48, 50, 55));
+  HPEN sep_pen = CreatePen(PS_SOLID, 1, RGB(43, 43, 43));
   HGDIOBJ p_pen = SelectObject(dc, sep_pen);
   MoveToEx(dc, 0, native_title.bottom - 1, nullptr);
   LineTo(dc, native_title.right, native_title.bottom - 1);
@@ -1435,7 +1435,7 @@ void AddNewItemDialog::render(HDC dc, const LayoutResult &layout,
   // Name Input Box
   const COLORREF input_bg = RGB(24, 25, 28);
   const COLORREF input_border =
-      m_name_input_focused ? RGB(53, 132, 228) : RGB(48, 50, 55);
+      m_name_input_focused ? RGB(53, 132, 228) : RGB(43, 43, 43);
 
   HBRUSH in_br = CreateSolidBrush(input_bg);
   HPEN in_pen = CreatePen(PS_SOLID, 1, input_border);
@@ -1530,7 +1530,7 @@ void AddNewItemDialog::render(HDC dc, const LayoutResult &layout,
 
   // 8. 1px Outer Window Frame Border (drawn last to outline the entire dialog
   // window)
-  HPEN frame_pen = CreatePen(PS_SOLID, 1, RGB(48, 50, 55));
+  HPEN frame_pen = CreatePen(PS_SOLID, 1, RGB(43, 43, 43));
   HGDIOBJ p_fp = SelectObject(dc, frame_pen);
   HGDIOBJ p_fb = SelectObject(dc, GetStockObject(HOLLOW_BRUSH));
   Rectangle(dc, native_dlg.left, native_dlg.top, native_dlg.right,

@@ -30,14 +30,16 @@ struct GrammarRule
         if (case_insensitive)
         {
             std::string lower(word);
-            std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
-                return static_cast<char>(std::tolower(c));
-            });
+            for (char& c : lower)
+            {
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
             if (keywords.contains(lower)) return true;
             std::string upper(word);
-            std::transform(upper.begin(), upper.end(), upper.begin(), [](unsigned char c) {
-                return static_cast<char>(std::toupper(c));
-            });
+            for (char& c : upper)
+            {
+                c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            }
             return keywords.contains(upper);
         }
         return false;
@@ -49,14 +51,16 @@ struct GrammarRule
         if (case_insensitive)
         {
             std::string lower(word);
-            std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) {
-                return static_cast<char>(std::tolower(c));
-            });
+            for (char& c : lower)
+            {
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
             if (types.contains(lower)) return true;
             std::string upper(word);
-            std::transform(upper.begin(), upper.end(), upper.begin(), [](unsigned char c) {
-                return static_cast<char>(std::toupper(c));
-            });
+            for (char& c : upper)
+            {
+                c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            }
             return types.contains(upper);
         }
         return false;
@@ -68,9 +72,10 @@ struct GrammarRule
         if (case_insensitive)
         {
             std::string upper(word);
-            std::transform(upper.begin(), upper.end(), upper.begin(), [](unsigned char c) {
-                return static_cast<char>(std::toupper(c));
-            });
+            for (char& c : upper)
+            {
+                c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            }
             return variables.contains(upper);
         }
         return false;

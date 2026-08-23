@@ -134,10 +134,10 @@ bool Win32PromptDialog::open_new_folder(
         BOOL dark = TRUE;
         DwmSetWindowAttribute(m_hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark, sizeof(dark));
         constexpr DWORD dwm_corner_pref_attr = 33;
-        const DWORD corner_pref = 2; // DWMWCP_ROUND
+        const DWORD corner_pref = 1; // DWMWCP_DONOTROUND
         DwmSetWindowAttribute(m_hwnd, dwm_corner_pref_attr, &corner_pref, sizeof(corner_pref));
         constexpr DWORD dwm_border_color_attr = 34;
-        const COLORREF border_col = RGB(58, 60, 68);
+        const COLORREF border_col = RGB(43, 43, 43);
         DwmSetWindowAttribute(m_hwnd, dwm_border_color_attr, &border_col, sizeof(border_col));
         const MARGINS frame_margins{0, 0, 0, 0};
         DwmExtendFrameIntoClientArea(m_hwnd, &frame_margins);
@@ -213,10 +213,10 @@ bool Win32PromptDialog::open_new_file(
         BOOL dark = TRUE;
         DwmSetWindowAttribute(m_hwnd, 20, &dark, sizeof(dark));
         constexpr DWORD dwm_corner_pref_attr = 33;
-        const DWORD corner_pref = 2;
+        const DWORD corner_pref = 1; // DWMWCP_DONOTROUND
         DwmSetWindowAttribute(m_hwnd, dwm_corner_pref_attr, &corner_pref, sizeof(corner_pref));
         constexpr DWORD dwm_border_color_attr = 34;
-        const COLORREF border_col = RGB(58, 60, 68);
+        const COLORREF border_col = RGB(43, 43, 43);
         DwmSetWindowAttribute(m_hwnd, dwm_border_color_attr, &border_col, sizeof(border_col));
         const MARGINS frame_margins{0, 0, 0, 0};
         DwmExtendFrameIntoClientArea(m_hwnd, &frame_margins);
@@ -292,10 +292,10 @@ bool Win32PromptDialog::open_rename(
         BOOL dark = TRUE;
         DwmSetWindowAttribute(m_hwnd, 20, &dark, sizeof(dark));
         constexpr DWORD dwm_corner_pref_attr = 33;
-        const DWORD corner_pref = 2;
+        const DWORD corner_pref = 1; // DWMWCP_DONOTROUND
         DwmSetWindowAttribute(m_hwnd, dwm_corner_pref_attr, &corner_pref, sizeof(corner_pref));
         constexpr DWORD dwm_border_color_attr = 34;
-        const COLORREF border_col = RGB(58, 60, 68);
+        const COLORREF border_col = RGB(43, 43, 43);
         DwmSetWindowAttribute(m_hwnd, dwm_border_color_attr, &border_col, sizeof(border_col));
         const MARGINS frame_margins{0, 0, 0, 0};
         DwmExtendFrameIntoClientArea(m_hwnd, &frame_margins);
@@ -371,10 +371,10 @@ bool Win32PromptDialog::open_delete(
         BOOL dark = TRUE;
         DwmSetWindowAttribute(m_hwnd, 20, &dark, sizeof(dark));
         constexpr DWORD dwm_corner_pref_attr = 33;
-        const DWORD corner_pref = 2;
+        const DWORD corner_pref = 1; // DWMWCP_DONOTROUND
         DwmSetWindowAttribute(m_hwnd, dwm_corner_pref_attr, &corner_pref, sizeof(corner_pref));
         constexpr DWORD dwm_border_color_attr = 34;
-        const COLORREF border_col = RGB(58, 60, 68);
+        const COLORREF border_col = RGB(43, 43, 43);
         DwmSetWindowAttribute(m_hwnd, dwm_border_color_attr, &border_col, sizeof(border_col));
         const MARGINS frame_margins{0, 0, 0, 0};
         DwmExtendFrameIntoClientArea(m_hwnd, &frame_margins);
@@ -565,7 +565,7 @@ LRESULT Win32PromptDialog::handle_message(HWND hwnd, UINT message, WPARAM w_para
         }
 
         // Draw thin subtle 1px border matching IDE / AddNewItemDialog style
-        HPEN border_pen = CreatePen(PS_SOLID, 1, RGB(48, 50, 55));
+        HPEN border_pen = CreatePen(PS_SOLID, 1, RGB(43, 43, 43));
         HGDIOBJ old_pen = SelectObject(mem_dc, border_pen);
         HBRUSH null_brush = static_cast<HBRUSH>(GetStockObject(NULL_BRUSH));
         HGDIOBJ old_br = SelectObject(mem_dc, null_brush);

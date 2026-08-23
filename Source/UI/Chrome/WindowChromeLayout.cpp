@@ -167,8 +167,10 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(
                               titlebar_height};
     result.maximize_bounds = {controls_start + control_width, 0.0F,
                               control_width, titlebar_height};
-    result.close_bounds = {controls_start + control_width * 2.0F, 0.0F,
-                           control_width, titlebar_height};
+    result.close_bounds = {
+        controls_start + control_width * 2.0F, 0.0F,
+        std::max(0.0F, client_width - (controls_start + control_width * 2.0F)),
+        titlebar_height};
   }
 
   // Responsive toolbar element widths & gaps based on monitor/window width

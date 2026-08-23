@@ -8,6 +8,7 @@
 
 #include <windows.h>
 
+#include <cstdbool>
 #include <cstddef>
 #include <filesystem>
 #include <string_view>
