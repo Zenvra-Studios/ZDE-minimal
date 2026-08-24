@@ -344,6 +344,15 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     const std::span<const UI::Editor::SidebarItem> items =
         UI::Editor::get_studio_sidebar_items();
     if (items[*sidebar_index].icon == UI::Editor::SidebarIcon::Terminal) {
+      if (!m_terminal_panel.is_visible()) {
+        m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+        return m_terminal_panel.toggle();
+      }
+      if (m_terminal_panel.get_active_channel() != TerminalPanel::PanelChannel::Terminal) {
+        m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+        m_terminal_panel.set_focused(true);
+        return true;
+      }
       return m_terminal_panel.toggle();
     }
     if (items[*sidebar_index].icon == UI::Editor::SidebarIcon::Shader) {
@@ -554,9 +563,31 @@ StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id) {
     }
     return res;
   }
+  if (command_id == Commands::CommandIds::view_terminal_panel) {
+    if (!m_terminal_panel.is_visible()) {
+      m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+      return m_terminal_panel.toggle();
+    }
+    if (m_terminal_panel.get_active_channel() != TerminalPanel::PanelChannel::Terminal) {
+      m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+      m_terminal_panel.set_focused(true);
+      return true;
+    }
+    return m_terminal_panel.toggle();
+  }
+  if (command_id == Commands::CommandIds::view_output) {
+    if (!m_terminal_panel.is_visible()) {
+      m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Output);
+      return m_terminal_panel.toggle();
+    }
+    if (m_terminal_panel.get_active_channel() != TerminalPanel::PanelChannel::Output) {
+      m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Output);
+      m_terminal_panel.set_focused(true);
+      return true;
+    }
+    return m_terminal_panel.toggle();
+  }
   if (command_id == Commands::CommandIds::view_toggle_bottom_dock ||
-      command_id == Commands::CommandIds::view_terminal_panel ||
-      command_id == Commands::CommandIds::view_output ||
       command_id == Commands::CommandIds::view_problems ||
       command_id == Commands::CommandIds::view_diagnostics) {
     return toggle_terminal();
@@ -1185,16 +1216,22 @@ void StudioWorkspaceRenderer::draw_svg_icon(
       rel_str = rel_str.substr(7);
     } else if (rel_str.starts_with("Resources/") || rel_str.starts_with("Resources\\")) {
       rel_str = rel_str.substr(10);
+    } else if (rel_str.starts_with("vscode-codicons/icons/")) {
+      // Submodule layout: codicon SVGs live under src/icons/
+      rel_str = "vscode-codicons/src/icons/" + rel_str.substr(22);
     }
 
     const std::filesystem::path filename = resolved_path.filename();
     const std::filesystem::path direct_path = m_icon_asset_root / rel_str;
     const std::filesystem::path symbol_file_1 = m_icon_asset_root / "vscode-symbols" / "icons" / "files" / filename;
     const std::filesystem::path symbol_folder_1 = m_icon_asset_root / "vscode-symbols" / "icons" / "folders" / filename;
+    const std::filesystem::path symbol_file_src = m_icon_asset_root / "vscode-symbols" / "src" / "icons" / "files" / filename;
+    const std::filesystem::path symbol_folder_src = m_icon_asset_root / "vscode-symbols" / "src" / "icons" / "folders" / filename;
     const std::filesystem::path symbol_file_2 = m_icon_asset_root / "vscode-symbols" / "files" / filename;
     const std::filesystem::path symbol_folder_2 = m_icon_asset_root / "vscode-symbols" / "folders" / filename;
     const std::filesystem::path codicon_direct = m_icon_asset_root / "vscode-codicons" / "icons" / rel_str;
     const std::filesystem::path codicon_file = m_icon_asset_root / "vscode-codicons" / "icons" / filename;
+    const std::filesystem::path codicon_src = m_icon_asset_root / "vscode-codicons" / "src" / "icons" / filename;
     const std::filesystem::path vsicon_file = m_icon_asset_root / "vscode-icons" / "icons" / filename;
     const std::filesystem::path material_file = m_icon_asset_root / "material-icon-theme" / filename;
 
@@ -1204,6 +1241,10 @@ void StudioWorkspaceRenderer::draw_svg_icon(
       resolved_path = symbol_file_1;
     } else if (std::filesystem::is_regular_file(symbol_folder_1, path_error)) {
       resolved_path = symbol_folder_1;
+    } else if (std::filesystem::is_regular_file(symbol_file_src, path_error)) {
+      resolved_path = symbol_file_src;
+    } else if (std::filesystem::is_regular_file(symbol_folder_src, path_error)) {
+      resolved_path = symbol_folder_src;
     } else if (std::filesystem::is_regular_file(symbol_file_2, path_error)) {
       resolved_path = symbol_file_2;
     } else if (std::filesystem::is_regular_file(symbol_folder_2, path_error)) {
@@ -1212,6 +1253,8 @@ void StudioWorkspaceRenderer::draw_svg_icon(
       resolved_path = codicon_direct;
     } else if (std::filesystem::is_regular_file(codicon_file, path_error)) {
       resolved_path = codicon_file;
+    } else if (std::filesystem::is_regular_file(codicon_src, path_error)) {
+      resolved_path = codicon_src;
     } else if (std::filesystem::is_regular_file(vsicon_file, path_error)) {
       resolved_path = vsicon_file;
     } else if (std::filesystem::is_regular_file(material_file, path_error)) {

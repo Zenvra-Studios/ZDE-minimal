@@ -422,6 +422,17 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
             UI::Editor::get_studio_sidebar_items();
         if (items[*sidebar_index].icon == UI::Editor::SidebarIcon::Terminal)
         {
+            if (!m_terminal_panel.is_visible())
+            {
+                m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+                return m_terminal_panel.toggle();
+            }
+            if (m_terminal_panel.get_active_channel() != TerminalPanel::PanelChannel::Terminal)
+            {
+                m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+                m_terminal_panel.set_focused(true);
+                return true;
+            }
             return m_terminal_panel.toggle();
         }
         if (items[*sidebar_index].icon == UI::Editor::SidebarIcon::Shader)
@@ -662,9 +673,37 @@ std::optional<bool> StudioWorkspaceRenderer::handle_editor_command(std::string_v
         }
         return res;
     }
+    if (command_id == Commands::CommandIds::view_terminal_panel)
+    {
+        if (!m_terminal_panel.is_visible())
+        {
+            m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+            return m_terminal_panel.toggle();
+        }
+        if (m_terminal_panel.get_active_channel() != TerminalPanel::PanelChannel::Terminal)
+        {
+            m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+            m_terminal_panel.set_focused(true);
+            return true;
+        }
+        return m_terminal_panel.toggle();
+    }
+    if (command_id == Commands::CommandIds::view_output)
+    {
+        if (!m_terminal_panel.is_visible())
+        {
+            m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Output);
+            return m_terminal_panel.toggle();
+        }
+        if (m_terminal_panel.get_active_channel() != TerminalPanel::PanelChannel::Output)
+        {
+            m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Output);
+            m_terminal_panel.set_focused(true);
+            return true;
+        }
+        return m_terminal_panel.toggle();
+    }
     if (command_id == Commands::CommandIds::view_toggle_bottom_dock ||
-        command_id == Commands::CommandIds::view_terminal_panel ||
-        command_id == Commands::CommandIds::view_output ||
         command_id == Commands::CommandIds::view_problems ||
         command_id == Commands::CommandIds::view_diagnostics)
     {

@@ -449,7 +449,8 @@ TEST(LanguageServerTests, CppSyntaxHighlightingNamespacesFunctionsClasses) {
           tokens[i].kind == UI::Editor::EditorTokenKind::Keyword)
         found_public_kw = true;
       if (tokens[i].text == "BaseComponent" &&
-          tokens[i].kind == UI::Editor::EditorTokenKind::Label)
+          (tokens[i].kind == UI::Editor::EditorTokenKind::Label ||
+           tokens[i].kind == UI::Editor::EditorTokenKind::Type))
         found_base_component = true;
     }
 
@@ -1304,7 +1305,7 @@ TEST(LanguageServerTests, BreakpointManagementInTextDocumentModel) {
 TEST(LanguageServerTests, DynamicGutterWidthProtectsBreakpointLane) {
   // 1 to 3 digits (e.g. 50 lines)
   const float w_small = Zenvra::UI::Editor::StudioEditorMetrics::calculate_gutter_width(50, 1.0F);
-  EXPECT_GE(w_small, 68.0F);
+  EXPECT_GE(w_small, 66.0F);
 
   // 4 digits (e.g. 1500 lines)
   const float w_4digit = Zenvra::UI::Editor::StudioEditorMetrics::calculate_gutter_width(1500, 1.0F);

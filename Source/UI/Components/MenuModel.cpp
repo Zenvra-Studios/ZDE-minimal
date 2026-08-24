@@ -175,7 +175,7 @@ constexpr std::array gear_items{
 
 constexpr std::array ellipsis_items{
     MenuItem{"Search...", Commands::CommandIds::view_search, false, "Ctrl+Shift+F"},
-    MenuItem{"Terminal", Commands::CommandIds::view_output, false, "Ctrl+`"},
+    MenuItem{"Terminal", Commands::CommandIds::view_terminal_panel, false, "Ctrl+`"},
     separator,
     MenuItem{"More Tools...", Commands::CommandIds::more_tools, false, ""},
 };

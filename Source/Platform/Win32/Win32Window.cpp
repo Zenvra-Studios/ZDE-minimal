@@ -1991,6 +1991,10 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         } else if (w_param == VK_TAB || w_param == VK_PRIOR) {
           if (dispatch_shortcut_command(Commands::CommandIds::window_prev_tab))
             return 0;
+        } else if (w_param == VK_OEM_3 || w_param == 'J') {
+          if (dispatch_shortcut_command(
+                  Commands::CommandIds::view_terminal_panel))
+            return 0;
         }
       } else if (ctrl_down && alt_down && !shift_down) {
         if (w_param == 'B') {

@@ -1888,6 +1888,12 @@ bool TextEditor::handle_pointer_press(
     m_signature_help.hide();
     m_focused = true;
     m_pointer_selecting = true;
+    m_is_drag_selecting = true;
+    m_drag_select_point_x = point_x;
+    m_drag_select_point_y = point_y;
+    m_has_drag_select_pos = true;
+    m_last_editor_bounds = layout.editor_bounds;
+    m_last_dpi_scale = surface.m_dpi_scale;
     const UI::Editor::TextPosition position = position_from_point(
         surface, device_context, layout, point_x, point_y);
     static_cast<void>(document->set_caret(
@@ -2476,6 +2482,32 @@ bool TextEditor::handle_pointer_drag(
 
         if (m_pointer_selecting)
         {
+            m_drag_select_point_x = point_x;
+            m_drag_select_point_y = point_y;
+            m_has_drag_select_pos = true;
+            m_last_editor_bounds = layout.editor_bounds;
+            m_last_dpi_scale = scale;
+
+            const float top_boundary = layout.editor_bounds.y;
+            const float bottom_boundary = layout.editor_bounds.bottom();
+
+            auto& scrollbar = (m_focused_pane == SplitPaneFocus::Right)
+                ? m_split_scrollbar
+                : m_scrollbar;
+
+            if (point_y < top_boundary)
+            {
+                const float diff = top_boundary - point_y;
+                const std::ptrdiff_t step = (diff > 40.0F * scale) ? -3 : -1;
+                static_cast<void>(scrollbar.scroll_lines(step));
+            }
+            else if (point_y > bottom_boundary)
+            {
+                const float diff = point_y - bottom_boundary;
+                const std::ptrdiff_t step = (diff > 40.0F * scale) ? 3 : 1;
+                static_cast<void>(scrollbar.scroll_lines(step));
+            }
+
             if (m_focused_pane == SplitPaneFocus::Right)
             {
                 if (auto* right_doc = m_controller.get_document(*m_split_document_index))
@@ -2483,6 +2515,7 @@ bool TextEditor::handle_pointer_drag(
                     const UI::Editor::TextPosition pos = position_from_point(surface, device_context, layout, point_x, point_y);
                     const bool chg = right_doc->set_caret(pos.line, pos.column, true);
                     if (chg) { m_reveal_caret_pending = true; m_caret_blink.reset(); }
+                    if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
                     return chg;
                 }
             }
@@ -2493,6 +2526,7 @@ bool TextEditor::handle_pointer_drag(
                     const UI::Editor::TextPosition pos = position_from_point(surface, device_context, layout, point_x, point_y);
                     const bool chg = left_doc->set_caret(pos.line, pos.column, true);
                     if (chg) { m_reveal_caret_pending = true; m_caret_blink.reset(); }
+                    if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
                     return chg;
                 }
             }
@@ -2528,6 +2562,38 @@ bool TextEditor::handle_pointer_drag(
     {
         return false;
     }
+
+    m_drag_select_point_x = point_x;
+    m_drag_select_point_y = point_y;
+    m_has_drag_select_pos = true;
+    m_last_editor_bounds = layout.editor_bounds;
+    m_last_dpi_scale = surface.m_dpi_scale;
+
+    const float top_boundary = layout.editor_bounds.y;
+    const float bottom_boundary = layout.editor_bounds.bottom();
+
+    if (point_y < top_boundary)
+    {
+        const float diff = top_boundary - point_y;
+        const std::ptrdiff_t step = (diff > 40.0F * scale) ? -3 : -1;
+        static_cast<void>(m_scrollbar.scroll_lines(step));
+    }
+    else if (point_y > bottom_boundary)
+    {
+        const float diff = point_y - bottom_boundary;
+        const std::ptrdiff_t step = (diff > 40.0F * scale) ? 3 : 1;
+        static_cast<void>(m_scrollbar.scroll_lines(step));
+    }
+
+    if (point_x < layout.editor_bounds.x)
+    {
+        m_text_scroll_offset = std::max(0.0F, m_text_scroll_offset - 25.0F * scale);
+    }
+    else if (point_x > layout.editor_bounds.right() - (layout.scrollbar_bounds.width + layout.minimap_bounds.width))
+    {
+        m_text_scroll_offset = std::min(m_max_text_scroll, m_text_scroll_offset + 25.0F * scale);
+    }
+
     const UI::Editor::TextPosition position = position_from_point(
         surface, device_context, layout, point_x, point_y);
     const bool changed = document->set_caret(position.line, position.column, true);
@@ -2536,11 +2602,15 @@ bool TextEditor::handle_pointer_drag(
         m_reveal_caret_pending = true;
         m_caret_blink.reset();
     }
+    if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
     return changed;
 }
 
 bool TextEditor::handle_pointer_release() noexcept
 {
+    m_pointer_selecting = false;
+    m_is_drag_selecting = false;
+    m_has_drag_select_pos = false;
     if (m_is_resizing_split)
     {
         m_is_resizing_split = false;

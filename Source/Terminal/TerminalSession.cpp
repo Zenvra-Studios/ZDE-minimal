@@ -183,52 +183,166 @@ TerminalSession::~TerminalSession()
     stop();
 }
 
-std::filesystem::path TerminalSession::resolve_host_shell()
-{
 #if defined(_WIN32)
-    for (const wchar_t* executable : {L"pwsh.exe", L"powershell.exe"})
+bool is_valid_executable_file(const std::filesystem::path& path)
+{
+    if (path.empty())
     {
-        if (const std::filesystem::path resolved = find_windows_executable(executable);
-            !resolved.empty())
+        return false;
+    }
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec) || !std::filesystem::is_regular_file(path, ec))
+    {
+        return false;
+    }
+    // Filter out 0-byte Windows App Execution Alias stubs
+    const auto size = std::filesystem::file_size(path, ec);
+    if (ec || size == 0)
+    {
+        return false;
+    }
+    // Verify file attributes
+    WIN32_FILE_ATTRIBUTE_DATA attr_data{};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &attr_data))
+    {
+        return false;
+    }
+    if ((attr_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+    {
+        return false;
+    }
+    return true;
+}
+
+std::vector<std::filesystem::path> resolve_host_shell_candidates()
+{
+    std::vector<std::filesystem::path> candidates;
+
+    // 0. Explicit ZDE override ($ZDE_SHELL)
+    if (const char* zde_shell = std::getenv("ZDE_SHELL"); zde_shell != nullptr && zde_shell[0] != '\0')
+    {
+        if (is_valid_executable_file(zde_shell))
         {
-            return resolved;
+            candidates.emplace_back(zde_shell);
         }
     }
 
+    // 1. TOP PRIORITY: PowerShell 7+ (pwsh.exe) in standard installation directories
+    constexpr std::array<const wchar_t*, 3> standard_pwsh_paths{
+        L"C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+        L"C:\\Program Files\\PowerShell\\7-preview\\pwsh.exe",
+        L"C:\\Program Files (x86)\\PowerShell\\7\\pwsh.exe",
+    };
+    for (const wchar_t* path : standard_pwsh_paths)
+    {
+        if (is_valid_executable_file(path))
+        {
+            candidates.emplace_back(path);
+        }
+    }
+
+    // Check %LOCALAPPDATA%\Programs\PowerShell\7\pwsh.exe (user install)
+    std::array<wchar_t, 32768> local_app_data{};
+    const DWORD local_length = GetEnvironmentVariableW(
+        L"LOCALAPPDATA", local_app_data.data(), static_cast<DWORD>(local_app_data.size()));
+    if (local_length > 0 && local_length < local_app_data.size())
+    {
+        const std::filesystem::path user_pwsh =
+            std::filesystem::path(local_app_data.data()) / L"Programs" / L"PowerShell" / L"7" / L"pwsh.exe";
+        if (is_valid_executable_file(user_pwsh))
+        {
+            candidates.push_back(user_pwsh);
+        }
+    }
+
+    // Check pwsh.exe in PATH (with strict validation against empty App Execution Alias stubs)
+    if (const std::filesystem::path pwsh = find_windows_executable(L"pwsh.exe");
+        !pwsh.empty() && is_valid_executable_file(pwsh))
+    {
+        candidates.push_back(pwsh);
+    }
+
+    // 2. Fallback: Windows PowerShell 5.1 (System32 built-in)
+    constexpr std::array<const wchar_t*, 2> system_powershell_paths{
+        L"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        L"C:\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\powershell.exe",
+    };
+    for (const wchar_t* path : system_powershell_paths)
+    {
+        if (is_valid_executable_file(path))
+        {
+            candidates.emplace_back(path);
+        }
+    }
+
+    if (const std::filesystem::path ps = find_windows_executable(L"powershell.exe");
+        !ps.empty() && is_valid_executable_file(ps))
+    {
+        candidates.push_back(ps);
+    }
+
+    // 3. Fallback: COMSPEC and cmd.exe
     std::array<wchar_t, 32768> comspec{};
     const DWORD comspec_length = GetEnvironmentVariableW(
         L"COMSPEC", comspec.data(), static_cast<DWORD>(comspec.size()));
     if (comspec_length > 0 && comspec_length < comspec.size() &&
-        GetFileAttributesW(comspec.data()) != INVALID_FILE_ATTRIBUTES)
+        is_valid_executable_file(comspec.data()))
     {
-        return std::filesystem::path{comspec.data()};
-    }
-    if (const std::filesystem::path command_prompt = find_windows_executable(L"cmd.exe");
-        !command_prompt.empty())
-    {
-        return command_prompt;
+        candidates.emplace_back(comspec.data());
     }
 
-    constexpr std::array<std::wstring_view, 3> bash_candidates{
-        L"C:\\msys64\\usr\\bin\\bash.exe",
+    if (is_valid_executable_file(L"C:\\Windows\\System32\\cmd.exe"))
+    {
+        candidates.emplace_back(L"C:\\Windows\\System32\\cmd.exe");
+    }
+
+    if (const std::filesystem::path cmd = find_windows_executable(L"cmd.exe");
+        !cmd.empty() && is_valid_executable_file(cmd))
+    {
+        candidates.push_back(cmd);
+    }
+
+    // 4. Fallback: Git bash / MSYS2
+    constexpr std::array<const wchar_t*, 3> bash_candidates{
         L"C:\\Program Files\\Git\\bin\\bash.exe",
         L"C:\\Program Files\\Git\\usr\\bin\\bash.exe",
+        L"C:\\msys64\\usr\\bin\\bash.exe",
     };
-    for (const std::wstring_view candidate : bash_candidates)
+    for (const wchar_t* candidate : bash_candidates)
     {
-        if (GetFileAttributesW(std::wstring{candidate}.c_str()) != INVALID_FILE_ATTRIBUTES)
+        if (is_valid_executable_file(candidate))
         {
-            return std::filesystem::path{candidate};
+            candidates.emplace_back(candidate);
         }
     }
-    return find_windows_executable(L"bash.exe");
+    if (const std::filesystem::path bash = find_windows_executable(L"bash.exe");
+        !bash.empty() && is_valid_executable_file(bash))
+    {
+        candidates.push_back(bash);
+    }
+
+    // Remove duplicates preserving order
+    std::vector<std::filesystem::path> unique_candidates;
+    for (const auto& p : candidates)
+    {
+        if (std::find(unique_candidates.begin(), unique_candidates.end(), p) == unique_candidates.end())
+        {
+            unique_candidates.push_back(p);
+        }
+    }
+    return unique_candidates;
+}
 #else
+std::vector<std::filesystem::path> resolve_host_shell_candidates()
+{
+    std::vector<std::filesystem::path> candidates;
+
     // 0. Check explicit ZDE override ($ZDE_SHELL)
     if (const char* zde_shell = std::getenv("ZDE_SHELL"); zde_shell != nullptr && zde_shell[0] != '\0')
     {
         if (::access(zde_shell, X_OK) == 0)
         {
-            return std::filesystem::path{zde_shell};
+            candidates.emplace_back(zde_shell);
         }
     }
 
@@ -237,7 +351,7 @@ std::filesystem::path TerminalSession::resolve_host_shell()
     {
         if (::access(env_shell, X_OK) == 0)
         {
-            return std::filesystem::path{env_shell};
+            candidates.emplace_back(env_shell);
         }
     }
 
@@ -247,13 +361,13 @@ std::filesystem::path TerminalSession::resolve_host_shell()
     {
         if (::access(pw->pw_shell, X_OK) == 0)
         {
-            return std::filesystem::path{pw->pw_shell};
+            candidates.emplace_back(pw->pw_shell);
         }
     }
 
     // 3. Fallback candidates by platform priority
 #if defined(__APPLE__)
-    constexpr std::array<std::string_view, 8> candidates{
+    constexpr std::array<std::string_view, 8> list{
         "/bin/zsh",
         "/usr/bin/zsh",
         "/opt/homebrew/bin/zsh",
@@ -264,7 +378,7 @@ std::filesystem::path TerminalSession::resolve_host_shell()
         "/bin/sh",
     };
 #else
-    constexpr std::array<std::string_view, 8> candidates{
+    constexpr std::array<std::string_view, 8> list{
         "/usr/bin/bash",
         "/bin/bash",
         "/usr/bin/zsh",
@@ -275,15 +389,31 @@ std::filesystem::path TerminalSession::resolve_host_shell()
         "/bin/sh",
     };
 #endif
-    for (const std::string_view candidate : candidates)
+    for (const std::string_view candidate : list)
     {
         if (::access(std::string{candidate}.c_str(), X_OK) == 0)
         {
-            return std::filesystem::path{candidate};
+            candidates.emplace_back(candidate);
         }
     }
-    return {};
+
+    // Remove duplicates
+    std::vector<std::filesystem::path> unique_candidates;
+    for (const auto& p : candidates)
+    {
+        if (std::find(unique_candidates.begin(), unique_candidates.end(), p) == unique_candidates.end())
+        {
+            unique_candidates.push_back(p);
+        }
+    }
+    return unique_candidates;
+}
 #endif
+
+std::filesystem::path TerminalSession::resolve_host_shell()
+{
+    const auto candidates = resolve_host_shell_candidates();
+    return candidates.empty() ? std::filesystem::path{} : candidates.front();
 }
 
 bool TerminalSession::start(const std::filesystem::path& working_directory,
@@ -305,11 +435,13 @@ bool TerminalSession::start(const std::filesystem::path& working_directory,
     m_control_sequence.clear();
     m_columns = std::clamp<std::size_t>(initial_columns, 40, 65535);
     m_rows = std::clamp<std::size_t>(initial_rows, 10, 65535);
-    m_shell_path = resolve_host_shell();
-    if (m_shell_path.empty())
+
+    const auto shell_candidates = resolve_host_shell_candidates();
+    if (shell_candidates.empty())
     {
+        m_shell_path = "Terminal";
         append_status("[Unable to find a local shell executable]");
-        return false;
+        return true;
     }
 
 #if defined(_WIN32)
@@ -319,126 +451,163 @@ bool TerminalSession::start(const std::filesystem::path& working_directory,
     _wputenv_s(L"COLORTERM", L"truecolor");
     load_conpty_api();
 
-    HANDLE input_read = nullptr;
-    HANDLE output_write = nullptr;
-
-    if (CreatePipe(&input_read, &m_implementation->input_write, nullptr, 0) == FALSE ||
-        CreatePipe(&m_implementation->output_read, &output_write, nullptr, 0) == FALSE)
+    std::wstring directory_str;
+    std::error_code dir_ec;
+    if (!working_directory.empty() && std::filesystem::is_directory(working_directory, dir_ec))
     {
-        if (input_read != nullptr) CloseHandle(input_read);
-        if (output_write != nullptr) CloseHandle(output_write);
-        stop();
-        append_status("[Unable to create terminal pipes]");
-        return false;
+        directory_str = working_directory.wstring();
     }
+    const wchar_t* directory_pointer = directory_str.empty() ? nullptr : directory_str.c_str();
 
-    std::wstring command = quote_windows_argument(m_shell_path.wstring()) +
-        windows_shell_arguments(m_shell_path);
-    const std::wstring directory = working_directory.empty()
-        ? std::wstring{}
-        : working_directory.wstring();
-    const wchar_t* directory_pointer = directory.empty() ? nullptr : directory.c_str();
+    bool started = false;
 
-    bool conpty_started = false;
-    if (s_fn_CreatePseudoConsole != nullptr && s_fn_ResizePseudoConsole != nullptr && s_fn_ClosePseudoConsole != nullptr)
+    for (const auto& candidate_path : shell_candidates)
     {
-        COORD console_size{
-            static_cast<SHORT>(std::clamp<std::size_t>(m_columns, 1, 32767)),
-            static_cast<SHORT>(std::clamp<std::size_t>(m_rows, 1, 32767))
-        };
-        HPCON hPC = nullptr;
-        if (SUCCEEDED(s_fn_CreatePseudoConsole(console_size, input_read, output_write, 0, &hPC)))
+        m_shell_path = candidate_path;
+        HANDLE input_read = nullptr;
+        HANDLE output_write = nullptr;
+
+        if (CreatePipe(&input_read, &m_implementation->input_write, nullptr, 0) == FALSE ||
+            CreatePipe(&m_implementation->output_read, &output_write, nullptr, 0) == FALSE)
         {
-            m_implementation->pseudo_console = hPC;
-            CloseHandle(input_read);
-            input_read = nullptr;
-            CloseHandle(output_write);
-            output_write = nullptr;
+            if (input_read != nullptr) CloseHandle(input_read);
+            if (output_write != nullptr) CloseHandle(output_write);
+            continue;
+        }
 
-            SIZE_T attr_list_size = 0;
-            InitializeProcThreadAttributeList(nullptr, 1, 0, &attr_list_size);
-            if (attr_list_size > 0)
+        std::wstring command = quote_windows_argument(candidate_path.wstring()) +
+            windows_shell_arguments(candidate_path);
+
+        bool conpty_started = false;
+        if (s_fn_CreatePseudoConsole != nullptr && s_fn_ResizePseudoConsole != nullptr && s_fn_ClosePseudoConsole != nullptr)
+        {
+            COORD console_size{
+                static_cast<SHORT>(std::clamp<std::size_t>(m_columns, 1, 32767)),
+                static_cast<SHORT>(std::clamp<std::size_t>(m_rows, 1, 32767))
+            };
+            HPCON hPC = nullptr;
+            if (SUCCEEDED(s_fn_CreatePseudoConsole(console_size, input_read, output_write, 0, &hPC)))
             {
-                m_implementation->attribute_buffer.resize(attr_list_size);
-                m_implementation->attribute_list = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(
-                    m_implementation->attribute_buffer.data());
-                if (InitializeProcThreadAttributeList(m_implementation->attribute_list, 1, 0, &attr_list_size) != FALSE)
+                m_implementation->pseudo_console = hPC;
+                CloseHandle(input_read);
+                input_read = nullptr;
+                CloseHandle(output_write);
+                output_write = nullptr;
+
+                SIZE_T attr_list_size = 0;
+                InitializeProcThreadAttributeList(nullptr, 1, 0, &attr_list_size);
+                if (attr_list_size > 0)
                 {
-                    if (UpdateProcThreadAttribute(
-                            m_implementation->attribute_list, 0,
-                            PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
-                            m_implementation->pseudo_console,
-                            sizeof(HPCON), nullptr, nullptr) != FALSE)
+                    m_implementation->attribute_buffer.resize(attr_list_size);
+                    m_implementation->attribute_list = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(
+                        m_implementation->attribute_buffer.data());
+                    if (InitializeProcThreadAttributeList(m_implementation->attribute_list, 1, 0, &attr_list_size) != FALSE)
                     {
-                        STARTUPINFOEXW startup_ex{};
-                        startup_ex.StartupInfo.cb = sizeof(STARTUPINFOEXW);
-                        startup_ex.lpAttributeList = m_implementation->attribute_list;
-
-                        PROCESS_INFORMATION process_info{};
-                        std::vector<wchar_t> mutable_command(command.begin(), command.end());
-                        mutable_command.push_back(L'\0');
-
-                        if (CreateProcessW(
-                                nullptr, mutable_command.data(), nullptr, nullptr, FALSE,
-                                EXTENDED_STARTUPINFO_PRESENT, nullptr,
-                                directory_pointer, &startup_ex.StartupInfo, &process_info) != FALSE)
+                        if (UpdateProcThreadAttribute(
+                                m_implementation->attribute_list, 0,
+                                PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
+                                m_implementation->pseudo_console,
+                                sizeof(HPCON), nullptr, nullptr) != FALSE)
                         {
-                            CloseHandle(process_info.hThread);
-                            m_implementation->process = process_info.hProcess;
-                            conpty_started = true;
+                            STARTUPINFOEXW startup_ex{};
+                            startup_ex.StartupInfo.cb = sizeof(STARTUPINFOEXW);
+                            startup_ex.lpAttributeList = m_implementation->attribute_list;
+
+                            PROCESS_INFORMATION process_info{};
+                            std::vector<wchar_t> mutable_command(command.begin(), command.end());
+                            mutable_command.push_back(L'\0');
+
+                            if (CreateProcessW(
+                                    nullptr, mutable_command.data(), nullptr, nullptr, FALSE,
+                                    EXTENDED_STARTUPINFO_PRESENT, nullptr,
+                                    directory_pointer, &startup_ex.StartupInfo, &process_info) != FALSE)
+                            {
+                                CloseHandle(process_info.hThread);
+                                m_implementation->process = process_info.hProcess;
+                                conpty_started = true;
+                                started = true;
+                                break;
+                            }
                         }
                     }
                 }
+
+                if (!conpty_started)
+                {
+                    if (s_fn_ClosePseudoConsole != nullptr && m_implementation->pseudo_console != nullptr)
+                    {
+                        s_fn_ClosePseudoConsole(m_implementation->pseudo_console);
+                        m_implementation->pseudo_console = nullptr;
+                    }
+                    if (m_implementation->attribute_list != nullptr)
+                    {
+                        DeleteProcThreadAttributeList(m_implementation->attribute_list);
+                        m_implementation->attribute_list = nullptr;
+                    }
+                    m_implementation->attribute_buffer.clear();
+                }
+            }
+        }
+
+        if (!conpty_started)
+        {
+            if (input_read == nullptr || output_write == nullptr)
+            {
+                if (m_implementation->input_write != nullptr) { CloseHandle(m_implementation->input_write); m_implementation->input_write = nullptr; }
+                if (m_implementation->output_read != nullptr) { CloseHandle(m_implementation->output_read); m_implementation->output_read = nullptr; }
+                SECURITY_ATTRIBUTES security_attributes{};
+                security_attributes.nLength = sizeof(security_attributes);
+                security_attributes.bInheritHandle = TRUE;
+                CreatePipe(&input_read, &m_implementation->input_write, &security_attributes, 0);
+                CreatePipe(&m_implementation->output_read, &output_write, &security_attributes, 0);
+            }
+            SetHandleInformation(m_implementation->input_write, HANDLE_FLAG_INHERIT, 0);
+            SetHandleInformation(m_implementation->output_read, HANDLE_FLAG_INHERIT, 0);
+            SetHandleInformation(input_read, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+            SetHandleInformation(output_write, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+
+            STARTUPINFOW startup{};
+            startup.cb = sizeof(startup);
+            startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+            startup.wShowWindow = SW_HIDE;
+            startup.hStdInput = input_read;
+            startup.hStdOutput = output_write;
+            startup.hStdError = output_write;
+
+            PROCESS_INFORMATION process_info{};
+            std::vector<wchar_t> mutable_command(command.begin(), command.end());
+            mutable_command.push_back(L'\0');
+
+            const BOOL created = CreateProcessW(
+                nullptr, mutable_command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
+                nullptr, directory_pointer, &startup, &process_info);
+
+            if (input_read != nullptr) CloseHandle(input_read);
+            if (output_write != nullptr) CloseHandle(output_write);
+
+            if (created != FALSE)
+            {
+                CloseHandle(process_info.hThread);
+                m_implementation->process = process_info.hProcess;
+                started = true;
+                break;
+            }
+            else
+            {
+                stop();
             }
         }
     }
 
-    if (!conpty_started)
+    if (!started)
     {
-        if (input_read == nullptr || output_write == nullptr)
-        {
-            if (m_implementation->input_write != nullptr) { CloseHandle(m_implementation->input_write); m_implementation->input_write = nullptr; }
-            if (m_implementation->output_read != nullptr) { CloseHandle(m_implementation->output_read); m_implementation->output_read = nullptr; }
-            SECURITY_ATTRIBUTES security_attributes{};
-            security_attributes.nLength = sizeof(security_attributes);
-            security_attributes.bInheritHandle = TRUE;
-            CreatePipe(&input_read, &m_implementation->input_write, &security_attributes, 0);
-            CreatePipe(&m_implementation->output_read, &output_write, &security_attributes, 0);
-        }
-        SetHandleInformation(m_implementation->input_write, HANDLE_FLAG_INHERIT, 0);
-        SetHandleInformation(m_implementation->output_read, HANDLE_FLAG_INHERIT, 0);
-        SetHandleInformation(input_read, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
-        SetHandleInformation(output_write, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
-
-        STARTUPINFOW startup{};
-        startup.cb = sizeof(startup);
-        startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-        startup.wShowWindow = SW_HIDE;
-        startup.hStdInput = input_read;
-        startup.hStdOutput = output_write;
-        startup.hStdError = output_write;
-
-        PROCESS_INFORMATION process_info{};
-        std::vector<wchar_t> mutable_command(command.begin(), command.end());
-        mutable_command.push_back(L'\0');
-
-        const BOOL created = CreateProcessW(
-            nullptr, mutable_command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
-            nullptr, directory_pointer, &startup, &process_info);
-
-        if (input_read != nullptr) CloseHandle(input_read);
-        if (output_write != nullptr) CloseHandle(output_write);
-
-        if (created == FALSE)
-        {
-            stop();
-            append_status("[Unable to start the local shell]");
-            return false;
-        }
-        CloseHandle(process_info.hThread);
-        m_implementation->process = process_info.hProcess;
+        stop();
+        m_shell_path = "Terminal";
+        append_status("[Unable to start a local shell process (PowerShell / cmd)]");
+        return true;
     }
 #else
+    m_shell_path = shell_candidates.front();
     winsize terminal_size{};
     terminal_size.ws_col = static_cast<unsigned short>(m_columns);
     terminal_size.ws_row = static_cast<unsigned short>(m_rows);
@@ -448,7 +617,7 @@ bool TerminalSession::start(const std::filesystem::path& working_directory,
     {
         m_implementation->master_fd = -1;
         append_status("[Unable to create the local terminal PTY]");
-        return false;
+        return true;
     }
     if (process_id == 0)
     {

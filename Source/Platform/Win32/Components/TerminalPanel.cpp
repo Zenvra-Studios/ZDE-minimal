@@ -139,6 +139,11 @@ bool TerminalPanel::handle_pointer_press(
 
   if (terminal_channel_tab_bounds(layout).contains(point_x, point_y)) {
     m_active_channel = PanelChannel::Terminal;
+    if (m_model.get_sessions().empty()) {
+      static_cast<void>(m_model.create_session(
+          current_terminal_directory(m_working_directory)));
+    }
+    m_model.set_focused(true);
     return true;
   }
   if (output_channel_tab_bounds(layout).contains(point_x, point_y)) {
@@ -153,8 +158,13 @@ bool TerminalPanel::handle_pointer_press(
   }
 
   if (add_button_bounds(layout).contains(point_x, point_y)) {
+    m_active_channel = PanelChannel::Terminal;
     return m_model.create_session(
         current_terminal_directory(m_working_directory));
+  }
+  const UI::Rect close_btn = close_button_bounds(layout);
+  if (close_btn.width > 0.0F && close_btn.contains(point_x, point_y)) {
+    return toggle();
   }
   const std::span<const Terminal::TerminalSessionEntry> sessions =
       m_model.get_sessions();

@@ -20,12 +20,7 @@ bool TerminalPanelModel::toggle(const std::filesystem::path& working_directory)
     m_focused = m_visible;
     if (m_visible && m_sessions.empty())
     {
-        if (!create_session(working_directory))
-        {
-            m_visible = false;
-            m_focused = false;
-            return false;
-        }
+        static_cast<void>(create_session(working_directory));
     }
     return true;
 }
@@ -41,15 +36,16 @@ bool TerminalPanelModel::create_session(const std::filesystem::path& working_dir
         return false;
     }
     auto session = std::make_unique<TerminalSession>();
-    if (!session->start(working_directory, m_columns, m_rows))
-    {
-        return false;
-    }
+    static_cast<void>(session->start(working_directory, m_columns, m_rows));
     // Read initial output immediately with zero latency
     static_cast<void>(session->poll());
 
     const std::size_t identifier = m_next_identifier++;
-    const std::string shell_name = session->get_shell_path().stem().string();
+    std::string shell_name = session->get_shell_path().stem().string();
+    if (shell_name.empty())
+    {
+        shell_name = "Terminal";
+    }
     m_sessions.push_back(TerminalSessionEntry{
         .identifier = identifier,
         .title = shell_name,
@@ -182,18 +178,9 @@ bool TerminalPanelModel::send_control(char letter)
 bool TerminalPanelModel::poll()
 {
     bool changed = false;
-    std::size_t index = 0;
-    while (index < m_sessions.size())
+    for (TerminalSessionEntry& entry : m_sessions)
     {
-        TerminalSession& session = *m_sessions[index].session;
-        changed = session.poll() || changed;
-        if (!session.is_running())
-        {
-            remove_session(index);
-            changed = true;
-            continue;
-        }
-        ++index;
+        changed = entry.session->poll() || changed;
     }
     return changed;
 }

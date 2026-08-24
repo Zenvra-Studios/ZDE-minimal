@@ -94,7 +94,7 @@ public:
     return m_is_split && m_split_document_index.has_value();
   }
   [[nodiscard]] std::size_t get_active_document_line_count() const noexcept {
-    const auto* doc = m_controller.get_active_document();
+    const auto *doc = m_controller.get_active_document();
     return doc != nullptr ? doc->get_line_count() : 1;
   }
   void reset_split() noexcept;
@@ -206,6 +206,12 @@ private:
   bool m_focused = false;
   bool m_pointer_selecting = false;
   bool m_is_drag_selecting = false;
+
+  mutable float m_drag_select_point_x = 0.0F;
+  mutable float m_drag_select_point_y = 0.0F;
+  mutable bool m_has_drag_select_pos = false;
+  mutable UI::Rect m_last_editor_bounds{};
+  mutable float m_last_dpi_scale = 1.0F;
 
 public:
   bool is_pointer_selecting() const noexcept {
