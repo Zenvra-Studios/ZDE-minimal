@@ -93,7 +93,7 @@ void ActivitySidebar::render(
                     2.0F * surface.m_dpi_scale,
                     26.0F * surface.m_dpi_scale,
                 },
-                surface.m_palette.accent);
+                surface.m_palette.text_primary);
         }
         else if (hovered)
         {

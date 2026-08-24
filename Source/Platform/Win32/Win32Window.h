@@ -87,9 +87,9 @@ private:
                          LPARAM l_param);
   [[nodiscard]] LRESULT hit_test_non_client(LPARAM l_param);
   [[nodiscard]] LRESULT hit_test_resize_border(POINT client_position) const;
-  void apply_system_corner_preference();
   void paint_custom_chrome();
   void refresh_chrome_layout();
+  void update_dwm_border_color();
   void refresh_ui_font();
   void show_menu(std::size_t menu_index);
   void show_overflow_menu();

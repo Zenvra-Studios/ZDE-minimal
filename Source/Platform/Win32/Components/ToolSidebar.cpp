@@ -1642,7 +1642,7 @@ void ToolSidebar::render(
               panel.x, row_bounds.y + 2.0F * scale,
               3.0F * scale, row_bounds.height - 4.0F * scale
           };
-          surface.fill_rectangle(device_context, left_bar, surface.m_palette.accent);
+          surface.fill_rectangle(device_context, left_bar, surface.m_palette.text_primary);
         } else if (is_hovered) {
           surface.fill_rectangle(device_context, row_bounds, surface.m_palette.hover_background);
         }

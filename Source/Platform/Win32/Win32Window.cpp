@@ -28,6 +28,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <utility>
 #include <vector>
@@ -39,6 +40,23 @@ namespace {
 constexpr DWORD dwm_immersive_dark_mode_attribute = 20;
 constexpr UINT_PTR editor_caret_timer_id = 1;
 
+DWORD get_windows_build_number() noexcept {
+  using RtlGetVersionFn = LONG(WINAPI *)(PRTL_OSVERSIONINFOW);
+  HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+  if (ntdll != nullptr) {
+    auto p_fn = reinterpret_cast<RtlGetVersionFn>(
+        GetProcAddress(ntdll, "RtlGetVersion"));
+    if (p_fn != nullptr) {
+      RTL_OSVERSIONINFOW osvi{};
+      osvi.dwOSVersionInfoSize = sizeof(osvi);
+      if (p_fn(&osvi) == 0) {
+        return osvi.dwBuildNumber;
+      }
+    }
+  }
+  return 0;
+}
+
 enum class PreferredAppMode {
   Default = 0,
   AllowDark = 1,
@@ -47,11 +65,16 @@ enum class PreferredAppMode {
   Max = 4
 };
 
-using fnSetPreferredAppMode = PreferredAppMode(WINAPI *)(PreferredAppMode mode);
-using fnAllowDarkModeForWindow = bool(WINAPI *)(HWND hwnd, bool allow);
-using fnFlushMenuThemes = void(WINAPI *)();
-using fnSetWindowTheme = HRESULT(WINAPI *)(HWND hwnd, LPCWSTR pszSubAppName,
-                                           LPCWSTR pszSubIdList);
+template <typename Fn, typename... Args>
+void invoke_uxtheme_proc(HMODULE uxtheme, LPCSTR proc_identifier,
+                         Args &&...args) noexcept {
+  if (uxtheme != nullptr) {
+    if (auto proc = reinterpret_cast<Fn>(
+            GetProcAddress(uxtheme, proc_identifier))) {
+      proc(std::forward<Args>(args)...);
+    }
+  }
+}
 
 void enable_menu_dark_mode(HWND hwnd) {
   HMODULE uxtheme =
@@ -59,29 +82,18 @@ void enable_menu_dark_mode(HWND hwnd) {
   if (!uxtheme) {
     uxtheme = GetModuleHandleW(L"uxtheme.dll");
   }
-  if (uxtheme) {
-    auto set_preferred_app_mode = reinterpret_cast<fnSetPreferredAppMode>(
-        GetProcAddress(uxtheme, MAKEINTRESOURCEA(135)));
-    if (set_preferred_app_mode) {
-      set_preferred_app_mode(PreferredAppMode::ForceDark);
-    }
-    auto allow_dark_mode_for_window =
-        reinterpret_cast<fnAllowDarkModeForWindow>(
-            GetProcAddress(uxtheme, MAKEINTRESOURCEA(133)));
-    if (allow_dark_mode_for_window) {
-      allow_dark_mode_for_window(hwnd, true);
-    }
-    auto flush_menu_themes = reinterpret_cast<fnFlushMenuThemes>(
-        GetProcAddress(uxtheme, MAKEINTRESOURCEA(136)));
-    if (flush_menu_themes) {
-      flush_menu_themes();
-    }
-    auto set_window_theme = reinterpret_cast<fnSetWindowTheme>(
-        GetProcAddress(uxtheme, "SetWindowTheme"));
-    if (set_window_theme) {
-      set_window_theme(hwnd, L"DarkMode_Explorer", nullptr);
-    }
+  if (!uxtheme) {
+    return;
   }
+
+  invoke_uxtheme_proc<PreferredAppMode(WINAPI *)(PreferredAppMode)>(
+      uxtheme, MAKEINTRESOURCEA(135), PreferredAppMode::ForceDark);
+  invoke_uxtheme_proc<bool(WINAPI *)(HWND, bool)>(
+      uxtheme, MAKEINTRESOURCEA(133), hwnd, true);
+  invoke_uxtheme_proc<void(WINAPI *)()>(
+      uxtheme, MAKEINTRESOURCEA(136));
+  invoke_uxtheme_proc<HRESULT(WINAPI *)(HWND, LPCWSTR, LPCWSTR)>(
+      uxtheme, "SetWindowTheme", hwnd, L"DarkMode_Explorer", nullptr);
 }
 
 COLORREF to_color_ref(const UI::Theme::Color &color) {
@@ -377,7 +389,7 @@ bool Win32Window::initialize() {
 
   WNDCLASSEXW window_class{};
   window_class.cbSize = sizeof(window_class);
-  window_class.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
+  window_class.style = CS_DBLCLKS;
   window_class.lpfnWndProc = window_proc;
   window_class.hInstance = m_instance_handle;
   window_class.hIcon = h_icon_big;
@@ -391,11 +403,31 @@ bool Win32Window::initialize() {
     return false;
   }
 
+  int win_width = static_cast<int>(m_specification.width);
+  int win_height = static_cast<int>(m_specification.height);
+
+  RECT work_area{};
+  int pos_x = CW_USEDEFAULT;
+  int pos_y = CW_USEDEFAULT;
+  if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &work_area, 0)) {
+    const int work_width = work_area.right - work_area.left;
+    const int work_height = work_area.bottom - work_area.top;
+    if (win_width > work_width - 60) {
+      win_width = std::max(720, work_width - 120);
+    }
+    if (win_height > work_height - 60) {
+      win_height = std::max(480, work_height - 100);
+    }
+    pos_x = work_area.left + (work_width - win_width) / 2;
+    pos_y = work_area.top + (work_height - win_height) / 2;
+  }
+
+  m_custom_chrome_enabled =
+      m_specification.custom_chrome_enabled && m_capabilities.custom_chrome;
+
   m_window_handle = CreateWindowExW(
-      0, window_class_name, m_window_title.c_str(), WS_OVERLAPPEDWINDOW,
-      CW_USEDEFAULT, CW_USEDEFAULT, static_cast<int>(m_specification.width),
-      static_cast<int>(m_specification.height), nullptr, nullptr,
-      m_instance_handle, this);
+      0, window_class_name, m_window_title.c_str(), WS_OVERLAPPEDWINDOW, pos_x,
+      pos_y, win_width, win_height, nullptr, nullptr, m_instance_handle, this);
 
   if (m_window_handle == nullptr) {
     return false;
@@ -406,13 +438,35 @@ bool Win32Window::initialize() {
   SendMessageW(m_window_handle, WM_SETICON, ICON_SMALL,
                reinterpret_cast<LPARAM>(h_icon_sm));
 
+  const DWORD win_build = get_windows_build_number();
+
   const BOOL dark_mode_enabled = TRUE;
-  DwmSetWindowAttribute(m_window_handle, dwm_immersive_dark_mode_attribute,
-                        &dark_mode_enabled, sizeof(dark_mode_enabled));
+  if (FAILED(DwmSetWindowAttribute(m_window_handle, 20, &dark_mode_enabled,
+                                   sizeof(dark_mode_enabled)))) {
+    DwmSetWindowAttribute(m_window_handle, 19, &dark_mode_enabled,
+                          sizeof(dark_mode_enabled));
+  }
   enable_menu_dark_mode(m_window_handle);
+
+  // OS Versioned DWM Corner Validation:
+  // - Windows 11 (Build >= 22000): Apply DWMWCP_ROUND (2) so all 4 corners are
+  // rounded
+  // - Windows 10 and below (Build < 22000): Native DWM remains sharp/lancip
+  // square
+  if (win_build >= 22000) {
+    constexpr DWORD dwm_corner_preference_attr =
+        33;                               // DWMWA_WINDOW_CORNER_PREFERENCE
+    constexpr DWORD dwm_corner_round = 2; // DWMWCP_ROUND
+    DwmSetWindowAttribute(m_window_handle, dwm_corner_preference_attr,
+                          &dwm_corner_round, sizeof(dwm_corner_round));
+    update_dwm_border_color();
+  }
 
   const MARGINS frame_margins{1, 1, 1, 1};
   DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
+  SetWindowPos(m_window_handle, nullptr, 0, 0, 0, 0,
+               SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
+                   SWP_FRAMECHANGED);
 
   if (!m_menubar.load(m_instance_handle) ||
       !m_menubar.attach(m_window_handle)) {
@@ -438,7 +492,6 @@ bool Win32Window::initialize() {
       SetTimer(m_window_handle, editor_caret_timer_id, 16, nullptr));
   refresh_chrome_layout();
   set_custom_chrome_enabled(m_specification.custom_chrome_enabled);
-  apply_system_corner_preference();
 
   Runtime::WinRTContext::initialize();
   m_tray.create(m_window_handle, WM_TRAYICON,
@@ -452,9 +505,9 @@ void Win32Window::show() {
     return;
   }
 
-  apply_system_corner_preference();
-  ShowWindow(m_window_handle, SW_SHOWDEFAULT);
-  apply_system_corner_preference();
+  ShowWindow(m_window_handle, SW_SHOW);
+  SetForegroundWindow(m_window_handle);
+  SetFocus(m_window_handle);
 
   refresh_chrome_layout();
   InvalidateRect(m_window_handle, nullptr, TRUE);
@@ -490,7 +543,6 @@ void Win32Window::minimize() {
 
 void Win32Window::maximize() {
   ShowWindow(m_window_handle, SW_MAXIMIZE);
-  apply_system_corner_preference();
   refresh_chrome_layout();
   InvalidateRect(m_window_handle, nullptr, TRUE);
   UpdateWindow(m_window_handle);
@@ -498,7 +550,6 @@ void Win32Window::maximize() {
 
 void Win32Window::restore() {
   ShowWindow(m_window_handle, SW_RESTORE);
-  apply_system_corner_preference();
   refresh_chrome_layout();
   InvalidateRect(m_window_handle, nullptr, TRUE);
   UpdateWindow(m_window_handle);
@@ -519,7 +570,6 @@ void Win32Window::restore_from_tray() {
     if (IsIconic(m_window_handle)) {
       ShowWindow(m_window_handle, SW_RESTORE);
     }
-    apply_system_corner_preference();
     refresh_chrome_layout();
     SetForegroundWindow(m_window_handle);
     SetFocus(m_window_handle);
@@ -563,7 +613,6 @@ void Win32Window::toggle_fullscreen() {
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER |
                      SWP_FRAMECHANGED);
   }
-  apply_system_corner_preference();
   refresh_chrome_layout();
   InvalidateRect(m_window_handle, nullptr, TRUE);
   UpdateWindow(m_window_handle);
@@ -604,7 +653,12 @@ void Win32Window::set_custom_chrome_enabled(bool enabled) {
     static_cast<void>(m_menubar.detach());
     const MARGINS frame_margins{1, 1, 1, 1};
     DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
-    apply_system_corner_preference();
+    if (get_windows_build_number() >= 22000) {
+      constexpr DWORD dwm_corner_preference_attr = 33;
+      constexpr DWORD dwm_corner_round = 2;
+      DwmSetWindowAttribute(m_window_handle, dwm_corner_preference_attr,
+                            &dwm_corner_round, sizeof(dwm_corner_round));
+    }
   } else {
     close_menu_overlay();
     static_cast<void>(m_menubar.attach(m_window_handle));
@@ -615,7 +669,6 @@ void Win32Window::set_custom_chrome_enabled(bool enabled) {
   SetWindowPos(m_window_handle, nullptr, 0, 0, 0, 0,
                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
                    SWP_FRAMECHANGED);
-  apply_system_corner_preference();
   refresh_chrome_layout();
   InvalidateRect(m_window_handle, nullptr, FALSE);
 }
@@ -2435,23 +2488,23 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         monitor_info.cbSize = sizeof(monitor_info);
         if (GetMonitorInfoW(monitor, &monitor_info) != FALSE) {
           if (m_is_fullscreen) {
-            min_max_info->ptMaxPosition.x = monitor_info.rcMonitor.left;
-            min_max_info->ptMaxPosition.y = monitor_info.rcMonitor.top;
-            min_max_info->ptMaxSize.x = std::abs(monitor_info.rcMonitor.right -
-                                                 monitor_info.rcMonitor.left);
-            min_max_info->ptMaxSize.y = std::abs(monitor_info.rcMonitor.bottom -
-                                                 monitor_info.rcMonitor.top);
+            min_max_info->ptMaxPosition.x = 0;
+            min_max_info->ptMaxPosition.y = 0;
+            min_max_info->ptMaxSize.x =
+                monitor_info.rcMonitor.right - monitor_info.rcMonitor.left;
+            min_max_info->ptMaxSize.y =
+                monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top;
             min_max_info->ptMaxTrackSize.x = min_max_info->ptMaxSize.x;
             min_max_info->ptMaxTrackSize.y = min_max_info->ptMaxSize.y;
           } else {
-            min_max_info->ptMaxPosition.x = std::abs(
-                monitor_info.rcWork.left - monitor_info.rcMonitor.left);
+            min_max_info->ptMaxPosition.x =
+                monitor_info.rcWork.left - monitor_info.rcMonitor.left;
             min_max_info->ptMaxPosition.y =
-                std::abs(monitor_info.rcWork.top - monitor_info.rcMonitor.top);
+                monitor_info.rcWork.top - monitor_info.rcMonitor.top;
             min_max_info->ptMaxSize.x =
-                std::abs(monitor_info.rcWork.right - monitor_info.rcWork.left);
+                monitor_info.rcWork.right - monitor_info.rcWork.left;
             min_max_info->ptMaxSize.y =
-                std::abs(monitor_info.rcWork.bottom - monitor_info.rcWork.top);
+                monitor_info.rcWork.bottom - monitor_info.rcWork.top;
             min_max_info->ptMaxTrackSize.x = min_max_info->ptMaxSize.x;
             min_max_info->ptMaxTrackSize.y = min_max_info->ptMaxSize.y;
           }
@@ -2480,24 +2533,18 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     break;
 
   case WM_EXITSIZEMOVE:
+    refresh_chrome_layout();
     if (m_custom_chrome_enabled) {
-      refresh_chrome_layout();
-      InvalidateRect(window_handle, nullptr, TRUE);
-      UpdateWindow(window_handle);
+      RedrawWindow(window_handle, nullptr, nullptr,
+                   RDW_INTERNALPAINT | RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
     }
     break;
 
   case WM_SIZING:
-    if (m_custom_chrome_enabled) {
+    if (m_custom_chrome_enabled && !is_minimized()) {
       refresh_chrome_layout();
-      InvalidateRect(window_handle, nullptr, FALSE);
-    }
-    break;
-
-  case WM_SYNCPAINT:
-    if (m_custom_chrome_enabled) {
-      InvalidateRect(window_handle, nullptr, FALSE);
-      return 0;
+      RedrawWindow(window_handle, nullptr, nullptr,
+                   RDW_INTERNALPAINT | RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
     }
     break;
 
@@ -2517,20 +2564,31 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     break;
 
   case WM_ACTIVATE:
+    refresh_chrome_layout();
+    update_dwm_border_color();
     if (LOWORD(w_param) != WA_INACTIVE) {
-      refresh_chrome_layout();
       static_cast<void>(
           m_workspace_renderer.m_text_editor.check_external_file_changes());
-      if (m_custom_chrome_enabled) {
-        InvalidateRect(window_handle, nullptr, FALSE);
-      }
+    }
+    if (m_custom_chrome_enabled) {
+      InvalidateRect(window_handle, nullptr, FALSE);
     }
     break;
 
   case WM_SETFOCUS:
+    update_dwm_border_color();
     static_cast<void>(
         m_workspace_renderer.m_text_editor.check_external_file_changes());
-    InvalidateRect(window_handle, nullptr, FALSE);
+    if (m_custom_chrome_enabled) {
+      InvalidateRect(window_handle, nullptr, FALSE);
+    }
+    break;
+
+  case WM_KILLFOCUS:
+    update_dwm_border_color();
+    if (m_custom_chrome_enabled) {
+      InvalidateRect(window_handle, nullptr, FALSE);
+    }
     break;
 
   case WM_WINDOWPOSCHANGED: {
@@ -2538,10 +2596,10 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     if ((window_pos->flags & SWP_NOSIZE) == 0 ||
         (window_pos->flags & SWP_SHOWWINDOW) != 0) {
       if (!is_minimized()) {
-        apply_system_corner_preference();
         refresh_chrome_layout();
         if (m_custom_chrome_enabled) {
-          InvalidateRect(window_handle, nullptr, FALSE);
+          RedrawWindow(window_handle, nullptr, nullptr,
+                       RDW_INTERNALPAINT | RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
         }
       }
     }
@@ -2550,13 +2608,13 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
 
   case WM_SIZE:
     if (w_param != SIZE_MINIMIZED) {
-      apply_system_corner_preference();
       refresh_chrome_layout();
       if (m_custom_chrome_enabled) {
-        InvalidateRect(window_handle, nullptr, FALSE);
+        RedrawWindow(window_handle, nullptr, nullptr,
+                     RDW_INTERNALPAINT | RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
       }
     }
-    return 0;
+    break;
 
   case WM_PAINT:
     if (m_custom_chrome_enabled) {
@@ -2572,6 +2630,7 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     break;
 
   case WM_NCACTIVATE:
+    update_dwm_border_color();
     if (m_custom_chrome_enabled) {
       InvalidateRect(window_handle, nullptr, FALSE);
       return TRUE;
@@ -2580,7 +2639,11 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
 
   case WM_DWMCOMPOSITIONCHANGED:
   case WM_SETTINGCHANGE: {
-    apply_system_corner_preference();
+    if (m_custom_chrome_enabled) {
+      const MARGINS frame_margins{1, 1, 1, 1};
+      DwmExtendFrameIntoClientArea(window_handle, &frame_margins);
+      update_dwm_border_color();
+    }
     break;
   }
 
@@ -2632,7 +2695,8 @@ LRESULT Win32Window::hit_test_non_client(LPARAM l_param) {
   const float point_y = static_cast<float>(cursor_position.y);
 
   // 1. Check window caption controls (Minimize, Maximize, Close) FIRST
-  // This ensures the top-right close button works reliably and is not hijacked by resize borders
+  // This ensures the top-right close button works reliably and is not hijacked
+  // by resize borders
   switch (m_chrome_layout.get_window_control(point_x, point_y)) {
   case UI::Chrome::WindowControl::Minimize:
     return HTMINBUTTON;
@@ -2716,39 +2780,6 @@ LRESULT Win32Window::hit_test_resize_border(POINT client_position) const {
     return HTBOTTOM;
   }
   return HTNOWHERE;
-}
-
-void Win32Window::apply_system_corner_preference() {
-  if (m_window_handle == nullptr) {
-    return;
-  }
-
-  // 1. Enforce DWM no-rounding preference (DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_DONOTROUND = 1)
-  constexpr DWORD dwm_window_corner_preference_attribute = 33;
-  const DWORD corner_preference = 1; // DWMWCP_DONOTROUND
-  DwmSetWindowAttribute(m_window_handle, dwm_window_corner_preference_attribute,
-                        &corner_preference, sizeof(corner_preference));
-
-  // 2. Set DWM border color matching subtle dark theme border (DWMWA_BORDER_COLOR = 34)
-  constexpr DWORD dwm_border_color_attribute = 34;
-  const COLORREF border_color = to_color_ref(m_theme.titlebar_border);
-  DwmSetWindowAttribute(m_window_handle, dwm_border_color_attribute,
-                        &border_color, sizeof(border_color));
-
-  // 3. Physical window region enforcement (forces 100% sharp 90-degree rectangular corners on all Windows versions)
-  if (m_custom_chrome_enabled && !is_maximized()) {
-    RECT window_bounds{};
-    if (GetWindowRect(m_window_handle, &window_bounds) != FALSE) {
-      const int width = window_bounds.right - window_bounds.left;
-      const int height = window_bounds.bottom - window_bounds.top;
-      if (width > 0 && height > 0) {
-        HRGN rectangular_region = CreateRectRgn(0, 0, width, height);
-        SetWindowRgn(m_window_handle, rectangular_region, TRUE);
-      }
-    }
-  } else {
-    SetWindowRgn(m_window_handle, nullptr, TRUE);
-  }
 }
 
 void Win32Window::paint_custom_chrome() {
@@ -3082,6 +3113,31 @@ void Win32Window::paint_custom_chrome() {
   m_workspace_renderer.render_add_item_dialog(buffer_context, client_width,
                                               client_height, m_theme);
 
+  // Draw subtle 1px border around the window frame when windowed on older OS (Win10 and below),
+  // while on Windows 11 DWMWA_BORDER_COLOR provides the hardware anti-aliased rounded border.
+  const DWORD win_build = get_windows_build_number();
+  if (win_build < 22000 && !is_maximized() && !m_is_fullscreen) {
+    const COLORREF border_color =
+        is_focused() ? RGB(68, 71, 78) : RGB(50, 52, 58);
+    HPEN border_pen = CreatePen(PS_SOLID, 1, border_color);
+    HGDIOBJ prev_pen = SelectObject(buffer_context, border_pen);
+
+    MoveToEx(buffer_context, 0, 0, nullptr);
+    LineTo(buffer_context, client_width, 0);
+
+    MoveToEx(buffer_context, client_width - 1, 0, nullptr);
+    LineTo(buffer_context, client_width - 1, client_height);
+
+    MoveToEx(buffer_context, client_width - 1, client_height - 1, nullptr);
+    LineTo(buffer_context, -1, client_height - 1);
+
+    MoveToEx(buffer_context, 0, client_height - 1, nullptr);
+    LineTo(buffer_context, 0, -1);
+
+    SelectObject(buffer_context, prev_pen);
+    DeleteObject(border_pen);
+  }
+
   SelectObject(buffer_context, previous_font);
 
   BitBlt(window_context, 0, 0, client_width, client_height, buffer_context, 0,
@@ -3104,6 +3160,20 @@ void Win32Window::refresh_chrome_layout() {
   m_chrome_layout = m_chrome_layout_engine.calculate(
       static_cast<float>(client_bounds.right - client_bounds.left),
       static_cast<float>(m_dpi) / 96.0F, options);
+}
+
+void Win32Window::update_dwm_border_color() {
+  if (m_window_handle == nullptr) {
+    return;
+  }
+  const DWORD win_build = get_windows_build_number();
+  if (win_build >= 22000) {
+    constexpr DWORD dwm_border_color_attr = 34; // DWMWA_BORDER_COLOR
+    const COLORREF border_color =
+        is_focused() ? RGB(68, 71, 78) : RGB(45, 47, 52);
+    DwmSetWindowAttribute(m_window_handle, dwm_border_color_attr,
+                          &border_color, sizeof(border_color));
+  }
 }
 
 void Win32Window::refresh_ui_font() {

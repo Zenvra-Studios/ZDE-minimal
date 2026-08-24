@@ -1205,30 +1205,38 @@ bool TextEditor::handle_pointer_drag(
     rlay.scrollbar_bounds = right_scrollbar;
 
     if (auto *left_doc = m_controller.get_active_document()) {
-      if (const auto target = m_minimap.handle_pointer_drag(
-              llay, py, left_doc->get_line_count(), visible_count,
-              m_scrollbar.get_first_visible_line())) {
-        static_cast<void>(m_scrollbar.scroll_to(*target));
-        m_reveal_caret_pending = false;
-        return true;
+      if (m_minimap.is_dragging()) {
+        if (const auto target = m_minimap.handle_pointer_drag(
+                llay, py, left_doc->get_line_count(), visible_count,
+                m_scrollbar.get_first_visible_line())) {
+          static_cast<void>(m_scrollbar.scroll_to(*target));
+          m_reveal_caret_pending = false;
+          return true;
+        }
       }
-      if (m_scrollbar.handle_pointer_drag(llay, py)) {
-        m_reveal_caret_pending = false;
-        return true;
+      if (m_scrollbar.is_dragging()) {
+        if (m_scrollbar.handle_pointer_drag(llay, py)) {
+          m_reveal_caret_pending = false;
+          return true;
+        }
       }
     }
 
     if (auto *right_doc = m_controller.get_document(*m_split_document_index)) {
-      if (const auto target = m_split_minimap.handle_pointer_drag(
-              rlay, py, right_doc->get_line_count(), visible_count,
-              m_split_scrollbar.get_first_visible_line())) {
-        static_cast<void>(m_split_scrollbar.scroll_to(*target));
-        m_reveal_caret_pending = false;
-        return true;
+      if (m_split_minimap.is_dragging()) {
+        if (const auto target = m_split_minimap.handle_pointer_drag(
+                rlay, py, right_doc->get_line_count(), visible_count,
+                m_split_scrollbar.get_first_visible_line())) {
+          static_cast<void>(m_split_scrollbar.scroll_to(*target));
+          m_reveal_caret_pending = false;
+          return true;
+        }
       }
-      if (m_split_scrollbar.handle_pointer_drag(rlay, py)) {
-        m_reveal_caret_pending = false;
-        return true;
+      if (m_split_scrollbar.is_dragging()) {
+        if (m_split_scrollbar.handle_pointer_drag(rlay, py)) {
+          m_reveal_caret_pending = false;
+          return true;
+        }
       }
     }
 
@@ -1259,16 +1267,20 @@ bool TextEditor::handle_pointer_drag(
     return false;
   }
 
-  if (m_scrollbar.handle_pointer_drag(layout, py))
-    return true;
-  if (const UI::Editor::TextDocumentModel *doc = get_focused_document()) {
-    m_scrollbar.synchronize(
-        count_visible_lines(m_folding, doc->get_line_count()), visible_count);
-    if (const auto line = m_minimap.handle_pointer_drag(
-            layout, py, doc->get_line_count(), visible_count,
-            m_scrollbar.get_first_visible_line())) {
-      static_cast<void>(m_scrollbar.scroll_to(*line));
+  if (m_scrollbar.is_dragging()) {
+    if (m_scrollbar.handle_pointer_drag(layout, py))
       return true;
+  }
+  if (m_minimap.is_dragging()) {
+    if (const UI::Editor::TextDocumentModel *doc = get_focused_document()) {
+      m_scrollbar.synchronize(
+          count_visible_lines(m_folding, doc->get_line_count()), visible_count);
+      if (const auto line = m_minimap.handle_pointer_drag(
+              layout, py, doc->get_line_count(), visible_count,
+              m_scrollbar.get_first_visible_line())) {
+        static_cast<void>(m_scrollbar.scroll_to(*line));
+        return true;
+      }
     }
   }
   if (m_pointer_selecting) {

@@ -146,13 +146,19 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
       : 0.0F;
   
   const float integrated_tab_x = std::min(nav_width, safe_width);
-  const float integrated_tab_right = (safe_width > (integrated_tab_x + ctrl_width))
-                                         ? (safe_width - ctrl_width)
-                                         : integrated_tab_x;
+  const float min_center_drag_gap = (safe_top > 0.0F) ? (160.0F * safe_scale) : 0.0F;
+  const float max_tab_width_ratio = safe_width * 0.46F;
+  const float available_for_tabs =
+      std::max(0.0F, safe_width - integrated_tab_x - ctrl_width - min_center_drag_gap);
+  const float effective_tab_width =
+      (safe_top > 0.0F)
+          ? std::max(0.0F, std::min(available_for_tabs, max_tab_width_ratio))
+          : std::max(0.0F, safe_width - integrated_tab_x);
+
   const UI::Rect tab_bounds{
       integrated_tab_x,
       integrated_tab_y,
-      std::max(0.0F, integrated_tab_right - integrated_tab_x),
+      effective_tab_width,
       integrated_tab_height,
   };
   const UI::Rect workspace_body = editor_workspace_bounds;

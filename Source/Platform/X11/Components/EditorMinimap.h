@@ -35,6 +35,7 @@ public:
         std::size_t visible_lines,
         std::size_t first_visible_line) noexcept;
     [[nodiscard]] bool handle_pointer_release() noexcept;
+    [[nodiscard]] bool is_dragging() const noexcept { return m_pointer_dragging; }
 
     void render(
         const StudioWorkspaceRenderer& surface,

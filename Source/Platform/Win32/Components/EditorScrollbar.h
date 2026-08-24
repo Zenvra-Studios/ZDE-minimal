@@ -40,6 +40,7 @@ public:
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y) noexcept;
+    [[nodiscard]] bool is_dragging() const noexcept { return m_model.is_dragging(); }
     [[nodiscard]] std::size_t get_first_visible_line() const noexcept;
 
     void render(

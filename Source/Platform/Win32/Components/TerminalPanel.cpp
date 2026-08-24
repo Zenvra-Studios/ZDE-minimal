@@ -162,10 +162,6 @@ bool TerminalPanel::handle_pointer_press(
     return m_model.create_session(
         current_terminal_directory(m_working_directory));
   }
-  const UI::Rect close_btn = close_button_bounds(layout);
-  if (close_btn.width > 0.0F && close_btn.contains(point_x, point_y)) {
-    return toggle();
-  }
   const std::span<const Terminal::TerminalSessionEntry> sessions =
       m_model.get_sessions();
   for (std::size_t index = 0; index < sessions.size(); ++index) {
@@ -491,29 +487,25 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
 
   const float bar_h = std::max(2.0F * scale, 2.0F);
 
-  if (m_active_channel == PanelChannel::Terminal) {
-    surface.fill_rectangle(device_context, term_tab,
-                           surface.m_palette.tab_active_background);
-    surface.fill_rectangle(device_context, UI::Rect{term_tab.x, term_tab.y, term_tab.width, bar_h},
-                           surface.m_palette.accent);
-    surface.draw_line(device_context, round_to_int(term_tab.x), round_to_int(term_tab.y),
-                      round_to_int(term_tab.x), round_to_int(term_tab.bottom()), surface.m_palette.border);
-    surface.draw_line(device_context, round_to_int(term_tab.right()), round_to_int(term_tab.y),
-                      round_to_int(term_tab.right()), round_to_int(term_tab.bottom()), surface.m_palette.border);
+  // 1. Channel Switcher Headers: Terminal, Output
+  const bool is_term_active = (m_active_channel == PanelChannel::Terminal);
+  const bool is_out_active = (m_active_channel == PanelChannel::Output);
+
+  // Terminal Channel Tab
+  if (is_term_active) {
+    surface.draw_line(device_context, round_to_int(term_tab.x), round_to_int(term_tab.bottom()) - 1,
+                      round_to_int(term_tab.right()), round_to_int(term_tab.bottom()) - 1, surface.m_palette.border);
   } else {
     surface.draw_line(device_context, round_to_int(term_tab.x), round_to_int(term_tab.bottom()) - 1,
                       round_to_int(term_tab.right()), round_to_int(term_tab.bottom()) - 1, surface.m_palette.border);
-    surface.draw_line(device_context, round_to_int(term_tab.right()), round_to_int(term_tab.y),
-                      round_to_int(term_tab.right()), round_to_int(term_tab.bottom()), surface.m_palette.border);
   }
   surface.draw_text(device_context, *surface.m_small_font, "Terminal",
-                    term_tab.x + 12.0F * scale,
+                    term_tab.x + 10.0F * scale,
                     term_tab.y + term_tab.height * 0.5F,
-                    (m_active_channel == PanelChannel::Terminal)
-                        ? surface.m_palette.text_primary
-                        : surface.m_palette.text_muted);
+                    is_term_active ? surface.m_palette.text_primary : surface.m_palette.text_muted);
 
-  if (m_active_channel == PanelChannel::Output) {
+  // Output Channel Tab
+  if (is_out_active) {
     surface.fill_rectangle(device_context, out_tab,
                            surface.m_palette.tab_active_background);
     surface.fill_rectangle(device_context, UI::Rect{out_tab.x, out_tab.y, out_tab.width, bar_h},
@@ -525,17 +517,15 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   } else {
     surface.draw_line(device_context, round_to_int(out_tab.x), round_to_int(out_tab.bottom()) - 1,
                       round_to_int(out_tab.right()), round_to_int(out_tab.bottom()) - 1, surface.m_palette.border);
-    surface.draw_line(device_context, round_to_int(out_tab.right()), round_to_int(out_tab.y),
-                      round_to_int(out_tab.right()), round_to_int(out_tab.bottom()), surface.m_palette.border);
+    surface.draw_line(device_context, round_to_int(out_tab.right()), round_to_int(out_tab.y + 4.0F * scale),
+                      round_to_int(out_tab.right()), round_to_int(out_tab.bottom() - 4.0F * scale), surface.m_palette.border);
   }
   surface.draw_text(device_context, *surface.m_small_font, "Output",
-                    out_tab.x + 14.0F * scale,
+                    out_tab.x + 12.0F * scale,
                     out_tab.y + out_tab.height * 0.5F,
-                    (m_active_channel == PanelChannel::Output)
-                        ? surface.m_palette.text_primary
-                        : surface.m_palette.text_muted);
+                    is_out_active ? surface.m_palette.text_primary : surface.m_palette.text_muted);
 
-  if (m_active_channel == PanelChannel::Output) {
+  if (is_out_active) {
     const UI::Rect clear_btn = clear_output_button_bounds(layout);
     surface.draw_text(device_context, *surface.m_small_font, "Clear",
                       clear_btn.x + 10.0F * scale,
@@ -560,6 +550,7 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
     return;
   }
 
+  // 2. Terminal Sessions Tabs (VS Code style flush active/inactive tabs)
   const std::span<const Terminal::TerminalSessionEntry> sessions =
       m_model.get_sessions();
   const std::optional<std::size_t> active_index = m_model.get_active_index();
@@ -606,18 +597,24 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
     std::erase_if(m_tab_animated_offset_x, [&](const auto &item) { return !active_ids.contains(item.first); });
   }
 
+  // 3. Add (+) Button (flush with last session tab)
   const UI::Rect add = add_button_bounds(layout);
+  surface.draw_line(device_context, round_to_int(add.x), round_to_int(add.bottom()) - 1,
+                    round_to_int(add.right()), round_to_int(add.bottom()) - 1, surface.m_palette.border);
+  surface.draw_line(device_context, round_to_int(add.right()), round_to_int(add.y),
+                    round_to_int(add.right()), round_to_int(add.bottom()), surface.m_palette.border);
   surface.draw_line(device_context, round_to_int(add.x + add.width * 0.5F),
-                    round_to_int(add.y + 5.0F * scale),
+                    round_to_int(add.y + 6.0F * scale),
                     round_to_int(add.x + add.width * 0.5F),
-                    round_to_int(add.bottom() - 5.0F * scale),
+                    round_to_int(add.bottom() - 6.0F * scale),
                     surface.m_palette.text_muted);
-  surface.draw_line(device_context, round_to_int(add.x + 5.0F * scale),
+  surface.draw_line(device_context, round_to_int(add.x + 6.0F * scale),
                     round_to_int(add.y + add.height * 0.5F),
-                    round_to_int(add.right() - 5.0F * scale),
+                    round_to_int(add.right() - 6.0F * scale),
                     round_to_int(add.y + add.height * 0.5F),
                     surface.m_palette.text_muted);
 
+  // 4. Close (x) Button on active session tab
   const UI::Rect close = close_button_bounds(layout);
   if (close.width > 0.0F) {
     surface.draw_svg_icon(device_context, "diagnostic-error.svg",
@@ -807,15 +804,15 @@ UI::Rect TerminalPanel::terminal_channel_tab_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
   return UI::Rect{layout.terminal_header_bounds.x,
-                  layout.terminal_header_bounds.y, 74.0F * scale,
+                  layout.terminal_header_bounds.y, 70.0F * scale,
                   layout.terminal_header_bounds.height};
 }
 
 UI::Rect TerminalPanel::output_channel_tab_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
-  return UI::Rect{layout.terminal_header_bounds.x + 74.0F * scale,
-                  layout.terminal_header_bounds.y, 68.0F * scale,
+  return UI::Rect{layout.terminal_header_bounds.x + 70.0F * scale,
+                  layout.terminal_header_bounds.y, 64.0F * scale,
                   layout.terminal_header_bounds.height};
 }
 
@@ -831,8 +828,8 @@ UI::Rect TerminalPanel::session_tab_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout,
     std::size_t index) const noexcept {
   const float scale = layout.dpi_scale;
-  const float start_x = layout.terminal_header_bounds.x + 150.0F * scale;
-  const float tab_width = 108.0F * scale;
+  const float start_x = layout.terminal_header_bounds.x + 134.0F * scale;
+  const float tab_width = 112.0F * scale;
   const float x = start_x + static_cast<float>(index) * tab_width;
   return UI::Rect{x, layout.terminal_header_bounds.y, tab_width,
                   layout.terminal_header_bounds.height};
@@ -841,15 +838,13 @@ UI::Rect TerminalPanel::session_tab_bounds(
 UI::Rect TerminalPanel::add_button_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
-  const float start_x = layout.terminal_header_bounds.x + 152.0F * scale;
-  const float tab_width = 118.0F * scale;
+  const float start_x = layout.terminal_header_bounds.x + 134.0F * scale;
+  const float tab_width = 112.0F * scale;
   const float x = start_x +
-                  static_cast<float>(m_model.get_sessions().size()) *
-                      (tab_width + 4.0F * scale) +
-                  2.0F * scale;
-  return UI::Rect{x, layout.terminal_header_bounds.y + 3.0F * scale,
-                  22.0F * scale,
-                  layout.terminal_header_bounds.height - 6.0F * scale};
+                  static_cast<float>(m_model.get_sessions().size()) * tab_width;
+  return UI::Rect{x, layout.terminal_header_bounds.y,
+                  28.0F * scale,
+                  layout.terminal_header_bounds.height};
 }
 
 UI::Rect TerminalPanel::close_button_bounds(
@@ -864,9 +859,9 @@ UI::Rect TerminalPanel::close_button_bounds(
     return UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
   }
   const UI::Rect tab = session_tab_bounds(layout, *active_index);
-  const float width = 18.0F * layout.dpi_scale;
-  return UI::Rect{tab.right() - width - 4.0F * layout.dpi_scale,
-                  tab.y + (tab.height - width) * 0.5F, width, width};
+  const float size = 16.0F * layout.dpi_scale;
+  return UI::Rect{tab.right() - size - 6.0F * layout.dpi_scale,
+                  tab.y + (tab.height - size) * 0.5F, size, size};
 }
 
 UI::Rect TerminalPanel::resize_handle_bounds(

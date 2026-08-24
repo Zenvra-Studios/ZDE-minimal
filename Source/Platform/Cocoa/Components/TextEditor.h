@@ -214,6 +214,10 @@ private:
     bool is_pointer_selecting() const noexcept { return m_pointer_selecting || m_is_drag_selecting; }
     bool is_resizing_split() const noexcept { return m_is_split; }
     bool is_tab_dragging() const noexcept { return m_tab_drag_drop.is_dragging(); }
+    bool is_scrollbar_dragging() const noexcept {
+        return m_scrollbar.is_dragging() || m_split_scrollbar.is_dragging() ||
+               m_minimap.is_dragging() || m_split_minimap.is_dragging();
+    }
   private:
 
     mutable std::array<UI::Rect, max_visible_tabs> m_tab_bounds{};

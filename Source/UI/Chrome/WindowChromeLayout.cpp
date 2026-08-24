@@ -279,8 +279,12 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(
 
   if (current_right > left_edge) {
     const float available_space = current_right - left_edge;
+    const float min_center_drag_gap = 160.0F * safe_scale;
+    const float max_buffer_width =
+        std::max(0.0F, std::min(available_space - min_center_drag_gap,
+                                client_width * 0.46F));
     result.command_center_bounds = {};
-    result.file_buffer_bounds = {left_edge, 0.0F, available_space,
+    result.file_buffer_bounds = {left_edge, 0.0F, max_buffer_width,
                                  titlebar_height};
   }
 

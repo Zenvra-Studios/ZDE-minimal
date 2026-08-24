@@ -244,7 +244,8 @@ void AddNewItemDialog::draw_icon(HDC dc, const std::string &icon_rel_path,
         dst[i] = (a << 24U) | (red << 16U) | (green << 8U) | blue;
       }
     } else {
-      // LunaSVG outputs premultiplied ARGB32, matching GDI 32-bit DIBSection AC_SRC_ALPHA directly
+      // LunaSVG outputs premultiplied ARGB32, matching GDI 32-bit DIBSection
+      // AC_SRC_ALPHA directly
       std::memcpy(dst, src, pixel_count * sizeof(std::uint32_t));
     }
 
@@ -733,21 +734,12 @@ void AddNewItemDialog::open(HWND parent_hwnd,
     DwmSetWindowAttribute(m_hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark,
                           sizeof(dark));
 
-    // 2. Window corner preference (enforce normal square corners)
-    constexpr DWORD dwm_corner_pref_attr = 33; // DWMWA_WINDOW_CORNER_PREFERENCE
-    const DWORD corner_preference = 1;         // DWMWCP_DONOTROUND
-    DwmSetWindowAttribute(m_hwnd, dwm_corner_pref_attr, &corner_preference,
-                          sizeof(corner_preference));
+    constexpr DWORD dwm_corner_preference_attr = 33;
+    constexpr DWORD dwm_corner_round = 2;
+    DwmSetWindowAttribute(m_hwnd, dwm_corner_preference_attr,
+                          &dwm_corner_round, sizeof(dwm_corner_round));
 
-    // 3. Border color matching dark IDE theme (prevents high-contrast white
-    // border artifact)
-    constexpr DWORD dwm_border_color_attr = 34; // DWMWA_BORDER_COLOR
-    const COLORREF border_color = RGB(43, 43, 43);
-    DwmSetWindowAttribute(m_hwnd, dwm_border_color_attr, &border_color,
-                          sizeof(border_color));
-
-    // 4. Extend frame margins into client area so DWM manages hardware
-    // dropshadow without legacy white NC frame
+    // 2. Extend frame margins into client area so DWM manages hardware dropshadow
     const MARGINS frame_margins{0, 0, 0, 0};
     DwmExtendFrameIntoClientArea(m_hwnd, &frame_margins);
 
@@ -1106,19 +1098,9 @@ void AddNewItemDialog::render(HDC dc, const LayoutResult &layout,
 
   // 1. Clean Dark Background & Frame (Matching Text Editor Slate-Gray Palette)
   const COLORREF bg_col = RGB(30, 31, 34);
-  const COLORREF border_col = RGB(43, 43, 43);
 
   HBRUSH bg_brush = CreateSolidBrush(bg_col);
-  HPEN border_pen = CreatePen(PS_SOLID, 1, border_col);
-  HGDIOBJ prev_brush = SelectObject(dc, bg_brush);
-  HGDIOBJ prev_pen = SelectObject(dc, border_pen);
-
-  Rectangle(dc, native_dlg.left, native_dlg.top, native_dlg.right,
-            native_dlg.bottom);
-
-  SelectObject(dc, prev_pen);
-  SelectObject(dc, prev_brush);
-  DeleteObject(border_pen);
+  FillRect(dc, &native_dlg, bg_brush);
   DeleteObject(bg_brush);
 
   // 2. Titlebar
@@ -1500,8 +1482,7 @@ void AddNewItemDialog::render(HDC dc, const LayoutResult &layout,
   }
 
   // Add Button (ZDE Accent Blue Flat Button)
-  const COLORREF add_bg =
-      m_add_hovered ? RGB(65, 145, 240) : RGB(53, 132, 228);
+  const COLORREF add_bg = m_add_hovered ? RGB(65, 145, 240) : RGB(53, 132, 228);
   HBRUSH add_br = CreateSolidBrush(add_bg);
   RECT add_r = to_native_rect(layout.add_button_bounds);
   FillRect(dc, &add_r, add_br);
@@ -1527,17 +1508,6 @@ void AddNewItemDialog::render(HDC dc, const LayoutResult &layout,
   SetTextColor(dc, RGB(190, 193, 200));
   DrawTextW(dc, L"Cancel", -1, &can_r,
             DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-
-  // 8. 1px Outer Window Frame Border (drawn last to outline the entire dialog
-  // window)
-  HPEN frame_pen = CreatePen(PS_SOLID, 1, RGB(43, 43, 43));
-  HGDIOBJ p_fp = SelectObject(dc, frame_pen);
-  HGDIOBJ p_fb = SelectObject(dc, GetStockObject(HOLLOW_BRUSH));
-  Rectangle(dc, native_dlg.left, native_dlg.top, native_dlg.right,
-            native_dlg.bottom);
-  SelectObject(dc, p_fb);
-  SelectObject(dc, p_fp);
-  DeleteObject(frame_pen);
 
   // Restore original font
   SelectObject(dc, prev_font);

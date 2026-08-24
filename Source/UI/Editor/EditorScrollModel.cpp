@@ -56,7 +56,7 @@ bool EditorScrollModel::begin_pointer_drag(
     {
         m_pointer_offset = point_y - geometry.thumb.y;
         m_dragging = true;
-        return false;
+        return true;
     }
 
     m_pointer_offset = geometry.thumb.height * 0.5F;

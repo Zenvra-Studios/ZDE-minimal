@@ -428,7 +428,7 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(float point_x, float point_y,
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
   if (m_text_editor.is_pointer_selecting() || m_text_editor.is_resizing_split() ||
-      m_text_editor.is_tab_dragging()) {
+      m_text_editor.is_tab_dragging() || m_text_editor.is_scrollbar_dragging()) {
     return m_text_editor.handle_pointer_drag(*this, layout, point_x, point_y);
   }
   if (m_tool_sidebar.is_resizing() || m_tool_sidebar.is_dragging_item() ||

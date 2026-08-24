@@ -93,7 +93,7 @@ void ActivitySidebar::render(
                     2.0F * surface.m_dpi_scale,
                     26.0F * surface.m_dpi_scale,
                 },
-                surface.m_colors.accent);
+                surface.m_colors.text_primary);
         }
         draw_icon(surface, context, item.icon, center_x, round_to_int(center_y), active, hovered);
 
