@@ -49,8 +49,6 @@ cmake-build-release/
 
 # --- Third-party installer downloads -------------------------------------
 Docs/*.exe
-*.exe.manifest
-*.exe.config
 
 # --- OS junk -------------------------------------------------------------
 .DS_Store
