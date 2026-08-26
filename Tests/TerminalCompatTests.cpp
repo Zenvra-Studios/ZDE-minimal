@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
 #include "Terminal/TerminalExitDecoder.h"
+#include "Terminal/TerminalPanelModel.h"
+#include "Terminal/TerminalSession.h"
 #include "Terminal/WindowsSecurityProbe.h"
 #include "Utility/Doctor.h"
 
@@ -126,3 +128,61 @@ TEST(DoctorTests, GenerateReportContent)
     EXPECT_NE(report.find("[Operating System & Security Posture]"), std::string::npos);
     EXPECT_NE(report.find("[Terminal Subsystem]"), std::string::npos);
 }
+
+TEST(TerminalInputTests, BackspaceKeyMapping)
+{
+    TerminalPanelModel model;
+    EXPECT_TRUE(model.create_session());
+
+    TerminalSession* session = model.get_active_session();
+    ASSERT_NE(session, nullptr);
+    EXPECT_TRUE(session->is_running());
+
+    // Send single character inputs
+    EXPECT_TRUE(model.send_text("a"));
+    EXPECT_TRUE(model.send_text("b"));
+    EXPECT_TRUE(model.send_text("c"));
+
+    // Send backspace (must be dispatched as single character deletion)
+    EXPECT_TRUE(model.send_key(TerminalInputKey::Backspace));
+    EXPECT_TRUE(model.send_key(TerminalInputKey::Backspace));
+
+    // Send text "clear" (must be sent as literal characters, not clearing the entire terminal)
+    EXPECT_TRUE(model.send_text("clear"));
+    model.shutdown();
+}
+
+TEST(TerminalInputTests, PerCharacterVTDeletion)
+{
+    TerminalSession session;
+    // Simulate terminal receiving output text: "hello world"
+    session.consume_output("hello world");
+    EXPECT_EQ(session.get_lines().size(), 1);
+    EXPECT_EQ(session.get_lines()[0], "hello world");
+    EXPECT_EQ(session.get_cursor_column(), 11);
+
+    // Shell sends single backspace: \b \b (BS, Space, BS)
+    session.consume_output("\b \b");
+    EXPECT_EQ(session.get_cursor_column(), 10);
+    EXPECT_EQ(session.get_lines()[0], "hello worl ");
+
+    // Shell sends another single backspace: \b \b
+    session.consume_output("\b \b");
+    EXPECT_EQ(session.get_cursor_column(), 9);
+    EXPECT_EQ(session.get_lines()[0], "hello wor  ");
+
+    // Shell sends Erase in Line: \x1b[K
+    session.consume_output("\x1b[K");
+    EXPECT_EQ(session.get_cursor_column(), 9);
+    EXPECT_EQ(session.get_lines()[0], "hello wor");
+
+    // Shell sends Delete Character: \x1b[1P at current position
+    session.consume_output("\b\x1b[1P");
+    EXPECT_EQ(session.get_cursor_column(), 8);
+    EXPECT_EQ(session.get_lines()[0], "hello wo");
+
+    session.stop();
+}
+
+
+

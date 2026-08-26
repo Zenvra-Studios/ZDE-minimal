@@ -1,6 +1,5 @@
 #include "Terminal/TerminalSession.h"
 #include "Terminal/TerminalExitDecoder.h"
-#include "Terminal/WindowsSecurityProbe.h"
 
 #include <algorithm>
 #include <array>
@@ -119,35 +118,6 @@ void remove_last_utf8_code_point(std::string& text) noexcept
     }
 }
 
-bool is_clear_command(std::string_view command) noexcept
-{
-    while (!command.empty() &&
-           (command.front() == ' ' || command.front() == '\t'))
-    {
-        command.remove_prefix(1);
-    }
-    while (!command.empty() &&
-           (command.back() == ' ' || command.back() == '\t'))
-    {
-        command.remove_suffix(1);
-    }
-    const auto equals_ignore_case = [](std::string_view left, std::string_view right) {
-        if (left.size() != right.size())
-        {
-            return false;
-        }
-        for (std::size_t index = 0; index < left.size(); ++index)
-        {
-            if (std::tolower(static_cast<unsigned char>(left[index])) !=
-                std::tolower(static_cast<unsigned char>(right[index])))
-            {
-                return false;
-            }
-        }
-        return true;
-    };
-    return equals_ignore_case(command, "clear") || equals_ignore_case(command, "cls");
-}
 
 #if defined(_WIN32)
 static std::mutex s_shell_state_mutex;
@@ -259,7 +229,7 @@ DWORD get_liveness_timeout_ms(const std::filesystem::path& shell_path)
     }
     if (is_windows_shell(shell_path, L"powershell.exe") || is_windows_shell(shell_path, L"pwsh.exe"))
     {
-        return 1500;
+        return 2500;
     }
     return 300;
 }
@@ -274,7 +244,7 @@ std::wstring windows_shell_arguments(const std::filesystem::path& shell_path)
     {
         return L" /D /Q /K";
     }
-    return L" -NoLogo -NoProfile -ExecutionPolicy Bypass";
+    return L" -NoLogo -NoExit -Command \"\"";
 }
 
 #ifndef PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE
@@ -631,6 +601,8 @@ bool TerminalSession::start(const std::filesystem::path& working_directory,
     _wputenv_s(L"COLORTERM", L"truecolor");
     load_conpty_api();
 
+    m_working_directory = working_directory;
+
     std::wstring directory_str;
     std::error_code dir_ec;
     if (!working_directory.empty() && std::filesystem::is_directory(working_directory, dir_ec))
@@ -665,28 +637,23 @@ bool TerminalSession::start(const std::filesystem::path& working_directory,
     {
         m_shell_path = candidate_path;
         const DWORD liveness_timeout = get_liveness_timeout_ms(candidate_path);
-        bool retry_attempted = false;
 
         terminal_debug_log("[ZDE Terminal] Attempting candidate #" + std::to_string(candidate_index++) +
                            ": \"" + candidate_path.string() + "\" (liveness timeout " + std::to_string(liveness_timeout) + "ms)");
 
-        auto try_spawn_candidate = [&](bool allow_retry) -> bool {
+        std::wstring command = quote_windows_argument(candidate_path.wstring()) +
+            windows_shell_arguments(candidate_path);
+
+        bool candidate_started = false;
+
+        // Step 1: Attempt ConPTY if API is available and not disabled
+        if (s_fn_CreatePseudoConsole != nullptr && s_fn_ResizePseudoConsole != nullptr && s_fn_ClosePseudoConsole != nullptr)
+        {
             HANDLE input_read = nullptr;
             HANDLE output_write = nullptr;
 
-            if (CreatePipe(&input_read, &m_implementation->input_write, nullptr, 0) == FALSE ||
-                CreatePipe(&m_implementation->output_read, &output_write, nullptr, 0) == FALSE)
-            {
-                if (input_read != nullptr) CloseHandle(input_read);
-                if (output_write != nullptr) CloseHandle(output_write);
-                return false;
-            }
-
-            std::wstring command = quote_windows_argument(candidate_path.wstring()) +
-                windows_shell_arguments(candidate_path);
-
-            bool conpty_started = false;
-            if (s_fn_CreatePseudoConsole != nullptr && s_fn_ResizePseudoConsole != nullptr && s_fn_ClosePseudoConsole != nullptr)
+            if (CreatePipe(&input_read, &m_implementation->input_write, nullptr, 0) != FALSE &&
+                CreatePipe(&m_implementation->output_read, &output_write, nullptr, 0) != FALSE)
             {
                 COORD console_size{
                     static_cast<SHORT>(std::clamp<std::size_t>(m_columns, 1, 32767)),
@@ -735,34 +702,22 @@ bool TerminalSession::start(const std::filesystem::path& working_directory,
                                     const DWORD pid = process_info.dwProcessId;
                                     terminal_debug_log("[ZDE Terminal] ConPTY CreateProcessW OK (PID " + std::to_string(pid) + ")");
 
-                                    // Liveness check: verify shell does not die immediately
-                                    if (WaitForSingleObject(m_implementation->process, liveness_timeout) == WAIT_OBJECT_0)
+                                    // Instantaneous non-blocking launch check (0ms)
+                                    if (WaitForSingleObject(m_implementation->process, 0) == WAIT_OBJECT_0)
                                     {
                                         DWORD early_exit_code = 0;
                                         GetExitCodeProcess(m_implementation->process, &early_exit_code);
-                                        terminal_debug_log("[ZDE Terminal] ConPTY shell died within " + std::to_string(liveness_timeout) +
-                                                           "ms for \"" + candidate_path.string() + "\" (exit code " + std::to_string(early_exit_code) + ")");
+                                        terminal_debug_log("[ZDE Terminal] ConPTY shell failed at launch for \"" + candidate_path.string() + "\" (exit code " + std::to_string(early_exit_code) + ")");
                                         CloseHandle(m_implementation->process);
                                         m_implementation->process = nullptr;
-
-                                        // Transient retry if this is first candidate & hasn't retried yet
-                                        if (allow_retry && !retry_attempted)
-                                        {
-                                            retry_attempted = true;
-                                            terminal_debug_log("[ZDE Terminal] Transient failure detected for first candidate, waiting 500ms before retry...");
-                                            Sleep(500);
-                                        }
-                                        else
-                                        {
-                                            mark_shell_dead(candidate_path);
-                                        }
                                     }
                                     else
                                     {
-                                        conpty_started = true;
+                                        candidate_started = true;
                                         m_implementation->is_conpty = true;
                                         m_implementation->start_time = std::chrono::steady_clock::now();
                                         m_implementation->persisted_last_good = false;
+                                        m_running = true;
                                         terminal_debug_log("[ZDE Terminal] Shell committed (ConPTY mode) for \"" + candidate_path.string() + "\"");
                                     }
 
@@ -780,7 +735,7 @@ bool TerminalSession::start(const std::filesystem::path& working_directory,
                         }
                     }
 
-                    if (!conpty_started)
+                    if (!candidate_started)
                     {
                         if (s_fn_ClosePseudoConsole != nullptr && m_implementation->pseudo_console != nullptr)
                         {
@@ -800,90 +755,95 @@ bool TerminalSession::start(const std::filesystem::path& working_directory,
                     terminal_debug_log("[ZDE Terminal] CreatePseudoConsole failed (HRESULT 0x" + std::to_string(create_pcon_hr) + ")");
                 }
             }
+            if (input_read != nullptr) CloseHandle(input_read);
+            if (output_write != nullptr) CloseHandle(output_write);
+        }
 
-            if (!conpty_started)
-            {
-                if (input_read == nullptr || output_write == nullptr)
-                {
-                    if (m_implementation->input_write != nullptr) { CloseHandle(m_implementation->input_write); m_implementation->input_write = nullptr; }
-                    if (m_implementation->output_read != nullptr) { CloseHandle(m_implementation->output_read); m_implementation->output_read = nullptr; }
-                    SECURITY_ATTRIBUTES security_attributes{};
-                    security_attributes.nLength = sizeof(security_attributes);
-                    security_attributes.bInheritHandle = TRUE;
-                    CreatePipe(&input_read, &m_implementation->input_write, &security_attributes, 0);
-                    CreatePipe(&m_implementation->output_read, &output_write, &security_attributes, 0);
-                }
-                SetHandleInformation(m_implementation->input_write, HANDLE_FLAG_INHERIT, 0);
-                SetHandleInformation(m_implementation->output_read, HANDLE_FLAG_INHERIT, 0);
-                SetHandleInformation(input_read, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
-                SetHandleInformation(output_write, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
-
-                STARTUPINFOW startup{};
-                startup.cb = sizeof(startup);
-                startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-                startup.wShowWindow = SW_HIDE;
-                startup.hStdInput = input_read;
-                startup.hStdOutput = output_write;
-                startup.hStdError = output_write;
-
-                PROCESS_INFORMATION process_info{};
-                std::vector<wchar_t> mutable_command(command.begin(), command.end());
-                mutable_command.push_back(L'\0');
-
-                const BOOL created = CreateProcessW(
-                    nullptr, mutable_command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
-                    nullptr, directory_pointer, &startup, &process_info);
-
-                if (input_read != nullptr) CloseHandle(input_read);
-                if (output_write != nullptr) CloseHandle(output_write);
-
-                if (created != FALSE)
-                {
-                    CloseHandle(process_info.hThread);
-                    m_implementation->process = process_info.hProcess;
-                    const DWORD pid = process_info.dwProcessId;
-                    terminal_debug_log("[ZDE Terminal] Pipe-mode CreateProcessW OK (PID " + std::to_string(pid) + ")");
-
-                    if (WaitForSingleObject(m_implementation->process, liveness_timeout) == WAIT_OBJECT_0)
-                    {
-                        DWORD early_exit_code = 0;
-                        GetExitCodeProcess(m_implementation->process, &early_exit_code);
-                        terminal_debug_log("[ZDE Terminal] Pipe-mode shell died within " + std::to_string(liveness_timeout) +
-                                           "ms for \"" + candidate_path.string() + "\" (exit code " + std::to_string(early_exit_code) + ")");
-                        CloseHandle(m_implementation->process);
-                        m_implementation->process = nullptr;
-                        mark_shell_dead(candidate_path);
-                    }
-                    else
-                    {
-                        m_implementation->is_conpty = false;
-                        m_implementation->start_time = std::chrono::steady_clock::now();
-                        m_implementation->persisted_last_good = false;
-                        terminal_debug_log("[ZDE Terminal] Shell committed (Pipe mode) for \"" + candidate_path.string() + "\"");
-                        return true;
-                    }
-                }
-                else
-                {
-                    const DWORD pipe_error = GetLastError();
-                    terminal_debug_log("[ZDE Terminal] Pipe-mode CreateProcessW failed for \"" + candidate_path.string() +
-                                       "\" (Win32 error " + std::to_string(pipe_error) + ")");
-                    stop();
-                }
-            }
-            return conpty_started;
-        };
-
-        const bool is_first = (candidate_index == 1);
-        if (try_spawn_candidate(is_first))
+        if (candidate_started)
         {
             started = true;
             break;
         }
-        if (is_first && retry_attempted && try_spawn_candidate(false))
+
+        // Step 2: ConPTY failed or shell died in ConPTY -> Attempt Pipe mode fallback for this candidate
+        terminal_debug_log("[ZDE Terminal] ConPTY unavailable/failed for \"" + candidate_path.string() + "\", falling back to Pipe mode...");
+        if (m_implementation->input_write != nullptr) { CloseHandle(m_implementation->input_write); m_implementation->input_write = nullptr; }
+        if (m_implementation->output_read != nullptr) { CloseHandle(m_implementation->output_read); m_implementation->output_read = nullptr; }
+
+        HANDLE pipe_in_read = nullptr;
+        HANDLE pipe_out_write = nullptr;
+        SECURITY_ATTRIBUTES security_attributes{};
+        security_attributes.nLength = sizeof(security_attributes);
+        security_attributes.bInheritHandle = TRUE;
+
+        if (CreatePipe(&pipe_in_read, &m_implementation->input_write, &security_attributes, 0) != FALSE &&
+            CreatePipe(&m_implementation->output_read, &pipe_out_write, &security_attributes, 0) != FALSE)
         {
-            started = true;
-            break;
+            SetHandleInformation(m_implementation->input_write, HANDLE_FLAG_INHERIT, 0);
+            SetHandleInformation(m_implementation->output_read, HANDLE_FLAG_INHERIT, 0);
+            SetHandleInformation(pipe_in_read, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+            SetHandleInformation(pipe_out_write, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
+
+            STARTUPINFOW startup{};
+            startup.cb = sizeof(startup);
+            startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+            startup.wShowWindow = SW_HIDE;
+            startup.hStdInput = pipe_in_read;
+            startup.hStdOutput = pipe_out_write;
+            startup.hStdError = pipe_out_write;
+
+            PROCESS_INFORMATION process_info{};
+            std::vector<wchar_t> mutable_command(command.begin(), command.end());
+            mutable_command.push_back(L'\0');
+
+            const BOOL created = CreateProcessW(
+                nullptr, mutable_command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
+                nullptr, directory_pointer, &startup, &process_info);
+
+            if (pipe_in_read != nullptr) CloseHandle(pipe_in_read);
+            if (pipe_out_write != nullptr) CloseHandle(pipe_out_write);
+
+            if (created != FALSE)
+            {
+                CloseHandle(process_info.hThread);
+                m_implementation->process = process_info.hProcess;
+                const DWORD pid = process_info.dwProcessId;
+                terminal_debug_log("[ZDE Terminal] Pipe-mode CreateProcessW OK (PID " + std::to_string(pid) + ")");
+
+                // Instantaneous non-blocking launch check (0ms)
+                if (WaitForSingleObject(m_implementation->process, 0) == WAIT_OBJECT_0)
+                {
+                    DWORD early_exit_code = 0;
+                    GetExitCodeProcess(m_implementation->process, &early_exit_code);
+                    terminal_debug_log("[ZDE Terminal] Pipe-mode shell failed at launch for \"" + candidate_path.string() +
+                                       "\" (exit code " + std::to_string(early_exit_code) + ")");
+                    CloseHandle(m_implementation->process);
+                    m_implementation->process = nullptr;
+                    mark_shell_dead(candidate_path);
+                }
+                else
+                {
+                    m_implementation->is_conpty = false;
+                    m_implementation->start_time = std::chrono::steady_clock::now();
+                    m_implementation->persisted_last_good = false;
+                    m_running = true;
+                    terminal_debug_log("[ZDE Terminal] Shell committed (Pipe mode) for \"" + candidate_path.string() + "\"");
+                    started = true;
+                    break;
+                }
+            }
+            else
+            {
+                const DWORD pipe_error = GetLastError();
+                terminal_debug_log("[ZDE Terminal] Pipe-mode CreateProcessW failed for \"" + candidate_path.string() +
+                                   "\" (Win32 error " + std::to_string(pipe_error) + ")");
+                mark_shell_dead(candidate_path);
+            }
+        }
+        else
+        {
+            if (pipe_in_read != nullptr) CloseHandle(pipe_in_read);
+            if (pipe_out_write != nullptr) CloseHandle(pipe_out_write);
         }
     }
 
@@ -892,19 +852,7 @@ bool TerminalSession::start(const std::filesystem::path& working_directory,
         stop();
         m_shell_path = "Terminal";
         terminal_debug_log("[ZDE Terminal] Failed to start any local shell process.");
-        append_status("[Unable to start a local shell process (PowerShell / cmd)]");
-        append_status("[Troubleshooting hints:]");
-        append_status("  - Ensure PowerShell or cmd.exe is installed and accessible");
-        append_status("  - If using a modified Windows (Ghost Spectre, etc.), set ZDE_NO_CONPTY=1");
-        append_status("  - Override the shell with ZDE_SHELL=C:\\Windows\\System32\\cmd.exe");
-        append_status("  - Check %TEMP%\\zde-terminal.log for complete diagnostic details");
-
-        const TerminalExitDecoded dummy_exit = decode_terminal_exit(0xC0000142, m_shell_path, false);
-        const std::string sec_hint = WindowsSecurityProbe::generate_troubleshooting_hint(dummy_exit);
-        if (!sec_hint.empty())
-        {
-            append_status(sec_hint);
-        }
+        append_status("[Unable to start a local terminal shell]");
         return true;
     }
 #else
@@ -1053,9 +1001,8 @@ bool TerminalSession::write_input(std::string_view text)
     {
         return false;
     }
-    const bool clear_requested = is_clear_command(text);
     const bool printable = is_printable_input(text);
-    const bool is_backspace = text == "\x08" || text == "\x7F";
+    const bool is_backspace = text == "\x08" || text == "\x7F" || text == "\b";
     const auto track_input = [&]() {
         if (m_pending_input.empty() && m_input_start_column == 0)
         {
@@ -1076,31 +1023,59 @@ bool TerminalSession::write_input(std::string_view text)
         if (is_backspace)
         {
             remove_last_utf8_code_point(m_pending_input);
+#if defined(_WIN32)
+            if (!m_implementation->is_conpty && !m_lines.empty() && m_cursor_line < m_lines.size() && !m_lines[m_cursor_line].empty())
+            {
+                if (m_cursor_column > m_input_start_column)
+                {
+                    remove_last_utf8_code_point(m_lines[m_cursor_line]);
+                    if (m_cursor_column > 0)
+                    {
+                        --m_cursor_column;
+                    }
+                }
+            }
+#endif
             return;
         }
         if (printable)
         {
             m_pending_input.append(text);
+#if defined(_WIN32)
+            if (!m_implementation->is_conpty)
+            {
+                append_codepoint(text);
+            }
+#endif
         }
     };
 
 #if defined(_WIN32)
     if (m_implementation->input_write != nullptr)
     {
+        std::string payload(text);
+        if (is_backspace)
+        {
+            payload = m_implementation->is_conpty ? "\x7F" : "\b";
+        }
+        else if (!m_implementation->is_conpty)
+        {
+            if (payload == "\r")
+            {
+                payload = "\r\n";
+            }
+        }
+
         DWORD bytes_written = 0;
         const BOOL succeeded = WriteFile(
             m_implementation->input_write,
-            text.data(),
-            static_cast<DWORD>(text.size()),
+            payload.data(),
+            static_cast<DWORD>(payload.size()),
             &bytes_written,
             nullptr);
-        if (succeeded != FALSE && bytes_written == text.size())
+        if (succeeded != FALSE && bytes_written == payload.size())
         {
             track_input();
-            if (clear_requested)
-            {
-                track_input();
-            }
         }
         return succeeded != FALSE;
     }
@@ -1126,10 +1101,6 @@ bool TerminalSession::write_input(std::string_view text)
     if (succeeded)
     {
         track_input();
-        if (clear_requested)
-        {
-            clear_screen();
-        }
     }
     return succeeded;
 #endif
@@ -1183,19 +1154,29 @@ bool TerminalSession::poll()
         GetExitCodeProcess(m_implementation->process, &exit_code);
         m_running = false;
 
+        const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - m_implementation->start_time).count();
+
+        // Automatic self-healing: if shell crashed in early startup (<5000ms) without user interaction
+        if (elapsed_ms < 5000 && m_command_history.empty() && m_pending_input.empty() && exit_code != 0 && exit_code != 0xC0000B5B)
+        {
+            terminal_debug_log("[ZDE Terminal] Early startup crash for \"" + m_shell_path.string() +
+                               "\" (code " + std::to_string(exit_code) + " at " + std::to_string(elapsed_ms) + "ms). Self-healing with fallback candidate...");
+            mark_shell_dead(m_shell_path);
+            CloseHandle(m_implementation->process);
+            m_implementation->process = nullptr;
+
+            if (start(m_working_directory, m_columns, m_rows))
+            {
+                terminal_debug_log("[ZDE Terminal] Self-healing succeeded with \"" + m_shell_path.string() + "\"");
+                return true;
+            }
+        }
+
         const auto exit_info = decode_terminal_exit(exit_code, m_shell_path, m_implementation->is_conpty);
         terminal_debug_log("[ZDE Terminal] Process exited with code " + std::to_string(exit_code) +
                            " (Hex: " + exit_info.hex_code + ", Summary: " + exit_info.summary + ")");
         append_status(exit_info.formatted_message);
-
-        if (!exit_info.is_normal)
-        {
-            const std::string hint = WindowsSecurityProbe::generate_troubleshooting_hint(exit_info);
-            if (!hint.empty())
-            {
-                append_status(hint);
-            }
-        }
         changed = true;
     }
 #else
@@ -1365,16 +1346,6 @@ static void erase_utf8_from(std::string& line, std::size_t target_col)
 
 void TerminalSession::consume_output(std::string_view output)
 {
-    // Debug print
-    std::cout << "[RAW " << output.size() << " bytes: '";
-    for (char c : output) {
-        if (c == '\x1B') std::cout << "\\e";
-        else if (c == '\r') std::cout << "\\r";
-        else if (c == '\n') std::cout << "\\n";
-        else if (c < 32) std::cout << "\\x" << std::hex << (int)(unsigned char)c << std::dec;
-        else std::cout << c;
-    }
-    std::cout << "']" << std::endl;
     for (std::size_t i = 0; i < output.size(); ++i)
     {
         const char character = output[i];
@@ -1463,7 +1434,7 @@ void TerminalSession::consume_output(std::string_view output)
             {
                 m_cursor_column = 0;
             }
-            else if (character == '\b')
+            else if (character == '\b' || character == '\x7F')
             {
                 if (m_cursor_column > 0)
                 {
@@ -1654,11 +1625,16 @@ void TerminalSession::apply_control_sequence(char command)
     case 'd':
     {
         const std::size_t row = (has_param1 && param1 > 0) ? (param1 - 1) : 0;
-        while (row >= m_lines.size())
+        std::size_t target_line = row;
+        if (!m_in_alternate_screen && m_rows > 0 && m_lines.size() >= m_rows)
+        {
+            target_line = (m_lines.size() - m_rows) + row;
+        }
+        while (target_line >= m_lines.size())
         {
             m_lines.emplace_back();
         }
-        m_cursor_line = row;
+        m_cursor_line = target_line;
         break;
     }
     case 'H':
@@ -1799,7 +1775,6 @@ void TerminalSession::apply_control_sequence(char command)
         if (m_control_sequence == "2")
         {
             line.clear();
-            m_cursor_column = 0;
         }
         else if (m_control_sequence == "1")
         {
@@ -2156,6 +2131,15 @@ void TerminalSession::trim_scrollback()
 
 bool TerminalSession::navigate_history(bool up)
 {
+#if defined(_WIN32)
+    if (m_implementation && m_implementation->is_conpty)
+    {
+        return false;
+    }
+#else
+    return false;
+#endif
+
     if (m_command_history.empty() || m_lines.empty())
     {
         return false;

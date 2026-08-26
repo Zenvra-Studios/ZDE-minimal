@@ -67,6 +67,7 @@ public:
     [[nodiscard]] bool send_mouse_motion(std::size_t column, std::size_t row,
                                          bool button_pressed, MouseButton pressed_button = MouseButton::Left,
                                          bool shift = false, bool meta = false, bool ctrl = false);
+    [[nodiscard]] bool navigate_history(bool up);
     [[nodiscard]] static std::filesystem::path resolve_host_shell();
 
 private:
@@ -89,10 +90,10 @@ private:
     void append_status(std::string message);
     void clear_screen() noexcept;
     void trim_scrollback();
-    [[nodiscard]] bool navigate_history(bool up);
 
     std::unique_ptr<Implementation> m_implementation;
     std::filesystem::path m_shell_path;
+    std::filesystem::path m_working_directory;
     std::vector<std::string> m_lines{std::string{}};
     std::vector<std::string> m_main_screen_lines;
     std::size_t m_cursor_line = 0;

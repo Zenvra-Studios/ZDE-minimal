@@ -138,19 +138,45 @@ bool TerminalPanelModel::send_text(std::string_view text)
  */
 bool TerminalPanelModel::send_key(TerminalInputKey key)
 {
+    TerminalSession* session = get_active_session();
+    if (!m_visible || !m_focused || session == nullptr)
+    {
+        return false;
+    }
+    m_scroll_offset = 0;
+
     switch (key)
     {
-    case TerminalInputKey::Enter: return send_text("\r");
-    case TerminalInputKey::Backspace: return send_text("\x7F");
-    case TerminalInputKey::Tab: return send_text("\t");
-    case TerminalInputKey::Escape: return send_text("\x1B");
-    case TerminalInputKey::ArrowUp: return send_text("\x1B[A");
-    case TerminalInputKey::ArrowDown: return send_text("\x1B[B");
-    case TerminalInputKey::ArrowRight: return send_text("\x1B[C");
-    case TerminalInputKey::ArrowLeft: return send_text("\x1B[D");
-    case TerminalInputKey::Home: return send_text("\x1B[H");
-    case TerminalInputKey::End: return send_text("\x1B[F");
-    case TerminalInputKey::DeleteForward: return send_text("\x1B[3~");
+    case TerminalInputKey::Enter:
+        return session->write_input("\r");
+    case TerminalInputKey::Backspace:
+        return session->write_input("\x7F");
+    case TerminalInputKey::Tab:
+        return session->write_input("\t");
+    case TerminalInputKey::Escape:
+        return session->write_input("\x1B");
+    case TerminalInputKey::ArrowUp:
+        if (!session->is_in_alternate_screen() && session->navigate_history(true))
+        {
+            return true;
+        }
+        return session->write_input("\x1B[A");
+    case TerminalInputKey::ArrowDown:
+        if (!session->is_in_alternate_screen() && session->navigate_history(false))
+        {
+            return true;
+        }
+        return session->write_input("\x1B[B");
+    case TerminalInputKey::ArrowRight:
+        return session->write_input("\x1B[C");
+    case TerminalInputKey::ArrowLeft:
+        return session->write_input("\x1B[D");
+    case TerminalInputKey::Home:
+        return session->write_input("\x1B[H");
+    case TerminalInputKey::End:
+        return session->write_input("\x1B[F");
+    case TerminalInputKey::DeleteForward:
+        return session->write_input("\x1B[3~");
     }
     return false;
 }

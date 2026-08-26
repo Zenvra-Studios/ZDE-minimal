@@ -2318,7 +2318,7 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       if (character == L'\r') {
         changed = m_workspace_renderer.handle_terminal_key(
             Terminal::TerminalInputKey::Enter);
-      } else if (character == L'\b') {
+      } else if (character == L'\b' || character == 0x7F) {
         changed = m_workspace_renderer.handle_terminal_key(
             Terminal::TerminalInputKey::Backspace);
       } else if (character == L'\t') {

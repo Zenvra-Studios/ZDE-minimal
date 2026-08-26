@@ -783,8 +783,14 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
       if (cursor_line_idx < lines.size()) {
         const std::string &target_line = lines[cursor_line_idx];
         if (cursor_col_idx > 0) {
+          const std::size_t col_count = utf8_column_count(target_line);
           cursor_prefix = utf8_substr_columns(target_line, 0, cursor_col_idx);
+          if (cursor_col_idx > col_count) {
+            cursor_prefix.append(cursor_col_idx - col_count, ' ');
+          }
         }
+      } else if (cursor_col_idx > 0) {
+        cursor_prefix.append(cursor_col_idx, ' ');
       }
 
       const int cursor_x =
