@@ -1,8 +1,11 @@
 #include "Application/Application.h"
 #include "Bootstrapper/NativeUI.h"
+#include "Utility/Doctor.h"
 
 #if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #endif
 
@@ -31,6 +34,11 @@ static bool has_argument(int argument_count, char** argument_values, std::string
 
 int main(int argument_count, char** argument_values)
 {
+    if (has_argument(argument_count, argument_values, "--doctor")) {
+        Zenvra::Utility::Doctor::print_report();
+        return 0;
+    }
+
 #if defined(_WIN32) && (defined(NDEBUG) || defined(ZDE_RELEASE))
     if (!has_argument(argument_count, argument_values, "--diagnose")) {
         FreeConsole();

@@ -1,4 +1,5 @@
 #include "UI/Components/AboutModal.h"
+#include "Terminal/WindowsSecurityProbe.h"
 
 #include <algorithm>
 #include <sstream>
@@ -45,7 +46,20 @@ AboutModal::AboutModal()
         m_platform = "Windows - 64-Bit";
         arch_info = "Generic CPU Architecture";
     }
-    os_info = "Windows_NT x64 (Win32 API)";
+
+    const auto& probe = Terminal::WindowsSecurityProbe::get_cached_info();
+    if (!probe.product_name.empty()) {
+        os_info = probe.product_name;
+        if (!probe.build_number.empty()) {
+            os_info += " (Build " + probe.build_number;
+            if (probe.ubr > 0) {
+                os_info += "." + std::to_string(probe.ubr);
+            }
+            os_info += ")";
+        }
+    } else {
+        os_info = "Windows_NT x64 (Win32 API)";
+    }
 
 #elif defined(__APPLE__)
     struct utsname uts{};
@@ -102,10 +116,11 @@ AboutModal::AboutModal()
         {"Studio", m_studio_name},
         {"Architecture", arch_info},
         {"OS", os_info},
+        {"Health", Terminal::WindowsSecurityProbe::classification_to_string(Terminal::WindowsSecurityProbe::get_cached_info().classification)},
         {"Engine", "ZDE Native MVVM Engine"},
         {"Graphics", "OpenGL Core / Platform Native"},
         {"Commit", "zde-minimal-main (Release)"},
-        {"Date", "2026-08-22"},
+        {"Date", "2026-08-26"},
         {"Language Server", "Clang/LLVM C++20 / Clangd"}
     };
 }

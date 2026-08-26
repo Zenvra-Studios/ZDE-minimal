@@ -1,8 +1,9 @@
 add_subdirectory(Core)
 add_subdirectory(Commands)
 # add_subdirectory(SourceControl)
-add_subdirectory(UI)
 add_subdirectory(Terminal)
+add_subdirectory(Utility)
+add_subdirectory(UI)
 add_subdirectory(Tools)
 add_subdirectory(Services)
 add_subdirectory(Platform)
@@ -14,7 +15,7 @@ if(APPLE)
 else()
     add_executable(ZDE main.cpp)
 endif()
-target_link_libraries(ZDE PRIVATE Zenvra::Application BootstrapperLib)
+target_link_libraries(ZDE PRIVATE Zenvra::Application BootstrapperLib Zenvra::Utility)
 target_include_directories(ZDE PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 zde_enable_warnings(ZDE)
 
@@ -99,6 +100,23 @@ endif()
 
 if(WIN32)
     target_sources(ZDE PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Win32/Config/Win32Resources.rc")
+
+    # Feed our application manifest to the linker so it is embedded inside
+    # ZDE.exe. CMake's Windows-Clang module hardcodes /MANIFEST:EMBED in
+    # its link-rule template, so we cannot use /MANIFEST:NO. Instead we
+    # pass our manifest via /MANIFESTINPUT: which the linker merges into
+    # the embedded manifest resource. This controls UAC execution level
+    # (asInvoker), OS compatibility, DPI awareness, and Common Controls v6.
+    set(ZDE_MANIFEST_FILE "${CMAKE_CURRENT_SOURCE_DIR}/Platform/Win32/Config/ZDE.exe.manifest")
+    if(MSVC)
+        target_link_options(ZDE PRIVATE
+            "/MANIFESTINPUT:${ZDE_MANIFEST_FILE}"
+        )
+    else()
+        target_link_options(ZDE PRIVATE
+            "LINKER:/MANIFESTINPUT:${ZDE_MANIFEST_FILE}"
+        )
+    endif()
 
     # In Release mode, hide console window by linking as a Windows GUI application
     if(MSVC)
@@ -214,7 +232,6 @@ foreach(module_dir IN ITEMS
     Panels
     Plugins
     Server
-    Utility
     Workspace
 )
     add_subdirectory(${module_dir})

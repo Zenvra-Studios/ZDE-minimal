@@ -25,12 +25,6 @@ std::string lowercase(std::string value)
     return value;
 }
 
-bool should_hide_entry(const std::filesystem::path& path)
-{
-    const std::string name = path.filename().string();
-    return name == ".git" || name == ".idea" || name == ".vs" ||
-        name == ".vscode" || name == "build" || name.starts_with("cmake-build-");
-}
 
 } // namespace
 
@@ -78,36 +72,6 @@ bool ActivityPanelModel::initialize(const std::filesystem::path& workspace_root)
     m_workspace_root = std::move(resolved_root);
     m_expanded_paths.clear();
     m_expanded_paths.push_back(m_workspace_root);
-
-    std::filesystem::path source_path = m_workspace_root / "Source";
-    if (std::filesystem::is_directory(source_path, error))
-    {
-        m_expanded_paths.push_back(source_path);
-        const std::filesystem::path platform_path = source_path / "Platform";
-        if (std::filesystem::is_directory(platform_path, error))
-        {
-            m_expanded_paths.push_back(platform_path);
-#if defined(_WIN32)
-            const std::filesystem::path native_path = platform_path / "Win32";
-#else
-            const std::filesystem::path native_path = platform_path / "X11";
-#endif
-            if (std::filesystem::is_directory(native_path, error))
-            {
-                m_expanded_paths.push_back(native_path);
-                const std::filesystem::path components_path = native_path / "Components";
-                if (std::filesystem::is_directory(components_path, error))
-                {
-                    m_expanded_paths.push_back(components_path);
-                }
-            }
-        }
-    }
-    const std::filesystem::path terminal_path = m_workspace_root / "Source" / "Terminal";
-    if (std::filesystem::is_directory(terminal_path, error))
-    {
-        m_expanded_paths.push_back(terminal_path);
-    }
 
     m_active_icon = SidebarIcon::Project;
     m_visible = true;
@@ -356,10 +320,7 @@ void ActivityPanelModel::append_directory(
          !error && iterator != std::filesystem::directory_iterator{};
          iterator.increment(error))
     {
-        if (!should_hide_entry(iterator->path()))
-        {
-            children.push_back(*iterator);
-        }
+        children.push_back(*iterator);
     }
     std::sort(children.begin(), children.end(), [](const auto& left, const auto& right) {
         std::error_code left_error;
@@ -405,6 +366,10 @@ void ActivityPanelModel::rebuild_tree()
     {
         return;
     }
+    std::error_code ec;
+    std::erase_if(m_expanded_paths, [&](const std::filesystem::path& p) {
+        return p != m_workspace_root && !std::filesystem::is_directory(p, ec);
+    });
     m_project_items.push_back(ProjectTreeItem{
         .path = m_workspace_root,
         .label = m_workspace_root.filename().empty()

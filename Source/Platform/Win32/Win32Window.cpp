@@ -19,8 +19,6 @@
 #include <uxtheme.h>
 #include <vssym32.h>
 #include <windowsx.h>
-#pragma comment(lib, "Msimg32.lib")
-#pragma comment(lib, "comctl32.lib")
 
 #include <algorithm>
 #include <array>
@@ -453,17 +451,7 @@ bool Win32Window::initialize() {
   // rounded
   // - Windows 10 and below (Build < 22000): Native DWM remains sharp/lancip
   // square
-  if (win_build >= 22000) {
-    constexpr DWORD dwm_corner_preference_attr =
-        33;                               // DWMWA_WINDOW_CORNER_PREFERENCE
-    constexpr DWORD dwm_corner_round = 2; // DWMWCP_ROUND
-    DwmSetWindowAttribute(m_window_handle, dwm_corner_preference_attr,
-                          &dwm_corner_round, sizeof(dwm_corner_round));
-    update_dwm_border_color();
-  }
-
-  const MARGINS frame_margins{1, 1, 1, 1};
-  DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
+  update_dwm_border_color(true);
   SetWindowPos(m_window_handle, nullptr, 0, 0, 0, 0,
                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
                    SWP_FRAMECHANGED);
@@ -527,7 +515,8 @@ void Win32Window::poll_events() {
     TranslateMessage(&message);
     DispatchMessageW(&message);
   }
-  if (!is_minimized() && m_workspace_renderer.tick_animations()) {
+  if (m_window_handle != nullptr && !m_should_close && !is_minimized() &&
+      m_workspace_renderer.tick_animations()) {
     InvalidateRect(m_window_handle, nullptr, FALSE);
     UpdateWindow(m_window_handle);
   }
@@ -651,14 +640,7 @@ void Win32Window::set_custom_chrome_enabled(bool enabled) {
 
   if (m_custom_chrome_enabled) {
     static_cast<void>(m_menubar.detach());
-    const MARGINS frame_margins{1, 1, 1, 1};
-    DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
-    if (get_windows_build_number() >= 22000) {
-      constexpr DWORD dwm_corner_preference_attr = 33;
-      constexpr DWORD dwm_corner_round = 2;
-      DwmSetWindowAttribute(m_window_handle, dwm_corner_preference_attr,
-                            &dwm_corner_round, sizeof(dwm_corner_round));
-    }
+    update_dwm_border_color(true);
   } else {
     close_menu_overlay();
     static_cast<void>(m_menubar.attach(m_window_handle));
@@ -851,14 +833,15 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
 
   case WM_NCCALCSIZE:
     if (m_custom_chrome_enabled) {
-      if (w_param != FALSE && is_maximized()) {
+      if (w_param != FALSE && (m_is_fullscreen || is_maximized())) {
         auto *parameters = reinterpret_cast<NCCALCSIZE_PARAMS *>(l_param);
         MONITORINFO monitor_info{};
         monitor_info.cbSize = sizeof(monitor_info);
         const HMONITOR monitor =
             MonitorFromWindow(window_handle, MONITOR_DEFAULTTONEAREST);
         if (GetMonitorInfoW(monitor, &monitor_info) != FALSE) {
-          parameters->rgrc[0] = monitor_info.rcWork;
+          parameters->rgrc[0] =
+              m_is_fullscreen ? monitor_info.rcMonitor : monitor_info.rcWork;
         }
       }
       return 0;
@@ -2487,27 +2470,14 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         MONITORINFO monitor_info{};
         monitor_info.cbSize = sizeof(monitor_info);
         if (GetMonitorInfoW(monitor, &monitor_info) != FALSE) {
-          if (m_is_fullscreen) {
-            min_max_info->ptMaxPosition.x = 0;
-            min_max_info->ptMaxPosition.y = 0;
-            min_max_info->ptMaxSize.x =
-                monitor_info.rcMonitor.right - monitor_info.rcMonitor.left;
-            min_max_info->ptMaxSize.y =
-                monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top;
-            min_max_info->ptMaxTrackSize.x = min_max_info->ptMaxSize.x;
-            min_max_info->ptMaxTrackSize.y = min_max_info->ptMaxSize.y;
-          } else {
-            min_max_info->ptMaxPosition.x =
-                monitor_info.rcWork.left - monitor_info.rcMonitor.left;
-            min_max_info->ptMaxPosition.y =
-                monitor_info.rcWork.top - monitor_info.rcMonitor.top;
-            min_max_info->ptMaxSize.x =
-                monitor_info.rcWork.right - monitor_info.rcWork.left;
-            min_max_info->ptMaxSize.y =
-                monitor_info.rcWork.bottom - monitor_info.rcWork.top;
-            min_max_info->ptMaxTrackSize.x = min_max_info->ptMaxSize.x;
-            min_max_info->ptMaxTrackSize.y = min_max_info->ptMaxSize.y;
-          }
+          const RECT &target_rect =
+              m_is_fullscreen ? monitor_info.rcMonitor : monitor_info.rcWork;
+          min_max_info->ptMaxPosition.x = target_rect.left - monitor_info.rcMonitor.left;
+          min_max_info->ptMaxPosition.y = target_rect.top - monitor_info.rcMonitor.top;
+          min_max_info->ptMaxSize.x = target_rect.right - target_rect.left;
+          min_max_info->ptMaxSize.y = target_rect.bottom - target_rect.top;
+          min_max_info->ptMaxTrackSize.x = min_max_info->ptMaxSize.x;
+          min_max_info->ptMaxTrackSize.y = min_max_info->ptMaxSize.y;
         }
       }
       return 0;
@@ -2596,6 +2566,7 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     if ((window_pos->flags & SWP_NOSIZE) == 0 ||
         (window_pos->flags & SWP_SHOWWINDOW) != 0) {
       if (!is_minimized()) {
+        update_dwm_border_color();
         refresh_chrome_layout();
         if (m_custom_chrome_enabled) {
           RedrawWindow(window_handle, nullptr, nullptr,
@@ -2608,6 +2579,7 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
 
   case WM_SIZE:
     if (w_param != SIZE_MINIMIZED) {
+      update_dwm_border_color();
       refresh_chrome_layout();
       if (m_custom_chrome_enabled) {
         RedrawWindow(window_handle, nullptr, nullptr,
@@ -2640,9 +2612,7 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
   case WM_DWMCOMPOSITIONCHANGED:
   case WM_SETTINGCHANGE: {
     if (m_custom_chrome_enabled) {
-      const MARGINS frame_margins{1, 1, 1, 1};
-      DwmExtendFrameIntoClientArea(window_handle, &frame_margins);
-      update_dwm_border_color();
+      update_dwm_border_color(true);
     }
     break;
   }
@@ -2672,7 +2642,6 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     Components::FileDropTarget::set_enabled(window_handle, false);
     KillTimer(window_handle, editor_caret_timer_id);
     m_should_close = true;
-    PostQuitMessage(0);
     return 0;
 
   case WM_NCDESTROY:
@@ -3162,17 +3131,50 @@ void Win32Window::refresh_chrome_layout() {
       static_cast<float>(m_dpi) / 96.0F, options);
 }
 
-void Win32Window::update_dwm_border_color() {
+void Win32Window::update_dwm_border_color(bool force) {
   if (m_window_handle == nullptr) {
     return;
   }
+  const bool maximized = is_maximized() || m_is_fullscreen;
+  const bool focused = is_focused();
+
+  if (!force && m_last_dwm_maximized.has_value() &&
+      m_last_dwm_focused.has_value() &&
+      *m_last_dwm_maximized == maximized &&
+      *m_last_dwm_focused == focused) {
+    return;
+  }
+  m_last_dwm_maximized = maximized;
+  m_last_dwm_focused = focused;
+
   const DWORD win_build = get_windows_build_number();
   if (win_build >= 22000) {
-    constexpr DWORD dwm_border_color_attr = 34; // DWMWA_BORDER_COLOR
-    const COLORREF border_color =
-        is_focused() ? RGB(68, 71, 78) : RGB(45, 47, 52);
-    DwmSetWindowAttribute(m_window_handle, dwm_border_color_attr,
-                          &border_color, sizeof(border_color));
+    constexpr DWORD dwm_corner_preference_attr = 33; // DWMWA_WINDOW_CORNER_PREFERENCE
+    constexpr DWORD dwm_border_color_attr = 34;      // DWMWA_BORDER_COLOR
+    constexpr DWORD dwm_corner_round = 2;            // DWMWCP_ROUND
+    constexpr DWORD dwm_corner_donotround = 1;       // DWMWCP_DONOTROUND
+    constexpr COLORREF dwm_border_none = 0xFFFFFFFE; // DWMWA_COLOR_NONE
+
+    if (maximized) {
+      DwmSetWindowAttribute(m_window_handle, dwm_corner_preference_attr,
+                            &dwm_corner_donotround, sizeof(dwm_corner_donotround));
+      DwmSetWindowAttribute(m_window_handle, dwm_border_color_attr,
+                            &dwm_border_none, sizeof(dwm_border_none));
+    } else {
+      DwmSetWindowAttribute(m_window_handle, dwm_corner_preference_attr,
+                            &dwm_corner_round, sizeof(dwm_corner_round));
+      const COLORREF border_color =
+          focused ? RGB(68, 71, 78) : RGB(45, 47, 52);
+      DwmSetWindowAttribute(m_window_handle, dwm_border_color_attr,
+                            &border_color, sizeof(border_color));
+    }
+  }
+
+  if (m_custom_chrome_enabled) {
+    const MARGINS frame_margins = maximized
+        ? MARGINS{0, 0, 0, 0}
+        : MARGINS{1, 1, 1, 1};
+    DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
   }
 }
 

@@ -16,9 +16,11 @@ namespace Zenvra::Platform {
 
 namespace {
 
+std::atomic<bool> s_dialog_open{false};
+
 /// Modern Vista+ folder picker. Requires COM to be initialized on the
 /// calling thread.
-std::optional<std::filesystem::path> show_modern_dialog() {
+std::optional<std::filesystem::path> show_modern_dialog(HWND parent) {
   IFileDialog *dialog = nullptr;
   HRESULT result =
       CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
@@ -38,7 +40,7 @@ std::optional<std::filesystem::path> show_modern_dialog() {
   }
   dialog->SetTitle(L"Select Folder");
 
-  const HRESULT shown = dialog->Show(nullptr);
+  const HRESULT shown = dialog->Show(parent);
   if (FAILED(shown)) {
     dialog->Release();
     return std::nullopt;
@@ -74,16 +76,30 @@ std::optional<std::filesystem::path> show_modern_dialog() {
 bool folder_dialog_available() { return true; }
 
 std::optional<std::filesystem::path> open_folder_dialog() {
+  if (s_dialog_open.exchange(true)) {
+    MessageBeep(MB_ICONWARNING);
+    return std::nullopt;
+  }
+
+  HWND parent = GetActiveWindow();
+  if (parent == nullptr) {
+    parent = GetForegroundWindow();
+  }
+
+  if (parent != nullptr) {
+    EnableWindow(parent, FALSE);
+  }
+
   std::optional<std::filesystem::path> selected;
   std::atomic<bool> completed = false;
 
-  std::thread dialog_thread([&]() {
+  std::thread dialog_thread([&, parent]() {
     const HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED |
                                                      COINIT_DISABLE_OLE1DDE);
     const bool com_initialized = SUCCEEDED(init);
 
     if (com_initialized || init == RPC_E_CHANGED_MODE) {
-      selected = show_modern_dialog();
+      selected = show_modern_dialog(parent);
     }
 
     if (com_initialized) {
@@ -112,6 +128,13 @@ std::optional<std::filesystem::path> open_folder_dialog() {
     dialog_thread.join();
   }
 
+  if (parent != nullptr) {
+    EnableWindow(parent, TRUE);
+    SetForegroundWindow(parent);
+    SetFocus(parent);
+  }
+
+  s_dialog_open = false;
   return selected;
 }
 

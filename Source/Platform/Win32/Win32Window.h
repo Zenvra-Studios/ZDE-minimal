@@ -89,7 +89,7 @@ private:
   [[nodiscard]] LRESULT hit_test_resize_border(POINT client_position) const;
   void paint_custom_chrome();
   void refresh_chrome_layout();
-  void update_dwm_border_color();
+  void update_dwm_border_color(bool force = false);
   void refresh_ui_font();
   void show_menu(std::size_t menu_index);
   void show_overflow_menu();
@@ -180,6 +180,8 @@ private:
   wchar_t m_pending_high_surrogate = 0;
   UI::Toolbar::RunConfigurationState m_run_config_state;
   SystemTray m_tray;
+  std::optional<bool> m_last_dwm_maximized;
+  std::optional<bool> m_last_dwm_focused;
 
   static constexpr UINT WM_TRAYICON = WM_APP + 101;
   static constexpr const wchar_t *window_class_name = L"ZenvraPlatformWindow";

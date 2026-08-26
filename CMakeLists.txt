@@ -23,6 +23,18 @@ add_compile_definitions(
 
 include(CTest)
 
+if(WIN32)
+    add_compile_definitions(
+        _CRT_SECURE_NO_WARNINGS
+        _CRT_SECURE_NO_DEPRECATE
+        _CRT_NONSTDC_NO_DEPRECATE
+        _CRT_NONSTDC_NO_WARNINGS
+        _CRT_OBSOLETE_NO_WARNINGS
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+    )
+endif()
+
 # Objective-C++ is only used by the Cocoa platform (Apple). Enabling it on
 # every compiler breaks MinGW/GCC, which cannot compile Objective-C++.
 if(APPLE)
@@ -69,7 +81,15 @@ function(zde_enable_warnings target_name)
     # Prevent the Windows SDK's min/max macros from breaking calls such as
     # std::min and std::max in any ZDE target that includes windows.h.
     if(WIN32)
-        target_compile_definitions(${target_name} PRIVATE NOMINMAX)
+        target_compile_definitions(${target_name} PRIVATE
+            _CRT_SECURE_NO_WARNINGS
+            _CRT_SECURE_NO_DEPRECATE
+            _CRT_NONSTDC_NO_DEPRECATE
+            _CRT_NONSTDC_NO_WARNINGS
+            _CRT_OBSOLETE_NO_WARNINGS
+            NOMINMAX
+            WIN32_LEAN_AND_MEAN
+        )
     endif()
 
     if(MSVC)

@@ -1,9 +1,10 @@
-# CMakeLists.txt for Utility module.
-
 file(GLOB_RECURSE Utility_SOURCES CONFIGURE_DEPENDS "*.h" "*.hpp" "*.c" "*.cpp" "*.cc" "*.mm")
 
 if(Utility_SOURCES)
     add_library(ZDEUtility SHARED ${Utility_SOURCES})
+    add_library(Zenvra::Utility ALIAS ZDEUtility)
     set_target_properties(ZDEUtility PROPERTIES LINKER_LANGUAGE CXX)
-    target_include_directories(ZDEUtility PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+    target_include_directories(ZDEUtility PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/.." "${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(ZDEUtility PUBLIC Zenvra::Terminal)
+    zde_enable_warnings(ZDEUtility)
 endif()

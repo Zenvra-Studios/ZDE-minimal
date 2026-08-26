@@ -291,6 +291,7 @@ bool StudioWorkspaceRenderer::open_file_at_location(
 
 bool StudioWorkspaceRenderer::set_workspace_root(
     const std::filesystem::path &root) {
+  m_text_editor.close_all_files();
   if (!m_tool_sidebar.set_workspace_root(root)) {
     return false;
   }
