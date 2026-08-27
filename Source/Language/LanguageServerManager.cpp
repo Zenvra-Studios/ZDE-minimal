@@ -481,6 +481,14 @@ std::vector<Protocol::CompletionItem> get_typescript_templates(bool is_jsx) {
               "const ${1:name} = async (${2:/*params*/}) => {\n    $0\n};",
           .filter_text = "afn"},
       Protocol::CompletionItem{
+          .label = "fn",
+          .kind = Protocol::CompletionItemKind::Function,
+          .detail = "(Template) const name = (...) => { ... }",
+          .documentation = "Generates arrow function expression.",
+          .insert_text =
+              "const ${1:name} = (${2:/*params*/}) => {\n    $0\n};",
+          .filter_text = "fn"},
+      Protocol::CompletionItem{
           .label = "clg",
           .kind = Protocol::CompletionItemKind::Snippet,
           .detail = "(Template) console.log(...)",
@@ -499,16 +507,289 @@ std::vector<Protocol::CompletionItem> get_typescript_templates(bool is_jsx) {
     templates.push_back(Protocol::CompletionItem{
         .label = "rfc",
         .kind = Protocol::CompletionItemKind::Snippet,
-        .detail = "(Template) export const Component: React.FC = () "
-                  "=> { ... }",
-        .documentation = "Generates React Functional Component with TypeScript "
-                         "type signature.",
-        .insert_text = "import React from 'react';\n\ninterface "
-                       "${1:Component}Props {\n    $0\n}\n\nexport const "
-                       "${1:Component}: React.FC<${1:Component}Props> = "
-                       "(props) => {\n    return (\n        <div>\n          "
-                       "  \n        </div>\n    );\n};",
+        .detail = "(Template) React Functional Component",
+        .documentation = "Generates React Functional Component with TypeScript props interface.",
+        .insert_text = "import React from 'react';\n\ninterface ${1:Component}Props {\n    $0\n}\n\nexport const ${1:Component}: React.FC<${1:Component}Props> = (props) => {\n    return (\n        <div className=\"${2:container}\">\n            \n        </div>\n    );\n};",
         .filter_text = "rfc"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "rfce",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(Template) React Functional Component (Export Default)",
+        .documentation = "Generates standard React Functional Component with default export.",
+        .insert_text = "import React from 'react';\n\nfunction ${1:Component}() {\n    return (\n        <div>\n            $0\n        </div>\n    );\n}\n\nexport default ${1:Component};",
+        .filter_text = "rfce"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "rafce",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(Template) React Arrow Function Component (Export Default)",
+        .documentation = "Generates React arrow function component with default export.",
+        .insert_text = "import React from 'react';\n\nconst ${1:Component} = () => {\n    return (\n        <div>\n            $0\n        </div>\n    );\n};\n\nexport default ${1:Component};",
+        .filter_text = "rafce"});
+
+    // React Hooks
+    templates.push_back(Protocol::CompletionItem{
+        .label = "useState",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(Hook) const [state, setState] = useState(...)",
+        .documentation = "Declares a React state variable with updater function.",
+        .insert_text = "const [${1:state}, set${1:State}] = useState(${2:initialState});",
+        .filter_text = "useState"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "useEffect",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(Hook) useEffect(() => { ... }, [])",
+        .documentation = "Runs side-effects in React component lifecycle.",
+        .insert_text = "useEffect(() => {\n    $0\n}, [${1}]);",
+        .filter_text = "useEffect"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "useRef",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(Hook) const ref = useRef(null)",
+        .documentation = "Creates a persistent mutable React reference.",
+        .insert_text = "const ${1:ref} = useRef<${2:HTMLDivElement | null}>(${3:null});",
+        .filter_text = "useRef"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "useMemo",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(Hook) const val = useMemo(() => ..., [])",
+        .documentation = "Memoizes expensive computed value between renders.",
+        .insert_text = "const ${1:memoized} = useMemo(() => {\n    return $0;\n}, [${2}]);",
+        .filter_text = "useMemo"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "useCallback",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(Hook) const fn = useCallback((...) => { ... }, [])",
+        .documentation = "Memoizes callback function instance between renders.",
+        .insert_text = "const ${1:handleClick} = useCallback((${2}) => {\n    $0\n}, [${3}]);",
+        .filter_text = "useCallback"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "useContext",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(Hook) const ctx = useContext(Context)",
+        .documentation = "Subscribes to nearest React Context provider.",
+        .insert_text = "const ${1:value} = useContext(${2:MyContext});",
+        .filter_text = "useContext"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "useReducer",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(Hook) const [state, dispatch] = useReducer(reducer, init)",
+        .documentation = "Manages complex state with reducer dispatch pattern.",
+        .insert_text = "const [${1:state}, ${2:dispatch}] = useReducer(${3:reducer}, ${4:initialState});",
+        .filter_text = "useReducer"});
+
+    // Emmet & JSX Elements Auto-Generation
+    templates.push_back(Protocol::CompletionItem{
+        .label = "div",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <div className=\"...\">...</div>",
+        .documentation = "Generates HTML div container element.",
+        .insert_text = "<div className=\"${1:className}\">\n    $0\n</div>",
+        .filter_text = "div"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "span",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <span>...</span>",
+        .documentation = "Generates inline span element.",
+        .insert_text = "<span className=\"${1:className}\">$0</span>",
+        .filter_text = "span"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "button",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <button className=\"...\" onClick={...}>...</button>",
+        .documentation = "Generates button element with click handler.",
+        .insert_text = "<button type=\"${1:button}\" className=\"${2:btn}\" onClick={${3:handleClick}}>\n    $0\n</button>",
+        .filter_text = "button"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "input",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <input type=\"...\" value={...} onChange={...} />",
+        .documentation = "Generates controlled form input element.",
+        .insert_text = "<input type=\"${1:text}\" placeholder=\"${2:Enter value...}\" value={${3:value}} onChange={${4:onChange}} />",
+        .filter_text = "input"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "form",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <form onSubmit={...}>...</form>",
+        .documentation = "Generates form element with submit handler.",
+        .insert_text = "<form onSubmit={${1:handleSubmit}}>\n    $0\n</form>",
+        .filter_text = "form"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "p",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <p>...</p>",
+        .documentation = "Generates paragraph text element.",
+        .insert_text = "<p>$0</p>",
+        .filter_text = "p"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "h1",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <h1>...</h1>",
+        .documentation = "Generates level 1 heading element.",
+        .insert_text = "<h1>$0</h1>",
+        .filter_text = "h1"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "h2",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <h2>...</h2>",
+        .documentation = "Generates level 2 heading element.",
+        .insert_text = "<h2>$0</h2>",
+        .filter_text = "h2"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "h3",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <h3>...</h3>",
+        .documentation = "Generates level 3 heading element.",
+        .insert_text = "<h3>$0</h3>",
+        .filter_text = "h3"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "a",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <a href=\"...\">...</a>",
+        .documentation = "Generates hyperlink anchor element.",
+        .insert_text = "<a href=\"${1:#}\">$0</a>",
+        .filter_text = "a"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "img",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <img src=\"...\" alt=\"...\" />",
+        .documentation = "Generates self-closing image element.",
+        .insert_text = "<img src=\"${1}\" alt=\"${2}\" className=\"${3}\" />",
+        .filter_text = "img"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "ul",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <ul><li>...</li></ul>",
+        .documentation = "Generates unordered list element.",
+        .insert_text = "<ul>\n    <li>$0</li>\n</ul>",
+        .filter_text = "ul"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "li",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <li>...</li>",
+        .documentation = "Generates list item element.",
+        .insert_text = "<li>$0</li>",
+        .filter_text = "li"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "ol",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <ol><li>...</li></ol>",
+        .documentation = "Generates ordered list element.",
+        .insert_text = "<ol>\n    <li>$0</li>\n</ol>",
+        .filter_text = "ol"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "select",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <select>...</select>",
+        .documentation = "Generates dropdown select element.",
+        .insert_text = "<select value={${1:value}} onChange={${2:onChange}}>\n    <option value=\"${3}\">${4}</option>\n</select>",
+        .filter_text = "select"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "option",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <option value=\"...\">...</option>",
+        .documentation = "Generates select option element.",
+        .insert_text = "<option value=\"${1:value}\">$0</option>",
+        .filter_text = "option"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "textarea",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <textarea ... />",
+        .documentation = "Generates multi-line text input area.",
+        .insert_text = "<textarea placeholder=\"${1:Enter text...}\" value={${2:value}} onChange={${3:onChange}} />",
+        .filter_text = "textarea"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "label",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <label htmlFor=\"...\">...</label>",
+        .documentation = "Generates accessible form label element.",
+        .insert_text = "<label htmlFor=\"${1:id}\">$0</label>",
+        .filter_text = "label"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "table",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <table>...</table>",
+        .documentation = "Generates table structure element.",
+        .insert_text = "<table>\n    <thead>\n        <tr>\n            <th>$1</th>\n        </tr>\n    </thead>\n    <tbody>\n        <tr>\n            <td>$0</td>\n        </tr>\n    </tbody>\n</table>",
+        .filter_text = "table"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "nav",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <nav>...</nav>",
+        .documentation = "Generates navigation section element.",
+        .insert_text = "<nav className=\"${1:navbar}\">\n    $0\n</nav>",
+        .filter_text = "nav"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "header",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <header>...</header>",
+        .documentation = "Generates header landmark container element.",
+        .insert_text = "<header className=\"${1:header}\">\n    $0\n</header>",
+        .filter_text = "header"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "footer",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <footer>...</footer>",
+        .documentation = "Generates footer landmark container element.",
+        .insert_text = "<footer className=\"${1:footer}\">\n    $0\n</footer>",
+        .filter_text = "footer"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "main",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <main>...</main>",
+        .documentation = "Generates main landmark container element.",
+        .insert_text = "<main className=\"${1:main}\">\n    $0\n</main>",
+        .filter_text = "main"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "section",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <section>...</section>",
+        .documentation = "Generates section container element.",
+        .insert_text = "<section className=\"${1:section}\">\n    $0\n</section>",
+        .filter_text = "section"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "frag",
+        .kind = Protocol::CompletionItemKind::Snippet,
+        .detail = "(JSX) <>...</>",
+        .documentation = "Generates React Fragment shorthand container.",
+        .insert_text = "<>\n    $0\n</>",
+        .filter_text = "frag"});
+
+    // JSX Attributes
+    templates.push_back(Protocol::CompletionItem{
+        .label = "className",
+        .kind = Protocol::CompletionItemKind::Property,
+        .detail = "(JSX Attr) className=\"...\"",
+        .documentation = "CSS class names for JSX element.",
+        .insert_text = "className=\"$0\"",
+        .filter_text = "className"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "style",
+        .kind = Protocol::CompletionItemKind::Property,
+        .detail = "(JSX Attr) style={{ ... }}",
+        .documentation = "Inline CSS style object for JSX element.",
+        .insert_text = "style={{ $0 }}",
+        .filter_text = "style"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "onClick",
+        .kind = Protocol::CompletionItemKind::Event,
+        .detail = "(JSX Attr) onClick={...}",
+        .documentation = "Click event handler function.",
+        .insert_text = "onClick={${1:handleClick}}",
+        .filter_text = "onClick"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "onChange",
+        .kind = Protocol::CompletionItemKind::Event,
+        .detail = "(JSX Attr) onChange={(e) => ...}",
+        .documentation = "Input change event handler function.",
+        .insert_text = "onChange={(e) => $0}",
+        .filter_text = "onChange"});
+    templates.push_back(Protocol::CompletionItem{
+        .label = "onSubmit",
+        .kind = Protocol::CompletionItemKind::Event,
+        .detail = "(JSX Attr) onSubmit={(e) => ...}",
+        .documentation = "Form submission event handler function.",
+        .insert_text = "onSubmit={(e) => {\n    e.preventDefault();\n    $0\n}}",
+        .filter_text = "onSubmit"});
   }
 
   return templates;

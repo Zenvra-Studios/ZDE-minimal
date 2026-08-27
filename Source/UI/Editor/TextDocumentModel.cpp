@@ -211,12 +211,14 @@ std::vector<BreadcrumbItem> TextDocumentModel::get_full_breadcrumbs() const
 
 FooterEditorStatus TextDocumentModel::get_status() const noexcept
 {
+    const std::filesystem::path file_path(m_file_name);
+    const auto lang_config = Language::LanguageConfiguration::get_for_extension(file_path.extension().string());
     return FooterEditorStatus{
         .line = m_caret_line + 1,
         .column = character_count(get_line(m_caret_line).substr(0, m_caret_column)) + 1,
         .line_ending = m_line_ending,
         .encoding = "UTF-8",
-        .indent_width = 4,
+        .indent_width = lang_config.tab_size > 0 ? lang_config.tab_size : 4,
     };
 }
 
@@ -465,20 +467,44 @@ bool TextDocumentModel::insert_text(std::string_view utf8_text)
     bool changed = delete_selection();
     std::size_t segment_start = 0;
     
-    // Auto closing braces
+    // Auto closing pairs: {}, (), [], "", ''
     std::string text_to_insert{utf8_text};
-    bool auto_close_brace = false;
-    if (text_to_insert == "{")
+    bool auto_closed_pair = false;
+    if (text_to_insert == "{" || text_to_insert == "(" || text_to_insert == "[" ||
+        text_to_insert == "\"" || text_to_insert == "'")
     {
+        std::string ext = "";
         std::size_t dot_pos = m_file_name.find_last_of('.');
         if (dot_pos != std::string::npos)
         {
-            std::string ext = m_file_name.substr(dot_pos);
-            if (ext == ".cpp" || ext == ".h" || ext == ".c" || ext == ".hpp")
-            {
-                text_to_insert = "{}";
-                auto_close_brace = true;
-            }
+            ext = m_file_name.substr(dot_pos);
+        }
+        const auto lang_config = Language::LanguageConfiguration::get_for_extension(ext);
+        
+        if (text_to_insert == "{" && lang_config.auto_close_braces)
+        {
+            text_to_insert = "{}";
+            auto_closed_pair = true;
+        }
+        else if (text_to_insert == "(" && lang_config.auto_close_parentheses)
+        {
+            text_to_insert = "()";
+            auto_closed_pair = true;
+        }
+        else if (text_to_insert == "[" && lang_config.auto_close_brackets)
+        {
+            text_to_insert = "[]";
+            auto_closed_pair = true;
+        }
+        else if (text_to_insert == "\"" && lang_config.auto_close_quotes)
+        {
+            text_to_insert = "\"\"";
+            auto_closed_pair = true;
+        }
+        else if (text_to_insert == "'" && lang_config.auto_close_quotes)
+        {
+            text_to_insert = "''";
+            auto_closed_pair = true;
         }
     }
     
@@ -514,7 +540,7 @@ bool TextDocumentModel::insert_text(std::string_view utf8_text)
         }
     }
     
-    if (auto_close_brace && changed)
+    if (auto_closed_pair && changed)
     {
         if (m_caret_column > 0)
         {
@@ -1218,13 +1244,28 @@ void TextDocumentModel::insert_new_line()
         auto_indent = previous_line_content;
     }
 
+    std::string ext = "";
+    std::size_t dot_pos = m_file_name.find_last_of('.');
+    if (dot_pos != std::string::npos)
+    {
+        ext = m_file_name.substr(dot_pos);
+    }
+    const auto lang_config = Language::LanguageConfiguration::get_for_extension(ext);
+    const std::string extra_indent(lang_config.tab_size > 0 ? lang_config.tab_size : 4, ' ');
+
     bool is_block_comment_start = false;
     bool is_block_comment_middle = false;
     bool is_open_brace = false;
+    char open_delim = '\0';
 
     if (first_non_ws != std::string::npos)
     {
         std::string trimmed_prev = previous_line_content.substr(first_non_ws);
+        while (!trimmed_prev.empty() && (trimmed_prev.back() == ' ' || trimmed_prev.back() == '\t'))
+        {
+            trimmed_prev.pop_back();
+        }
+
         if (trimmed_prev.ends_with("/**") || trimmed_prev == "/**" ||
             trimmed_prev.ends_with("/***") || trimmed_prev == "/***")
         {
@@ -1234,9 +1275,22 @@ void TextDocumentModel::insert_new_line()
         {
             is_block_comment_middle = true;
         }
-        else if (trimmed_prev.ends_with("{") || trimmed_prev.ends_with("(") || trimmed_prev.ends_with("["))
+        else if (!trimmed_prev.empty() && (trimmed_prev.back() == '{' || trimmed_prev.back() == '(' || trimmed_prev.back() == '['))
         {
             is_open_brace = true;
+            open_delim = trimmed_prev.back();
+        }
+        else if (!trimmed_prev.empty() && trimmed_prev.back() == '>' && !trimmed_prev.ends_with("->") && !trimmed_prev.ends_with("=>") &&
+                 (ext == ".jsx" || ext == ".tsx" || ext == ".html" || ext == ".htm" || ext == ".xhtml" || ext == ".vue" || ext == ".svelte" || ext == ".xml" || ext == ".svg"))
+        {
+            is_open_brace = true;
+            open_delim = '>';
+        }
+        else if (!trimmed_prev.empty() && trimmed_prev.back() == ':' &&
+                 (ext == ".py" || ext == ".pyw" || ext == ".pyi" || ext == ".yaml" || ext == ".yml"))
+        {
+            is_open_brace = true;
+            open_delim = ':';
         }
     }
 
@@ -1279,8 +1333,44 @@ void TextDocumentModel::insert_new_line()
     }
     else if (is_open_brace)
     {
-        std::string extra_indent = "    ";
-        if (remainder.starts_with("}") || remainder == "}" || remainder.find('}') != std::string::npos)
+        bool has_matching_close = false;
+        if (open_delim == '{' && (remainder.starts_with("}") || remainder.find('}') != std::string::npos))
+        {
+            has_matching_close = true;
+
+            // Check if C/C++ struct/class/enum/union needs a trailing semicolon
+            const bool is_cpp = ext == ".cpp" || ext == ".cc" || ext == ".cxx" || ext == ".c" ||
+                                ext == ".h" || ext == ".hpp" || ext == ".hxx" || ext == ".hh" ||
+                                ext == ".inl" || ext == ".ixx" || ext == ".cppm";
+            if (is_cpp && first_non_ws != std::string::npos)
+            {
+                std::string trimmed_prev = previous_line_content.substr(first_non_ws);
+                const bool is_type_decl = trimmed_prev.find("struct ") != std::string_view::npos ||
+                                          trimmed_prev.find("class ") != std::string_view::npos ||
+                                          trimmed_prev.find("enum ") != std::string_view::npos ||
+                                          trimmed_prev.find("union ") != std::string_view::npos ||
+                                          trimmed_prev.starts_with("struct") ||
+                                          trimmed_prev.starts_with("class");
+                if (is_type_decl && !remainder.ends_with(";"))
+                {
+                    remainder += ";";
+                }
+            }
+        }
+        else if (open_delim == '(' && (remainder.starts_with(")") || remainder.find(')') != std::string::npos))
+        {
+            has_matching_close = true;
+        }
+        else if (open_delim == '[' && (remainder.starts_with("]") || remainder.find(']') != std::string::npos))
+        {
+            has_matching_close = true;
+        }
+        else if (open_delim == '>' && (remainder.starts_with("</") || remainder.find("</") != std::string::npos))
+        {
+            has_matching_close = true;
+        }
+
+        if (has_matching_close)
         {
             m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 1), auto_indent + extra_indent);
             m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 2), auto_indent + remainder);
@@ -1329,7 +1419,7 @@ void TextDocumentModel::delete_backward()
             }
         }
 
-        constexpr std::size_t kIndentWidth = 4;
+        const std::size_t kIndentWidth = get_status().indent_width > 0 ? get_status().indent_width : 4;
         std::size_t erase_start = previous_character_column(line, m_caret_column);
         if (line.find_first_not_of(' ') >= m_caret_column)
         {

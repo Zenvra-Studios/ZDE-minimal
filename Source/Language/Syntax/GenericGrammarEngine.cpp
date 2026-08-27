@@ -634,8 +634,37 @@ std::size_t GenericGrammarEngine::tokenize_line(
 
             const bool followed_by_paren = (next_idx < line.size() && line[next_idx] == '(');
             const bool followed_by_scope = (next_idx + 1 < line.size() && line[next_idx] == ':' && line[next_idx + 1] == ':');
+            const bool followed_by_equals = (next_idx < line.size() && line[next_idx] == '=');
 
-            if (grammar.is_keyword(identifier))
+            // Lookbehind before this identifier (ignoring whitespace)
+            std::size_t prev_idx = token_start;
+            while (prev_idx > 0 && std::isspace(static_cast<unsigned char>(line[prev_idx - 1])) != 0)
+            {
+                --prev_idx;
+            }
+            const bool preceded_by_tag_open = (prev_idx > 0 && line[prev_idx - 1] == '<');
+            const bool preceded_by_tag_close = (prev_idx >= 2 && line[prev_idx - 2] == '<' && line[prev_idx - 1] == '/');
+            const bool is_jsx_or_html = (grammar.name == "HTML" || grammar.name == "JavaScript/TypeScript" ||
+                                         grammar.name == "Vue" || grammar.name == "Svelte");
+
+            if (is_jsx_or_html && (preceded_by_tag_open || preceded_by_tag_close))
+            {
+                // JSX / HTML Tag name (e.g. <div, <Button, </span, </Modal)
+                if (is_pascal_case_type(identifier))
+                {
+                    append(identifier, UI::Editor::EditorTokenKind::Type);
+                }
+                else
+                {
+                    append(identifier, UI::Editor::EditorTokenKind::Keyword);
+                }
+            }
+            else if (is_jsx_or_html && followed_by_equals)
+            {
+                // JSX / HTML Attribute name (e.g. className=, onClick=, id=, src=)
+                append(identifier, UI::Editor::EditorTokenKind::Label);
+            }
+            else if (grammar.is_keyword(identifier))
             {
                 append(identifier, UI::Editor::EditorTokenKind::Keyword);
                 if (identifier == "namespace" || identifier == "package" || identifier == "import" ||

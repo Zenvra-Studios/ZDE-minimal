@@ -583,8 +583,23 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
         active ? surface.m_palette.text_primary : surface.m_palette.text_muted,
         active ? surface.m_palette.tab_active_background
                : surface.m_palette.tab_background);
+    std::string tab_title = sessions[index].title;
+    if (tab_title.empty()) {
+      if (sessions[index].session != nullptr) {
+        tab_title = sessions[index].session->get_shell_path().stem().string();
+      }
+      if (tab_title.empty()) {
+        tab_title = "terminal";
+      }
+    }
+    const float max_title_w = tab.width - 44.0F * scale;
+    while (!tab_title.empty() &&
+           static_cast<float>(surface.get_text_width(
+               device_context, *surface.m_small_font, tab_title)) > max_title_w) {
+      tab_title.pop_back();
+    }
     surface.draw_text(
-        device_context, *surface.m_small_font, sessions[index].title,
+        device_context, *surface.m_small_font, tab_title,
         tab.x + 22.0F * scale, tab.y + tab.height * 0.5F,
         active ? surface.m_palette.text_primary : surface.m_palette.text_muted);
   }
@@ -634,14 +649,9 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
       layout.terminal_header_bounds.right() - right_space_start - 16.0F * scale;
 
   if (sessions.size() <= 4 && available_shell_width >= 80.0F * scale) {
-    std::string shell_label = "Local  " + session->get_shell_path().string();
+    std::string shell_label = "Local  " + session->get_shell_path().filename().string();
     int label_width = surface.get_text_width(
         device_context, *surface.m_small_font, shell_label);
-    if (static_cast<float>(label_width) > available_shell_width) {
-      shell_label = "Local  " + session->get_shell_path().filename().string();
-      label_width = surface.get_text_width(device_context,
-                                           *surface.m_small_font, shell_label);
-    }
     if (static_cast<float>(label_width) <= available_shell_width) {
       surface.draw_text(device_context, *surface.m_small_font, shell_label,
                         layout.terminal_header_bounds.right() - 16.0F * scale -
@@ -761,6 +771,12 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
           fg_color = actual_bg;
         }
 
+        if (span.attributes.bold) {
+          fg_color.red = static_cast<uint8_t>(std::min<int>(fg_color.red + 40, 255));
+          fg_color.green = static_cast<uint8_t>(std::min<int>(fg_color.green + 40, 255));
+          fg_color.blue = static_cast<uint8_t>(std::min<int>(fg_color.blue + 40, 255));
+        }
+
         if (span.attributes.dim) {
           fg_color.red = static_cast<uint8_t>(fg_color.red * 0.65F);
           fg_color.green = static_cast<uint8_t>(fg_color.green * 0.65F);
@@ -857,7 +873,8 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
         const std::string &target_line = lines[cursor_line_idx];
         if (cursor_col_idx > 0) {
           const std::size_t col_count = utf8_column_count(target_line);
-          cursor_prefix = utf8_substr_columns(target_line, 0, cursor_col_idx);
+          const std::size_t clamped_col = std::min(cursor_col_idx, col_count);
+          cursor_prefix = utf8_substr_columns(target_line, 0, clamped_col);
           if (cursor_col_idx > col_count) {
             cursor_prefix.append(cursor_col_idx - col_count, ' ');
           }

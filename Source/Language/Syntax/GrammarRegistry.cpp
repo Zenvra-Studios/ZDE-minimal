@@ -362,6 +362,20 @@ void GrammarRegistry::initialize_default_grammars()
             "useState", "useEffect", "useContext", "useReducer", "useCallback", "useMemo",
             "useRef", "useImperativeHandle", "useLayoutEffect", "useDebugValue", "useId",
             "useTransition", "useDeferredValue", "createContext", "forwardRef", "memo", "lazy", "Suspense",
+            // HTML5 & JSX Semantic Tags
+            "html", "head", "title", "meta", "link", "style", "script", "noscript", "body",
+            "section", "nav", "article", "aside", "h1", "h2", "h3", "h4", "h5", "h6",
+            "header", "footer", "address", "main", "p", "hr", "pre", "blockquote",
+            "ol", "ul", "menu", "li", "dl", "dt", "dd", "figure", "figcaption", "div", "a",
+            "em", "strong", "small", "s", "cite", "q", "dfn", "abbr", "ruby", "rt", "rp",
+            "data", "time", "code", "var", "samp", "kbd", "sub", "sup", "i", "b", "u",
+            "mark", "bdi", "bdo", "span", "br", "wbr", "ins", "del", "picture", "source",
+            "img", "iframe", "embed", "object", "video", "audio", "track", "map", "area",
+            "table", "caption", "colgroup", "col", "tbody", "thead", "tfoot", "tr", "td",
+            "th", "form", "label", "input", "button", "select", "datalist", "optgroup",
+            "option", "textarea", "output", "progress", "meter", "fieldset", "legend",
+            "details", "summary", "dialog", "template", "slot", "canvas", "svg", "path",
+            "circle", "rect", "line", "polyline", "polygon", "g", "text", "defs",
             // Vue 3 Composition API
             "ref", "reactive", "computed", "watch", "watchEffect", "onMounted", "onUnmounted",
             "onUpdated", "defineComponent", "defineProps", "defineEmits", "defineExpose",
@@ -382,10 +396,22 @@ void GrammarRegistry::initialize_default_grammars()
             "ReturnType", "InstanceType", "Awaited", "Capitalize", "Uncapitalize", "Uppercase",
             "Lowercase", "TemplateStringsArray", "ConstructorParameters", "Promise", "Map", "Set", "WeakMap", "WeakSet",
             // Framework Types
-            "FC", "ReactNode", "ReactElement", "Component", "Fragment", "NextPage",
+            "FC", "ReactNode", "ReactElement", "Component", "Fragment", "StrictMode", "NextPage",
             "GetServerSideProps", "GetStaticProps", "Metadata", "AppProps", "Observable",
             "BehaviorSubject", "Subject", "Subscription", "Request", "Response",
-            "NextFunction", "Router", "Express", "Buffer", "URL", "URLSearchParams"
+            "NextFunction", "Router", "Express", "Buffer", "URL", "URLSearchParams",
+            // JSX & HTML Attributes
+            "className", "htmlFor", "style", "key", "children", "dangerouslySetInnerHTML",
+            "onClick", "onChange", "onSubmit", "onKeyDown", "onKeyUp", "onKeyPress",
+            "onMouseDown", "onMouseUp", "onMouseEnter", "onMouseLeave", "onMouseOver", "onMouseOut",
+            "onFocus", "onBlur", "onScroll", "onWheel", "onContextMenu", "onDoubleClick",
+            "onDrag", "onDragEnd", "onDragEnter", "onDragExit", "onDragLeave", "onDragOver", "onDragStart", "onDrop",
+            "onInput", "onReset", "onSelect", "onTouchStart", "onTouchMove", "onTouchEnd", "onTouchCancel",
+            "href", "src", "alt", "title", "type", "value", "defaultValue", "checked", "defaultChecked",
+            "placeholder", "disabled", "readOnly", "required", "autoFocus", "autoComplete", "multiple",
+            "name", "target", "rel", "width", "height", "rows", "cols", "min", "max", "step",
+            "pattern", "accept", "role", "tabIndex", "aria-label", "aria-hidden", "aria-expanded",
+            "aria-checked", "aria-controls", "aria-describedby"
         };
         register_grammar(std::move(js_rule));
     }

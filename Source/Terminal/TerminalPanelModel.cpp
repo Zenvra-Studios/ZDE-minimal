@@ -146,7 +146,11 @@ bool TerminalPanelModel::send_key(TerminalInputKey key)
     case TerminalInputKey::Enter:
         return session->write_input("\r");
     case TerminalInputKey::Backspace:
+#if defined(_WIN32)
+        return session->write_input("\x08");
+#else
         return session->write_input("\x7F");
+#endif
     case TerminalInputKey::Tab:
         return session->write_input("\t");
     case TerminalInputKey::Escape:

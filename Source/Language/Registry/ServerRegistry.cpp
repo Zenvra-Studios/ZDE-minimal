@@ -815,7 +815,7 @@ void ServerRegistry::initialize_default_profiles()
     js_profile.extensions = {".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"};
     js_profile.executable_name = "typescript-language-server";
     js_profile.default_args = {"--stdio"};
-    js_profile.root_markers = {"tsconfig.json", "jsconfig.json", "package.json", "deno.json", "deno.jsonc", "bun.lockb", ".git"};
+    js_profile.root_markers = {"tsconfig.json", "jsconfig.json", "package.json", ".eslintrc", ".eslintrc.json", ".eslintrc.js", ".eslintrc.cjs", "eslint.config.js", "eslint.config.mjs", "eslint.config.ts", "deno.json", "deno.jsonc", "bun.lockb", ".git"};
     register_profile(std::move(js_profile));
 
     // Go (gopls)

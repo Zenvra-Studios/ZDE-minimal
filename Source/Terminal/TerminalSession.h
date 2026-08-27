@@ -135,6 +135,7 @@ private:
     void append_status(std::string message);
     void clear_screen() noexcept;
     void trim_scrollback();
+    void update_pipe_input_display();
 
     std::unique_ptr<Implementation> m_implementation;
     std::filesystem::path m_shell_path;
@@ -151,6 +152,7 @@ private:
     std::size_t m_saved_cursor_column = 0;
     std::size_t m_main_cursor_line = 0;
     std::size_t m_main_cursor_column = 0;
+    std::size_t m_input_start_line = 0;
     std::size_t m_input_start_column = 0;
     std::string m_pending_input;
     std::size_t m_pending_input_cursor = 0;

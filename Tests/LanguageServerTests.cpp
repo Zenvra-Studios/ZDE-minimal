@@ -1371,4 +1371,202 @@ TEST(LanguageServerTests, LargeDocumentFoldingAndNavigationPerformance5M) {
   EXPECT_EQ(scope.end_line, 5196820u);
 }
 
+TEST(LanguageServerTests, CurlyBraceFoldingBasicAndNested) {
+  std::vector<std::string> lines = {
+    "function main() {",             // 0
+    "    if (true) {",               // 1
+    "        console.log('hi');",    // 2
+    "    }",                         // 3
+    "    return 0;",                 // 4
+    "}"                              // 5
+  };
+
+  Zenvra::UI::Components::EditorFoldingModel folding;
+  folding.rebuild(lines, 4);
+
+  EXPECT_EQ(folding.get_ranges().size(), 2u);
+  EXPECT_TRUE(folding.is_fold_start(0));
+  EXPECT_TRUE(folding.is_fold_start(1));
+  EXPECT_FALSE(folding.is_fold_start(2));
+
+  // Verify markers
+  EXPECT_EQ(folding.get_marker(0), Zenvra::UI::Components::FoldMarker::Expanded);
+  EXPECT_EQ(folding.get_marker(1), Zenvra::UI::Components::FoldMarker::Expanded);
+  EXPECT_EQ(folding.get_marker(2), Zenvra::UI::Components::FoldMarker::Continuation);
+  EXPECT_EQ(folding.get_marker(3), Zenvra::UI::Components::FoldMarker::End); // inner end corner
+  EXPECT_EQ(folding.get_marker(4), Zenvra::UI::Components::FoldMarker::Continuation);
+  EXPECT_EQ(folding.get_marker(5), Zenvra::UI::Components::FoldMarker::End); // outer end corner
+}
+
+TEST(LanguageServerTests, CurlyBraceElseIfCatchFolding) {
+  std::vector<std::string> lines = {
+    "if (condition) {",             // 0
+    "    stepOne();",               // 1
+    "} else if (other) {",          // 2
+    "    stepTwo();",               // 3
+    "} else {",                     // 4
+    "    stepThree();",             // 5
+    "}"                             // 6
+  };
+
+  Zenvra::UI::Components::EditorFoldingModel folding;
+  folding.rebuild(lines, 4);
+
+  EXPECT_GE(folding.get_ranges().size(), 3u);
+  EXPECT_TRUE(folding.is_fold_start(0));
+  EXPECT_TRUE(folding.is_fold_start(2));
+  EXPECT_TRUE(folding.is_fold_start(4));
+}
+
+TEST(LanguageServerTests, TypeScriptReactTsxTwoSpaceFolding) {
+  std::vector<std::string> lines = {
+    "import { useState } from 'react'",    // 0
+    "",                                    // 1
+    "function App() {",                    // 2
+    "  const [count, setCount] = useState(0);", // 3
+    "  return (",                          // 4
+    "    <div>",                           // 5
+    "      <h1>Hello `{count}`</h1>",      // 6
+    "    </div>",                          // 7
+    "  );",                                // 8
+    "}"                                    // 9
+  };
+
+  Zenvra::UI::Components::EditorFoldingModel folding;
+  folding.rebuild(lines, 2);
+
+  EXPECT_TRUE(folding.is_fold_start(2));
+  const auto* r = folding.get_range_at(2);
+  ASSERT_NE(r, nullptr);
+  EXPECT_EQ(r->start_line, 2u);
+  EXPECT_EQ(r->end_line, 9u);
+
+  // Active indent scope for line 3 with tab_size=2
+  const auto scope = folding.get_active_indent_scope(3, 2);
+  EXPECT_TRUE(scope.valid);
+  EXPECT_EQ(scope.start_line, 2u);
+  EXPECT_EQ(scope.end_line, 9u);
+  EXPECT_EQ(scope.column, 0u);
+}
+
+TEST(LanguageServerTests, AllmanStyleBraceFolding) {
+  std::vector<std::string> lines = {
+    "void calculateResult()",       // 0
+    "{",                            // 1
+    "    int a = 10;",              // 2
+    "}"                             // 3
+  };
+
+  Zenvra::UI::Components::EditorFoldingModel folding;
+  folding.rebuild(lines, 4);
+
+  EXPECT_FALSE(folding.get_ranges().empty());
+  // The fold start should attach to line 0 (the header)
+  EXPECT_TRUE(folding.is_fold_start(0));
+}
+
+TEST(LanguageServerTests, PythonIndentationFoldingAndScopeBorders) {
+  std::vector<std::string> lines = {
+    "def calculate_total(items):",        // 0
+    "    total = 0",                      // 1
+    "    for item in items:",             // 2
+    "        if item.is_valid:",          // 3
+    "            total += item.price",    // 4
+    "    return total",                   // 5
+    "",                                   // 6
+    "print('Finished')"                   // 7
+  };
+
+  Zenvra::UI::Components::EditorFoldingModel folding;
+  folding.rebuild(lines, 4);
+
+  EXPECT_GE(folding.get_ranges().size(), 3u);
+  EXPECT_TRUE(folding.is_fold_start(0));
+  EXPECT_TRUE(folding.is_fold_start(2));
+  EXPECT_TRUE(folding.is_fold_start(3));
+
+  // Range checks
+  const auto* root_range = folding.get_range_at(0);
+  ASSERT_NE(root_range, nullptr);
+  EXPECT_EQ(root_range->start_line, 0u);
+  EXPECT_EQ(root_range->end_line, 5u);
+  EXPECT_EQ(root_range->indent_level, 0u);
+
+  // Markers
+  EXPECT_EQ(folding.get_marker(0), Zenvra::UI::Components::FoldMarker::Expanded);
+  EXPECT_EQ(folding.get_marker(1), Zenvra::UI::Components::FoldMarker::Continuation);
+  EXPECT_EQ(folding.get_marker(2), Zenvra::UI::Components::FoldMarker::Expanded);
+  EXPECT_EQ(folding.get_marker(4), Zenvra::UI::Components::FoldMarker::End);
+  EXPECT_EQ(folding.get_marker(5), Zenvra::UI::Components::FoldMarker::End);
+
+  // Active indent scope when caret is inside the deepest if-block (line 4)
+  const auto scope = folding.get_active_indent_scope(4, 4);
+  EXPECT_TRUE(scope.valid);
+  EXPECT_EQ(scope.start_line, 3u);
+  EXPECT_EQ(scope.end_line, 4u);
+  EXPECT_EQ(scope.column, 8u);
+
+  // Active indent scope when caret is in line 1
+  const auto root_scope = folding.get_active_indent_scope(1, 4);
+  EXPECT_TRUE(root_scope.valid);
+  EXPECT_EQ(root_scope.start_line, 0u);
+  EXPECT_EQ(root_scope.end_line, 5u);
+  EXPECT_EQ(root_scope.column, 0u);
+}
+
+TEST(LanguageServerTests, YamlAndConfigIndentationFolding) {
+  std::vector<std::string> lines = {
+    "server:",                  // 0
+    "  host: 0.0.0.0",          // 1
+    "  port: 8080",             // 2
+    "database:",                // 3
+    "  url: postgres://db",     // 4
+    "  pool:",                  // 5
+    "    min: 2",               // 6
+    "    max: 10"               // 7
+  };
+
+  Zenvra::UI::Components::EditorFoldingModel folding;
+  folding.rebuild(lines, 2);
+
+  EXPECT_TRUE(folding.is_fold_start(0));
+  EXPECT_TRUE(folding.is_fold_start(3));
+  EXPECT_TRUE(folding.is_fold_start(5));
+
+  const auto* pool_range = folding.get_range_at(5);
+  ASSERT_NE(pool_range, nullptr);
+  EXPECT_EQ(pool_range->start_line, 5u);
+  EXPECT_EQ(pool_range->end_line, 7u);
+  EXPECT_EQ(pool_range->indent_level, 2u);
+
+  const auto pool_scope = folding.get_active_indent_scope(6, 2);
+  EXPECT_TRUE(pool_scope.valid);
+  EXPECT_EQ(pool_scope.start_line, 5u);
+  EXPECT_EQ(pool_scope.end_line, 7u);
+  EXPECT_EQ(pool_scope.column, 2u);
+}
+
+TEST(LanguageServerTests, ShellAndMakefileIndentationFolding) {
+  std::vector<std::string> lines = {
+    "all: build test",          // 0
+    "    @echo 'Building...'",  // 1
+    "    @gcc main.c -o app",   // 2
+    "clean:",                   // 3
+    "    @rm -f app"            // 4
+  };
+
+  Zenvra::UI::Components::EditorFoldingModel folding;
+  folding.rebuild(lines, 4);
+
+  EXPECT_TRUE(folding.is_fold_start(0));
+  EXPECT_TRUE(folding.is_fold_start(3));
+
+  const auto* all_range = folding.get_range_at(0);
+  ASSERT_NE(all_range, nullptr);
+  EXPECT_EQ(all_range->start_line, 0u);
+  EXPECT_EQ(all_range->end_line, 2u);
+  EXPECT_EQ(all_range->indent_level, 0u);
+}
+
+
 

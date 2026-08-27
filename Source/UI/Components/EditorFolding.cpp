@@ -41,70 +41,6 @@ bool is_whitespace_only(std::string_view line)
     return line.empty() || line.find_first_not_of(" \t\r\n") == std::string_view::npos;
 }
 
-/// Check whether a line contains an unmatched opening brace '{' that is not
-/// inside a string or comment.  This is a simplified heuristic.
-bool has_opening_brace(std::string_view line)
-{
-    if (line.find('{') == std::string_view::npos)
-    {
-        return false;
-    }
-    bool in_string = false;
-    bool in_char = false;
-    int brace_delta = 0;
-
-    for (std::size_t i = 0; i < line.size(); ++i)
-    {
-        const char ch = line[i];
-
-        // Skip line comments.
-        if (!in_string && !in_char && ch == '/' && i + 1 < line.size() && line[i + 1] == '/')
-        {
-            break;
-        }
-
-        // String/char literal tracking.
-        if (!in_string && !in_char && (ch == '"' || ch == '\''))
-        {
-            if (ch == '"') in_string = true;
-            else in_char = true;
-            continue;
-        }
-        if ((in_string || in_char) && ch == '\\' && i + 1 < line.size())
-        {
-            ++i; // skip escaped character
-            continue;
-        }
-        if (in_string && ch == '"')
-        {
-            in_string = false;
-            continue;
-        }
-        if (in_char && ch == '\'')
-        {
-            in_char = false;
-            continue;
-        }
-
-        if (!in_string && !in_char)
-        {
-            if (ch == '{') ++brace_delta;
-            else if (ch == '}') --brace_delta;
-        }
-    }
-    return brace_delta > 0;
-}
-
-bool has_closing_brace(std::string_view line)
-{
-    if (line.find('}') == std::string_view::npos)
-    {
-        return false;
-    }
-    const std::size_t first = line.find_first_not_of(" \t");
-    return first != std::string_view::npos && line[first] == '}';
-}
-
 } // namespace
 
 void EditorFoldingModel::rebuild(std::span<const std::string> lines, std::size_t tab_size,
@@ -176,8 +112,10 @@ void EditorFoldingModel::rebuild(std::span<const std::string> lines, std::size_t
         }
     }
 
-    // 3. Stack of (start_line, indent_level) for unmatched opening braces in window
+    // 3. Sequential character-by-character scanner for curly braces
+    // Stack of (start_line, indent_level)
     std::stack<std::pair<std::size_t, std::size_t>> open_stack;
+    bool in_block_comment = false;
 
     for (std::size_t i = 0; i < count; ++i)
     {
@@ -185,37 +123,172 @@ void EditorFoldingModel::rebuild(std::span<const std::string> lines, std::size_t
         const std::string_view line{lines[global_line]};
         const std::size_t indent = m_effective_indents[i];
 
-        if (has_opening_brace(line))
+        bool in_string = false;
+        char string_quote = 0;
+
+        for (std::size_t col = 0; col < line.size(); ++col)
         {
-            std::size_t fold_start = global_line;
-            const std::size_t first_non_ws = line.find_first_not_of(" \t\r\n");
-            if (first_non_ws != std::string_view::npos && line[first_non_ws] == '{' && global_line > 0 && i > 0)
+            const char ch = line[col];
+
+            // Inside block comment /* ... */
+            if (in_block_comment)
             {
-                const std::string_view prev_line{lines[global_line - 1]};
-                if (!is_whitespace_only(prev_line) && !has_opening_brace(prev_line) && !has_closing_brace(prev_line))
+                if (ch == '*' && col + 1 < line.size() && line[col + 1] == '/')
                 {
-                    fold_start = global_line - 1;
+                    in_block_comment = false;
+                    ++col; // skip '/'
                 }
+                continue;
             }
-            open_stack.push({fold_start, indent});
-        }
 
-        if (has_closing_brace(line) && !open_stack.empty())
-        {
-            const auto [start, start_indent] = open_stack.top();
-            open_stack.pop();
-
-            if (global_line > start)
+            // Inside string literal ("...", '...', `...`)
+            if (in_string)
             {
-                m_ranges.push_back(FoldRange{start, global_line, start_indent});
+                if (ch == '\\' && col + 1 < line.size())
+                {
+                    ++col; // skip escaped character
+                    continue;
+                }
+                if (ch == string_quote)
+                {
+                    in_string = false;
+                    string_quote = 0;
+                }
+                continue;
+            }
+
+            // Line comment (// or #)
+            if (ch == '/' && col + 1 < line.size() && line[col + 1] == '/')
+            {
+                break; // rest of the line is a comment
+            }
+            if (ch == '#')
+            {
+                break; // python/shell/yaml line comment
+            }
+
+            // Block comment start /*
+            if (ch == '/' && col + 1 < line.size() && line[col + 1] == '*')
+            {
+                in_block_comment = true;
+                ++col; // skip '*'
+                continue;
+            }
+
+            // String start
+            if (ch == '"' || ch == '\'' || ch == '`')
+            {
+                in_string = true;
+                string_quote = ch;
+                continue;
+            }
+
+            // Curly brace closing }
+            if (ch == '}')
+            {
+                if (!open_stack.empty())
+                {
+                    const auto [start, start_indent] = open_stack.top();
+                    open_stack.pop();
+
+                    if (global_line > start)
+                    {
+                        m_ranges.push_back(FoldRange{start, global_line, start_indent});
+                    }
+                }
+                continue;
+            }
+
+            // Curly brace opening {
+            if (ch == '{')
+            {
+                std::size_t fold_start = global_line;
+                const std::size_t first_non_ws = line.find_first_not_of(" \t\r\n");
+                // If '{' is the first non-whitespace character on this line, check if we should attach to previous header line
+                if (first_non_ws == col && global_line > 0 && i > 0)
+                {
+                    const std::string_view prev_line{lines[global_line - 1]};
+                    if (!is_whitespace_only(prev_line) &&
+                        prev_line.find('{') == std::string_view::npos &&
+                        prev_line.find('}') == std::string_view::npos)
+                    {
+                        fold_start = global_line - 1;
+                    }
+                }
+                open_stack.push({fold_start, indent});
+                continue;
             }
         }
+    }
+
+    // 4. Universal indentation-based fold ranges for all programming languages
+    // (Python, YAML, Makefile, HTML, Lua, Ruby, Shell, Markdown, etc.)
+    std::unordered_set<std::size_t> brace_starts;
+    for (const auto& br : m_ranges)
+    {
+        brace_starts.insert(br.start_line);
+    }
+
+    std::vector<FoldRange> indent_ranges;
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        if (m_raw_indents[i] < 0)
+        {
+            continue; // Skip whitespace lines
+        }
+
+        const int cur_indent = m_raw_indents[i];
+        const std::size_t global_start = start_idx + i;
+
+        // If this line already has a brace-delimited fold range starting on it, keep the brace range
+        if (brace_starts.contains(global_start))
+        {
+            continue;
+        }
+
+        std::size_t last_child_line = i;
+        bool has_child = false;
+
+        for (std::size_t j = i + 1; j < count; ++j)
+        {
+            if (m_raw_indents[j] < 0)
+            {
+                // Blank line - keep looking ahead, but do not count trailing blank line as last child
+                continue;
+            }
+            if (m_raw_indents[j] > cur_indent)
+            {
+                last_child_line = j;
+                has_child = true;
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        if (has_child && last_child_line > i)
+        {
+            const std::size_t global_end = start_idx + last_child_line;
+            indent_ranges.push_back(FoldRange{
+                .start_line = global_start,
+                .end_line = global_end,
+                .indent_level = static_cast<std::size_t>(cur_indent)
+            });
+        }
+    }
+
+    for (auto&& ir : indent_ranges)
+    {
+        m_ranges.push_back(std::move(ir));
     }
 
     // Sort ranges by start_line for efficient lookup.
     std::sort(m_ranges.begin(), m_ranges.end(),
         [](const FoldRange& a, const FoldRange& b) {
-            return a.start_line < b.start_line;
+            if (a.start_line != b.start_line)
+                return a.start_line < b.start_line;
+            return a.end_line < b.end_line;
         });
 
     // Prune collapsed entries that no longer correspond to valid ranges.
@@ -274,7 +347,7 @@ bool EditorFoldingModel::is_line_hidden(std::size_t line_index) const noexcept
 
 FoldMarker EditorFoldingModel::get_marker(std::size_t line_index) const noexcept
 {
-    // Check if this line is the start of a fold range (binary search)
+    // 1. Check if this line is the start of a fold range (binary search)
     if (const auto* r = get_range_at(line_index))
     {
         return m_collapsed.count(line_index)
@@ -282,28 +355,33 @@ FoldMarker EditorFoldingModel::get_marker(std::size_t line_index) const noexcept
             : FoldMarker::Expanded;
     }
 
-    // Check if this line is a continuation or end of an expanded range.
-    if (!m_ranges.empty())
+    // 2. Check all expanded ranges that cover this line
+    bool is_end = false;
+    bool is_continuation = false;
+
+    for (const auto& r : m_ranges)
     {
-        auto it = std::lower_bound(m_ranges.begin(), m_ranges.end(), line_index,
-            [](const FoldRange& range, std::size_t line) {
-                return range.end_line < line;
-            });
-        for (; it != m_ranges.end() && it->start_line <= line_index; ++it)
+        if (m_collapsed.count(r.start_line) || is_line_hidden(r.start_line))
         {
-            if (m_collapsed.count(it->start_line))
-            {
-                continue; // Skip collapsed ranges.
-            }
-            if (line_index > it->start_line && line_index < it->end_line)
-            {
-                return FoldMarker::Continuation;
-            }
-            if (line_index == it->end_line)
-            {
-                return FoldMarker::End;
-            }
+            continue; // Skip collapsed ranges.
         }
+        if (line_index == r.end_line)
+        {
+            is_end = true;
+        }
+        else if (line_index > r.start_line && line_index < r.end_line)
+        {
+            is_continuation = true;
+        }
+    }
+
+    if (is_end)
+    {
+        return FoldMarker::End;
+    }
+    if (is_continuation)
+    {
+        return FoldMarker::Continuation;
     }
 
     return FoldMarker::NoneMarker;
@@ -361,32 +439,26 @@ ActiveIndentScope EditorFoldingModel::get_active_indent_scope(
 
     // 1. Prioritize innermost enclosing fold range (brace scope)
     const FoldRange* best_range = nullptr;
-    if (!m_ranges.empty())
+    for (const auto& r : m_ranges)
     {
-        auto it = std::lower_bound(m_ranges.begin(), m_ranges.end(), caret_line,
-            [](const FoldRange& range, std::size_t line) {
-                return range.end_line < line;
-            });
-        for (; it != m_ranges.end() && it->start_line <= caret_line; ++it)
+        if (m_collapsed.count(r.start_line) || is_line_hidden(r.start_line))
         {
-            if (m_collapsed.count(it->start_line))
+            continue;
+        }
+        if (caret_line >= r.start_line && caret_line <= r.end_line)
+        {
+            if (best_range == nullptr ||
+                r.indent_level > best_range->indent_level ||
+                (r.indent_level == best_range->indent_level && (r.end_line - r.start_line) < (best_range->end_line - best_range->start_line)))
             {
-                continue;
-            }
-            if (caret_line >= it->start_line && caret_line <= it->end_line)
-            {
-                if (best_range == nullptr || it->indent_level > best_range->indent_level ||
-                    (it->indent_level == best_range->indent_level && (it->end_line - it->start_line) < (best_range->end_line - best_range->start_line)))
-                {
-                    best_range = &(*it);
-                }
+                best_range = &r;
             }
         }
     }
 
     if (best_range != nullptr)
     {
-        const std::size_t active_col = ((best_range->indent_level / tab_size) + 1) * tab_size;
+        const std::size_t active_col = best_range->indent_level;
         return ActiveIndentScope{
             .start_line = best_range->start_line,
             .end_line = best_range->end_line,
@@ -403,26 +475,22 @@ ActiveIndentScope EditorFoldingModel::get_active_indent_scope(
         return {};
     }
 
-    const std::size_t active_col = (caret_indent / tab_size) * tab_size;
+    const std::size_t active_col = (caret_indent >= tab_size) ? ((caret_indent - 1) / tab_size) * tab_size : 0;
     const std::size_t min_search = rel_caret > 200 ? rel_caret - 200 : 0;
     const std::size_t max_search = std::min(m_effective_indents.size(), rel_caret + 200);
 
     std::size_t start = rel_caret;
-    while (start > min_search && m_effective_indents[start - 1] >= active_col)
+    while (start > min_search && m_effective_indents[start - 1] > active_col)
     {
         --start;
     }
-    if (start > min_search && m_effective_indents[start - 1] < active_col)
+    if (start > min_search && m_effective_indents[start - 1] == active_col)
     {
         --start;
     }
 
     std::size_t end = rel_caret;
-    while (end + 1 < max_search && m_effective_indents[end + 1] >= active_col)
-    {
-        ++end;
-    }
-    if (end + 1 < m_effective_indents.size() && m_effective_indents[end + 1] < active_col)
+    while (end + 1 < max_search && m_effective_indents[end + 1] > active_col)
     {
         ++end;
     }

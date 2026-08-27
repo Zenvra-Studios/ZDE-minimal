@@ -282,8 +282,14 @@ void WorkspaceSearchModel::handle_backspace()
         else if (m_replace_caret > 0 && !m_replace_query.empty())
         {
             m_replace_caret = std::min(m_replace_caret, m_replace_query.size());
-            m_replace_query.erase(m_replace_caret - 1, 1);
-            --m_replace_caret;
+            std::size_t erase_len = 1;
+            while (m_replace_caret >= erase_len + 1 &&
+                   (static_cast<unsigned char>(m_replace_query[m_replace_caret - erase_len]) & 0xC0U) == 0x80U)
+            {
+                erase_len++;
+            }
+            m_replace_query.erase(m_replace_caret - erase_len, erase_len);
+            m_replace_caret -= erase_len;
             m_replace_sel_start = m_replace_caret;
             m_replace_sel_end = m_replace_caret;
         }
@@ -308,8 +314,14 @@ void WorkspaceSearchModel::handle_backspace()
         else if (m_search_caret > 0 && !m_search_query.empty())
         {
             m_search_caret = std::min(m_search_caret, m_search_query.size());
-            m_search_query.erase(m_search_caret - 1, 1);
-            --m_search_caret;
+            std::size_t erase_len = 1;
+            while (m_search_caret >= erase_len + 1 &&
+                   (static_cast<unsigned char>(m_search_query[m_search_caret - erase_len]) & 0xC0U) == 0x80U)
+            {
+                erase_len++;
+            }
+            m_search_query.erase(m_search_caret - erase_len, erase_len);
+            m_search_caret -= erase_len;
             m_search_sel_start = m_search_caret;
             m_search_sel_end = m_search_caret;
             if (m_search_query.empty())
@@ -337,7 +349,13 @@ void WorkspaceSearchModel::handle_delete()
         }
         else if (m_replace_caret < m_replace_query.size())
         {
-            m_replace_query.erase(m_replace_caret, 1);
+            std::size_t erase_len = 1;
+            while (m_replace_caret + erase_len < m_replace_query.size() &&
+                   (static_cast<unsigned char>(m_replace_query[m_replace_caret + erase_len]) & 0xC0U) == 0x80U)
+            {
+                erase_len++;
+            }
+            m_replace_query.erase(m_replace_caret, erase_len);
             m_replace_sel_start = m_replace_caret;
             m_replace_sel_end = m_replace_caret;
         }
@@ -361,7 +379,13 @@ void WorkspaceSearchModel::handle_delete()
         }
         else if (m_search_caret < m_search_query.size())
         {
-            m_search_query.erase(m_search_caret, 1);
+            std::size_t erase_len = 1;
+            while (m_search_caret + erase_len < m_search_query.size() &&
+                   (static_cast<unsigned char>(m_search_query[m_search_caret + erase_len]) & 0xC0U) == 0x80U)
+            {
+                erase_len++;
+            }
+            m_search_query.erase(m_search_caret, erase_len);
             m_search_sel_start = m_search_caret;
             m_search_sel_end = m_search_caret;
             if (m_search_query.empty())

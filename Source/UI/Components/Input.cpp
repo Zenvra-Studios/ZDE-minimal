@@ -46,14 +46,19 @@ bool Input::handle_text_input(std::string_view text)
 
 bool Input::handle_backspace()
 {
-    if (!m_state.focused || m_state.cursor_position == 0)
+    if (!m_state.focused || m_state.cursor_position == 0 || m_text.empty())
     {
         return false;
     }
     
-    // Simplistic backspace assuming ASCII or 1-byte chars for now
-    m_text.erase(m_state.cursor_position - 1, 1);
-    m_state.cursor_position--;
+    std::size_t erase_len = 1;
+    while (m_state.cursor_position >= erase_len + 1 &&
+           (static_cast<unsigned char>(m_text[m_state.cursor_position - erase_len]) & 0xC0U) == 0x80U)
+    {
+        erase_len++;
+    }
+    m_text.erase(m_state.cursor_position - erase_len, erase_len);
+    m_state.cursor_position -= erase_len;
     
     if (m_on_text_changed)
     {

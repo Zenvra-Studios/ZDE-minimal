@@ -2359,75 +2359,51 @@ bool TextEditor::handle_text_input(std::string_view utf8_text) {
                                  current_word.size() >= 3;
 
     if (utf8_text == "{") {
-      std::string_view line_before =
-          current_line.substr(0, caret_col > 0 ? caret_col - 1 : 0);
-      while (!line_before.empty() &&
-             std::isspace(static_cast<unsigned char>(line_before.back()))) {
-        line_before.remove_suffix(1);
-      }
+      std::lock_guard<std::recursive_mutex> lock(m_lsp_mutex);
+      m_completion_popup.hide();
+    }
 
-      const bool is_type =
-          line_before.find("struct ") != std::string_view::npos ||
-          line_before.find("struct\t") != std::string_view::npos ||
-          line_before.find("class ") != std::string_view::npos ||
-          line_before.find("class\t") != std::string_view::npos ||
-          line_before.find("enum ") != std::string_view::npos ||
-          line_before.find("union ") != std::string_view::npos ||
-          line_before.starts_with("struct") || line_before.starts_with("class");
-      const bool is_namespace =
-          line_before.find("namespace ") != std::string_view::npos ||
-          line_before.starts_with("namespace");
+    if (utf8_text == ">") {
+      const std::filesystem::path cur_path(doc->get_file_name());
+      const std::string cur_ext = cur_path.extension().string();
+      const bool is_html_like =
+          (cur_ext == ".html" || cur_ext == ".htm" || cur_ext == ".xhtml" ||
+           cur_ext == ".jsx" || cur_ext == ".tsx");
+      if (is_html_like && caret_col >= 2) {
+        const std::size_t open_pos = current_line.rfind('<', caret_col - 1);
+        if (open_pos != std::string_view::npos && open_pos + 1 < caret_col) {
+          const char first_char = current_line[open_pos + 1];
+          if (first_char != '/' && first_char != '!' && first_char != '?') {
+            std::string tag_name;
+            std::size_t idx = open_pos + 1;
+            while (idx < caret_col - 1 &&
+                   !std::isspace(static_cast<unsigned char>(current_line[idx])) &&
+                   current_line[idx] != '/' && current_line[idx] != '>') {
+              tag_name.push_back(current_line[idx]);
+              ++idx;
+            }
 
-      if (is_type) {
-        static_cast<void>(m_controller.insert_text("\n    \n};"));
-        const std::size_t cur_line = doc->get_caret_line();
-        if (cur_line > 0) {
-          doc->set_caret(cur_line - 1, 4);
-        }
-        std::lock_guard<std::recursive_mutex> lock(m_lsp_mutex);
-        m_completion_popup.hide();
+            static const std::unordered_set<std::string> void_tags = {
+                "area", "base", "br", "col", "embed", "hr", "img", "input",
+                "link", "meta", "param", "source", "track", "wbr", "!doctype", "!DOCTYPE"
+            };
 
-        std::string content;
-        for (std::size_t li = 0; li < doc->get_line_count(); ++li) {
-          content += doc->get_line(li);
-          content += "\n";
-        }
-        Language::LanguageServerManager::instance().on_document_changed(
-            uri, fname, 1, content);
-        return true;
-      } else if (is_namespace) {
-        const std::size_t ns_pos = line_before.find("namespace");
-        std::string ns_name;
-        if (ns_pos != std::string_view::npos &&
-            ns_pos + 9 < line_before.size()) {
-          ns_name = std::string(line_before.substr(ns_pos + 9));
-          while (!ns_name.empty() &&
-                 std::isspace(static_cast<unsigned char>(ns_name.front()))) {
-            ns_name.erase(0, 1);
-          }
-          while (!ns_name.empty() &&
-                 std::isspace(static_cast<unsigned char>(ns_name.back()))) {
-            ns_name.pop_back();
+            if (open_pos == caret_col - 2) {
+              const std::string close_tag = "</>";
+              const std::size_t cur_line = doc->get_caret_line();
+              const std::size_t cur_col = doc->get_caret_column();
+              static_cast<void>(doc->insert_text(close_tag));
+              doc->set_caret(cur_line, cur_col);
+            } else if (!tag_name.empty() && current_line[caret_col - 2] != '/' &&
+                       !void_tags.contains(tag_name)) {
+              const std::string close_tag = "</" + tag_name + ">";
+              const std::size_t cur_line = doc->get_caret_line();
+              const std::size_t cur_col = doc->get_caret_column();
+              static_cast<void>(doc->insert_text(close_tag));
+              doc->set_caret(cur_line, cur_col);
+            }
           }
         }
-        const std::string closing =
-            ns_name.empty() ? "\n\n\n}" : ("\n\n\n} // namespace " + ns_name);
-        static_cast<void>(m_controller.insert_text(closing));
-        const std::size_t cur_line = doc->get_caret_line();
-        if (cur_line >= 2) {
-          doc->set_caret(cur_line - 2, 0);
-        }
-        std::lock_guard<std::recursive_mutex> lock(m_lsp_mutex);
-        m_completion_popup.hide();
-
-        std::string content;
-        for (std::size_t li = 0; li < doc->get_line_count(); ++li) {
-          content += doc->get_line(li);
-          content += "\n";
-        }
-        Language::LanguageServerManager::instance().on_document_changed(
-            uri, fname, 1, content);
-        return true;
       }
     }
 
@@ -3420,9 +3396,13 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
         first_line + vis_count >=
             folding.get_window_offset() + folding.get_window_size()));
 
+  const std::size_t tab_size = doc->get_status().indent_width > 0
+                                   ? doc->get_status().indent_width
+                                   : 4;
+
   if (last_doc != doc || last_rev != doc->get_revision() || needs_window_shift) {
     const_cast<UI::Components::EditorFoldingModel &>(folding).rebuild(
-        doc->get_lines(), 4, first_line, 2500);
+        doc->get_lines(), tab_size, first_line, 2500);
     last_doc = doc;
     last_rev = doc->get_revision();
   }
@@ -3486,7 +3466,7 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
   const float space_width =
       static_cast<float>(surface.m_editor_font->getTextWidth(" "));
   const UI::Components::ActiveIndentScope active_scope =
-      folding.get_active_indent_scope(doc->get_caret_line(), 4);
+      folding.get_active_indent_scope(doc->get_caret_line(), tab_size);
 
   std::size_t row_guide = 0;
   for (std::size_t line_index = first_line;
@@ -3500,10 +3480,10 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
     ++row_guide;
 
     const std::size_t line_indent = folding.get_effective_indent(line_index);
-    if (line_indent < 4)
+    if (line_indent < tab_size)
       continue;
 
-    for (std::size_t col = 4; col <= line_indent; col += 4) {
+    for (std::size_t col = 0; col + tab_size <= line_indent; col += tab_size) {
       const float guide_x = code_x + static_cast<float>(col) * space_width;
       if (guide_x < code_rect.x || guide_x > code_limit)
         continue;
@@ -3517,6 +3497,7 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
                         is_active ? surface.m_pixels.accent
                                   : surface.m_pixels.border);
     }
+  }
   }
 
   // Pass 1: Gutter background, line numbers, diagnostics dot, fold markers,

@@ -1551,10 +1551,27 @@ TextEditor::is_command_enabled(std::string_view id) const noexcept {
 }
 
 bool TextEditor::handle_text_input(std::string_view utf8) {
+  auto *doc = m_controller.get_active_document();
+  if (doc == nullptr) {
+    return false;
+  }
+
+  const std::size_t initial_caret_line = doc->get_caret_line();
+  const std::size_t initial_caret_col = doc->get_caret_column();
+  const std::string_view initial_line = doc->get_line(initial_caret_line);
+
+  // Skip-over existing closing character when typed
+  if ((utf8 == ")" || utf8 == "]" || utf8 == "}" || utf8 == "\"" || utf8 == "'") &&
+      initial_caret_col < initial_line.size() && initial_line[initial_caret_col] == utf8[0]) {
+    doc->set_caret(initial_caret_line, initial_caret_col + 1);
+    m_completion_popup.hide();
+    m_signature_help.hide();
+    return true;
+  }
+
   const bool changed = m_controller.insert_text(utf8);
   if (changed) {
-    if (auto *doc = m_controller.get_active_document(); doc != nullptr) {
-      queue_lsp_document_sync();
+    queue_lsp_document_sync();
 
       const std::string_view current_line =
           doc->get_line(doc->get_caret_line());
@@ -1581,6 +1598,50 @@ bool TextEditor::handle_text_input(std::string_view utf8) {
                                    utf8 == "/" || utf8 == "\\" || utf8 == "(" ||
                                    utf8 == "," || is_include_context ||
                                    current_word.size() >= 1;
+
+      if (utf8 == ">") {
+        const std::filesystem::path cur_path(doc->get_file_name());
+        const std::string cur_ext = cur_path.extension().string();
+        const bool is_html_like =
+            (cur_ext == ".html" || cur_ext == ".htm" || cur_ext == ".xhtml" ||
+             cur_ext == ".jsx" || cur_ext == ".tsx");
+        if (is_html_like && caret_col >= 2) {
+          const std::size_t open_pos = current_line.rfind('<', caret_col - 1);
+          if (open_pos != std::string_view::npos && open_pos + 1 < caret_col) {
+            const char first_char = current_line[open_pos + 1];
+            if (first_char != '/' && first_char != '!' && first_char != '?') {
+              std::string tag_name;
+              std::size_t idx = open_pos + 1;
+              while (idx < caret_col - 1 &&
+                     !std::isspace(static_cast<unsigned char>(current_line[idx])) &&
+                     current_line[idx] != '/' && current_line[idx] != '>') {
+                tag_name.push_back(current_line[idx]);
+                ++idx;
+              }
+
+              static const std::unordered_set<std::string> void_tags = {
+                  "area", "base", "br", "col", "embed", "hr", "img", "input",
+                  "link", "meta", "param", "source", "track", "wbr", "!doctype", "!DOCTYPE"
+              };
+
+              if (open_pos == caret_col - 2) {
+                const std::string close_tag = "</>";
+                const std::size_t cur_line = doc->get_caret_line();
+                const std::size_t cur_col = doc->get_caret_column();
+                static_cast<void>(doc->insert_text(close_tag));
+                doc->set_caret(cur_line, cur_col);
+              } else if (!tag_name.empty() && current_line[caret_col - 2] != '/' &&
+                         !void_tags.contains(tag_name)) {
+                const std::string close_tag = "</" + tag_name + ">";
+                const std::size_t cur_line = doc->get_caret_line();
+                const std::size_t cur_col = doc->get_caret_column();
+                static_cast<void>(doc->insert_text(close_tag));
+                doc->set_caret(cur_line, cur_col);
+              }
+            }
+          }
+        }
+      }
 
       if (utf8 == "(") {
         Language::Protocol::Position sig_pos{.line = doc->get_caret_line(),
@@ -2556,7 +2617,7 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
       const float y_top = center_y - line_height * 0.5F;
       const float y_bottom = center_y + line_height * 0.5F;
 
-      for (std::size_t col = tab_size; col <= line_indent; col += tab_size) {
+      for (std::size_t col = 0; col + tab_size <= line_indent; col += tab_size) {
         const float guide_x = code_x + static_cast<float>(col) * space_width;
         if (guide_x < code_rect.x || guide_x > code_rect.right()) {
           continue;

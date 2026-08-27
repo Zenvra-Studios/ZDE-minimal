@@ -3471,62 +3471,8 @@ bool TextEditor::handle_text_input(std::string_view utf8_text)
 
             if (utf8_text == "{")
             {
-                std::string_view line_before = current_line.substr(0, caret_col > 0 ? caret_col - 1 : 0);
-                while (!line_before.empty() && std::isspace(static_cast<unsigned char>(line_before.back())))
-                {
-                    line_before.remove_suffix(1);
-                }
-
-                const bool is_type = line_before.find("struct ") != std::string_view::npos ||
-                                     line_before.find("struct\t") != std::string_view::npos ||
-                                     line_before.find("class ") != std::string_view::npos ||
-                                     line_before.find("class\t") != std::string_view::npos ||
-                                     line_before.find("enum ") != std::string_view::npos ||
-                                     line_before.find("union ") != std::string_view::npos ||
-                                     line_before.starts_with("struct") ||
-                                     line_before.starts_with("class");
-                const bool is_namespace = line_before.find("namespace ") != std::string_view::npos ||
-                                         line_before.starts_with("namespace");
-
-                if (is_type)
-                {
-                    static_cast<void>(m_controller.insert_text("\n    \n};"));
-                    const std::size_t cur_line = doc->get_caret_line();
-                    if (cur_line > 0)
-                    {
-                        doc->set_caret(cur_line - 1, 4);
-                    }
-                    std::lock_guard<std::mutex> lock(m_lsp_mutex);
-                    m_completion_popup.hide();
-                    return true;
-                }
-                else if (is_namespace)
-                {
-                    const std::size_t ns_pos = line_before.find("namespace");
-                    std::string ns_name;
-                    if (ns_pos != std::string_view::npos && ns_pos + 9 < line_before.size())
-                    {
-                        ns_name = std::string(line_before.substr(ns_pos + 9));
-                        while (!ns_name.empty() && std::isspace(static_cast<unsigned char>(ns_name.front())))
-                        {
-                            ns_name.erase(0, 1);
-                        }
-                        while (!ns_name.empty() && std::isspace(static_cast<unsigned char>(ns_name.back())))
-                        {
-                            ns_name.pop_back();
-                        }
-                    }
-                    const std::string closing = ns_name.empty() ? "\n\n\n}" : ("\n\n\n} // namespace " + ns_name);
-                    static_cast<void>(m_controller.insert_text(closing));
-                    const std::size_t cur_line = doc->get_caret_line();
-                    if (cur_line >= 2)
-                    {
-                        doc->set_caret(cur_line - 2, 0);
-                    }
-                    std::lock_guard<std::mutex> lock(m_lsp_mutex);
-                    m_completion_popup.hide();
-                    return true;
-                }
+                std::lock_guard<std::mutex> lock(m_lsp_mutex);
+                m_completion_popup.hide();
             }
 
             if (utf8_text == ">")
@@ -3557,7 +3503,15 @@ bool TextEditor::handle_text_input(std::string_view utf8_text)
                                 "link", "meta", "param", "source", "track", "wbr", "!doctype", "!DOCTYPE"
                             };
 
-                            if (!tag_name.empty() && current_line[caret_col - 2] != '/' && !void_tags.contains(tag_name))
+                            if (open_pos == caret_col - 2)
+                            {
+                                const std::string close_tag = "</>";
+                                const std::size_t cur_line = doc->get_caret_line();
+                                const std::size_t cur_col = doc->get_caret_column();
+                                static_cast<void>(doc->insert_text(close_tag));
+                                doc->set_caret(cur_line, cur_col);
+                            }
+                            else if (!tag_name.empty() && current_line[caret_col - 2] != '/' && !void_tags.contains(tag_name))
                             {
                                 const std::string close_tag = "</" + tag_name + ">";
                                 const std::size_t cur_line = doc->get_caret_line();
@@ -4570,7 +4524,7 @@ void TextEditor::draw_document(
         round_to_int(layout.gutter_bounds.bottom()),
         surface.m_palette.border);
 
-    // --- Indent guide rendering (VS Code style) ---
+    // --- Indent and Scope guide rendering (VS Code style) ---
     {
         const float space_width = static_cast<float>(
             surface.get_text_width(device_context, *surface.m_editor_font, " "));
@@ -4597,13 +4551,7 @@ void TextEditor::draw_document(
                 continue;
             }
 
-            // Cap guides to block depth so continuation lines don't create multiple bogus guides
-            const std::size_t prev_indent = (line_index > 0) ? m_folding.get_effective_indent(line_index - 1) : 0;
-            const std::size_t next_indent = (line_index + 1 < total_lines) ? m_folding.get_effective_indent(line_index + 1) : 0;
-            const std::size_t max_allowed = std::max({prev_indent, next_indent, tab_size}) + tab_size;
-            const std::size_t max_guide = std::min(line_indent, max_allowed);
-
-            for (std::size_t col = tab_size; col <= max_guide; col += tab_size)
+            for (std::size_t col = 0; col + tab_size <= line_indent; col += tab_size)
             {
                 const float guide_x = code_x + static_cast<float>(col) * space_width;
                 if (guide_x < layout.editor_bounds.x || guide_x > left_right_limit)
@@ -4741,6 +4689,35 @@ void TextEditor::draw_document(
                     fold_cx, fold_cy + box_half - sign_inset,
                     fold_hovered ? surface.m_palette.accent : surface.m_palette.text_muted);
             }
+        }
+        else if (fold_marker == UI::Components::FoldMarker::Continuation)
+        {
+            // Vertical scope guide line
+            surface.draw_line(device_context,
+                fold_cx, round_to_int(center_y - line_height * 0.5F),
+                fold_cx, round_to_int(center_y + line_height * 0.5F),
+                surface.m_palette.border);
+        }
+        else if (fold_marker == UI::Components::FoldMarker::End)
+        {
+            // Corner guide (╰)
+            surface.draw_line(device_context,
+                fold_cx, round_to_int(center_y - line_height * 0.5F),
+                fold_cx, fold_cy,
+                surface.m_palette.border);
+            surface.draw_line(device_context,
+                fold_cx, fold_cy,
+                fold_cx + round_to_int(fold_margin * 0.35F), fold_cy,
+                surface.m_palette.border);
+        }
+
+        if (fold_marker == UI::Components::FoldMarker::Expanded)
+        {
+            const int box_half = std::max(round_to_int(4.5F * surface.m_dpi_scale), 4);
+            surface.draw_line(device_context,
+                fold_cx, fold_cy + box_half,
+                fold_cx, round_to_int(center_y + line_height * 0.5F),
+                surface.m_palette.border);
         }
     }
 
@@ -5270,10 +5247,14 @@ void TextEditor::draw_document(
                 round_to_int(right_gutter_line_x), round_to_int(right_pane.bottom()),
                 surface.m_palette.border);
 
+            const std::size_t split_tab_size = split_doc.get_status().indent_width > 0
+                ? split_doc.get_status().indent_width
+                : 4;
+
             const std::size_t split_total_lines = split_doc.get_line_count();
             if (m_split_last_folded_doc != &split_doc || m_split_last_folded_line_count != split_total_lines)
             {
-                m_split_folding.rebuild(split_doc.get_lines());
+                m_split_folding.rebuild(split_doc.get_lines(), split_tab_size);
                 m_split_last_folded_doc = &split_doc;
                 m_split_last_folded_line_count = split_total_lines;
             }
@@ -5285,6 +5266,46 @@ void TextEditor::draw_document(
                 m_reveal_caret_pending = false;
             }
             const std::size_t split_first_line = m_split_scrollbar.get_first_visible_line();
+
+            // Right Pane Indent & Scope Guides
+            {
+                const float space_width = static_cast<float>(
+                    surface.get_text_width(device_context, *surface.m_editor_font, " "));
+                const UI::Components::ActiveIndentScope active_scope =
+                    m_split_folding.get_active_indent_scope(split_doc.get_caret_line(), split_tab_size);
+
+                std::size_t r_guide = 0;
+                for (std::size_t line_index = split_first_line; r_guide < visible_count && line_index < split_total_lines; ++line_index)
+                {
+                    if (m_split_folding.is_line_hidden(line_index)) continue;
+                    const float cy = first_center_y + static_cast<float>(r_guide) * line_height;
+                    ++r_guide;
+
+                    const float y_top = cy - line_height * 0.5F;
+                    const float y_bottom = cy + line_height * 0.5F;
+
+                    const std::size_t line_indent = m_split_folding.get_effective_indent(line_index);
+                    if (line_indent < split_tab_size) continue;
+
+                    for (std::size_t col = 0; col + split_tab_size <= line_indent; col += split_tab_size)
+                    {
+                        const float guide_x = right_code.x + static_cast<float>(col) * space_width;
+                        if (guide_x < right_code.x || guide_x > right_code.right()) continue;
+
+                        const bool is_active = active_scope.valid &&
+                            col == active_scope.column &&
+                            line_index >= active_scope.start_line &&
+                            line_index <= active_scope.end_line;
+
+                        surface.draw_line(
+                            device_context,
+                            round_to_int(guide_x), round_to_int(y_top),
+                            round_to_int(guide_x), round_to_int(y_bottom),
+                            is_active ? surface.m_palette.indent_guide_active
+                                      : surface.m_palette.indent_guide);
+                    }
+                }
+            }
 
             // Right Pass 1: Gutter and active line background
             std::size_t r_pass1 = 0;

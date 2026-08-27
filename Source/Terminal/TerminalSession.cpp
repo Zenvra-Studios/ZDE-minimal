@@ -146,6 +146,11 @@ void mark_shell_dead(const std::filesystem::path &path) {
   s_dead_shell_blacklist.insert(normalize_shell_key(path));
 }
 
+void clear_shell_blacklist() {
+  std::lock_guard<std::mutex> lock(s_shell_state_mutex);
+  s_dead_shell_blacklist.clear();
+}
+
 bool is_shell_blacklisted(const std::filesystem::path &path) {
   std::lock_guard<std::mutex> lock(s_shell_state_mutex);
   return s_dead_shell_blacklist.find(normalize_shell_key(path)) !=
@@ -257,7 +262,7 @@ std::wstring windows_shell_arguments(const std::filesystem::path &shell_path) {
   if (is_windows_shell(shell_path, L"cmd.exe")) {
     return L" /d /q";
   }
-  return L" -NoLogo -NoExit";
+  return L" -NoLogo -NoExit -ExecutionPolicy Bypass";
 }
 
 #ifndef PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE
@@ -498,6 +503,7 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
   stop();
   if (m_implementation && m_implementation->recovery_attempts == 0) {
     m_implementation->disable_conpty_for_session = false;
+    clear_shell_blacklist();
   }
   m_lines.assign(1, std::string{});
   m_grid.assign(1, std::vector<TerminalCell>{});
@@ -511,6 +517,7 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
   m_saved_cursor_column = 0;
   m_main_cursor_line = 0;
   m_main_cursor_column = 0;
+  m_input_start_line = 0;
   m_input_start_column = 0;
   m_pending_input.clear();
   m_command_history.clear();
@@ -547,6 +554,20 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
   _wputenv_s(L"TERM_PROGRAM", L"ZDE");
   _wputenv_s(L"TERM_PROGRAM_VERSION", L"1.0.0");
   _wputenv_s(L"WT_SESSION", L"1");
+  _wputenv_s(L"FORCE_COLOR", L"3");
+  _wputenv_s(L"CLICOLOR", L"1");
+  _wputenv_s(L"CLICOLOR_FORCE", L"1");
+
+  SetEnvironmentVariableW(L"COLUMNS", std::to_wstring(m_columns).c_str());
+  SetEnvironmentVariableW(L"LINES", std::to_wstring(m_rows).c_str());
+  SetEnvironmentVariableW(L"TERM", L"xterm-256color");
+  SetEnvironmentVariableW(L"COLORTERM", L"truecolor");
+  SetEnvironmentVariableW(L"TERM_PROGRAM", L"ZDE");
+  SetEnvironmentVariableW(L"TERM_PROGRAM_VERSION", L"1.0.0");
+  SetEnvironmentVariableW(L"WT_SESSION", L"1");
+  SetEnvironmentVariableW(L"FORCE_COLOR", L"3");
+  SetEnvironmentVariableW(L"CLICOLOR", L"1");
+  SetEnvironmentVariableW(L"CLICOLOR_FORCE", L"1");
   load_conpty_api();
 
   m_working_directory = working_directory;
@@ -580,31 +601,27 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
     terminal_debug_log("  - Candidate: \"" + cand.string() + "\"");
   }
 
-  for (const auto &candidate_path : shell_candidates) {
-    m_shell_path = candidate_path;
-    const DWORD liveness_timeout = get_liveness_timeout_ms(candidate_path);
+  // Step 1: Attempt ConPTY across all candidates
+  const char *no_conpty_env = std::getenv("ZDE_NO_CONPTY");
+  const bool conpty_disabled =
+      m_implementation->disable_conpty_for_session ||
+      (no_conpty_env != nullptr &&
+       (no_conpty_env[0] == '1' || no_conpty_env[0] == 'Y' ||
+        no_conpty_env[0] == 'y'));
 
-    terminal_debug_log("[ZDE Terminal] Attempting candidate #" +
-                       std::to_string(candidate_index++) + ": \"" +
-                       candidate_path.string() + "\" (liveness timeout " +
-                       std::to_string(liveness_timeout) + "ms)");
+  if (!conpty_disabled &&
+      s_fn_CreatePseudoConsole != nullptr &&
+      s_fn_ResizePseudoConsole != nullptr &&
+      s_fn_ClosePseudoConsole != nullptr) {
+    for (const auto &candidate_path : shell_candidates) {
+      m_shell_path = candidate_path;
+      std::wstring command = quote_windows_argument(candidate_path.wstring()) +
+                             windows_shell_arguments(candidate_path);
 
-    std::wstring command = quote_windows_argument(candidate_path.wstring()) +
-                           windows_shell_arguments(candidate_path);
+      terminal_debug_log("[ZDE Terminal] Attempting ConPTY candidate #" +
+                         std::to_string(candidate_index++) + ": \"" +
+                         candidate_path.string() + "\"");
 
-    bool candidate_started = false;
-
-    // Step 1: Attempt ConPTY if API is available and not disabled
-    const char *no_conpty_env = std::getenv("ZDE_NO_CONPTY");
-    const bool conpty_disabled =
-        m_implementation->disable_conpty_for_session ||
-        (no_conpty_env != nullptr &&
-         (no_conpty_env[0] == '1' || no_conpty_env[0] == 'Y' ||
-          no_conpty_env[0] == 'y'));
-    if (!conpty_disabled &&
-        s_fn_CreatePseudoConsole != nullptr &&
-        s_fn_ResizePseudoConsole != nullptr &&
-        s_fn_ClosePseudoConsole != nullptr) {
       HANDLE input_read = nullptr;
       HANDLE output_write = nullptr;
 
@@ -683,8 +700,8 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
                         std::to_string(early_exit_code) + ")");
                     CloseHandle(m_implementation->process);
                     m_implementation->process = nullptr;
+                    mark_shell_dead(candidate_path);
                   } else {
-                    candidate_started = true;
                     m_implementation->is_conpty = true;
                     m_implementation->start_time =
                         std::chrono::steady_clock::now();
@@ -693,6 +710,7 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
                     terminal_debug_log(
                         "[ZDE Terminal] Shell committed (ConPTY mode) for \"" +
                         candidate_path.string() + "\"");
+                    started = true;
                   }
 
                   DeleteProcThreadAttributeList(
@@ -710,7 +728,7 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
             }
           }
 
-          if (!candidate_started) {
+          if (!started) {
             if (s_fn_ClosePseudoConsole != nullptr &&
                 m_implementation->pseudo_console != nullptr) {
               s_fn_ClosePseudoConsole(m_implementation->pseudo_console);
@@ -736,117 +754,121 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
         CloseHandle(output_write);
         output_write = nullptr;
       }
+
+      if (started) {
+        break;
+      }
     }
+  }
 
-    if (candidate_started) {
-      started = true;
-      break;
-    }
+  // Step 2: Fallback to Pipe mode only if ConPTY failed for all candidates
+  if (!started) {
+    terminal_debug_log("[ZDE Terminal] ConPTY unavailable for all candidates, falling back to Pipe mode...");
+    for (const auto &candidate_path : shell_candidates) {
+      m_shell_path = candidate_path;
+      std::wstring command = quote_windows_argument(candidate_path.wstring()) +
+                             windows_shell_arguments(candidate_path);
 
-    // Step 2: ConPTY failed or shell died in ConPTY -> Attempt Pipe mode
-    // fallback for this candidate
-    terminal_debug_log("[ZDE Terminal] ConPTY unavailable/failed for \"" +
-                       candidate_path.string() +
-                       "\", falling back to Pipe mode...");
-    if (m_implementation->input_write != nullptr) {
-      CloseHandle(m_implementation->input_write);
-      m_implementation->input_write = nullptr;
-    }
-    if (m_implementation->output_read != nullptr) {
-      CloseHandle(m_implementation->output_read);
-      m_implementation->output_read = nullptr;
-    }
-
-    HANDLE pipe_in_read = nullptr;
-    HANDLE pipe_out_write = nullptr;
-    SECURITY_ATTRIBUTES security_attributes{};
-    security_attributes.nLength = sizeof(security_attributes);
-    security_attributes.bInheritHandle = TRUE;
-
-    if (CreatePipe(&pipe_in_read, &m_implementation->input_write,
-                   &security_attributes, 0) != FALSE &&
-        CreatePipe(&m_implementation->output_read, &pipe_out_write,
-                   &security_attributes, 0) != FALSE) {
-      SetHandleInformation(m_implementation->input_write, HANDLE_FLAG_INHERIT,
-                           0);
-      SetHandleInformation(m_implementation->output_read, HANDLE_FLAG_INHERIT,
-                           0);
-      SetHandleInformation(pipe_in_read, HANDLE_FLAG_INHERIT,
-                           HANDLE_FLAG_INHERIT);
-      SetHandleInformation(pipe_out_write, HANDLE_FLAG_INHERIT,
-                           HANDLE_FLAG_INHERIT);
-
-      STARTUPINFOW startup_info{};
-      startup_info.cb = sizeof(startup_info);
-      startup_info.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-      startup_info.wShowWindow = SW_HIDE;
-      startup_info.hStdInput = pipe_in_read;
-      startup_info.hStdOutput = pipe_out_write;
-      startup_info.hStdError = pipe_out_write;
-
-      PROCESS_INFORMATION process_info{};
-      std::vector<wchar_t> mutable_command(command.begin(), command.end());
-      mutable_command.push_back(L'\0');
-
-      BOOL created =
-          CreateProcessW(nullptr, mutable_command.data(), nullptr, nullptr,
-                         TRUE, CREATE_NO_WINDOW, nullptr, directory_pointer,
-                         &startup_info, &process_info);
-
-      if (created == FALSE && directory_pointer != nullptr) {
-        created = CreateProcessW(nullptr, mutable_command.data(), nullptr,
-                                 nullptr, TRUE, CREATE_NO_WINDOW, nullptr,
-                                 nullptr, &startup_info, &process_info);
+      if (m_implementation->input_write != nullptr) {
+        CloseHandle(m_implementation->input_write);
+        m_implementation->input_write = nullptr;
+      }
+      if (m_implementation->output_read != nullptr) {
+        CloseHandle(m_implementation->output_read);
+        m_implementation->output_read = nullptr;
       }
 
-      if (pipe_in_read != nullptr)
-        CloseHandle(pipe_in_read);
-      if (pipe_out_write != nullptr)
-        CloseHandle(pipe_out_write);
+      HANDLE pipe_in_read = nullptr;
+      HANDLE pipe_out_write = nullptr;
+      SECURITY_ATTRIBUTES security_attributes{};
+      security_attributes.nLength = sizeof(security_attributes);
+      security_attributes.bInheritHandle = TRUE;
 
-      if (created != FALSE) {
-        CloseHandle(process_info.hThread);
-        m_implementation->process = process_info.hProcess;
-        const DWORD pid = process_info.dwProcessId;
-        terminal_debug_log("[ZDE Terminal] Pipe-mode CreateProcessW OK (PID " +
-                           std::to_string(pid) + ")");
+      if (CreatePipe(&pipe_in_read, &m_implementation->input_write,
+                     &security_attributes, 0) != FALSE &&
+          CreatePipe(&m_implementation->output_read, &pipe_out_write,
+                     &security_attributes, 0) != FALSE) {
+        SetHandleInformation(m_implementation->input_write, HANDLE_FLAG_INHERIT,
+                             0);
+        SetHandleInformation(m_implementation->output_read, HANDLE_FLAG_INHERIT,
+                             0);
+        SetHandleInformation(pipe_in_read, HANDLE_FLAG_INHERIT,
+                             HANDLE_FLAG_INHERIT);
+        SetHandleInformation(pipe_out_write, HANDLE_FLAG_INHERIT,
+                             HANDLE_FLAG_INHERIT);
 
-        // Instantaneous non-blocking launch check (0ms)
-        if (WaitForSingleObject(m_implementation->process, 0) ==
-            WAIT_OBJECT_0) {
-          DWORD early_exit_code = 0;
-          GetExitCodeProcess(m_implementation->process, &early_exit_code);
-          terminal_debug_log(
-              "[ZDE Terminal] Pipe-mode shell failed at launch for \"" +
-              candidate_path.string() + "\" (exit code " +
-              std::to_string(early_exit_code) + ")");
-          CloseHandle(m_implementation->process);
-          m_implementation->process = nullptr;
-          mark_shell_dead(candidate_path);
+        STARTUPINFOW startup_info{};
+        startup_info.cb = sizeof(startup_info);
+        startup_info.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+        startup_info.wShowWindow = SW_HIDE;
+        startup_info.hStdInput = pipe_in_read;
+        startup_info.hStdOutput = pipe_out_write;
+        startup_info.hStdError = pipe_out_write;
+
+        PROCESS_INFORMATION process_info{};
+        std::vector<wchar_t> mutable_command(command.begin(), command.end());
+        mutable_command.push_back(L'\0');
+
+        BOOL created =
+            CreateProcessW(nullptr, mutable_command.data(), nullptr, nullptr,
+                           TRUE, CREATE_NO_WINDOW, nullptr, directory_pointer,
+                           &startup_info, &process_info);
+
+        if (created == FALSE && directory_pointer != nullptr) {
+          created = CreateProcessW(nullptr, mutable_command.data(), nullptr,
+                                   nullptr, TRUE, CREATE_NO_WINDOW, nullptr,
+                                   nullptr, &startup_info, &process_info);
+        }
+
+        if (pipe_in_read != nullptr)
+          CloseHandle(pipe_in_read);
+        if (pipe_out_write != nullptr)
+          CloseHandle(pipe_out_write);
+
+        if (created != FALSE) {
+          CloseHandle(process_info.hThread);
+          m_implementation->process = process_info.hProcess;
+          const DWORD pid = process_info.dwProcessId;
+          terminal_debug_log("[ZDE Terminal] Pipe-mode CreateProcessW OK (PID " +
+                             std::to_string(pid) + ")");
+
+          // Instantaneous non-blocking launch check (0ms)
+          if (WaitForSingleObject(m_implementation->process, 0) ==
+              WAIT_OBJECT_0) {
+            DWORD early_exit_code = 0;
+            GetExitCodeProcess(m_implementation->process, &early_exit_code);
+            terminal_debug_log(
+                "[ZDE Terminal] Pipe-mode shell failed at launch for \"" +
+                candidate_path.string() + "\" (exit code " +
+                std::to_string(early_exit_code) + ")");
+            CloseHandle(m_implementation->process);
+            m_implementation->process = nullptr;
+            mark_shell_dead(candidate_path);
+          } else {
+            m_implementation->is_conpty = false;
+            m_implementation->start_time = std::chrono::steady_clock::now();
+            m_implementation->persisted_last_good = false;
+            m_running = true;
+            terminal_debug_log(
+                "[ZDE Terminal] Shell committed (Pipe mode) for \"" +
+                candidate_path.string() + "\"");
+            started = true;
+            break;
+          }
         } else {
-          m_implementation->is_conpty = false;
-          m_implementation->start_time = std::chrono::steady_clock::now();
-          m_implementation->persisted_last_good = false;
-          m_running = true;
+          const DWORD pipe_error = GetLastError();
           terminal_debug_log(
-              "[ZDE Terminal] Shell committed (Pipe mode) for \"" +
-              candidate_path.string() + "\"");
-          started = true;
-          break;
+              "[ZDE Terminal] Pipe-mode CreateProcessW failed for \"" +
+              candidate_path.string() + "\" (Win32 error " +
+              std::to_string(pipe_error) + ")");
+          mark_shell_dead(candidate_path);
         }
       } else {
-        const DWORD pipe_error = GetLastError();
-        terminal_debug_log(
-            "[ZDE Terminal] Pipe-mode CreateProcessW failed for \"" +
-            candidate_path.string() + "\" (Win32 error " +
-            std::to_string(pipe_error) + ")");
-        mark_shell_dead(candidate_path);
+        if (pipe_in_read != nullptr)
+          CloseHandle(pipe_in_read);
+        if (pipe_out_write != nullptr)
+          CloseHandle(pipe_out_write);
       }
-    } else {
-      if (pipe_in_read != nullptr)
-        CloseHandle(pipe_in_read);
-      if (pipe_out_write != nullptr)
-        CloseHandle(pipe_out_write);
     }
   }
 
@@ -975,43 +997,44 @@ std::span<const std::string> TerminalSession::get_lines() const noexcept {
   return m_lines;
 }
 
-std::vector<TerminalStyledSpan>
-TerminalSession::get_line_spans(std::size_t line_index) const {
-  if (line_index >= m_lines.size()) {
-    return {};
+static std::size_t utf8_column_count(std::string_view s) {
+  std::size_t cols = 0;
+  for (std::size_t i = 0; i < s.size();) {
+    const unsigned char c = static_cast<unsigned char>(s[i]);
+    if ((c & 0x80) == 0)
+      i += 1;
+    else if ((c & 0xE0) == 0xC0)
+      i += 2;
+    else if ((c & 0xF0) == 0xE0)
+      i += 3;
+    else if ((c & 0xF8) == 0xF0)
+      i += 4;
+    else
+      i += 1;
+    ++cols;
   }
-  if (line_index >= m_grid.size() || m_grid[line_index].empty()) {
-    if (!m_lines[line_index].empty()) {
-      return {TerminalStyledSpan{
-          .text = m_lines[line_index],
-          .attributes = TerminalCellAttributes{},
-      }};
-    }
-    return {};
-  }
+  return cols;
+}
 
-  const auto &row = m_grid[line_index];
-  std::vector<TerminalStyledSpan> spans;
-  TerminalStyledSpan current_span;
-  bool in_span = false;
+static std::vector<std::string> split_utf8_codepoints(std::string_view s) {
+  std::vector<std::string> cps;
+  for (std::size_t i = 0; i < s.size();) {
+    unsigned char c = static_cast<unsigned char>(s[i]);
+    std::size_t len = 1;
+    if ((c & 0x80) == 0)
+      len = 1;
+    else if ((c & 0xE0) == 0xC0)
+      len = 2;
+    else if ((c & 0xF0) == 0xE0)
+      len = 3;
+    else if ((c & 0xF8) == 0xF0)
+      len = 4;
 
-  for (const auto &cell : row) {
-    if (!in_span) {
-      current_span.text = cell.codepoint;
-      current_span.attributes = cell.attributes;
-      in_span = true;
-    } else if (current_span.attributes == cell.attributes) {
-      current_span.text.append(cell.codepoint);
-    } else {
-      spans.push_back(std::move(current_span));
-      current_span.text = cell.codepoint;
-      current_span.attributes = cell.attributes;
-    }
+    len = std::min(len, s.size() - i);
+    cps.emplace_back(s.substr(i, len));
+    i += len;
   }
-  if (in_span && !current_span.text.empty()) {
-    spans.push_back(std::move(current_span));
-  }
-  return spans;
+  return cps;
 }
 
 void erase_utf8_from(std::string &line, std::size_t target_col) {
@@ -1038,6 +1061,300 @@ void erase_utf8_from(std::string &line, std::size_t target_col) {
   }
 }
 
+static void set_utf8_cell(std::string &line, std::size_t target_col,
+                          std::string_view utf8_char) {
+  std::size_t current_col = 0;
+  std::size_t byte_pos = 0;
+  std::size_t replace_byte_start = std::string::npos;
+  std::size_t replace_byte_len = 0;
+
+  while (byte_pos < line.size()) {
+    if (current_col == target_col) {
+      replace_byte_start = byte_pos;
+      const unsigned char c = static_cast<unsigned char>(line[byte_pos]);
+      if ((c & 0x80) == 0)
+        replace_byte_len = 1;
+      else if ((c & 0xE0) == 0xC0)
+        replace_byte_len = 2;
+      else if ((c & 0xF0) == 0xE0)
+        replace_byte_len = 3;
+      else if ((c & 0xF8) == 0xF0)
+        replace_byte_len = 4;
+      else
+        replace_byte_len = 1;
+      replace_byte_len = std::min(replace_byte_len, line.size() - byte_pos);
+      break;
+    }
+
+    const unsigned char c = static_cast<unsigned char>(line[byte_pos]);
+    std::size_t char_len = 1;
+    if ((c & 0x80) == 0)
+      char_len = 1;
+    else if ((c & 0xE0) == 0xC0)
+      char_len = 2;
+    else if ((c & 0xF0) == 0xE0)
+      char_len = 3;
+    else if ((c & 0xF8) == 0xF0)
+      char_len = 4;
+    char_len = std::min(char_len, line.size() - byte_pos);
+    byte_pos += char_len;
+    ++current_col;
+  }
+
+  if (replace_byte_start != std::string::npos) {
+    line.replace(replace_byte_start, replace_byte_len, utf8_char);
+  } else {
+    if (target_col > current_col) {
+      line.append(target_col - current_col, ' ');
+    }
+    line.append(utf8_char);
+  }
+}
+
+std::vector<TerminalStyledSpan>
+TerminalSession::get_line_spans(std::size_t line_index) const {
+  if (line_index >= m_lines.size()) {
+    return {};
+  }
+
+  // Check if grid row has explicit styling
+  bool has_explicit_styles = false;
+  if (line_index < m_grid.size() && !m_grid[line_index].empty()) {
+    for (const auto &cell : m_grid[line_index]) {
+      if (!cell.attributes.foreground.is_default ||
+          !cell.attributes.background.is_default ||
+          cell.attributes.bold || cell.attributes.underline) {
+        has_explicit_styles = true;
+        break;
+      }
+    }
+  }
+
+  // If cells have explicit ANSI styling, return the spans from grid
+  if (has_explicit_styles) {
+    const auto &row = m_grid[line_index];
+    std::vector<TerminalStyledSpan> spans;
+    TerminalStyledSpan current_span;
+    bool in_span = false;
+
+    for (const auto &cell : row) {
+      if (!in_span) {
+        current_span.text = cell.codepoint;
+        current_span.attributes = cell.attributes;
+        in_span = true;
+      } else if (current_span.attributes == cell.attributes) {
+        current_span.text.append(cell.codepoint);
+      } else {
+        spans.push_back(std::move(current_span));
+        current_span.text = cell.codepoint;
+        current_span.attributes = cell.attributes;
+      }
+    }
+    if (in_span && !current_span.text.empty()) {
+      spans.push_back(std::move(current_span));
+    }
+    return spans;
+  }
+
+  // Smart semantic colorization for unstyled output
+  const std::string &line = m_lines[line_index];
+  if (line.empty()) {
+    return {};
+  }
+
+  std::string_view lv = line;
+  while (!lv.empty() && (lv.front() == ' ' || lv.front() == '\t')) {
+    lv.remove_prefix(1);
+  }
+
+  // 1. Error highlighting (Red)
+  const bool is_error =
+      lv.starts_with("go: ") ||
+      lv.starts_with("error:") || lv.starts_with("Error:") || lv.starts_with("ERROR:") ||
+      lv.starts_with("fatal:") || lv.starts_with("Fatal:") || lv.starts_with("FATAL:") ||
+      lv.starts_with("[Process exited with code") || lv.starts_with("[Process crashed") ||
+      lv.starts_with("Exception:") || lv.starts_with("Traceback (most recent call last):") ||
+      lv.starts_with("npm ERR!") ||
+      line.find("is not recognized as the name of a cmdlet") != std::string::npos ||
+      line.find("The term '") != std::string::npos ||
+      line.find("cannot find path") != std::string::npos ||
+      line.find("cannot determine module path") != std::string::npos ||
+      line.find("must be specified") != std::string::npos;
+
+  if (is_error) {
+    TerminalCellAttributes err_attr{};
+    err_attr.foreground = TerminalColor{0xf4, 0x47, 0x47, false}; // ANSI Red
+    return {TerminalStyledSpan{.text = line, .attributes = err_attr}};
+  }
+
+  // 2. Warning highlighting (Yellow)
+  const bool is_warning =
+      lv.starts_with("warning:") || lv.starts_with("Warning:") || lv.starts_with("WARN:") ||
+      lv.starts_with("[WARN]") || lv.starts_with("npm WARN");
+
+  if (is_warning) {
+    TerminalCellAttributes warn_attr{};
+    warn_attr.foreground = TerminalColor{0xf5, 0xf5, 0x43, false}; // Yellow
+    return {TerminalStyledSpan{.text = line, .attributes = warn_attr}};
+  }
+
+  // 3. Prompt & Command highlighting (Prompt is White, typed command is Yellow):
+  const bool is_ps_prompt = line.starts_with("PS ") && line.find('>') != std::string::npos;
+  const bool is_cmd_prompt = (line.size() >= 3 &&
+                              std::isalpha(static_cast<unsigned char>(line[0])) &&
+                              line[1] == ':' && line[2] == '\\' &&
+                              line.find('>') != std::string::npos);
+
+  if (is_ps_prompt || is_cmd_prompt) {
+    const std::size_t prompt_end = line.find('>');
+    std::vector<TerminalStyledSpan> spans;
+
+    // Prompt part ("PS C:\...> " or "C:\...> ") in default White
+    TerminalCellAttributes prompt_attr{};
+    spans.push_back(TerminalStyledSpan{
+        .text = line.substr(0, prompt_end + 1),
+        .attributes = prompt_attr});
+
+    // Typed command part after ">" in Yellow
+    if (prompt_end + 1 < line.size()) {
+      std::string_view after_prompt = std::string_view(line).substr(prompt_end + 1);
+      std::size_t space_count = 0;
+      while (space_count < after_prompt.size() && after_prompt[space_count] == ' ') {
+        ++space_count;
+      }
+      if (space_count > 0) {
+        spans.push_back(TerminalStyledSpan{
+            .text = std::string(after_prompt.substr(0, space_count)),
+            .attributes = TerminalCellAttributes{}});
+        after_prompt.remove_prefix(space_count);
+      }
+      if (!after_prompt.empty()) {
+        TerminalCellAttributes cmd_attr{};
+        cmd_attr.foreground = TerminalColor{0xf5, 0xf5, 0x43, false}; // Yellow command
+        spans.push_back(TerminalStyledSpan{
+            .text = std::string(after_prompt),
+            .attributes = cmd_attr});
+      }
+    }
+    return spans;
+  }
+
+  // 4. Command auto-wrapped continuation lines (auto \n / wrap):
+  bool is_command_continuation = false;
+  if (!m_pending_input.empty() && m_input_start_line < line_index && line_index <= m_cursor_line) {
+    is_command_continuation = true;
+  } else if (line_index > 0) {
+    std::size_t prev_idx = line_index;
+    while (prev_idx > 0) {
+      --prev_idx;
+      const std::string &prev_line = m_lines[prev_idx];
+      const bool prev_is_ps = prev_line.starts_with("PS ") && prev_line.find('>') != std::string::npos;
+      const bool prev_is_cmd = (prev_line.size() >= 3 &&
+                                std::isalpha(static_cast<unsigned char>(prev_line[0])) &&
+                                prev_line[1] == ':' && prev_line[2] == '\\' &&
+                                prev_line.find('>') != std::string::npos);
+      if (prev_is_ps || prev_is_cmd) {
+        bool all_wrapped = true;
+        for (std::size_t k = prev_idx; k < line_index; ++k) {
+          const std::size_t col_len = utf8_column_count(m_lines[k]);
+          if (m_columns > 0 && col_len + 2 < m_columns) {
+            all_wrapped = false;
+            break;
+          }
+        }
+        if (all_wrapped) {
+          is_command_continuation = true;
+        }
+        break;
+      }
+      if (prev_line.empty() || (m_columns > 0 && utf8_column_count(prev_line) + 2 < m_columns)) {
+        break;
+      }
+    }
+  }
+
+  if (is_command_continuation) {
+    TerminalCellAttributes cmd_attr{};
+    cmd_attr.foreground = TerminalColor{0xf5, 0xf5, 0x43, false}; // Yellow command
+    return {TerminalStyledSpan{
+        .text = line,
+        .attributes = cmd_attr,
+    }};
+  }
+
+  return {TerminalStyledSpan{
+      .text = line,
+      .attributes = TerminalCellAttributes{},
+  }};
+}
+
+void TerminalSession::update_pipe_input_display() {
+  if (m_lines.empty()) {
+    m_lines.emplace_back();
+    m_grid.emplace_back();
+  }
+  if (m_input_start_line >= m_lines.size()) {
+    m_input_start_line = m_lines.size() - 1;
+  }
+
+  erase_utf8_from(m_lines[m_input_start_line], m_input_start_column);
+  if (m_input_start_line < m_grid.size()) {
+    if (m_input_start_column < m_grid[m_input_start_line].size()) {
+      m_grid[m_input_start_line].resize(m_input_start_column);
+    }
+  }
+
+  while (m_lines.size() > m_input_start_line + 1) {
+    m_lines.pop_back();
+  }
+  while (m_grid.size() > m_input_start_line + 1) {
+    m_grid.pop_back();
+  }
+
+  if (m_pending_input.empty()) {
+    m_cursor_line = m_input_start_line;
+    m_cursor_column = m_input_start_column;
+    return;
+  }
+
+  const auto cps = split_utf8_codepoints(m_pending_input);
+  std::size_t cur_line = m_input_start_line;
+  std::size_t cur_col = m_input_start_column;
+  const std::size_t max_cols = (m_columns > 0) ? m_columns : 80;
+
+  for (const auto &cp : cps) {
+    if (cur_col >= max_cols) {
+      ++cur_line;
+      cur_col = 0;
+      while (cur_line >= m_lines.size()) {
+        m_lines.emplace_back();
+        m_grid.emplace_back();
+      }
+    }
+    set_utf8_cell(m_lines[cur_line], cur_col, cp);
+    auto &row = m_grid[cur_line];
+    if (cur_col >= row.size()) {
+      row.resize(cur_col, TerminalCell{" ", m_current_attributes});
+      row.push_back(TerminalCell{cp, m_current_attributes});
+    } else {
+      row[cur_col] = TerminalCell{cp, m_current_attributes};
+    }
+    ++cur_col;
+  }
+
+  m_cursor_line = cur_line;
+  m_cursor_column = cur_col;
+
+  if (m_cursor_column >= max_cols) {
+    ++m_cursor_line;
+    m_cursor_column = 0;
+    while (m_cursor_line >= m_lines.size()) {
+      m_lines.emplace_back();
+      m_grid.emplace_back();
+    }
+  }
+}
+
 bool TerminalSession::write_input(std::string_view text) {
   if (text.empty() || !m_running) {
     return false;
@@ -1046,16 +1363,14 @@ bool TerminalSession::write_input(std::string_view text) {
   const bool is_backspace = text == "\x08" || text == "\x7F" || text == "\b";
   bool did_clear = false;
   const auto track_input = [&]() {
-    if (m_pending_input.empty() && m_input_start_column == 0) {
+    if (m_pending_input.empty()) {
+      m_input_start_line = m_cursor_line;
       m_input_start_column = m_cursor_column;
     }
     if (text == "\r" || text == "\n") {
       if (!m_pending_input.empty()) {
         m_command_history.push_back(m_pending_input);
         
-        /*
-        
-        */
         std::string cmd = m_pending_input;
         cmd.erase(cmd.begin(), std::find_if(cmd.begin(), cmd.end(), [](unsigned char ch) { return !std::isspace(ch); }));
         cmd.erase(std::find_if(cmd.rbegin(), cmd.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), cmd.end());
@@ -1069,6 +1384,7 @@ bool TerminalSession::write_input(std::string_view text) {
       }
       m_history_index.reset();
       m_saved_pending_input.clear();
+      m_input_start_line = 0;
       m_input_start_column = 0;
       return;
     }
@@ -1094,15 +1410,27 @@ bool TerminalSession::write_input(std::string_view text) {
 #if defined(_WIN32)
   // ── Win32: Pipe mode (local line editing) or ConPTY pass-through ──
   if (m_implementation->input_write != nullptr) {
-    // ─── Pipe mode: local line editing ───────────────────────────────
-    // In Pipe mode the shell has no console, so interactive editing
-    // characters (backspace, Ctrl+Backspace) crash the shell with
-    // ERROR_ACCESS_DENIED (exit code 5).  Buffer all input locally
-    // and only send complete lines to the shell on Enter.
     if (!m_implementation->is_conpty) {
       // Enter: send the complete buffered line to the shell
       if (text == "\r" || text == "\n") {
         std::string payload = m_pending_input + "\r\n";
+        // Clean up buffered input lines so shell's echo appears cleanly at prompt column
+        if (!m_pending_input.empty() && m_input_start_line < m_lines.size()) {
+          erase_utf8_from(m_lines[m_input_start_line], m_input_start_column);
+          if (m_input_start_line < m_grid.size()) {
+            if (m_input_start_column < m_grid[m_input_start_line].size()) {
+              m_grid[m_input_start_line].resize(m_input_start_column);
+            }
+          }
+          while (m_lines.size() > m_input_start_line + 1) {
+            m_lines.pop_back();
+          }
+          while (m_grid.size() > m_input_start_line + 1) {
+            m_grid.pop_back();
+          }
+          m_cursor_line = m_input_start_line;
+          m_cursor_column = m_input_start_column;
+        }
         DWORD bytes_written = 0;
         const BOOL succeeded =
             WriteFile(m_implementation->input_write, payload.data(),
@@ -1110,12 +1438,6 @@ bool TerminalSession::write_input(std::string_view text) {
                       nullptr);
         if (succeeded != FALSE && bytes_written == payload.size()) {
           track_input();
-        }
-        // Advance display to next line for shell output
-        if (!did_clear && !m_lines.empty()) {
-          m_lines.emplace_back();
-          m_cursor_line = m_lines.size() - 1;
-          m_cursor_column = 0;
         }
         trim_scrollback();
         return succeeded != FALSE;
@@ -1125,15 +1447,7 @@ bool TerminalSession::write_input(std::string_view text) {
       if (is_backspace) {
         if (!m_pending_input.empty()) {
           track_input();
-          if (m_cursor_column > 0) {
-            --m_cursor_column;
-          } else if (m_cursor_line > 0) {
-            --m_cursor_line;
-            m_cursor_column = m_columns > 0 ? m_columns - 1 : 0;
-          }
-          if (m_cursor_line < m_lines.size()) {
-            erase_utf8_from(m_lines[m_cursor_line], m_cursor_column);
-          }
+          update_pipe_input_display();
         }
         return true;
       }
@@ -1142,37 +1456,7 @@ bool TerminalSession::write_input(std::string_view text) {
       if (text == "\x17") {
         if (!m_pending_input.empty()) {
           track_input();
-          std::size_t cps = 0;
-          for (std::size_t j = 0; j < m_pending_input.size();) {
-            const auto uc =
-                static_cast<unsigned char>(m_pending_input[j]);
-            if ((uc & 0x80) == 0)
-              j += 1;
-            else if ((uc & 0xE0) == 0xC0)
-              j += 2;
-            else if ((uc & 0xF0) == 0xE0)
-              j += 3;
-            else if ((uc & 0xF8) == 0xF0)
-              j += 4;
-            else
-              j += 1;
-            ++cps;
-          }
-          std::size_t total_cols = m_input_start_column + cps;
-          if (m_columns > 0) {
-            // Recompute line offset from start line
-            // Wait, we don't track m_input_start_line.
-            // But we know how many columns back we need to go.
-            // Actually, for simplicity, just recompute based on m_cursor_column 
-            m_cursor_column = total_cols % m_columns;
-            // Note: we can't easily jump back multiple lines without start_line.
-            // But this handles single line properly.
-          } else {
-            m_cursor_column = total_cols;
-          }
-          if (m_cursor_line < m_lines.size()) {
-            erase_utf8_from(m_lines[m_cursor_line], m_cursor_column);
-          }
+          update_pipe_input_display();
         }
         return true;
       }
@@ -1180,7 +1464,7 @@ bool TerminalSession::write_input(std::string_view text) {
       // Printable characters: buffer + display locally
       if (printable) {
         track_input();
-        append_codepoint(text);
+        update_pipe_input_display();
         return true;
       }
 
@@ -1189,8 +1473,7 @@ bool TerminalSession::write_input(std::string_view text) {
         return true;
       }
 
-      // Other control characters (Ctrl+C, escape seqs, etc.):
-      // send directly to the pipe
+      // Other control characters (Ctrl+C, escape seqs, etc.): send directly to the pipe
       std::string payload(text);
       DWORD bytes_written = 0;
       const BOOL succeeded =
@@ -1202,9 +1485,6 @@ bool TerminalSession::write_input(std::string_view text) {
 
     // ─── ConPTY mode: pass-through to pseudoconsole ──────────────────
     std::string payload(text);
-    if (is_backspace) {
-      payload = "\x08";
-    }
 
     DWORD bytes_written = 0;
     const BOOL succeeded =
@@ -1270,7 +1550,8 @@ bool TerminalSession::poll() {
   }
 
   if (m_implementation->process != nullptr &&
-      !m_implementation->persisted_last_good) {
+      !m_implementation->persisted_last_good &&
+      m_implementation->is_conpty) {
     const auto elapsed_ms =
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - m_implementation->start_time)
@@ -1278,7 +1559,7 @@ bool TerminalSession::poll() {
     if (elapsed_ms >= 3000) {
       m_implementation->persisted_last_good = true;
       save_last_good_shell(m_shell_path);
-      terminal_debug_log("[ZDE Terminal] Shell healthy for >=3s, saved to "
+      terminal_debug_log("[ZDE Terminal] ConPTY shell healthy for >=3s, saved to "
                          "persistent last_good_shell: \"" +
                          m_shell_path.string() + "\"");
     }
@@ -1297,7 +1578,7 @@ bool TerminalSession::poll() {
 
     // Automatic self-healing: if shell crashed in early startup (<5000ms)
     // without user interaction
-    constexpr unsigned k_max_recovery_attempts = 2;
+    constexpr unsigned k_max_recovery_attempts = 3;
     if (elapsed_ms < 5000 && m_command_history.empty() &&
         m_pending_input.empty() && exit_code != 0 && exit_code != 0xC0000B5B &&
         m_implementation->recovery_attempts < k_max_recovery_attempts) {
@@ -1305,8 +1586,11 @@ bool TerminalSession::poll() {
       terminal_debug_log(
           "[ZDE Terminal] Early startup crash for \"" + m_shell_path.string() +
           "\" (code " + std::to_string(exit_code) + " at " +
-          std::to_string(elapsed_ms) + "ms). Switching to Pipe mode...");
-      m_implementation->disable_conpty_for_session = true;
+          std::to_string(elapsed_ms) + "ms). Attempting recovery with next candidate...");
+      mark_shell_dead(m_shell_path);
+      if (m_implementation->recovery_attempts >= k_max_recovery_attempts) {
+        m_implementation->disable_conpty_for_session = true;
+      }
       const auto recovery_working_dir = m_working_directory;
       const auto cols = m_columns;
       const auto rows = m_rows;
@@ -1316,7 +1600,7 @@ bool TerminalSession::poll() {
       if (start(recovery_working_dir, cols, rows)) {
         m_implementation->recovery_attempts = attempts;
         terminal_debug_log("[ZDE Terminal] Self-healing succeeded with \"" +
-                           m_shell_path.string() + "\" (Pipe mode)");
+                           m_shell_path.string() + "\"");
         return true;
       }
     }
@@ -1404,30 +1688,39 @@ void TerminalSession::resize(std::size_t columns, std::size_t rows) noexcept {
 #endif
 }
 
-static std::vector<std::string> split_utf8_codepoints(std::string_view s) {
-  std::vector<std::string> cps;
-  for (std::size_t i = 0; i < s.size();) {
-    unsigned char c = static_cast<unsigned char>(s[i]);
-    std::size_t len = 1;
-    if ((c & 0x80) == 0)
-      len = 1;
-    else if ((c & 0xE0) == 0xC0)
-      len = 2;
-    else if ((c & 0xF0) == 0xE0)
-      len = 3;
-    else if ((c & 0xF8) == 0xF0)
-      len = 4;
-
-    len = std::min(len, s.size() - i);
-    cps.emplace_back(s.substr(i, len));
-    i += len;
+static std::string sanitize_terminal_title(std::string_view raw_title) {
+  if (raw_title.empty()) {
+    return {};
   }
-  return cps;
+  std::string_view title = raw_title;
+  if (title.starts_with("Administrator: ")) {
+    title.remove_prefix(15);
+  } else if (title.starts_with("Administrator:")) {
+    title.remove_prefix(14);
+  } else if (title.starts_with("Select ")) {
+    title.remove_prefix(7);
+  }
+  while (!title.empty() && (title.front() == ' ' || title.front() == '\t')) {
+    title.remove_prefix(1);
+  }
+  while (!title.empty() && (title.back() == ' ' || title.back() == '\t' ||
+                            title.back() == '\r' || title.back() == '\n')) {
+    title.remove_suffix(1);
+  }
+  if (title.find('\\') != std::string_view::npos ||
+      title.find('/') != std::string_view::npos) {
+    const std::filesystem::path p(title);
+    std::string stem = p.stem().string();
+    if (!stem.empty()) {
+      return stem;
+    }
+  }
+  return std::string{title};
 }
 
 static TerminalColor ansi_indexed_color(std::size_t index) {
   static const std::array<TerminalColor, 16> standard_16 = {{
-      {0x1e, 0x1e, 0x1e, false}, // 0: Black
+      {0x5c, 0x63, 0x70, false}, // 0: Black (VS Code dark theme ANSI black - legible gray)
       {0xf4, 0x47, 0x47, false}, // 1: Red
       {0x23, 0xd1, 0x8b, false}, // 2: Green
       {0xf5, 0xf5, 0x43, false}, // 3: Yellow
@@ -1435,7 +1728,7 @@ static TerminalColor ansi_indexed_color(std::size_t index) {
       {0xd6, 0x70, 0xd6, false}, // 5: Magenta
       {0x29, 0xb8, 0xdb, false}, // 6: Cyan
       {0xe5, 0xe5, 0xe5, false}, // 7: White
-      {0x66, 0x66, 0x66, false}, // 8: Bright Black (Gray)
+      {0x7f, 0x84, 0x8e, false}, // 8: Bright Black (Gray)
       {0xf1, 0x4c, 0x4c, false}, // 9: Bright Red
       {0x23, 0xd1, 0x8b, false}, // 10: Bright Green
       {0xf5, 0xf5, 0x43, false}, // 11: Bright Yellow
@@ -1563,13 +1856,24 @@ void TerminalSession::apply_sgr_parameters(
         if (params[i + 1] == 5 && i + 2 < params.size()) {
           m_current_attributes.foreground = ansi_indexed_color(params[i + 2]);
           i += 2;
-        } else if (params[i + 1] == 2 && i + 4 < params.size()) {
-          m_current_attributes.foreground = TerminalColor{
-              static_cast<uint8_t>(std::min<std::size_t>(params[i + 2], 255)),
-              static_cast<uint8_t>(std::min<std::size_t>(params[i + 3], 255)),
-              static_cast<uint8_t>(std::min<std::size_t>(params[i + 4], 255)),
-              false};
-          i += 4;
+        } else if (params[i + 1] == 2) {
+          if (i + 5 < params.size()) {
+            // ITU T.416 format: 38;2;colorspace;r;g;b
+            m_current_attributes.foreground = TerminalColor{
+                static_cast<uint8_t>(std::min<std::size_t>(params[i + 3], 255)),
+                static_cast<uint8_t>(std::min<std::size_t>(params[i + 4], 255)),
+                static_cast<uint8_t>(std::min<std::size_t>(params[i + 5], 255)),
+                false};
+            i += 5;
+          } else if (i + 4 < params.size()) {
+            // Standard: 38;2;r;g;b
+            m_current_attributes.foreground = TerminalColor{
+                static_cast<uint8_t>(std::min<std::size_t>(params[i + 2], 255)),
+                static_cast<uint8_t>(std::min<std::size_t>(params[i + 3], 255)),
+                static_cast<uint8_t>(std::min<std::size_t>(params[i + 4], 255)),
+                false};
+            i += 4;
+          }
         }
       }
       break;
@@ -1579,13 +1883,24 @@ void TerminalSession::apply_sgr_parameters(
         if (params[i + 1] == 5 && i + 2 < params.size()) {
           m_current_attributes.background = ansi_indexed_color(params[i + 2]);
           i += 2;
-        } else if (params[i + 1] == 2 && i + 4 < params.size()) {
-          m_current_attributes.background = TerminalColor{
-              static_cast<uint8_t>(std::min<std::size_t>(params[i + 2], 255)),
-              static_cast<uint8_t>(std::min<std::size_t>(params[i + 3], 255)),
-              static_cast<uint8_t>(std::min<std::size_t>(params[i + 4], 255)),
-              false};
-          i += 4;
+        } else if (params[i + 1] == 2) {
+          if (i + 5 < params.size()) {
+            // ITU T.416 format: 48;2;colorspace;r;g;b
+            m_current_attributes.background = TerminalColor{
+                static_cast<uint8_t>(std::min<std::size_t>(params[i + 3], 255)),
+                static_cast<uint8_t>(std::min<std::size_t>(params[i + 4], 255)),
+                static_cast<uint8_t>(std::min<std::size_t>(params[i + 5], 255)),
+                false};
+            i += 5;
+          } else if (i + 4 < params.size()) {
+            // Standard: 48;2;r;g;b
+            m_current_attributes.background = TerminalColor{
+                static_cast<uint8_t>(std::min<std::size_t>(params[i + 2], 255)),
+                static_cast<uint8_t>(std::min<std::size_t>(params[i + 3], 255)),
+                static_cast<uint8_t>(std::min<std::size_t>(params[i + 4], 255)),
+                false};
+            i += 4;
+          }
         }
       }
       break;
@@ -1593,56 +1908,6 @@ void TerminalSession::apply_sgr_parameters(
     default:
       break;
     }
-  }
-}
-
-static void set_utf8_cell(std::string &line, std::size_t target_col,
-                          std::string_view utf8_char) {
-  std::size_t current_col = 0;
-  std::size_t byte_pos = 0;
-  std::size_t replace_byte_start = std::string::npos;
-  std::size_t replace_byte_len = 0;
-
-  while (byte_pos < line.size()) {
-    if (current_col == target_col) {
-      replace_byte_start = byte_pos;
-      const unsigned char c = static_cast<unsigned char>(line[byte_pos]);
-      if ((c & 0x80) == 0)
-        replace_byte_len = 1;
-      else if ((c & 0xE0) == 0xC0)
-        replace_byte_len = 2;
-      else if ((c & 0xF0) == 0xE0)
-        replace_byte_len = 3;
-      else if ((c & 0xF8) == 0xF0)
-        replace_byte_len = 4;
-      else
-        replace_byte_len = 1;
-      replace_byte_len = std::min(replace_byte_len, line.size() - byte_pos);
-      break;
-    }
-
-    const unsigned char c = static_cast<unsigned char>(line[byte_pos]);
-    std::size_t char_len = 1;
-    if ((c & 0x80) == 0)
-      char_len = 1;
-    else if ((c & 0xE0) == 0xC0)
-      char_len = 2;
-    else if ((c & 0xF0) == 0xE0)
-      char_len = 3;
-    else if ((c & 0xF8) == 0xF0)
-      char_len = 4;
-    char_len = std::min(char_len, line.size() - byte_pos);
-    byte_pos += char_len;
-    ++current_col;
-  }
-
-  if (replace_byte_start != std::string::npos) {
-    line.replace(replace_byte_start, replace_byte_len, utf8_char);
-  } else {
-    if (target_col > current_col) {
-      line.append(target_col - current_col, ' ');
-    }
-    line.append(utf8_char);
   }
 }
 
@@ -1690,7 +1955,8 @@ void TerminalSession::consume_output(std::string_view output) {
         m_utf8_sequence.clear();
         m_utf8_expected = 0;
         m_parser_state = ParserState::Escape;
-      } else if (character == '\n') {
+      } else if (character == '\n' || character == '\x0B' || character == '\x0C') {
+        m_cursor_column = 0;
         if (m_in_alternate_screen) {
           if (m_cursor_line + 1 < m_rows) {
             ++m_cursor_line;
@@ -1724,6 +1990,14 @@ void TerminalSession::consume_output(std::string_view output) {
       } else if (character == '\b' || character == '\x7F') {
         if (m_cursor_column > 0) {
           --m_cursor_column;
+        } else if (m_cursor_line > 0 && !m_in_alternate_screen) {
+          --m_cursor_line;
+          m_cursor_column = (m_cursor_line < m_lines.size())
+                                ? utf8_column_count(m_lines[m_cursor_line])
+                                : (m_columns > 0 ? m_columns - 1 : 0);
+          if (m_cursor_column > 0) {
+            --m_cursor_column;
+          }
         }
       } else if (character == '\t') {
         const std::size_t count = 4 - (m_cursor_column % 4);
@@ -1865,7 +2139,7 @@ void TerminalSession::consume_output(std::string_view output) {
       if (character == '\a') {
         if (m_osc_payload.starts_with("0;") ||
             m_osc_payload.starts_with("2;")) {
-          m_title = m_osc_payload.substr(2);
+          m_title = sanitize_terminal_title(m_osc_payload.substr(2));
         }
         m_osc_payload.clear();
         m_parser_state = ParserState::Text;
@@ -1880,7 +2154,7 @@ void TerminalSession::consume_output(std::string_view output) {
       if (character == '\\') {
         if (m_osc_payload.starts_with("0;") ||
             m_osc_payload.starts_with("2;")) {
-          m_title = m_osc_payload.substr(2);
+          m_title = sanitize_terminal_title(m_osc_payload.substr(2));
         }
         m_osc_payload.clear();
         m_parser_state = ParserState::Text;
@@ -2009,8 +2283,25 @@ void TerminalSession::apply_control_sequence(char command) {
   }
   case 'D': {
     const std::size_t count = param1 > 0 ? param1 : 1;
-    m_cursor_column =
-        (count <= m_cursor_column) ? (m_cursor_column - count) : 0;
+    if (count <= m_cursor_column) {
+      m_cursor_column -= count;
+    } else {
+      std::size_t remaining = count - m_cursor_column;
+      m_cursor_column = 0;
+      while (remaining > 0 && m_cursor_line > 0 && !m_in_alternate_screen) {
+        --m_cursor_line;
+        const std::size_t prev_cols = (m_cursor_line < m_lines.size())
+                                          ? utf8_column_count(m_lines[m_cursor_line])
+                                          : (m_columns > 0 ? m_columns - 1 : 0);
+        if (remaining <= prev_cols) {
+          m_cursor_column = prev_cols - remaining;
+          remaining = 0;
+        } else {
+          remaining -= prev_cols;
+          m_cursor_column = 0;
+        }
+      }
+    }
     break;
   }
   case 'E': {
@@ -2511,6 +2802,7 @@ void TerminalSession::append_codepoint(std::string_view utf8_char) {
         m_cursor_line = m_lines.size() - 1;
       }
       m_cursor_column = 0;
+      m_input_start_column = 0;
       trim_scrollback();
     }
   }
@@ -2520,7 +2812,7 @@ void TerminalSession::append_codepoint(std::string_view utf8_char) {
   auto &row_cells = m_grid[m_cursor_line];
   if (m_cursor_column >= row_cells.size()) {
     row_cells.resize(m_cursor_column,
-                     TerminalCell{" ", TerminalCellAttributes{}});
+                     TerminalCell{" ", m_current_attributes});
     row_cells.push_back(
         TerminalCell{std::string(utf8_char), m_current_attributes});
   } else {
@@ -2550,6 +2842,7 @@ void TerminalSession::append_line() {
     m_grid.emplace_back();
     m_cursor_line = m_lines.size() - 1;
     m_cursor_column = 0;
+    m_input_start_line = m_cursor_line;
     m_input_start_column = 0;
     m_pending_input.clear();
     trim_scrollback();
@@ -2583,6 +2876,7 @@ void TerminalSession::clear_screen() noexcept {
   m_saved_cursor_line = 0;
   m_saved_cursor_column = 0;
   m_saved_attributes = TerminalCellAttributes{};
+  m_input_start_line = 0;
   m_input_start_column = 0;
   m_pending_input.clear();
   m_parser_state = ParserState::Text;
@@ -2631,11 +2925,9 @@ bool TerminalSession::navigate_history(bool up) {
     return false;
   }
 
-  m_cursor_line = m_lines.size() - 1;
-
-  if (m_input_start_column == 0 &&
-      m_lines.back().size() >= m_pending_input.size()) {
-    m_input_start_column = m_lines.back().size() - m_pending_input.size();
+  if (m_pending_input.empty()) {
+    m_input_start_line = m_cursor_line;
+    m_input_start_column = m_cursor_column;
   }
 
   if (up) {
@@ -2663,15 +2955,9 @@ bool TerminalSession::navigate_history(bool up) {
           ? std::string_view(m_command_history[*m_history_index])
           : std::string_view(m_saved_pending_input);
 
-  if (m_input_start_column > m_lines.back().size()) {
-    m_input_start_column = m_lines.back().size();
-  }
-
-  m_lines.back().resize(m_input_start_column);
-  m_lines.back().append(target_text);
-  m_cursor_column = m_lines.back().size();
   m_pending_input = std::string(target_text);
   m_pending_input_cursor = m_pending_input.size();
+  update_pipe_input_display();
   return true;
 }
 

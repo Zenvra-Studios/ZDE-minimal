@@ -184,5 +184,71 @@ TEST(TerminalInputTests, PerCharacterVTDeletion)
     session.stop();
 }
 
+TEST(TerminalColorTests, AnsiSgrAndTrueColorSpans)
+{
+    TerminalSession session;
+    // Output standard ANSI red text: \x1b[31mRed\x1b[0m
+    session.consume_output("\x1b[31mRed\x1b[0m");
+    auto spans = session.get_line_spans(0);
+    ASSERT_EQ(spans.size(), 1);
+    EXPECT_EQ(spans[0].text, "Red");
+    EXPECT_FALSE(spans[0].attributes.foreground.is_default);
+    EXPECT_EQ(spans[0].attributes.foreground.r, 0xf4);
 
+    // TrueColor RGB: \x1b[38;2;123;45;67mCustomRGB\x1b[0m
+    TerminalSession session2;
+    session2.consume_output("\x1b[38;2;123;45;67mCustomRGB\x1b[0m");
+    auto spans2 = session2.get_line_spans(0);
+    ASSERT_EQ(spans2.size(), 1);
+    EXPECT_EQ(spans2[0].text, "CustomRGB");
+    EXPECT_FALSE(spans2[0].attributes.foreground.is_default);
+    EXPECT_EQ(spans2[0].attributes.foreground.r, 123);
+    EXPECT_EQ(spans2[0].attributes.foreground.g, 45);
+    EXPECT_EQ(spans2[0].attributes.foreground.b, 67);
 
+    // ITU T.416 6-param format: \x1b[38;2;0;200;100;50mITU\x1b[0m
+    TerminalSession session3;
+    session3.consume_output("\x1b[38;2;0;200;100;50mITU\x1b[0m");
+    auto spans3 = session3.get_line_spans(0);
+    ASSERT_EQ(spans3.size(), 1);
+    EXPECT_EQ(spans3[0].text, "ITU");
+    EXPECT_FALSE(spans3[0].attributes.foreground.is_default);
+    EXPECT_EQ(spans3[0].attributes.foreground.r, 200);
+    EXPECT_EQ(spans3[0].attributes.foreground.g, 100);
+    EXPECT_EQ(spans3[0].attributes.foreground.b, 50);
+
+    // 256 colors: \x1b[38;5;196mColor256\x1b[0m
+    TerminalSession session4;
+    session4.consume_output("\x1b[38;5;196mColor256\x1b[0m");
+    auto spans4 = session4.get_line_spans(0);
+    ASSERT_EQ(spans4.size(), 1);
+    EXPECT_EQ(spans4[0].text, "Color256");
+    EXPECT_FALSE(spans4[0].attributes.foreground.is_default);
+}
+
+TEST(TerminalFormattingTests, NewlineResetsColumnNoStaircase)
+{
+    TerminalSession session;
+    // Simulate multi-line error output where lines are separated by LF (\n) only
+    session.consume_output("First line header\nSecond line content\nThird line");
+    const auto lines = session.get_lines();
+    ASSERT_GE(lines.size(), 3);
+    EXPECT_EQ(lines[0], "First line header");
+    EXPECT_EQ(lines[1], "Second line content");
+    EXPECT_EQ(lines[2], "Third line");
+    EXPECT_EQ(session.get_cursor_column(), 10);
+    session.stop();
+}
+
+TEST(TerminalFormattingTests, TabAndNewlineIndentation)
+{
+    TerminalSession session;
+    // Simulate CLI tool output: "Header:\n\tExample usage:\n\t\tCommand"
+    session.consume_output("Header:\n\tExample usage:\n\t\tCommand");
+    const auto lines = session.get_lines();
+    ASSERT_GE(lines.size(), 3);
+    EXPECT_EQ(lines[0], "Header:");
+    EXPECT_EQ(lines[1], "    Example usage:");
+    EXPECT_EQ(lines[2], "        Command");
+    session.stop();
+}

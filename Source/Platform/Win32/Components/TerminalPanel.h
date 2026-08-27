@@ -101,8 +101,6 @@ private:
   std::size_t m_last_visible_rows = 0;
   bool m_selecting_text = false;
   mutable std::unordered_map<std::size_t, float> m_tab_animated_offset_x;
-  std::size_t m_horizontal_scroll_offset = 0;
-  bool m_force_horizontal_scroll_to_cursor = false;
   PanelChannel m_active_channel = PanelChannel::Terminal;
 };
 
