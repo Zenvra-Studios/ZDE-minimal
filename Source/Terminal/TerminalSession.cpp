@@ -223,15 +223,13 @@ bool is_windows_shell(const std::filesystem::path &path,
          CSTR_EQUAL;
 }
 
-DWORD get_liveness_timeout_ms(const std::filesystem::path &shell_path) {
+
+DWORD get_liveness_timeout_ms([[maybe_unused]] const std::filesystem::path &shell_path) {
   if (const char *env_timeout = std::getenv("ZDE_LIVENESS_MS");
       env_timeout != nullptr && env_timeout[0] != '\0') {
-    try {
-      const unsigned long custom_ms = std::stoul(env_timeout);
-      if (custom_ms > 0 && custom_ms <= 30000) {
-        return static_cast<DWORD>(custom_ms);
-      }
-    } catch (...) {
+    const unsigned long custom_ms = std::stoul(env_timeout);
+    if (custom_ms > 0 && custom_ms <= 30000) {
+      return static_cast<DWORD>(custom_ms);
     }
   }
   return 2500;
@@ -930,6 +928,30 @@ std::span<const std::string> TerminalSession::get_lines() const noexcept {
   return m_lines;
 }
 
+void erase_utf8_from(std::string &line, std::size_t target_col) {
+  std::size_t current_col = 0;
+  std::size_t byte_pos = 0;
+  while (byte_pos < line.size()) {
+    if (current_col == target_col) {
+      line.erase(byte_pos);
+      return;
+    }
+    const unsigned char c = static_cast<unsigned char>(line[byte_pos]);
+    std::size_t char_len = 1;
+    if ((c & 0x80) == 0)
+      char_len = 1;
+    else if ((c & 0xE0) == 0xC0)
+      char_len = 2;
+    else if ((c & 0xF0) == 0xE0)
+      char_len = 3;
+    else if ((c & 0xF8) == 0xF0)
+      char_len = 4;
+    char_len = std::min(char_len, line.size() - byte_pos);
+    byte_pos += char_len;
+    ++current_col;
+  }
+}
+
 bool TerminalSession::write_input(std::string_view text) {
   if (text.empty() || !m_running) {
     return false;
@@ -971,16 +993,99 @@ bool TerminalSession::write_input(std::string_view text) {
 
 #if defined(_WIN32)
   if (m_implementation->input_write != nullptr) {
+    // ─── Pipe mode: local line editing ───────────────────────────────
+    // In Pipe mode the shell has no console, so interactive editing
+    // characters (backspace, Ctrl+Backspace) crash the shell with
+    // ERROR_ACCESS_DENIED (exit code 5).  Buffer all input locally
+    // and only send complete lines to the shell on Enter.
+    if (!m_implementation->is_conpty) {
+      // Enter: send the complete buffered line to the shell
+      if (text == "\r" || text == "\n") {
+        std::string payload = m_pending_input + "\r\n";
+        DWORD bytes_written = 0;
+        const BOOL succeeded =
+            WriteFile(m_implementation->input_write, payload.data(),
+                      static_cast<DWORD>(payload.size()), &bytes_written,
+                      nullptr);
+        if (succeeded != FALSE && bytes_written == payload.size()) {
+          track_input();
+        }
+        // Advance display to next line for shell output
+        if (!m_lines.empty()) {
+          m_lines.emplace_back();
+          m_cursor_line = m_lines.size() - 1;
+          m_cursor_column = 0;
+        }
+        trim_scrollback();
+        return succeeded != FALSE;
+      }
+
+      // Backspace: erase one character locally, never send to pipe
+      if (is_backspace) {
+        if (!m_pending_input.empty() && m_cursor_column > 0 &&
+            m_cursor_line < m_lines.size()) {
+          track_input();
+          --m_cursor_column;
+          erase_utf8_from(m_lines[m_cursor_line], m_cursor_column);
+        }
+        return true;
+      }
+
+      // Ctrl+Backspace (delete word): erase word locally
+      if (text == "\x17") {
+        if (!m_pending_input.empty() && m_cursor_line < m_lines.size()) {
+          track_input();
+          // Recompute cursor column from input start + remaining
+          // codepoints in m_pending_input
+          std::size_t cps = 0;
+          for (std::size_t j = 0; j < m_pending_input.size();) {
+            const auto uc =
+                static_cast<unsigned char>(m_pending_input[j]);
+            if ((uc & 0x80) == 0)
+              j += 1;
+            else if ((uc & 0xE0) == 0xC0)
+              j += 2;
+            else if ((uc & 0xF0) == 0xE0)
+              j += 3;
+            else if ((uc & 0xF8) == 0xF0)
+              j += 4;
+            else
+              j += 1;
+            ++cps;
+          }
+          m_cursor_column = m_input_start_column + cps;
+          erase_utf8_from(m_lines[m_cursor_line], m_cursor_column);
+        }
+        return true;
+      }
+
+      // Printable characters: buffer + display locally
+      if (printable) {
+        track_input();
+        append_codepoint(text);
+        return true;
+      }
+
+      // Tab: no completion available in pipe mode
+      if (text == "\t") {
+        return true;
+      }
+
+      // Other control characters (Ctrl+C, escape seqs, etc.):
+      // send directly to the pipe
+      std::string payload(text);
+      DWORD bytes_written = 0;
+      const BOOL succeeded =
+          WriteFile(m_implementation->input_write, payload.data(),
+                    static_cast<DWORD>(payload.size()), &bytes_written,
+                    nullptr);
+      return succeeded != FALSE;
+    }
+
+    // ─── ConPTY mode: pass-through to pseudoconsole ──────────────────
     std::string payload(text);
     if (is_backspace) {
-      payload = m_implementation->is_conpty ? "\x7F" : "\b";
-    } else if (text == "\x17") {
-      // Ctrl+Backspace mapped to DeleteWordBackward
-      payload = "\x17";
-    } else if (!m_implementation->is_conpty) {
-      if (payload == "\r") {
-        payload = "\r\n";
-      }
+      payload = "\x7F";
     }
 
     DWORD bytes_written = 0;
@@ -1243,30 +1348,6 @@ static void set_utf8_cell(std::string &line, std::size_t target_col,
       line.append(target_col - current_col, ' ');
     }
     line.append(utf8_char);
-  }
-}
-
-static void erase_utf8_from(std::string &line, std::size_t target_col) {
-  std::size_t current_col = 0;
-  std::size_t byte_pos = 0;
-  while (byte_pos < line.size()) {
-    if (current_col == target_col) {
-      line.erase(byte_pos);
-      return;
-    }
-    const unsigned char c = static_cast<unsigned char>(line[byte_pos]);
-    std::size_t char_len = 1;
-    if ((c & 0x80) == 0)
-      char_len = 1;
-    else if ((c & 0xE0) == 0xC0)
-      char_len = 2;
-    else if ((c & 0xF0) == 0xE0)
-      char_len = 3;
-    else if ((c & 0xF8) == 0xF0)
-      char_len = 4;
-    char_len = std::min(char_len, line.size() - byte_pos);
-    byte_pos += char_len;
-    ++current_col;
   }
 }
 
