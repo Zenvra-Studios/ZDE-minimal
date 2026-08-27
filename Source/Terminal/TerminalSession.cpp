@@ -17,16 +17,25 @@
 #include <utility>
 
 
+// ─── Platform includes ────────────────────────────────────────────────
 #if defined(_WIN32)
+// ── Win32: ConPTY + Win32 API ────────────────────────────────────────
 #include <windows.h>
-#else
+#elif defined(__APPLE__)
+// ── macOS: forkpty via libutil ────────────────────────────────────────
 #include <csignal>
 #include <fcntl.h>
-#if defined(__APPLE__)
 #include <util.h>
+#include <pwd.h>
+#include <sys/ioctl.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #else
+// ── Linux: forkpty via libutil ────────────────────────────────────────
+#include <csignal>
+#include <fcntl.h>
 #include <pty.h>
-#endif
 #include <pwd.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
@@ -53,6 +62,7 @@ void terminal_debug_log(std::string_view msg) {
   std::error_code ec;
   std::filesystem::path log_path;
 #if defined(_WIN32)
+  // Win32: use %TEMP%
   char tmp_buf[512] = {};
   std::size_t tmp_len = 0;
   if (getenv_s(&tmp_len, tmp_buf, sizeof(tmp_buf), "TEMP") == 0 &&
@@ -61,7 +71,13 @@ void terminal_debug_log(std::string_view msg) {
   } else {
     log_path = std::filesystem::current_path(ec);
   }
+#elif defined(__APPLE__)
+  // macOS: use $TMPDIR (typically /var/folders/...)
+  const char *tmp = std::getenv("TMPDIR");
+  log_path =
+      tmp ? std::filesystem::path(tmp) : std::filesystem::current_path(ec);
 #else
+  // Linux: use $TMPDIR or fallback to cwd
   const char *tmp = std::getenv("TMPDIR");
   log_path =
       tmp ? std::filesystem::path(tmp) : std::filesystem::current_path(ec);
@@ -281,6 +297,7 @@ void load_conpty_api() {
 
 struct TerminalSession::Implementation {
 #if defined(_WIN32)
+  // ── Win32: ConPTY handles ──────────────────────────────────────────
   HANDLE process = nullptr;
   HANDLE input_write = nullptr;
   HANDLE output_read = nullptr;
@@ -288,10 +305,12 @@ struct TerminalSession::Implementation {
   LPPROC_THREAD_ATTRIBUTE_LIST attribute_list = nullptr;
   std::vector<BYTE> attribute_buffer;
   bool is_conpty = false;
+  bool disable_conpty_for_session = false;
   std::chrono::steady_clock::time_point start_time{};
   bool persisted_last_good = false;
   unsigned recovery_attempts = 0;
 #else
+  // ── Unix (Linux/macOS): forkpty master fd + child pid ───────────────
   int master_fd = -1;
   pid_t process_id = -1;
 #endif
@@ -302,6 +321,7 @@ TerminalSession::TerminalSession()
 
 TerminalSession::~TerminalSession() { stop(); }
 
+// ─── Win32: shell blacklist, ConPTY API, shell helpers ───────────────
 #if defined(_WIN32)
 bool is_valid_executable_file(const std::filesystem::path &path) {
   if (path.empty()) {
@@ -319,7 +339,7 @@ std::vector<std::filesystem::path> resolve_host_shell_candidates() {
   std::vector<std::filesystem::path> candidates;
 
   auto add_candidate = [&](const std::filesystem::path &p) {
-    if (!p.empty() && is_valid_executable_file(p)) {
+    if (!p.empty() && is_valid_executable_file(p) && !is_shell_blacklisted(p)) {
       for (const auto &existing : candidates) {
         if (existing == p) {
           return;
@@ -374,6 +394,23 @@ std::vector<std::filesystem::path> resolve_host_shell_candidates() {
     add_candidate(ps);
   }
 
+  // 3. Persistent last known good shell
+  if (const std::filesystem::path last_good = load_last_good_shell();
+      !last_good.empty()) {
+    add_candidate(last_good);
+  }
+
+  // 4. Command Prompt (cmd.exe)
+  add_candidate(L"C:\\Windows\\System32\\cmd.exe");
+  if (const std::filesystem::path cmd = find_windows_executable(L"cmd.exe");
+      !cmd.empty()) {
+    add_candidate(cmd);
+  }
+
+  // 5. Git Bash
+  add_candidate(L"C:\\Program Files\\Git\\bin\\bash.exe");
+  add_candidate(L"C:\\Program Files (x86)\\Git\\bin\\bash.exe");
+
   // Fallback: guarantee native System32 powershell
   if (candidates.empty()) {
     candidates.emplace_back(
@@ -383,6 +420,7 @@ std::vector<std::filesystem::path> resolve_host_shell_candidates() {
   return candidates;
 }
 #else
+// ── Unix (Linux/macOS): resolve shell via $SHELL, getpwuid, fallback ──
 std::vector<std::filesystem::path> resolve_host_shell_candidates() {
   std::vector<std::filesystem::path> candidates;
 
@@ -413,6 +451,7 @@ std::vector<std::filesystem::path> resolve_host_shell_candidates() {
 
   // 3. Fallback candidates by platform priority
 #if defined(__APPLE__)
+  // macOS: zsh-first (default since Catalina), then fish, then bash/sh
   constexpr std::array<std::string_view, 8> list{
       "/bin/zsh",
       "/usr/bin/zsh",
@@ -424,6 +463,7 @@ std::vector<std::filesystem::path> resolve_host_shell_candidates() {
       "/bin/sh",
   };
 #else
+  // Linux: bash-first, then zsh, then fish, then sh
   constexpr std::array<std::string_view, 8> list{
       "/usr/bin/bash", "/bin/bash", "/usr/bin/zsh",        "/bin/zsh",
       "/usr/bin/fish", "/bin/fish", "/usr/local/bin/fish", "/bin/sh",
@@ -456,18 +496,38 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
                             std::size_t initial_columns,
                             std::size_t initial_rows) {
   stop();
+  if (m_implementation && m_implementation->recovery_attempts == 0) {
+    m_implementation->disable_conpty_for_session = false;
+  }
   m_lines.assign(1, std::string{});
+  m_grid.assign(1, std::vector<TerminalCell>{});
+  m_main_screen_lines.clear();
+  m_main_screen_grid.clear();
+  m_current_attributes = TerminalCellAttributes{};
+  m_saved_attributes = TerminalCellAttributes{};
   m_cursor_line = 0;
   m_cursor_column = 0;
   m_saved_cursor_line = 0;
   m_saved_cursor_column = 0;
+  m_main_cursor_line = 0;
+  m_main_cursor_column = 0;
   m_input_start_column = 0;
   m_pending_input.clear();
   m_command_history.clear();
   m_history_index.reset();
   m_saved_pending_input.clear();
+  m_utf8_sequence.clear();
+  m_utf8_expected = 0;
   m_parser_state = ParserState::Text;
   m_control_sequence.clear();
+  m_osc_payload.clear();
+  m_title.clear();
+  m_in_alternate_screen = false;
+  m_cursor_visible = true;
+  m_mouse_tracking = MouseTracking::Off;
+  m_sgr_mouse = false;
+  m_application_cursor_keys = false;
+  m_alternate_scroll = true;
   m_columns = std::clamp<std::size_t>(initial_columns, 40, 65535);
   m_rows = std::clamp<std::size_t>(initial_rows, 10, 65535);
 
@@ -479,10 +539,14 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
   }
 
 #if defined(_WIN32)
+  // ═══ Win32: ConPTY → Pipe fallback ────────────────────────────────
   _wputenv_s(L"COLUMNS", std::to_wstring(m_columns).c_str());
   _wputenv_s(L"LINES", std::to_wstring(m_rows).c_str());
   _wputenv_s(L"TERM", L"xterm-256color");
   _wputenv_s(L"COLORTERM", L"truecolor");
+  _wputenv_s(L"TERM_PROGRAM", L"ZDE");
+  _wputenv_s(L"TERM_PROGRAM_VERSION", L"1.0.0");
+  _wputenv_s(L"WT_SESSION", L"1");
   load_conpty_api();
 
   m_working_directory = working_directory;
@@ -533,6 +597,7 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
     // Step 1: Attempt ConPTY if API is available and not disabled
     const char *no_conpty_env = std::getenv("ZDE_NO_CONPTY");
     const bool conpty_disabled =
+        m_implementation->disable_conpty_for_session ||
         (no_conpty_env != nullptr &&
          (no_conpty_env[0] == '1' || no_conpty_env[0] == 'Y' ||
           no_conpty_env[0] == 'y'));
@@ -794,6 +859,7 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
     return true;
   }
 #else
+  // ═══ Unix (Linux/macOS): forkpty + execl ───────────────────────────
   m_shell_path = shell_candidates.front();
   winsize terminal_size{};
   terminal_size.ws_col = static_cast<unsigned short>(m_columns);
@@ -841,6 +907,7 @@ void TerminalSession::stop() noexcept {
     return;
   }
 #if defined(_WIN32)
+  // ── Win32: close ConPTY, pipes, terminate process ──────────────────
   if (m_implementation->pseudo_console != nullptr) {
     if (s_fn_ClosePseudoConsole != nullptr) {
       s_fn_ClosePseudoConsole(m_implementation->pseudo_console);
@@ -869,6 +936,7 @@ void TerminalSession::stop() noexcept {
     m_implementation->process = nullptr;
   }
 #else
+  // ── Unix: close PTY fd, SIGHUP → SIGTERM → SIGKILL ────────────────
   if (m_implementation->master_fd >= 0) {
     ::close(m_implementation->master_fd);
     m_implementation->master_fd = -1;
@@ -905,6 +973,45 @@ const std::filesystem::path &TerminalSession::get_shell_path() const noexcept {
 
 std::span<const std::string> TerminalSession::get_lines() const noexcept {
   return m_lines;
+}
+
+std::vector<TerminalStyledSpan>
+TerminalSession::get_line_spans(std::size_t line_index) const {
+  if (line_index >= m_lines.size()) {
+    return {};
+  }
+  if (line_index >= m_grid.size() || m_grid[line_index].empty()) {
+    if (!m_lines[line_index].empty()) {
+      return {TerminalStyledSpan{
+          .text = m_lines[line_index],
+          .attributes = TerminalCellAttributes{},
+      }};
+    }
+    return {};
+  }
+
+  const auto &row = m_grid[line_index];
+  std::vector<TerminalStyledSpan> spans;
+  TerminalStyledSpan current_span;
+  bool in_span = false;
+
+  for (const auto &cell : row) {
+    if (!in_span) {
+      current_span.text = cell.codepoint;
+      current_span.attributes = cell.attributes;
+      in_span = true;
+    } else if (current_span.attributes == cell.attributes) {
+      current_span.text.append(cell.codepoint);
+    } else {
+      spans.push_back(std::move(current_span));
+      current_span.text = cell.codepoint;
+      current_span.attributes = cell.attributes;
+    }
+  }
+  if (in_span && !current_span.text.empty()) {
+    spans.push_back(std::move(current_span));
+  }
+  return spans;
 }
 
 void erase_utf8_from(std::string &line, std::size_t target_col) {
@@ -985,6 +1092,7 @@ bool TerminalSession::write_input(std::string_view text) {
   };
 
 #if defined(_WIN32)
+  // ── Win32: Pipe mode (local line editing) or ConPTY pass-through ──
   if (m_implementation->input_write != nullptr) {
     // ─── Pipe mode: local line editing ───────────────────────────────
     // In Pipe mode the shell has no console, so interactive editing
@@ -1095,7 +1203,7 @@ bool TerminalSession::write_input(std::string_view text) {
     // ─── ConPTY mode: pass-through to pseudoconsole ──────────────────
     std::string payload(text);
     if (is_backspace) {
-      payload = "\x7F";
+      payload = "\x08";
     }
 
     DWORD bytes_written = 0;
@@ -1110,6 +1218,7 @@ bool TerminalSession::write_input(std::string_view text) {
   }
   return false;
 #else
+  // ── Unix: direct write() to PTY master fd ──────────────────────────
   std::size_t total_written = 0;
   while (total_written < text.size()) {
     const ssize_t written =
@@ -1139,6 +1248,7 @@ bool TerminalSession::poll() {
   bool changed = false;
   std::array<char, 8192> buffer{};
 #if defined(_WIN32)
+  // ═══ Win32: PeekNamedPipe/ReadFile + self-healing ─────────────────
   for (;;) {
     DWORD available = 0;
     if (m_implementation->output_read == nullptr ||
@@ -1196,9 +1306,7 @@ bool TerminalSession::poll() {
           "[ZDE Terminal] Early startup crash for \"" + m_shell_path.string() +
           "\" (code " + std::to_string(exit_code) + " at " +
           std::to_string(elapsed_ms) + "ms). Switching to Pipe mode...");
-#if defined(_WIN32)
-      _putenv_s("ZDE_NO_CONPTY", "1");
-#endif
+      m_implementation->disable_conpty_for_session = true;
       const auto recovery_working_dir = m_working_directory;
       const auto cols = m_columns;
       const auto rows = m_rows;
@@ -1223,6 +1331,7 @@ bool TerminalSession::poll() {
     changed = true;
   }
 #else
+  // ═══ Unix: read() from PTY master + waitpid ════════════════════════
   for (;;) {
     const ssize_t bytes_read =
         ::read(m_implementation->master_fd, buffer.data(), buffer.size());
@@ -1268,11 +1377,13 @@ void TerminalSession::resize(std::size_t columns, std::size_t rows) noexcept {
   m_rows = rows;
   if (m_in_alternate_screen) {
     m_lines.resize(m_rows);
+    m_grid.resize(m_rows);
     if (m_cursor_line >= m_rows) {
       m_cursor_line = m_rows > 0 ? m_rows - 1 : 0;
     }
   }
 #if !defined(_WIN32)
+  // ── Unix: ioctl(TIOCSWINSZ) to resize PTY ─────────────────────────
   if (m_implementation->master_fd >= 0) {
     winsize size{};
     size.ws_col = static_cast<unsigned short>(columns);
@@ -1280,6 +1391,7 @@ void TerminalSession::resize(std::size_t columns, std::size_t rows) noexcept {
     static_cast<void>(::ioctl(m_implementation->master_fd, TIOCSWINSZ, &size));
   }
 #else
+  // ── Win32: ResizePseudoConsole + update env vars ───────────────────
   if (m_implementation->pseudo_console != nullptr &&
       s_fn_ResizePseudoConsole != nullptr) {
     COORD console_size{
@@ -1311,6 +1423,177 @@ static std::vector<std::string> split_utf8_codepoints(std::string_view s) {
     i += len;
   }
   return cps;
+}
+
+static TerminalColor ansi_indexed_color(std::size_t index) {
+  static const std::array<TerminalColor, 16> standard_16 = {{
+      {0x1e, 0x1e, 0x1e, false}, // 0: Black
+      {0xf4, 0x47, 0x47, false}, // 1: Red
+      {0x23, 0xd1, 0x8b, false}, // 2: Green
+      {0xf5, 0xf5, 0x43, false}, // 3: Yellow
+      {0x3b, 0x8e, 0xed, false}, // 4: Blue
+      {0xd6, 0x70, 0xd6, false}, // 5: Magenta
+      {0x29, 0xb8, 0xdb, false}, // 6: Cyan
+      {0xe5, 0xe5, 0xe5, false}, // 7: White
+      {0x66, 0x66, 0x66, false}, // 8: Bright Black (Gray)
+      {0xf1, 0x4c, 0x4c, false}, // 9: Bright Red
+      {0x23, 0xd1, 0x8b, false}, // 10: Bright Green
+      {0xf5, 0xf5, 0x43, false}, // 11: Bright Yellow
+      {0x3b, 0x8e, 0xed, false}, // 12: Bright Blue
+      {0xd6, 0x70, 0xd6, false}, // 13: Bright Magenta
+      {0x29, 0xb8, 0xdb, false}, // 14: Bright Cyan
+      {0xff, 0xff, 0xff, false}, // 15: Bright White
+  }};
+
+  if (index < 16) {
+    return standard_16[index];
+  }
+  if (index >= 16 && index <= 231) {
+    const std::size_t cube_idx = index - 16;
+    const uint8_t r_val = static_cast<uint8_t>(
+        ((cube_idx / 36) % 6) == 0 ? 0 : 55 + ((cube_idx / 36) % 6) * 40);
+    const uint8_t g_val = static_cast<uint8_t>(
+        ((cube_idx / 6) % 6) == 0 ? 0 : 55 + ((cube_idx / 6) % 6) * 40);
+    const uint8_t b_val =
+        static_cast<uint8_t>((cube_idx % 6) == 0 ? 0 : 55 + (cube_idx % 6) * 40);
+    return TerminalColor{r_val, g_val, b_val, false};
+  }
+  if (index >= 232 && index <= 255) {
+    const uint8_t gray = static_cast<uint8_t>(8 + (index - 232) * 10);
+    return TerminalColor{gray, gray, gray, false};
+  }
+  return TerminalColor{255, 255, 255, true};
+}
+
+void TerminalSession::apply_sgr_parameters(
+    std::span<const std::size_t> params) {
+  if (params.empty()) {
+    m_current_attributes = TerminalCellAttributes{};
+    return;
+  }
+
+  for (std::size_t i = 0; i < params.size(); ++i) {
+    const std::size_t code = params[i];
+    switch (code) {
+    case 0:
+      m_current_attributes = TerminalCellAttributes{};
+      break;
+    case 1:
+      m_current_attributes.bold = true;
+      break;
+    case 2:
+      m_current_attributes.dim = true;
+      break;
+    case 3:
+      m_current_attributes.italic = true;
+      break;
+    case 4:
+      m_current_attributes.underline = true;
+      break;
+    case 7:
+      m_current_attributes.inverse = true;
+      break;
+    case 8:
+      m_current_attributes.hidden = true;
+      break;
+    case 22:
+      m_current_attributes.bold = false;
+      m_current_attributes.dim = false;
+      break;
+    case 23:
+      m_current_attributes.italic = false;
+      break;
+    case 24:
+      m_current_attributes.underline = false;
+      break;
+    case 27:
+      m_current_attributes.inverse = false;
+      break;
+    case 28:
+      m_current_attributes.hidden = false;
+      break;
+    case 30:
+    case 31:
+    case 32:
+    case 33:
+    case 34:
+    case 35:
+    case 36:
+    case 37:
+      m_current_attributes.foreground = ansi_indexed_color(code - 30);
+      break;
+    case 39:
+      m_current_attributes.foreground = TerminalColor{};
+      break;
+    case 40:
+    case 41:
+    case 42:
+    case 43:
+    case 44:
+    case 45:
+    case 46:
+    case 47:
+      m_current_attributes.background = ansi_indexed_color(code - 40);
+      break;
+    case 49:
+      m_current_attributes.background = TerminalColor{};
+      break;
+    case 90:
+    case 91:
+    case 92:
+    case 93:
+    case 94:
+    case 95:
+    case 96:
+    case 97:
+      m_current_attributes.foreground = ansi_indexed_color(8 + code - 90);
+      break;
+    case 100:
+    case 101:
+    case 102:
+    case 103:
+    case 104:
+    case 105:
+    case 106:
+    case 107:
+      m_current_attributes.background = ansi_indexed_color(8 + code - 100);
+      break;
+    case 38: {
+      if (i + 1 < params.size()) {
+        if (params[i + 1] == 5 && i + 2 < params.size()) {
+          m_current_attributes.foreground = ansi_indexed_color(params[i + 2]);
+          i += 2;
+        } else if (params[i + 1] == 2 && i + 4 < params.size()) {
+          m_current_attributes.foreground = TerminalColor{
+              static_cast<uint8_t>(std::min<std::size_t>(params[i + 2], 255)),
+              static_cast<uint8_t>(std::min<std::size_t>(params[i + 3], 255)),
+              static_cast<uint8_t>(std::min<std::size_t>(params[i + 4], 255)),
+              false};
+          i += 4;
+        }
+      }
+      break;
+    }
+    case 48: {
+      if (i + 1 < params.size()) {
+        if (params[i + 1] == 5 && i + 2 < params.size()) {
+          m_current_attributes.background = ansi_indexed_color(params[i + 2]);
+          i += 2;
+        } else if (params[i + 1] == 2 && i + 4 < params.size()) {
+          m_current_attributes.background = TerminalColor{
+              static_cast<uint8_t>(std::min<std::size_t>(params[i + 2], 255)),
+              static_cast<uint8_t>(std::min<std::size_t>(params[i + 3], 255)),
+              static_cast<uint8_t>(std::min<std::size_t>(params[i + 4], 255)),
+              false};
+          i += 4;
+        }
+      }
+      break;
+    }
+    default:
+      break;
+    }
+  }
 }
 
 static void set_utf8_cell(std::string &line, std::size_t target_col,
@@ -1413,11 +1696,16 @@ void TerminalSession::consume_output(std::string_view output) {
             ++m_cursor_line;
             while (m_cursor_line >= m_lines.size()) {
               m_lines.emplace_back();
+              m_grid.emplace_back();
             }
           } else {
             if (!m_lines.empty()) {
               m_lines.erase(m_lines.begin());
               m_lines.emplace_back();
+            }
+            if (!m_grid.empty()) {
+              m_grid.erase(m_grid.begin());
+              m_grid.emplace_back();
             }
             m_cursor_line = m_rows > 0 ? m_rows - 1 : 0;
           }
@@ -1426,6 +1714,7 @@ void TerminalSession::consume_output(std::string_view output) {
             ++m_cursor_line;
           } else {
             m_lines.emplace_back();
+            m_grid.emplace_back();
             m_cursor_line = m_lines.size() - 1;
           }
           trim_scrollback();
@@ -1452,6 +1741,7 @@ void TerminalSession::consume_output(std::string_view output) {
         m_control_sequence.clear();
         m_parser_state = ParserState::ControlSequence;
       } else if (character == ']') {
+        m_osc_payload.clear();
         m_parser_state = ParserState::OperatingSystemCommand;
       } else if (character == 'P' || character == '_' || character == '^') {
         m_parser_state = ParserState::DeviceControlString;
@@ -1461,11 +1751,13 @@ void TerminalSession::consume_output(std::string_view output) {
       } else if (character == '7') {
         m_saved_cursor_line = m_cursor_line;
         m_saved_cursor_column = m_cursor_column;
+        m_saved_attributes = m_current_attributes;
         m_parser_state = ParserState::Text;
       } else if (character == '8') {
         m_cursor_line = std::min(m_saved_cursor_line,
                                  m_lines.empty() ? 0 : m_lines.size() - 1);
         m_cursor_column = m_saved_cursor_column;
+        m_current_attributes = m_saved_attributes;
         m_parser_state = ParserState::Text;
       } else if (character == 'M') {
         // Reverse Index
@@ -1473,8 +1765,12 @@ void TerminalSession::consume_output(std::string_view output) {
           --m_cursor_line;
         } else {
           m_lines.insert(m_lines.begin(), std::string{});
+          m_grid.insert(m_grid.begin(), std::vector<TerminalCell>{});
           if (m_in_alternate_screen && m_lines.size() > m_rows) {
             m_lines.pop_back();
+            if (m_grid.size() > m_rows) {
+              m_grid.pop_back();
+            }
           }
         }
         m_parser_state = ParserState::Text;
@@ -1486,11 +1782,16 @@ void TerminalSession::consume_output(std::string_view output) {
             ++m_cursor_line;
             while (m_cursor_line >= m_lines.size()) {
               m_lines.emplace_back();
+              m_grid.emplace_back();
             }
           } else {
             if (!m_lines.empty()) {
               m_lines.erase(m_lines.begin());
               m_lines.emplace_back();
+            }
+            if (!m_grid.empty()) {
+              m_grid.erase(m_grid.begin());
+              m_grid.emplace_back();
             }
             m_cursor_line = m_rows > 0 ? m_rows - 1 : 0;
           }
@@ -1499,6 +1800,7 @@ void TerminalSession::consume_output(std::string_view output) {
             ++m_cursor_line;
           } else {
             m_lines.emplace_back();
+            m_grid.emplace_back();
             m_cursor_line = m_lines.size() - 1;
           }
           trim_scrollback();
@@ -1511,11 +1813,16 @@ void TerminalSession::consume_output(std::string_view output) {
             ++m_cursor_line;
             while (m_cursor_line >= m_lines.size()) {
               m_lines.emplace_back();
+              m_grid.emplace_back();
             }
           } else {
             if (!m_lines.empty()) {
               m_lines.erase(m_lines.begin());
               m_lines.emplace_back();
+            }
+            if (!m_grid.empty()) {
+              m_grid.erase(m_grid.begin());
+              m_grid.emplace_back();
             }
             m_cursor_line = m_rows > 0 ? m_rows - 1 : 0;
           }
@@ -1524,6 +1831,7 @@ void TerminalSession::consume_output(std::string_view output) {
             ++m_cursor_line;
           } else {
             m_lines.emplace_back();
+            m_grid.emplace_back();
             m_cursor_line = m_lines.size() - 1;
           }
           trim_scrollback();
@@ -1531,6 +1839,7 @@ void TerminalSession::consume_output(std::string_view output) {
         m_parser_state = ParserState::Text;
       } else if (character == 'c') {
         clear_screen();
+        m_current_attributes = TerminalCellAttributes{};
         m_parser_state = ParserState::Text;
       } else if (character == '#') {
         m_parser_state = ParserState::DesignateCharacterSet;
@@ -1554,15 +1863,30 @@ void TerminalSession::consume_output(std::string_view output) {
 
     case ParserState::OperatingSystemCommand:
       if (character == '\a') {
+        if (m_osc_payload.starts_with("0;") ||
+            m_osc_payload.starts_with("2;")) {
+          m_title = m_osc_payload.substr(2);
+        }
+        m_osc_payload.clear();
         m_parser_state = ParserState::Text;
       } else if (character == '\x1B') {
         m_parser_state = ParserState::OperatingSystemCommandEscape;
+      } else if (m_osc_payload.size() < 1024) {
+        m_osc_payload.push_back(character);
       }
       break;
 
     case ParserState::OperatingSystemCommandEscape:
-      m_parser_state = character == '\\' ? ParserState::Text
-                                         : ParserState::OperatingSystemCommand;
+      if (character == '\\') {
+        if (m_osc_payload.starts_with("0;") ||
+            m_osc_payload.starts_with("2;")) {
+          m_title = m_osc_payload.substr(2);
+        }
+        m_osc_payload.clear();
+        m_parser_state = ParserState::Text;
+      } else {
+        m_parser_state = ParserState::OperatingSystemCommand;
+      }
       break;
 
     case ParserState::DeviceControlString:
@@ -1580,6 +1904,25 @@ void TerminalSession::consume_output(std::string_view output) {
     }
   }
   trim_scrollback();
+}
+
+void TerminalSession::send_pty_response(std::string_view resp) {
+  if (!m_running || resp.empty() || !m_implementation)
+    return;
+#if defined(_WIN32)
+  // Win32: write response to ConPTY input pipe
+  if (m_implementation->input_write != nullptr) {
+    DWORD written = 0;
+    WriteFile(m_implementation->input_write, resp.data(),
+              static_cast<DWORD>(resp.size()), &written, nullptr);
+  }
+#else
+  // Unix: write response to PTY master fd
+  if (m_implementation->master_fd >= 0) {
+    static_cast<void>(
+        ::write(m_implementation->master_fd, resp.data(), resp.size()));
+  }
+#endif
 }
 
 void TerminalSession::apply_control_sequence(char command) {
@@ -1624,13 +1967,21 @@ void TerminalSession::apply_control_sequence(char command) {
 
   if (m_lines.empty()) {
     m_lines.emplace_back();
+    m_grid.emplace_back();
     m_cursor_line = 0;
   }
   if (m_cursor_line >= m_lines.size()) {
     m_cursor_line = m_lines.size() - 1;
   }
+  if (m_grid.size() < m_lines.size()) {
+    m_grid.resize(m_lines.size());
+  }
 
   switch (command) {
+  case 'm': {
+    apply_sgr_parameters(params);
+    break;
+  }
   case 'A': {
     const std::size_t count = param1 > 0 ? param1 : 1;
     m_cursor_line = (count <= m_cursor_line) ? (m_cursor_line - count) : 0;
@@ -1644,6 +1995,7 @@ void TerminalSession::apply_control_sequence(char command) {
     }
     while (m_cursor_line >= m_lines.size()) {
       m_lines.emplace_back();
+      m_grid.emplace_back();
     }
     break;
   }
@@ -1670,6 +2022,7 @@ void TerminalSession::apply_control_sequence(char command) {
     }
     while (m_cursor_line >= m_lines.size()) {
       m_lines.emplace_back();
+      m_grid.emplace_back();
     }
     break;
   }
@@ -1697,6 +2050,7 @@ void TerminalSession::apply_control_sequence(char command) {
                                     : row;
       while (target_line >= m_lines.size()) {
         m_lines.emplace_back();
+        m_grid.emplace_back();
       }
       m_cursor_line = target_line;
     }
@@ -1710,6 +2064,7 @@ void TerminalSession::apply_control_sequence(char command) {
     }
     while (m_cursor_line >= m_lines.size()) {
       m_lines.emplace_back();
+      m_grid.emplace_back();
     }
     break;
   }
@@ -1734,6 +2089,7 @@ void TerminalSession::apply_control_sequence(char command) {
                                     : row;
       while (target_line >= m_lines.size()) {
         m_lines.emplace_back();
+        m_grid.emplace_back();
       }
       m_cursor_line = target_line;
       m_cursor_column = (m_columns > 0) ? std::min(col, m_columns - 1) : col;
@@ -1764,14 +2120,18 @@ void TerminalSession::apply_control_sequence(char command) {
   case 'h': {
     if (is_private) {
       for (const auto val : params) {
-        if (val == 1049 || val == 47 || val == 1047) {
+        if (val == 25) {
+          m_cursor_visible = true;
+        } else if (val == 1049 || val == 47 || val == 1047) {
           if (!m_in_alternate_screen) {
             m_in_alternate_screen = true;
             m_main_screen_lines = m_lines;
+            m_main_screen_grid = m_grid;
             m_main_cursor_line = m_cursor_line;
             m_main_cursor_column = m_cursor_column;
             const std::size_t count = std::max<std::size_t>(m_rows, 1);
             m_lines.assign(count, std::string{});
+            m_grid.assign(count, std::vector<TerminalCell>{});
             m_cursor_line = 0;
             m_cursor_column = 0;
           }
@@ -1795,10 +2155,13 @@ void TerminalSession::apply_control_sequence(char command) {
   case 'l': {
     if (is_private) {
       for (const auto val : params) {
-        if (val == 1049 || val == 47 || val == 1047) {
+        if (val == 25) {
+          m_cursor_visible = false;
+        } else if (val == 1049 || val == 47 || val == 1047) {
           if (m_in_alternate_screen) {
             m_in_alternate_screen = false;
             m_lines = std::move(m_main_screen_lines);
+            m_grid = std::move(m_main_screen_grid);
             m_cursor_line = std::min(m_main_cursor_line,
                                      m_lines.empty() ? 0 : m_lines.size() - 1);
             m_cursor_column = m_main_cursor_column;
@@ -1819,18 +2182,22 @@ void TerminalSession::apply_control_sequence(char command) {
   case 's': {
     m_saved_cursor_line = m_cursor_line;
     m_saved_cursor_column = m_cursor_column;
+    m_saved_attributes = m_current_attributes;
     break;
   }
   case 'u': {
     m_cursor_line =
         std::min(m_saved_cursor_line, m_lines.empty() ? 0 : m_lines.size() - 1);
     m_cursor_column = m_saved_cursor_column;
+    m_current_attributes = m_saved_attributes;
     break;
   }
   case 'K': {
     std::string &line = m_lines[m_cursor_line];
+    auto &row_cells = m_grid[m_cursor_line];
     if (param1 == 2 || m_control_sequence == "2") {
       line.clear();
+      row_cells.clear();
     } else if (param1 == 1 || m_control_sequence == "1") {
       std::vector<std::string> cps = split_utf8_codepoints(line);
       const std::size_t end = std::min(m_cursor_column + 1, cps.size());
@@ -1840,14 +2207,22 @@ void TerminalSession::apply_control_sequence(char command) {
       line.clear();
       for (const auto &cp : cps)
         line.append(cp);
+      const std::size_t grid_end = std::min(m_cursor_column + 1, row_cells.size());
+      for (std::size_t idx = 0; idx < grid_end; ++idx) {
+        row_cells[idx] = TerminalCell{" ", m_current_attributes};
+      }
     } else {
       erase_utf8_from(line, m_cursor_column);
+      if (m_cursor_column < row_cells.size()) {
+        row_cells.resize(m_cursor_column);
+      }
     }
     break;
   }
   case 'X': {
     const std::size_t count = param1 > 0 ? param1 : 1;
     std::string &line = m_lines[m_cursor_line];
+    auto &row_cells = m_grid[m_cursor_line];
     std::vector<std::string> cps = split_utf8_codepoints(line);
     if (m_cursor_column < cps.size()) {
       const std::size_t erase_len =
@@ -1860,11 +2235,20 @@ void TerminalSession::apply_control_sequence(char command) {
       for (const auto &cp : cps)
         line.append(cp);
     }
+    if (m_cursor_column < row_cells.size()) {
+      const std::size_t erase_len =
+          std::min(count, row_cells.size() - m_cursor_column);
+      for (std::size_t idx = m_cursor_column; idx < m_cursor_column + erase_len;
+           ++idx) {
+        row_cells[idx] = TerminalCell{" ", m_current_attributes};
+      }
+    }
     break;
   }
   case 'P': {
     const std::size_t count = param1 > 0 ? param1 : 1;
     std::string &line = m_lines[m_cursor_line];
+    auto &row_cells = m_grid[m_cursor_line];
     std::vector<std::string> cps = split_utf8_codepoints(line);
     if (m_cursor_column < cps.size()) {
       const std::size_t del_len = std::min(count, cps.size() - m_cursor_column);
@@ -1875,11 +2259,20 @@ void TerminalSession::apply_control_sequence(char command) {
       for (const auto &cp : cps)
         line.append(cp);
     }
+    if (m_cursor_column < row_cells.size()) {
+      const std::size_t del_len =
+          std::min(count, row_cells.size() - m_cursor_column);
+      row_cells.erase(
+          row_cells.begin() + static_cast<std::ptrdiff_t>(m_cursor_column),
+          row_cells.begin() +
+              static_cast<std::ptrdiff_t>(m_cursor_column + del_len));
+    }
     break;
   }
   case '@': {
     const std::size_t count = param1 > 0 ? param1 : 1;
     std::string &line = m_lines[m_cursor_line];
+    auto &row_cells = m_grid[m_cursor_line];
     std::vector<std::string> cps = split_utf8_codepoints(line);
     if (m_cursor_column <= cps.size()) {
       cps.insert(cps.begin() + static_cast<std::ptrdiff_t>(m_cursor_column),
@@ -1887,6 +2280,11 @@ void TerminalSession::apply_control_sequence(char command) {
       line.clear();
       for (const auto &cp : cps)
         line.append(cp);
+    }
+    if (m_cursor_column <= row_cells.size()) {
+      row_cells.insert(
+          row_cells.begin() + static_cast<std::ptrdiff_t>(m_cursor_column),
+          count, TerminalCell{" ", m_current_attributes});
     }
     break;
   }
@@ -1899,8 +2297,17 @@ void TerminalSession::apply_control_sequence(char command) {
                         static_cast<std::ptrdiff_t>(m_cursor_line),
                     m_lines.begin() +
                         static_cast<std::ptrdiff_t>(m_cursor_line + del_count));
+      if (m_cursor_line < m_grid.size()) {
+        const std::size_t del_grid =
+            std::min(count, m_grid.size() - m_cursor_line);
+        m_grid.erase(
+            m_grid.begin() + static_cast<std::ptrdiff_t>(m_cursor_line),
+            m_grid.begin() +
+                static_cast<std::ptrdiff_t>(m_cursor_line + del_grid));
+      }
       if (m_in_alternate_screen) {
         m_lines.resize(std::max<std::size_t>(m_rows, 1));
+        m_grid.resize(std::max<std::size_t>(m_rows, 1));
       }
     }
     break;
@@ -1911,8 +2318,14 @@ void TerminalSession::apply_control_sequence(char command) {
       m_lines.insert(m_lines.begin() +
                          static_cast<std::ptrdiff_t>(m_cursor_line),
                      count, std::string{});
+      if (m_cursor_line <= m_grid.size()) {
+        m_grid.insert(m_grid.begin() +
+                          static_cast<std::ptrdiff_t>(m_cursor_line),
+                      count, std::vector<TerminalCell>{});
+      }
       if (m_in_alternate_screen && m_lines.size() > m_rows) {
         m_lines.resize(m_rows);
+        m_grid.resize(m_rows);
       }
     }
     break;
@@ -1922,6 +2335,7 @@ void TerminalSession::apply_control_sequence(char command) {
       if (m_in_alternate_screen) {
         const std::size_t count = std::max<std::size_t>(m_rows, 1);
         m_lines.assign(count, std::string{});
+        m_grid.assign(count, std::vector<TerminalCell>{});
       } else {
         clear_screen();
       }
@@ -1931,6 +2345,8 @@ void TerminalSession::apply_control_sequence(char command) {
       if (m_cursor_line < m_lines.size()) {
         for (std::size_t r = 0; r < m_cursor_line; ++r) {
           m_lines[r].clear();
+          if (r < m_grid.size())
+            m_grid[r].clear();
         }
         std::vector<std::string> cps =
             split_utf8_codepoints(m_lines[m_cursor_line]);
@@ -1941,18 +2357,38 @@ void TerminalSession::apply_control_sequence(char command) {
         m_lines[m_cursor_line].clear();
         for (const auto &cp : cps)
           m_lines[m_cursor_line].append(cp);
+
+        if (m_cursor_line < m_grid.size()) {
+          auto &row_cells = m_grid[m_cursor_line];
+          const std::size_t grid_end =
+              std::min(m_cursor_column + 1, row_cells.size());
+          for (std::size_t idx = 0; idx < grid_end; ++idx) {
+            row_cells[idx] = TerminalCell{" ", m_current_attributes};
+          }
+        }
       }
     } else {
       if (m_cursor_line < m_lines.size()) {
         erase_utf8_from(m_lines[m_cursor_line], m_cursor_column);
+        if (m_cursor_line < m_grid.size() &&
+            m_cursor_column < m_grid[m_cursor_line].size()) {
+          m_grid[m_cursor_line].resize(m_cursor_column);
+        }
         if (m_in_alternate_screen) {
           for (std::size_t r = m_cursor_line + 1; r < m_lines.size(); ++r) {
             m_lines[r].clear();
+            if (r < m_grid.size())
+              m_grid[r].clear();
           }
         } else if (m_cursor_line + 1 < m_lines.size()) {
           m_lines.erase(m_lines.begin() +
                             static_cast<std::ptrdiff_t>(m_cursor_line + 1),
                         m_lines.end());
+          if (m_cursor_line + 1 < m_grid.size()) {
+            m_grid.erase(m_grid.begin() +
+                             static_cast<std::ptrdiff_t>(m_cursor_line + 1),
+                         m_grid.end());
+          }
         }
       }
     }
@@ -1962,11 +2398,18 @@ void TerminalSession::apply_control_sequence(char command) {
     const std::size_t count = param1 > 0 ? param1 : 1;
     if (count >= m_lines.size()) {
       m_lines.assign(m_in_alternate_screen ? m_rows : 1, std::string{});
+      m_grid.assign(m_in_alternate_screen ? m_rows : 1,
+                    std::vector<TerminalCell>{});
     } else {
       m_lines.erase(m_lines.begin(),
                     m_lines.begin() + static_cast<std::ptrdiff_t>(count));
+      if (m_grid.size() >= count) {
+        m_grid.erase(m_grid.begin(),
+                     m_grid.begin() + static_cast<std::ptrdiff_t>(count));
+      }
       if (m_in_alternate_screen) {
         m_lines.resize(m_rows);
+        m_grid.resize(m_rows);
       }
     }
     break;
@@ -1975,8 +2418,10 @@ void TerminalSession::apply_control_sequence(char command) {
   case '^': {
     const std::size_t count = param1 > 0 ? param1 : 1;
     m_lines.insert(m_lines.begin(), count, std::string{});
+    m_grid.insert(m_grid.begin(), count, std::vector<TerminalCell>{});
     if (m_in_alternate_screen && m_lines.size() > m_rows) {
       m_lines.resize(m_rows);
+      m_grid.resize(m_rows);
     }
     break;
   }
@@ -1995,23 +2440,6 @@ void TerminalSession::apply_control_sequence(char command) {
     break;
   }
   case 'n': {
-    auto send_pty_response = [this](std::string_view resp) {
-      if (!m_running || resp.empty() || !m_implementation)
-        return;
-#if defined(_WIN32)
-      if (m_implementation->input_write != nullptr) {
-        DWORD written = 0;
-        WriteFile(m_implementation->input_write, resp.data(),
-                  static_cast<DWORD>(resp.size()), &written, nullptr);
-      }
-#else
-      if (m_implementation->master_fd >= 0) {
-        static_cast<void>(
-            ::write(m_implementation->master_fd, resp.data(), resp.size()));
-      }
-#endif
-    };
-
     if (param1 == 6 || m_control_sequence == "6" ||
         m_control_sequence == "?6") {
       const std::size_t report_row =
@@ -2029,23 +2457,6 @@ void TerminalSession::apply_control_sequence(char command) {
     break;
   }
   case 'c': {
-    auto send_pty_response = [this](std::string_view resp) {
-      if (!m_running || resp.empty() || !m_implementation)
-        return;
-#if defined(_WIN32)
-      if (m_implementation->input_write != nullptr) {
-        DWORD written = 0;
-        WriteFile(m_implementation->input_write, resp.data(),
-                  static_cast<DWORD>(resp.size()), &written, nullptr);
-      }
-#else
-      if (m_implementation->master_fd >= 0) {
-        static_cast<void>(
-            ::write(m_implementation->master_fd, resp.data(), resp.size()));
-      }
-#endif
-    };
-
     if (!m_control_sequence.empty() && m_control_sequence.front() == '>') {
       send_pty_response("\x1b[>0;10;0c");
     } else {
@@ -2054,23 +2465,6 @@ void TerminalSession::apply_control_sequence(char command) {
     break;
   }
   case 't': {
-    auto send_pty_response = [this](std::string_view resp) {
-      if (!m_running || resp.empty() || !m_implementation)
-        return;
-#if defined(_WIN32)
-      if (m_implementation->input_write != nullptr) {
-        DWORD written = 0;
-        WriteFile(m_implementation->input_write, resp.data(),
-                  static_cast<DWORD>(resp.size()), &written, nullptr);
-      }
-#else
-      if (m_implementation->master_fd >= 0) {
-        static_cast<void>(
-            ::write(m_implementation->master_fd, resp.data(), resp.size()));
-      }
-#endif
-    };
-
     if (param1 == 18 || m_control_sequence == "18") {
       send_pty_response("\x1b[8;" + std::to_string(m_rows) + ";" +
                         std::to_string(m_columns) + "t");
@@ -2085,17 +2479,24 @@ void TerminalSession::apply_control_sequence(char command) {
 void TerminalSession::append_codepoint(std::string_view utf8_char) {
   if (m_lines.empty()) {
     m_lines.emplace_back();
+    m_grid.emplace_back();
     m_cursor_line = 0;
   }
   while (m_cursor_line >= m_lines.size()) {
     m_lines.emplace_back();
+    m_grid.emplace_back();
   }
+  if (m_grid.size() < m_lines.size()) {
+    m_grid.resize(m_lines.size());
+  }
+
   if (m_cursor_column >= m_columns) {
     if (m_in_alternate_screen) {
       if (m_cursor_line + 1 < m_rows) {
         ++m_cursor_line;
         while (m_cursor_line >= m_lines.size()) {
           m_lines.emplace_back();
+          m_grid.emplace_back();
         }
         m_cursor_column = 0;
       } else {
@@ -2106,13 +2507,27 @@ void TerminalSession::append_codepoint(std::string_view utf8_char) {
         ++m_cursor_line;
       } else {
         m_lines.emplace_back();
+        m_grid.emplace_back();
         m_cursor_line = m_lines.size() - 1;
       }
       m_cursor_column = 0;
       trim_scrollback();
     }
   }
+
   set_utf8_cell(m_lines[m_cursor_line], m_cursor_column, utf8_char);
+
+  auto &row_cells = m_grid[m_cursor_line];
+  if (m_cursor_column >= row_cells.size()) {
+    row_cells.resize(m_cursor_column,
+                     TerminalCell{" ", TerminalCellAttributes{}});
+    row_cells.push_back(
+        TerminalCell{std::string(utf8_char), m_current_attributes});
+  } else {
+    row_cells[m_cursor_column] =
+        TerminalCell{std::string(utf8_char), m_current_attributes};
+  }
+
   ++m_cursor_column;
 }
 
@@ -2126,11 +2541,13 @@ void TerminalSession::append_line() {
       ++m_cursor_line;
       while (m_cursor_line >= m_lines.size()) {
         m_lines.emplace_back();
+        m_grid.emplace_back();
       }
     }
     m_cursor_column = 0;
   } else {
     m_lines.emplace_back();
+    m_grid.emplace_back();
     m_cursor_line = m_lines.size() - 1;
     m_cursor_column = 0;
     m_input_start_column = 0;
@@ -2142,8 +2559,12 @@ void TerminalSession::append_line() {
 void TerminalSession::append_status(std::string message) {
   if (!m_lines.empty() && m_lines.back().empty()) {
     m_lines.back() = std::move(message);
+    if (!m_grid.empty()) {
+      m_grid.back().clear();
+    }
   } else {
     m_lines.push_back(std::move(message));
+    m_grid.emplace_back();
   }
   append_line();
 }
@@ -2152,17 +2573,21 @@ void TerminalSession::clear_screen() noexcept {
   if (m_in_alternate_screen) {
     const std::size_t count = std::max<std::size_t>(m_rows, 1);
     m_lines.assign(count, std::string{});
+    m_grid.assign(count, std::vector<TerminalCell>{});
   } else {
     m_lines.assign(1, std::string{});
+    m_grid.assign(1, std::vector<TerminalCell>{});
   }
   m_cursor_line = 0;
   m_cursor_column = 0;
   m_saved_cursor_line = 0;
   m_saved_cursor_column = 0;
+  m_saved_attributes = TerminalCellAttributes{};
   m_input_start_column = 0;
   m_pending_input.clear();
   m_parser_state = ParserState::Text;
   m_control_sequence.clear();
+  m_osc_payload.clear();
 }
 
 void TerminalSession::trim_scrollback() {
@@ -2175,6 +2600,10 @@ void TerminalSession::trim_scrollback() {
   const std::size_t remove_count = m_lines.size() - maximum_scrollback_lines;
   m_lines.erase(m_lines.begin(),
                 m_lines.begin() + static_cast<std::ptrdiff_t>(remove_count));
+  if (m_grid.size() >= remove_count) {
+    m_grid.erase(m_grid.begin(),
+                 m_grid.begin() + static_cast<std::ptrdiff_t>(remove_count));
+  }
   if (m_cursor_line >= remove_count) {
     m_cursor_line -= remove_count;
   } else {
@@ -2189,10 +2618,12 @@ void TerminalSession::trim_scrollback() {
 
 bool TerminalSession::navigate_history(bool up) {
 #if defined(_WIN32)
+  // Win32: history nav only works in Pipe mode (not ConPTY)
   if (m_implementation && m_implementation->is_conpty) {
     return false;
   }
 #else
+  // Unix: history nav not yet implemented
   return false;
 #endif
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -11,6 +12,42 @@
 
 namespace Zenvra::Terminal
 {
+
+struct TerminalColor
+{
+    uint8_t r = 255;
+    uint8_t g = 255;
+    uint8_t b = 255;
+    bool is_default = true;
+
+    bool operator==(const TerminalColor& other) const noexcept = default;
+};
+
+struct TerminalCellAttributes
+{
+    TerminalColor foreground{};
+    TerminalColor background{};
+    bool bold = false;
+    bool dim = false;
+    bool italic = false;
+    bool underline = false;
+    bool inverse = false;
+    bool hidden = false;
+
+    bool operator==(const TerminalCellAttributes& other) const noexcept = default;
+};
+
+struct TerminalStyledSpan
+{
+    std::string text;
+    TerminalCellAttributes attributes;
+};
+
+struct TerminalCell
+{
+    std::string codepoint = " ";
+    TerminalCellAttributes attributes{};
+};
 
 class TerminalSession
 {
@@ -55,9 +92,12 @@ public:
     [[nodiscard]] bool is_running() const noexcept;
     [[nodiscard]] const std::filesystem::path& get_shell_path() const noexcept;
     [[nodiscard]] std::span<const std::string> get_lines() const noexcept;
+    [[nodiscard]] std::vector<TerminalStyledSpan> get_line_spans(std::size_t line_index) const;
     [[nodiscard]] std::size_t get_cursor_line() const noexcept { return m_cursor_line; }
     [[nodiscard]] std::size_t get_cursor_column() const noexcept { return m_cursor_column; }
     [[nodiscard]] bool is_in_alternate_screen() const noexcept { return m_in_alternate_screen; }
+    [[nodiscard]] bool is_cursor_visible() const noexcept { return m_cursor_visible; }
+    [[nodiscard]] const std::string& get_title() const noexcept { return m_title; }
     [[nodiscard]] bool is_mouse_tracking_active() const noexcept { return m_mouse_tracking != MouseTracking::Off; }
     [[nodiscard]] MouseTracking get_mouse_tracking() const noexcept { return m_mouse_tracking; }
     [[nodiscard]] bool send_mouse_scroll(std::ptrdiff_t line_delta, std::size_t column = 1, std::size_t row = 1);
@@ -87,6 +127,8 @@ private:
     };
 
     void apply_control_sequence(char command);
+    void apply_sgr_parameters(std::span<const std::size_t> params);
+    void send_pty_response(std::string_view resp);
     void append_codepoint(std::string_view utf8_char);
     void append_character(char character);
     void append_line();
@@ -99,6 +141,10 @@ private:
     std::filesystem::path m_working_directory;
     std::vector<std::string> m_lines{std::string{}};
     std::vector<std::string> m_main_screen_lines;
+    std::vector<std::vector<TerminalCell>> m_grid{std::vector<TerminalCell>{}};
+    std::vector<std::vector<TerminalCell>> m_main_screen_grid;
+    TerminalCellAttributes m_current_attributes{};
+    TerminalCellAttributes m_saved_attributes{};
     std::size_t m_cursor_line = 0;
     std::size_t m_cursor_column = 0;
     std::size_t m_saved_cursor_line = 0;
@@ -115,6 +161,8 @@ private:
     std::size_t m_utf8_expected = 0;
     ParserState m_parser_state = ParserState::Text;
     std::string m_control_sequence;
+    std::string m_osc_payload;
+    std::string m_title;
     std::size_t m_columns = 240;
     std::size_t m_rows = 24;
     MouseTracking m_mouse_tracking = MouseTracking::Off;
@@ -122,6 +170,7 @@ private:
     bool m_application_cursor_keys = false;
     bool m_alternate_scroll = true;
     bool m_in_alternate_screen = false;
+    bool m_cursor_visible = true;
     bool m_running = false;
 };
 

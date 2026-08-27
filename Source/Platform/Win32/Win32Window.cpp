@@ -2119,6 +2119,12 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       case VK_END:
         terminal_key = Terminal::TerminalInputKey::End;
         break;
+      case VK_PRIOR:
+        terminal_key = Terminal::TerminalInputKey::PageUp;
+        break;
+      case VK_NEXT:
+        terminal_key = Terminal::TerminalInputKey::PageDown;
+        break;
       case VK_DELETE:
         terminal_key = Terminal::TerminalInputKey::DeleteForward;
         break;

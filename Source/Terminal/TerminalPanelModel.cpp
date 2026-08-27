@@ -211,10 +211,14 @@ bool TerminalPanelModel::poll()
     for (TerminalSessionEntry& entry : m_sessions)
     {
         changed = entry.session->poll() || changed;
-        const std::string shell_name = entry.session->get_shell_path().stem().string();
-        if (!shell_name.empty() && shell_name != "Terminal" && entry.title != shell_name)
+        std::string tab_title = entry.session->get_title();
+        if (tab_title.empty())
         {
-            entry.title = shell_name;
+            tab_title = entry.session->get_shell_path().stem().string();
+        }
+        if (!tab_title.empty() && tab_title != "Terminal" && entry.title != tab_title)
+        {
+            entry.title = tab_title;
             changed = true;
         }
     }

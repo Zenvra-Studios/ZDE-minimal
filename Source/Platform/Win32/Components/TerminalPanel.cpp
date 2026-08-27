@@ -710,6 +710,81 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
     const std::string &line = lines[index];
     const std::size_t col_len = utf8_column_count(line);
 
+    // 1. Draw styled spans with ANSI truecolor / background
+    const auto spans = session->get_line_spans(index);
+    float cur_x = layout.terminal_content_bounds.x + padding_x;
+
+    if (spans.empty()) {
+      surface.draw_text(device_context, *surface.m_editor_font, line,
+                        cur_x, center_y,
+                        surface.m_palette.text_primary);
+    } else {
+      for (const auto &span : spans) {
+        if (span.text.empty()) {
+          continue;
+        }
+        const int span_w = surface.get_text_width(
+            device_context, *surface.m_editor_font, span.text);
+
+        // Draw background if specified
+        if (!span.attributes.background.is_default) {
+          UI::Theme::Color bg_color{span.attributes.background.r,
+                                    span.attributes.background.g,
+                                    span.attributes.background.b, 255};
+          surface.fill_rectangle(
+              device_context,
+              UI::Rect{cur_x, center_y - line_height * 0.5F,
+                       static_cast<float>(span_w), line_height},
+              bg_color);
+        }
+
+        // Foreground color
+        UI::Theme::Color fg_color =
+            span.attributes.foreground.is_default
+                ? surface.m_palette.text_primary
+                : UI::Theme::Color{span.attributes.foreground.r,
+                                   span.attributes.foreground.g,
+                                   span.attributes.foreground.b, 255};
+
+        if (span.attributes.inverse) {
+          UI::Theme::Color actual_bg =
+              span.attributes.background.is_default
+                  ? surface.m_palette.editor_background
+                  : UI::Theme::Color{span.attributes.background.r,
+                                     span.attributes.background.g,
+                                     span.attributes.background.b, 255};
+          surface.fill_rectangle(
+              device_context,
+              UI::Rect{cur_x, center_y - line_height * 0.5F,
+                       static_cast<float>(span_w), line_height},
+              fg_color);
+          fg_color = actual_bg;
+        }
+
+        if (span.attributes.dim) {
+          fg_color.red = static_cast<uint8_t>(fg_color.red * 0.65F);
+          fg_color.green = static_cast<uint8_t>(fg_color.green * 0.65F);
+          fg_color.blue = static_cast<uint8_t>(fg_color.blue * 0.65F);
+        }
+
+        if (!span.attributes.hidden) {
+          surface.draw_text(device_context, *surface.m_editor_font, span.text,
+                            cur_x, center_y, fg_color);
+        }
+
+        if (span.attributes.underline) {
+          surface.draw_line(
+              device_context, round_to_int(cur_x),
+              round_to_int(center_y + line_height * 0.45F),
+              round_to_int(cur_x + static_cast<float>(span_w)),
+              round_to_int(center_y + line_height * 0.45F), fg_color);
+        }
+
+        cur_x += static_cast<float>(span_w);
+      }
+    }
+
+    // 2. Draw selection overlay on top
     if (has_selection && selection.intersects_line(index)) {
       const auto [col_start, col_end] =
           selection.get_line_range(index, col_len);
@@ -740,9 +815,6 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
       }
     }
 
-    surface.draw_text(device_context, *surface.m_editor_font, line,
-                      layout.terminal_content_bounds.x + padding_x, center_y,
-                      surface.m_palette.text_primary);
     center_y += line_height;
   }
   if (lines.size() > visible_rows) {
@@ -770,7 +842,8 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   }
   const std::size_t cursor_line_idx = session->get_cursor_line();
   const std::size_t cursor_col_idx = session->get_cursor_column();
-  if (is_focused() && cursor_line_idx >= start && cursor_line_idx < end &&
+  if (is_focused() && session->is_cursor_visible() &&
+      cursor_line_idx >= start && cursor_line_idx < end &&
       m_caret_blink.is_visible()) {
     const std::size_t visual_row = cursor_line_idx - start;
     const float line_center_y =
