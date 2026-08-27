@@ -24,7 +24,11 @@ enum class TerminalInputKey {
   ArrowRight,
   Home,
   End,
+  PageUp,
+  PageDown,
   DeleteForward,
+  DeleteWordBackward,
+  DeleteWordForward
 };
 
 struct TerminalSessionEntry {

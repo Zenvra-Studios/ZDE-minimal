@@ -1,4 +1,4 @@
-#include "Terminal/TerminalResizeModel.h"
+#include "TerminalResizeModel.h"
 
 #include <algorithm>
 #include <cmath>

@@ -810,7 +810,7 @@ void test_terminal_layout_and_host_session()
     }
     if (terminal_panel.get_sessions().size() == 2)
     {
-        terminal_panel.close_session(terminal_panel.get_active_index().value_or(0));
+        static_cast<void>(terminal_panel.close_session(terminal_panel.get_active_index().value_or(0)));
     }
     expect(terminal_panel.get_sessions().size() == 1 &&
             terminal_panel.get_active_index() == 0 &&
@@ -825,7 +825,7 @@ void test_terminal_layout_and_host_session()
     }
     if (terminal_panel.is_visible())
     {
-        terminal_panel.close_session(terminal_panel.get_active_index().value_or(0));
+        static_cast<void>(terminal_panel.close_session(terminal_panel.get_active_index().value_or(0)));
     }
     expect(terminal_panel.get_sessions().empty() &&
             !terminal_panel.get_active_index().has_value() &&

@@ -1,4 +1,4 @@
-#include "Terminal/TerminalExitDecoder.h"
+#include "TerminalExitDecoder.h"
 
 #include <iomanip>
 #include <sstream>

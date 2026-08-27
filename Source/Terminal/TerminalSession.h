@@ -69,6 +69,7 @@ public:
                                          bool shift = false, bool meta = false, bool ctrl = false);
     [[nodiscard]] bool navigate_history(bool up);
     [[nodiscard]] static std::filesystem::path resolve_host_shell();
+    void consume_output(std::string_view output);
 
 private:
     struct Implementation;
@@ -77,12 +78,14 @@ private:
     {
         Text,
         Escape,
+        DesignateCharacterSet,
         ControlSequence,
         OperatingSystemCommand,
         OperatingSystemCommandEscape,
+        DeviceControlString,
+        DeviceControlStringEscape,
     };
 
-    void consume_output(std::string_view output);
     void apply_control_sequence(char command);
     void append_codepoint(std::string_view utf8_char);
     void append_character(char character);
@@ -104,6 +107,7 @@ private:
     std::size_t m_main_cursor_column = 0;
     std::size_t m_input_start_column = 0;
     std::string m_pending_input;
+    std::size_t m_pending_input_cursor = 0;
     std::vector<std::string> m_command_history;
     std::optional<std::size_t> m_history_index;
     std::string m_saved_pending_input;

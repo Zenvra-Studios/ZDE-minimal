@@ -2,7 +2,7 @@
  * 
  * 
  **/
-#include "Terminal/TerminalPanelModel.h"
+#include "TerminalPanelModel.h"
 
 #include <algorithm>
 #include <cctype>
@@ -175,8 +175,16 @@ bool TerminalPanelModel::send_key(TerminalInputKey key)
         return session->write_input("\x1B[H");
     case TerminalInputKey::End:
         return session->write_input("\x1B[F");
+    case TerminalInputKey::PageUp:
+        return session->write_input("\x1B[5~");
+    case TerminalInputKey::PageDown:
+        return session->write_input("\x1B[6~");
     case TerminalInputKey::DeleteForward:
         return session->write_input("\x1B[3~");
+    case TerminalInputKey::DeleteWordBackward:
+        return session->write_input("\x17");
+    case TerminalInputKey::DeleteWordForward:
+        return session->write_input("\x1B\x64");
     }
     return false;
 }
@@ -207,6 +215,12 @@ bool TerminalPanelModel::poll()
     for (TerminalSessionEntry& entry : m_sessions)
     {
         changed = entry.session->poll() || changed;
+        const std::string shell_name = entry.session->get_shell_path().stem().string();
+        if (!shell_name.empty() && shell_name != "Terminal" && entry.title != shell_name)
+        {
+            entry.title = shell_name;
+            changed = true;
+        }
     }
     return changed;
 }
