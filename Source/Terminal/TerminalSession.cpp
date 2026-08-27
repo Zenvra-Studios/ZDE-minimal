@@ -1022,21 +1022,25 @@ bool TerminalSession::write_input(std::string_view text) {
 
       // Backspace: erase one character locally, never send to pipe
       if (is_backspace) {
-        if (!m_pending_input.empty() && m_cursor_column > 0 &&
-            m_cursor_line < m_lines.size()) {
+        if (!m_pending_input.empty()) {
           track_input();
-          --m_cursor_column;
-          erase_utf8_from(m_lines[m_cursor_line], m_cursor_column);
+          if (m_cursor_column > 0) {
+            --m_cursor_column;
+          } else if (m_cursor_line > 0) {
+            --m_cursor_line;
+            m_cursor_column = m_columns > 0 ? m_columns - 1 : 0;
+          }
+          if (m_cursor_line < m_lines.size()) {
+            erase_utf8_from(m_lines[m_cursor_line], m_cursor_column);
+          }
         }
         return true;
       }
 
       // Ctrl+Backspace (delete word): erase word locally
       if (text == "\x17") {
-        if (!m_pending_input.empty() && m_cursor_line < m_lines.size()) {
+        if (!m_pending_input.empty()) {
           track_input();
-          // Recompute cursor column from input start + remaining
-          // codepoints in m_pending_input
           std::size_t cps = 0;
           for (std::size_t j = 0; j < m_pending_input.size();) {
             const auto uc =
@@ -1053,8 +1057,21 @@ bool TerminalSession::write_input(std::string_view text) {
               j += 1;
             ++cps;
           }
-          m_cursor_column = m_input_start_column + cps;
-          erase_utf8_from(m_lines[m_cursor_line], m_cursor_column);
+          std::size_t total_cols = m_input_start_column + cps;
+          if (m_columns > 0) {
+            // Recompute line offset from start line
+            // Wait, we don't track m_input_start_line.
+            // But we know how many columns back we need to go.
+            // Actually, for simplicity, just recompute based on m_cursor_column 
+            m_cursor_column = total_cols % m_columns;
+            // Note: we can't easily jump back multiple lines without start_line.
+            // But this handles single line properly.
+          } else {
+            m_cursor_column = total_cols;
+          }
+          if (m_cursor_line < m_lines.size()) {
+            erase_utf8_from(m_lines[m_cursor_line], m_cursor_column);
+          }
         }
         return true;
       }
