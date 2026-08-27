@@ -138,11 +138,6 @@ std::string Doctor::generate_report()
     {
         ss << "  Env ZDE_SHELL:  " << zde_shell_env << "\n";
     }
-    const char* no_conpty_env = std::getenv("ZDE_NO_CONPTY");
-    if (no_conpty_env != nullptr)
-    {
-        ss << "  Env NO_CONPTY:  " << no_conpty_env << "\n";
-    }
     const char* liveness_env = std::getenv("ZDE_LIVENESS_MS");
     if (liveness_env != nullptr)
     {

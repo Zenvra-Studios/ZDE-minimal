@@ -114,7 +114,6 @@ void remove_last_utf8_code_point(std::string &text) noexcept {
 #if defined(_WIN32)
 static std::mutex s_shell_state_mutex;
 static std::unordered_set<std::string> s_dead_shell_blacklist;
-static bool s_conpty_permanently_failed = false;
 
 static std::string normalize_shell_key(const std::filesystem::path &path) {
   std::string s = path.string();
@@ -265,18 +264,6 @@ static PFN_ClosePseudoConsole s_fn_ClosePseudoConsole = nullptr;
 void load_conpty_api() {
   static std::once_flag flag;
   std::call_once(flag, []() {
-    if (s_conpty_permanently_failed) {
-      return;
-    }
-
-    if (const char *no_conpty = std::getenv("ZDE_NO_CONPTY");
-        no_conpty != nullptr &&
-        (no_conpty[0] == '1' || no_conpty[0] == 'y' || no_conpty[0] == 'Y')) {
-      terminal_debug_log(
-          "[ZDE Terminal] ConPTY disabled via ZDE_NO_CONPTY, using pipe mode");
-      return;
-    }
-
     HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
     if (kernel32 != nullptr) {
       s_fn_CreatePseudoConsole = reinterpret_cast<PFN_CreatePseudoConsole>(
@@ -287,12 +274,6 @@ void load_conpty_api() {
           GetProcAddress(kernel32, "ClosePseudoConsole"));
     }
   });
-
-  if (s_conpty_permanently_failed) {
-    s_fn_CreatePseudoConsole = nullptr;
-    s_fn_ResizePseudoConsole = nullptr;
-    s_fn_ClosePseudoConsole = nullptr;
-  }
 }
 #endif
 
@@ -550,7 +531,13 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
     bool candidate_started = false;
 
     // Step 1: Attempt ConPTY if API is available and not disabled
-    if (s_fn_CreatePseudoConsole != nullptr &&
+    const char *no_conpty_env = std::getenv("ZDE_NO_CONPTY");
+    const bool conpty_disabled =
+        (no_conpty_env != nullptr &&
+         (no_conpty_env[0] == '1' || no_conpty_env[0] == 'Y' ||
+          no_conpty_env[0] == 'y'));
+    if (!conpty_disabled &&
+        s_fn_CreatePseudoConsole != nullptr &&
         s_fn_ResizePseudoConsole != nullptr &&
         s_fn_ClosePseudoConsole != nullptr) {
       HANDLE input_read = nullptr;
@@ -723,14 +710,6 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
                            HANDLE_FLAG_INHERIT);
       SetHandleInformation(pipe_out_write, HANDLE_FLAG_INHERIT,
                            HANDLE_FLAG_INHERIT);
-
-      STARTUPINFOW startup{};
-      startup.cb = sizeof(startup);
-      startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-      startup.wShowWindow = SW_HIDE;
-      startup.hStdInput = pipe_in_read;
-      startup.hStdOutput = pipe_out_write;
-      startup.hStdError = pipe_out_write;
 
       STARTUPINFOW startup_info{};
       startup_info.cb = sizeof(startup_info);
@@ -958,6 +937,7 @@ bool TerminalSession::write_input(std::string_view text) {
   }
   const bool printable = is_printable_input(text);
   const bool is_backspace = text == "\x08" || text == "\x7F" || text == "\b";
+  bool did_clear = false;
   const auto track_input = [&]() {
     if (m_pending_input.empty() && m_input_start_column == 0) {
       m_input_start_column = m_cursor_column;
@@ -965,7 +945,20 @@ bool TerminalSession::write_input(std::string_view text) {
     if (text == "\r" || text == "\n") {
       if (!m_pending_input.empty()) {
         m_command_history.push_back(m_pending_input);
+        
+        /*
+        
+        */
+        std::string cmd = m_pending_input;
+        cmd.erase(cmd.begin(), std::find_if(cmd.begin(), cmd.end(), [](unsigned char ch) { return !std::isspace(ch); }));
+        cmd.erase(std::find_if(cmd.rbegin(), cmd.rend(), [](unsigned char ch) { return !std::isspace(ch); }).base(), cmd.end());
+        
         m_pending_input.clear();
+        
+        if (cmd == "clear" || cmd == "cls") {
+          clear_screen();
+          did_clear = true;
+        }
       }
       m_history_index.reset();
       m_saved_pending_input.clear();
@@ -1011,7 +1004,7 @@ bool TerminalSession::write_input(std::string_view text) {
           track_input();
         }
         // Advance display to next line for shell output
-        if (!m_lines.empty()) {
+        if (!did_clear && !m_lines.empty()) {
           m_lines.emplace_back();
           m_cursor_line = m_lines.size() - 1;
           m_cursor_column = 0;
@@ -1203,7 +1196,9 @@ bool TerminalSession::poll() {
           "[ZDE Terminal] Early startup crash for \"" + m_shell_path.string() +
           "\" (code " + std::to_string(exit_code) + " at " +
           std::to_string(elapsed_ms) + "ms). Switching to Pipe mode...");
-      s_conpty_permanently_failed = true;
+#if defined(_WIN32)
+      _putenv_s("ZDE_NO_CONPTY", "1");
+#endif
       const auto recovery_working_dir = m_working_directory;
       const auto cols = m_columns;
       const auto rows = m_rows;
@@ -1381,11 +1376,11 @@ void TerminalSession::consume_output(std::string_view output) {
             append_codepoint(m_utf8_sequence);
             m_utf8_sequence.clear();
           }
+          continue;
         } else {
           m_utf8_sequence.clear();
           m_utf8_expected = 0;
         }
-        continue;
       }
 
       if (static_cast<unsigned char>(character) >= 0x80U) {
@@ -1393,14 +1388,16 @@ void TerminalSession::consume_output(std::string_view output) {
         if ((uc & 0xE0) == 0xC0) {
           m_utf8_sequence = character;
           m_utf8_expected = 1;
+          continue;
         } else if ((uc & 0xF0) == 0xE0) {
           m_utf8_sequence = character;
           m_utf8_expected = 2;
+          continue;
         } else if ((uc & 0xF8) == 0xF0) {
           m_utf8_sequence = character;
           m_utf8_expected = 3;
+          continue;
         }
-        continue;
       }
     }
 
