@@ -345,8 +345,11 @@ std::vector<std::filesystem::path> resolve_host_shell_candidates() {
 
   auto add_candidate = [&](const std::filesystem::path &p) {
     if (!p.empty() && is_valid_executable_file(p) && !is_shell_blacklisted(p)) {
+      // FIX duplikat bentrok: C:\Windows\System32\cmd.exe vs SYSTEM32\cmd.exe dianggap beda oleh operator==
+      // gunakan normalize_shell_key (case-insensitive + slash normalize) agar tidak double candidate
+      const std::string key = normalize_shell_key(p);
       for (const auto &existing : candidates) {
-        if (existing == p) {
+        if (normalize_shell_key(existing) == key) {
           return;
         }
       }
@@ -415,6 +418,21 @@ std::vector<std::filesystem::path> resolve_host_shell_candidates() {
   // 5. Git Bash
   add_candidate(L"C:\\Program Files\\Git\\bin\\bash.exe");
   add_candidate(L"C:\\Program Files (x86)\\Git\\bin\\bash.exe");
+  // FIX marga Unix-like: mesin ini pakai Scoop Git, Program Files tidak ada (Test-Path False)
+  // Tambah Scoop candidates agar bash sehat masuk list, bukan cuma WSL bash.exe yang rusak
+  add_candidate(L"C:\\Users\\Administrator\\scoop\\apps\\git\\current\\bin\\bash.exe");
+  add_candidate(L"C:\\Users\\Administrator\\scoop\\shims\\bash.exe");
+  // Juga coba bash dari PATH tapi filter WSL launcher yang error "WSL must be updated"
+  if (const std::filesystem::path bash = find_windows_executable(L"bash.exe");
+      !bash.empty()) {
+    std::string bl = bash.string();
+    for (char &c : bl) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    // skip WSL bash.exe di System32 kalau mengandung wsl error (sudah rusak)
+    if (bl.find("system32\\bash.exe") == std::string::npos &&
+        bl.find("syswow64\\bash.exe") == std::string::npos) {
+      add_candidate(bash);
+    }
+  }
 
   // Fallback: guarantee native System32 powershell
   if (candidates.empty()) {
@@ -1167,19 +1185,11 @@ TerminalSession::get_line_spans(std::size_t line_index) const {
     lv.remove_prefix(1);
   }
 
-  // 1. Error highlighting (Red)
+  // 1. Error highlighting (Red for process exit/fatal crashes)
   const bool is_error =
-      lv.starts_with("go: ") ||
-      lv.starts_with("error:") || lv.starts_with("Error:") || lv.starts_with("ERROR:") ||
-      lv.starts_with("fatal:") || lv.starts_with("Fatal:") || lv.starts_with("FATAL:") ||
       lv.starts_with("[Process exited with code") || lv.starts_with("[Process crashed") ||
-      lv.starts_with("Exception:") || lv.starts_with("Traceback (most recent call last):") ||
-      lv.starts_with("npm ERR!") ||
-      line.find("is not recognized as the name of a cmdlet") != std::string::npos ||
-      line.find("The term '") != std::string::npos ||
-      line.find("cannot find path") != std::string::npos ||
-      line.find("cannot determine module path") != std::string::npos ||
-      line.find("must be specified") != std::string::npos;
+      lv.starts_with("fatal:") || lv.starts_with("FATAL:") ||
+      lv.starts_with("Traceback (most recent call last):");
 
   if (is_error) {
     TerminalCellAttributes err_attr{};
@@ -1187,101 +1197,7 @@ TerminalSession::get_line_spans(std::size_t line_index) const {
     return {TerminalStyledSpan{.text = line, .attributes = err_attr}};
   }
 
-  // 2. Warning highlighting (Yellow)
-  const bool is_warning =
-      lv.starts_with("warning:") || lv.starts_with("Warning:") || lv.starts_with("WARN:") ||
-      lv.starts_with("[WARN]") || lv.starts_with("npm WARN");
-
-  if (is_warning) {
-    TerminalCellAttributes warn_attr{};
-    warn_attr.foreground = TerminalColor{0xf5, 0xf5, 0x43, false}; // Yellow
-    return {TerminalStyledSpan{.text = line, .attributes = warn_attr}};
-  }
-
-  // 3. Prompt & Command highlighting (Prompt is White, typed command is Yellow):
-  const bool is_ps_prompt = line.starts_with("PS ") && line.find('>') != std::string::npos;
-  const bool is_cmd_prompt = (line.size() >= 3 &&
-                              std::isalpha(static_cast<unsigned char>(line[0])) &&
-                              line[1] == ':' && line[2] == '\\' &&
-                              line.find('>') != std::string::npos);
-
-  if (is_ps_prompt || is_cmd_prompt) {
-    const std::size_t prompt_end = line.find('>');
-    std::vector<TerminalStyledSpan> spans;
-
-    // Prompt part ("PS C:\...> " or "C:\...> ") in default White
-    TerminalCellAttributes prompt_attr{};
-    spans.push_back(TerminalStyledSpan{
-        .text = line.substr(0, prompt_end + 1),
-        .attributes = prompt_attr});
-
-    // Typed command part after ">" in Yellow
-    if (prompt_end + 1 < line.size()) {
-      std::string_view after_prompt = std::string_view(line).substr(prompt_end + 1);
-      std::size_t space_count = 0;
-      while (space_count < after_prompt.size() && after_prompt[space_count] == ' ') {
-        ++space_count;
-      }
-      if (space_count > 0) {
-        spans.push_back(TerminalStyledSpan{
-            .text = std::string(after_prompt.substr(0, space_count)),
-            .attributes = TerminalCellAttributes{}});
-        after_prompt.remove_prefix(space_count);
-      }
-      if (!after_prompt.empty()) {
-        TerminalCellAttributes cmd_attr{};
-        cmd_attr.foreground = TerminalColor{0xf5, 0xf5, 0x43, false}; // Yellow command
-        spans.push_back(TerminalStyledSpan{
-            .text = std::string(after_prompt),
-            .attributes = cmd_attr});
-      }
-    }
-    return spans;
-  }
-
-  // 4. Command auto-wrapped continuation lines (auto \n / wrap):
-  bool is_command_continuation = false;
-  if (!m_pending_input.empty() && m_input_start_line < line_index && line_index <= m_cursor_line) {
-    is_command_continuation = true;
-  } else if (line_index > 0) {
-    std::size_t prev_idx = line_index;
-    while (prev_idx > 0) {
-      --prev_idx;
-      const std::string &prev_line = m_lines[prev_idx];
-      const bool prev_is_ps = prev_line.starts_with("PS ") && prev_line.find('>') != std::string::npos;
-      const bool prev_is_cmd = (prev_line.size() >= 3 &&
-                                std::isalpha(static_cast<unsigned char>(prev_line[0])) &&
-                                prev_line[1] == ':' && prev_line[2] == '\\' &&
-                                prev_line.find('>') != std::string::npos);
-      if (prev_is_ps || prev_is_cmd) {
-        bool all_wrapped = true;
-        for (std::size_t k = prev_idx; k < line_index; ++k) {
-          const std::size_t col_len = utf8_column_count(m_lines[k]);
-          if (m_columns > 0 && col_len + 2 < m_columns) {
-            all_wrapped = false;
-            break;
-          }
-        }
-        if (all_wrapped) {
-          is_command_continuation = true;
-        }
-        break;
-      }
-      if (prev_line.empty() || (m_columns > 0 && utf8_column_count(prev_line) + 2 < m_columns)) {
-        break;
-      }
-    }
-  }
-
-  if (is_command_continuation) {
-    TerminalCellAttributes cmd_attr{};
-    cmd_attr.foreground = TerminalColor{0xf5, 0xf5, 0x43, false}; // Yellow command
-    return {TerminalStyledSpan{
-        .text = line,
-        .attributes = cmd_attr,
-    }};
-  }
-
+  // Default clean primary white text for unstyled terminal lines and prompts (accurate across all panel resizes)
   return {TerminalStyledSpan{
       .text = line,
       .attributes = TerminalCellAttributes{},
@@ -1578,18 +1494,40 @@ bool TerminalSession::poll() {
 
     // Automatic self-healing: if shell crashed in early startup (<5000ms)
     // without user interaction
+    // FIX bentrok CMD vs PowerShell: cmd exit 0 di 26ms (gambar user) sebelumnya tidak di-recover
+    // karena exit_code==0 di-filter. Padahal 26ms tanpa input = abnormal, harus retry.
+    // Juga PS 5.1 ConPTY code 5 (ACCESS_DENIED) harus coba Pipe dulu sebelum blacklist dan pindah ke cmd.
     constexpr unsigned k_max_recovery_attempts = 3;
+    const bool is_early_abnormal = (exit_code != 0) || (elapsed_ms < 500 && exit_code == 0);
     if (elapsed_ms < 5000 && m_command_history.empty() &&
-        m_pending_input.empty() && exit_code != 0 && exit_code != 0xC0000B5B &&
+        m_pending_input.empty() && exit_code != 0xC0000B5B &&
+        is_early_abnormal &&
         m_implementation->recovery_attempts < k_max_recovery_attempts) {
       ++m_implementation->recovery_attempts;
       terminal_debug_log(
           "[ZDE Terminal] Early startup crash for \"" + m_shell_path.string() +
           "\" (code " + std::to_string(exit_code) + " at " +
           std::to_string(elapsed_ms) + "ms). Attempting recovery with next candidate...");
-      mark_shell_dead(m_shell_path);
-      if (m_implementation->recovery_attempts >= k_max_recovery_attempts) {
-        m_implementation->disable_conpty_for_session = true;
+      // FIX btop No tty: PS 5.1 ConPTY code 5 (ACCESS_DENIED) sering terjadi saat launch dari explorer (cursor)
+      // tanpa parent console. Untuk app interaktif seperti btop yang butuh isatty==true, harus tetap di ConPTY.
+      // Jangan langsung disable ConPTY dan fallback ke Pipe (Pipe = no tty -> btop gagal).
+      // Coba ConPTY kandidat berikutnya dulu (misal cmd ConPTY), baru setelah 3x gagal baru fallback Pipe.
+      if (m_implementation->is_conpty && (exit_code == 5 || exit_code == 0xC0000022)) {
+        mark_shell_dead(m_shell_path);
+        // tetap coba ConPTY untuk kandidat lain, baru disable setelah max attempts
+        if (m_implementation->recovery_attempts >= k_max_recovery_attempts) {
+          m_implementation->disable_conpty_for_session = true;
+          terminal_debug_log(
+              "[ZDE Terminal] ConPTY ACCESS_DENIED repeated, falling back to Pipe mode...");
+        } else {
+          terminal_debug_log(
+              "[ZDE Terminal] ConPTY ACCESS_DENIED, trying next ConPTY candidate (keep tty for btop)...");
+        }
+      } else {
+        mark_shell_dead(m_shell_path);
+        if (m_implementation->recovery_attempts >= k_max_recovery_attempts) {
+          m_implementation->disable_conpty_for_session = true;
+        }
       }
       const auto recovery_working_dir = m_working_directory;
       const auto cols = m_columns;

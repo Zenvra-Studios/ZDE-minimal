@@ -88,6 +88,13 @@ public:
         float point_y) const noexcept;
     [[nodiscard]] bool is_resizing() const noexcept;
     [[nodiscard]] float get_width() const noexcept;
+    void set_resize_hovered(bool hovered) noexcept { m_resize_hovered = hovered; }
+    void begin_resize(float point_x) noexcept {
+        m_resizing = true;
+        m_drag_start_x = point_x;
+        m_drag_start_width = m_width;
+        m_resize_hovered = true;
+    }
     
     [[nodiscard]] bool handle_pointer_drag(
         const UI::Editor::StudioEditorLayoutResult& layout,

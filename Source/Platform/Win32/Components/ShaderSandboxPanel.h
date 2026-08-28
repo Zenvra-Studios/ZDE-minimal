@@ -32,6 +32,13 @@ public:
         float point_y) const noexcept;
 
     [[nodiscard]] bool is_resizing() const noexcept { return m_is_resizing; }
+    void set_resize_hovered(bool hovered) noexcept { m_hover_splitter = hovered; }
+    void begin_resize(float point_x) noexcept {
+        m_is_resizing = true;
+        m_drag_start_x = point_x;
+        m_drag_start_width = m_width;
+        m_hover_splitter = true;
+    }
 
     [[nodiscard]] bool contains(
         const UI::Editor::StudioEditorLayoutResult& layout,

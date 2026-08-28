@@ -178,6 +178,25 @@ public:
         int client_width,
         int client_height,
         float content_top) const noexcept;
+    enum class SplitterCornerKind {
+        None,
+        SidebarTerminal,
+        ShaderTerminal,
+        EditorSplitTerminal,
+    };
+    [[nodiscard]] SplitterCornerKind get_splitter_corner_at(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) const noexcept;
+    [[nodiscard]] bool is_corner_resize_handle_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_corner_resizing() const noexcept {
+        return m_active_corner_resizing != SplitterCornerKind::None;
+    }
     [[nodiscard]] bool is_terminal_resize_handle_point(
         float point_x,
         float point_y,
@@ -339,6 +358,7 @@ private:
     mutable Win32PromptDialog m_prompt_dialog;
     mutable UI::Components::AddNewItemDialog m_add_item_dialog;
     mutable std::unordered_map<std::string, std::vector<std::uint32_t>> m_svg_cache;
+    SplitterCornerKind m_active_corner_resizing = SplitterCornerKind::None;
 };
 
 } // namespace Zenvra::Platform::Win32::Components

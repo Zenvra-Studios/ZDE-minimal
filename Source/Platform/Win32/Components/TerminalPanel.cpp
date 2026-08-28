@@ -186,6 +186,8 @@ bool TerminalPanel::handle_pointer_press(
     }
   }
   if (layout.terminal_content_bounds.contains(point_x, point_y)) {
+    // FIX selection: samakan dengan render() agar posisi virtual terminal presisi di dalam panel
+    // render pakai padding_x=14*scale, top=8*scale, dan glyph_width dari "M" (TerminalPanel.cpp:665,670,681)
     const float line_height =
         m_cached_line_height > 0.0F
             ? m_cached_line_height
@@ -193,8 +195,8 @@ bool TerminalPanel::handle_pointer_press(
     const float char_width = m_cached_char_width > 0.0F
                                  ? m_cached_char_width
                                  : std::max(8.0F * layout.dpi_scale, 1.0F);
-    const float padding_x = 10.0F * layout.dpi_scale;
-    const float content_top_padding = 5.0F * layout.dpi_scale;
+    const float padding_x = 14.0F * layout.dpi_scale;
+    const float content_top_padding = 8.0F * layout.dpi_scale;
     const float local_y =
         point_y - (layout.terminal_content_bounds.y + content_top_padding);
     const int row = static_cast<int>(std::floor(local_y / line_height));
@@ -231,6 +233,7 @@ bool TerminalPanel::handle_double_click(
     return m_resize_model.toggle_maximized();
   }
   if (layout.terminal_content_bounds.contains(point_x, point_y)) {
+    // FIX selection word: samakan padding dengan render (14,8) untuk posisi virtual presisi
     const float line_height =
         m_cached_line_height > 0.0F
             ? m_cached_line_height
@@ -238,8 +241,8 @@ bool TerminalPanel::handle_double_click(
     const float char_width = m_cached_char_width > 0.0F
                                  ? m_cached_char_width
                                  : std::max(8.0F * layout.dpi_scale, 1.0F);
-    const float padding_x = 10.0F * layout.dpi_scale;
-    const float content_top_padding = 5.0F * layout.dpi_scale;
+    const float padding_x = 14.0F * layout.dpi_scale;
+    const float content_top_padding = 8.0F * layout.dpi_scale;
     const float local_y =
         point_y - (layout.terminal_content_bounds.y + content_top_padding);
     const int row = static_cast<int>(std::floor(local_y / line_height));
@@ -278,6 +281,7 @@ bool TerminalPanel::handle_pointer_drag(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) noexcept {
   if (m_selecting_text) {
+    // FIX drag selection: samakan dengan render virtual session (padding 14, top 8)
     const float line_height =
         m_cached_line_height > 0.0F
             ? m_cached_line_height
@@ -285,8 +289,8 @@ bool TerminalPanel::handle_pointer_drag(
     const float char_width = m_cached_char_width > 0.0F
                                  ? m_cached_char_width
                                  : std::max(8.0F * layout.dpi_scale, 1.0F);
-    const float padding_x = 10.0F * layout.dpi_scale;
-    const float content_top_padding = 5.0F * layout.dpi_scale;
+    const float padding_x = 14.0F * layout.dpi_scale;
+    const float content_top_padding = 8.0F * layout.dpi_scale;
     const float local_y =
         point_y - (layout.terminal_content_bounds.y + content_top_padding);
     const int row = static_cast<int>(std::floor(local_y / line_height));
@@ -658,8 +662,7 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
                             static_cast<float>(label_width),
                         layout.terminal_header_bounds.y +
                             layout.terminal_header_bounds.height * 0.5F,
-                        session->is_running() ? surface.m_palette.success
-                                              : surface.m_palette.text_muted);
+                        surface.m_palette.text_muted);
     }
   }
   const float padding_x = 14.0F * surface.m_dpi_scale;

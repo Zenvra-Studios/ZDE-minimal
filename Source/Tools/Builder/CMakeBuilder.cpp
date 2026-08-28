@@ -38,13 +38,15 @@ BuildResult CMakeBuilder::build_target(
         cmd << " --clean-first";
     }
 
-    cmd << " 2>&1";
-
     const std::string command_str = cmd.str();
     BuildResult result{};
 
 #if defined(_WIN32)
-    FILE* pipe = _popen(command_str.c_str(), "r");
+    // FIX bentrok CMD vs PowerShell: _popen di Windows implisit pakai %COMSPEC% (cmd.exe /c)
+    // sedangkan TerminalSession pakai PowerShell. Quoting & redirect 2>&1 beda semantic.
+    // Kita eksplisit bungkus dengan cmd.exe /d /c agar deterministik dan tidak campur PS.
+    const std::string wrapped = "cmd.exe /d /c \"" + command_str + " 2>&1\"";
+    FILE* pipe = _popen(wrapped.c_str(), "r");
 #else
     FILE* pipe = popen(command_str.c_str(), "r");
 #endif

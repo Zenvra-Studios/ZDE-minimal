@@ -93,6 +93,12 @@ public:
   [[nodiscard]] bool is_split_active() const noexcept {
     return m_is_split && m_split_document_index.has_value();
   }
+  [[nodiscard]] float get_split_ratio() const noexcept { return m_split_ratio; }
+  void set_split_resize_hovered(bool hovered) noexcept { m_hovered_split_resize = hovered; }
+  void begin_split_resize() noexcept {
+    m_is_resizing_split = true;
+    m_hovered_split_resize = true;
+  }
   [[nodiscard]] std::size_t get_active_document_line_count() const noexcept {
     const auto *doc = m_controller.get_active_document();
     return doc != nullptr ? doc->get_line_count() : 1;

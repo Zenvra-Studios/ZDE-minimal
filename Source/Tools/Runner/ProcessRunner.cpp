@@ -3,6 +3,10 @@
 #include <cstdlib>
 #include <iostream>
 #include <sstream>
+#if defined(_WIN32)
+#include <windows.h>
+#include <vector>
+#endif
 
 namespace Zenvra::Tools::Runner
 {
@@ -26,9 +30,28 @@ bool ProcessRunner::launch_process(
     if (options.run_in_background)
     {
 #if defined(_WIN32)
-        cmd << " &";
+        // FIX bentrok CMD vs PowerShell: " &" di cmd = separator, di PS 5.1 = call operator,
+        // bukan background. Di Linux baru "&" = background. Di Windows harus CreateProcess DETACHED.
+        const std::string cmd_str = cmd.str();
+        std::wstring wcmd(cmd_str.begin(), cmd_str.end());
+        std::vector<wchar_t> buf(wcmd.begin(), wcmd.end());
+        buf.push_back(L'\0');
+        STARTUPINFOW si{};
+        si.cb = sizeof(si);
+        PROCESS_INFORMATION pi{};
+        const BOOL ok = CreateProcessW(nullptr, buf.data(), nullptr, nullptr, FALSE,
+                                       DETACHED_PROCESS | CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+        if (ok)
+        {
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            return true;
+        }
+        return false;
 #else
         cmd << " &";
+        const int res = std::system(cmd.str().c_str());
+        return (res == 0);
 #endif
     }
 

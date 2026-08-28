@@ -191,6 +191,10 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
   } else {
     static_cast<void>(m_tool_sidebar.set_workspace_root(existing_workspace));
   }
+  const auto active_workspace = m_tool_sidebar.get_model().get_workspace_root();
+  if (!active_workspace.empty()) {
+    m_terminal_panel.set_working_directory(active_workspace);
+  }
   static_cast<void>(m_terminal_panel.toggle());
   m_terminal_panel.set_focused(false);
   static_cast<void>(m_shader_sandbox_panel.initialize());
@@ -365,6 +369,31 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     }
     return m_tool_sidebar.activate(items[*sidebar_index].icon);
   }
+
+  // Check 2D Corner Splitter Resizing First!
+  const SplitterCornerKind corner = get_splitter_corner_at(layout, point_x, point_y);
+  if (corner == SplitterCornerKind::SidebarTerminal) {
+    m_active_corner_resizing = SplitterCornerKind::SidebarTerminal;
+    m_tool_sidebar.begin_resize(point_x);
+    static_cast<void>(m_terminal_panel.begin_resize());
+    m_terminal_panel.set_focused(false);
+    return true;
+  }
+  if (corner == SplitterCornerKind::ShaderTerminal) {
+    m_active_corner_resizing = SplitterCornerKind::ShaderTerminal;
+    m_shader_sandbox_panel.begin_resize(point_x);
+    static_cast<void>(m_terminal_panel.begin_resize());
+    m_terminal_panel.set_focused(false);
+    return true;
+  }
+  if (corner == SplitterCornerKind::EditorSplitTerminal) {
+    m_active_corner_resizing = SplitterCornerKind::EditorSplitTerminal;
+    m_text_editor.begin_split_resize();
+    static_cast<void>(m_terminal_panel.begin_resize());
+    m_terminal_panel.set_focused(false);
+    return true;
+  }
+
   if (m_shader_sandbox_panel.handle_pointer_press(layout, point_x, point_y)) {
     return true;
   }
@@ -452,6 +481,36 @@ bool StudioWorkspaceRenderer::handle_pointer_move(float point_x, float point_y,
 
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
+
+  const SplitterCornerKind corner = get_splitter_corner_at(layout, point_x, point_y);
+  if (corner == SplitterCornerKind::SidebarTerminal) {
+    m_tool_sidebar.set_resize_hovered(true);
+    m_terminal_panel.set_resize_hovered(true);
+    static_cast<void>(m_text_editor.handle_pointer_move(layout, point_x, point_y));
+    static_cast<void>(m_shader_sandbox_panel.handle_pointer_move(layout, point_x, point_y));
+    m_tool_sidebar.set_resize_hovered(true);
+    m_terminal_panel.set_resize_hovered(true);
+    return true;
+  }
+  if (corner == SplitterCornerKind::ShaderTerminal) {
+    m_shader_sandbox_panel.set_resize_hovered(true);
+    m_terminal_panel.set_resize_hovered(true);
+    static_cast<void>(m_tool_sidebar.handle_pointer_move(layout, point_x, point_y));
+    static_cast<void>(m_text_editor.handle_pointer_move(layout, point_x, point_y));
+    m_shader_sandbox_panel.set_resize_hovered(true);
+    m_terminal_panel.set_resize_hovered(true);
+    return true;
+  }
+  if (corner == SplitterCornerKind::EditorSplitTerminal) {
+    m_text_editor.set_split_resize_hovered(true);
+    m_terminal_panel.set_resize_hovered(true);
+    static_cast<void>(m_tool_sidebar.handle_pointer_move(layout, point_x, point_y));
+    static_cast<void>(m_shader_sandbox_panel.handle_pointer_move(layout, point_x, point_y));
+    m_text_editor.set_split_resize_hovered(true);
+    m_terminal_panel.set_resize_hovered(true);
+    return true;
+  }
+
   const bool sidebar_changed =
       m_tool_sidebar.handle_pointer_move(layout, point_x, point_y);
   const bool editor_changed =
@@ -469,6 +528,27 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(HDC device_context,
                                                   float content_top) {
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
+
+  if (m_active_corner_resizing == SplitterCornerKind::SidebarTerminal) {
+    bool changed = false;
+    changed |= m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y);
+    changed |= m_terminal_panel.handle_pointer_drag(layout, point_y);
+    return changed;
+  }
+  if (m_active_corner_resizing == SplitterCornerKind::ShaderTerminal) {
+    bool changed = false;
+    changed |= m_shader_sandbox_panel.handle_pointer_drag(layout, point_x, point_y);
+    changed |= m_terminal_panel.handle_pointer_drag(layout, point_y);
+    return changed;
+  }
+  if (m_active_corner_resizing == SplitterCornerKind::EditorSplitTerminal) {
+    bool changed = false;
+    changed |= m_text_editor.handle_pointer_drag(*this, device_context, layout,
+                                                 point_x, point_y);
+    changed |= m_terminal_panel.handle_pointer_drag(layout, point_y);
+    return changed;
+  }
+
   if (m_text_editor.is_pointer_selecting() || m_text_editor.is_resizing_split() ||
       m_text_editor.is_tab_dragging() || m_text_editor.is_scrollbar_dragging()) {
     return m_text_editor.handle_pointer_drag(*this, device_context, layout,
@@ -505,11 +585,13 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(HDC device_context,
 }
 
 bool StudioWorkspaceRenderer::handle_pointer_release() noexcept {
+  const bool was_corner_resizing = (m_active_corner_resizing != SplitterCornerKind::None);
+  m_active_corner_resizing = SplitterCornerKind::None;
   const bool terminal_changed = m_terminal_panel.handle_pointer_release();
   const bool sidebar_changed = m_tool_sidebar.handle_pointer_release();
   const bool editor_changed = m_text_editor.handle_pointer_release();
   const bool shader_changed = m_shader_sandbox_panel.handle_pointer_release();
-  return terminal_changed || sidebar_changed || editor_changed ||
+  return was_corner_resizing || terminal_changed || sidebar_changed || editor_changed ||
          shader_changed;
 }
 
@@ -829,6 +911,63 @@ bool StudioWorkspaceRenderer::is_terminal_interactive_point(
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
   return m_terminal_panel.is_interactive_point(layout, point_x, point_y);
+}
+
+StudioWorkspaceRenderer::SplitterCornerKind
+StudioWorkspaceRenderer::get_splitter_corner_at(
+    const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
+    float point_y) const noexcept {
+  const float scale = layout.dpi_scale;
+  const float radius = std::max(8.0F * scale, 8.0F);
+
+  // 1. Sidebar + Terminal corner
+  if (m_tool_sidebar.is_visible() && m_terminal_panel.is_visible() &&
+      !layout.tool_sidebar_bounds.is_empty() &&
+      !layout.terminal_panel_bounds.is_empty()) {
+    const float cx = layout.tool_sidebar_bounds.right();
+    const float cy = layout.terminal_panel_bounds.y;
+    if (point_x >= (cx - radius) && point_x <= (cx + radius) &&
+        point_y >= (cy - radius) && point_y <= (cy + radius)) {
+      return SplitterCornerKind::SidebarTerminal;
+    }
+  }
+
+  // 2. Shader Sandbox + Terminal corner
+  if (m_shader_sandbox_panel.is_visible() && m_terminal_panel.is_visible() &&
+      !layout.shader_panel_bounds.is_empty() &&
+      !layout.terminal_panel_bounds.is_empty()) {
+    const float cx = layout.shader_panel_bounds.x;
+    const float cy = layout.terminal_panel_bounds.y;
+    if (point_x >= (cx - radius) && point_x <= (cx + radius) &&
+        point_y >= (cy - radius) && point_y <= (cy + radius)) {
+      return SplitterCornerKind::ShaderTerminal;
+    }
+  }
+
+  // 3. Editor Split + Terminal corner
+  if (m_text_editor.is_split_active() && m_terminal_panel.is_visible() &&
+      !layout.editor_bounds.is_empty() &&
+      !layout.terminal_panel_bounds.is_empty()) {
+    const float splitter_x = layout.editor_bounds.x +
+                             (layout.editor_bounds.width - 2.0F * scale) *
+                                 m_text_editor.get_split_ratio();
+    const float cy = layout.terminal_panel_bounds.y;
+    if (point_x >= (splitter_x - radius) && point_x <= (splitter_x + radius) &&
+        point_y >= (cy - radius) && point_y <= (cy + radius)) {
+      return SplitterCornerKind::EditorSplitTerminal;
+    }
+  }
+
+  return SplitterCornerKind::None;
+}
+
+bool StudioWorkspaceRenderer::is_corner_resize_handle_point(
+    float point_x, float point_y, int client_width, int client_height,
+    float content_top) const noexcept {
+  const UI::Editor::StudioEditorLayoutResult layout =
+      calculate_layout(client_width, client_height, content_top);
+  return get_splitter_corner_at(layout, point_x, point_y) !=
+         SplitterCornerKind::None;
 }
 
 bool StudioWorkspaceRenderer::is_terminal_resize_handle_point(

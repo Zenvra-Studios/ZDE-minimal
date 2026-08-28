@@ -1823,6 +1823,16 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         SetCursor(LoadCursorW(nullptr, IDC_HAND));
         return TRUE;
       }
+      if (m_workspace_renderer.is_corner_resize_handle_point(
+              static_cast<float>(cursor_position.x),
+              static_cast<float>(cursor_position.y),
+              client_bounds.right - client_bounds.left,
+              client_bounds.bottom - client_bounds.top,
+              m_chrome_layout.titlebar_bounds.bottom()) ||
+          m_workspace_renderer.is_corner_resizing()) {
+        SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
+        return TRUE;
+      }
       if (m_workspace_renderer.is_terminal_resize_handle_point(
               static_cast<float>(cursor_position.x),
               static_cast<float>(cursor_position.y),

@@ -126,6 +126,7 @@ bool StdioProcessTransport::start()
     std::wstring ext = m_executable_path.extension().wstring();
     for (auto& c : ext) c = towlower(c);
     const bool is_batch = (ext == L".cmd" || ext == L".bat");
+    const bool is_powershell = (ext == L".ps1" || ext == L".psm1");
 
     std::wstring cmd_line;
     if (is_batch)
@@ -136,6 +137,17 @@ bool StdioProcessTransport::start()
             cmd_line += L" \"" + std::wstring(arg.begin(), arg.end()) + L"\"";
         }
         cmd_line += L"\"";
+    }
+    else if (is_powershell)
+    {
+        // .ps1/.psm1 must be executed via powershell.exe, not directly via CreateProcessW
+        // Use -ExecutionPolicy Bypass to avoid blocked script on debloated Windows
+        cmd_line = L"powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File \"" +
+                   m_executable_path.wstring() + L"\"";
+        for (const auto& arg : m_arguments)
+        {
+            cmd_line += L" \"" + std::wstring(arg.begin(), arg.end()) + L"\"";
+        }
     }
     else
     {
