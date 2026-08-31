@@ -436,6 +436,8 @@ bool Win32Window::initialize() {
   SendMessageW(m_window_handle, WM_SETICON, ICON_SMALL,
                reinterpret_cast<LPARAM>(h_icon_sm));
 
+  const DWORD win_build = get_windows_build_number();
+
   const BOOL dark_mode_enabled = TRUE;
   if (FAILED(DwmSetWindowAttribute(m_window_handle, 20, &dark_mode_enabled,
                                    sizeof(dark_mode_enabled)))) {
@@ -3099,50 +3101,29 @@ void Win32Window::paint_custom_chrome() {
   m_workspace_renderer.render_add_item_dialog(buffer_context, client_width,
                                               client_height, m_theme);
 
-  // Unified outermost border that menyelimuti semua window terluar.
-  // Per-ecosystem handling:
-  // - Windows 11 (build >= 22000): rounded (DWMWCP_ROUND) via system
-  // - Windows 10 and below: sharp/lancip total (DWMWCP_DONOTROUND) via system
-  // The border is drawn as a single continuous path (Rectangle vs RoundRect)
-  // so top-left and top-right corners are fully connected without gap.
-  // NOTE: Border is inset by 1px from the client edge so it sits inside the
-  // DWM extended frame (MARGINS{1,1,1,1}) and is not clipped by the invisible
-  // resize border (SM_CXFRAME+SM_CXPADDEDBORDER). This fixes the visible gap
-  // at the top corners on Windows 10 where the outer 1px was outside the
-  // visible region.
-  if (!is_maximized() && !m_is_fullscreen) {
-    const DWORD win_build = get_windows_build_number();
-    const bool is_win11 = win_build >= 22000;
+  // Draw subtle 1px border around the window frame when windowed on older OS (Win10 and below),
+  // while on Windows 11 DWMWA_BORDER_COLOR provides the hardware anti-aliased rounded border.
+  const DWORD win_build = get_windows_build_number();
+  if (win_build < 22000 && !is_maximized() && !m_is_fullscreen) {
     const COLORREF border_color =
         is_focused() ? RGB(68, 71, 78) : RGB(50, 52, 58);
-    // Inset by 1 physical pixel so the border is inside the DWM frame and
-    // fully visible. Use dpi-scaled pen width for high-DPI.
-    const int pen_w = std::max(1, round_to_int(m_chrome_layout.dpi_scale));
-    const int inset = pen_w; // 1px inset keeps border fully inside client
+    HPEN border_pen = CreatePen(PS_SOLID, 1, border_color);
+    HGDIOBJ prev_pen = SelectObject(buffer_context, border_pen);
 
-    if (is_win11) {
-      // Windows 11: rounded border - radius follows system (~8px at 96dpi)
-      // Radius is reduced by inset so the outer curve stays at the window edge.
-      const int base_radius = std::max(round_to_int(8.0F * m_chrome_layout.dpi_scale), 8);
-      const int radius = std::max(base_radius - inset, 0);
-      HPEN border_pen = CreatePen(PS_SOLID, pen_w, border_color);
-      HGDIOBJ prev_pen = SelectObject(buffer_context, border_pen);
-      HGDIOBJ prev_brush = SelectObject(buffer_context, GetStockObject(NULL_BRUSH));
-      RoundRect(buffer_context, inset, inset, client_width - inset, client_height - inset,
-                radius * 2, radius * 2);
-      SelectObject(buffer_context, prev_pen);
-      SelectObject(buffer_context, prev_brush);
-      DeleteObject(border_pen);
-    } else {
-      // Windows 10 and below: sharp square border - lancip total, 90° corners
-      HPEN border_pen = CreatePen(PS_SOLID, pen_w, border_color);
-      HGDIOBJ prev_pen = SelectObject(buffer_context, border_pen);
-      HGDIOBJ prev_brush = SelectObject(buffer_context, GetStockObject(NULL_BRUSH));
-      Rectangle(buffer_context, inset, inset, client_width - inset, client_height - inset);
-      SelectObject(buffer_context, prev_pen);
-      SelectObject(buffer_context, prev_brush);
-      DeleteObject(border_pen);
-    }
+    MoveToEx(buffer_context, 0, 0, nullptr);
+    LineTo(buffer_context, client_width, 0);
+
+    MoveToEx(buffer_context, client_width - 1, 0, nullptr);
+    LineTo(buffer_context, client_width - 1, client_height);
+
+    MoveToEx(buffer_context, client_width - 1, client_height - 1, nullptr);
+    LineTo(buffer_context, -1, client_height - 1);
+
+    MoveToEx(buffer_context, 0, client_height - 1, nullptr);
+    LineTo(buffer_context, 0, -1);
+
+    SelectObject(buffer_context, prev_pen);
+    DeleteObject(border_pen);
   }
 
   SelectObject(buffer_context, previous_font);
@@ -3186,15 +3167,13 @@ void Win32Window::update_dwm_border_color(bool force) {
   m_last_dwm_focused = focused;
 
   const DWORD win_build = get_windows_build_number();
-  constexpr DWORD dwm_corner_preference_attr = 33; // DWMWA_WINDOW_CORNER_PREFERENCE
-  constexpr DWORD dwm_border_color_attr = 34;      // DWMWA_BORDER_COLOR
-  constexpr DWORD dwm_corner_round = 2;            // DWMWCP_ROUND
-  constexpr DWORD dwm_corner_donotround = 1;       // DWMWCP_DONOTROUND
-  constexpr COLORREF dwm_border_none = 0xFFFFFFFE; // DWMWA_COLOR_NONE
+  if (win_build >= 22000) {
+    constexpr DWORD dwm_corner_preference_attr = 33; // DWMWA_WINDOW_CORNER_PREFERENCE
+    constexpr DWORD dwm_border_color_attr = 34;      // DWMWA_BORDER_COLOR
+    constexpr DWORD dwm_corner_round = 2;            // DWMWCP_ROUND
+    constexpr DWORD dwm_corner_donotround = 1;       // DWMWCP_DONOTROUND
+    constexpr COLORREF dwm_border_none = 0xFFFFFFFE; // DWMWA_COLOR_NONE
 
-  const bool is_win11 = win_build >= 22000;
-
-  if (is_win11) {
     if (maximized) {
       DwmSetWindowAttribute(m_window_handle, dwm_corner_preference_attr,
                             &dwm_corner_donotround, sizeof(dwm_corner_donotround));
@@ -3203,19 +3182,11 @@ void Win32Window::update_dwm_border_color(bool force) {
     } else {
       DwmSetWindowAttribute(m_window_handle, dwm_corner_preference_attr,
                             &dwm_corner_round, sizeof(dwm_corner_round));
-      // Keep DWM border transparent and draw the outermost border ourselves
-      // via GDI as a single unified path. This guarantees top corners are
-      // fully connected (RoundRect) and respects per-OS shape (rounded on
-      // Win11). Window shape/shadow still handled by DWM via corner pref.
+      const COLORREF border_color =
+          focused ? RGB(68, 71, 78) : RGB(45, 47, 52);
       DwmSetWindowAttribute(m_window_handle, dwm_border_color_attr,
-                            &dwm_border_none, sizeof(dwm_border_none));
+                            &border_color, sizeof(border_color));
     }
-  } else {
-    // Windows 10 and below: sharp/lancip total - no rounding at all.
-    DwmSetWindowAttribute(m_window_handle, dwm_corner_preference_attr,
-                          &dwm_corner_donotround, sizeof(dwm_corner_donotround));
-    DwmSetWindowAttribute(m_window_handle, dwm_border_color_attr,
-                          &dwm_border_none, sizeof(dwm_border_none));
   }
 
   if (m_custom_chrome_enabled) {
