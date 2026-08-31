@@ -320,6 +320,12 @@ bool TextEditor::open_file(const std::filesystem::path& path)
         m_hovered_tab_close_index.reset();
         m_hovered_fold_line.reset();
 
+        const bool is_media = UI::Editor::is_video_file(path) || UI::Editor::is_audio_file(path) || UI::Editor::is_image_file(path);
+        if (is_media)
+        {
+            m_media_preview_mode = true;
+        }
+
         if (const auto* doc = m_controller.get_active_document(); doc != nullptr)
         {
             const std::string uri = get_active_document_uri();
@@ -345,8 +351,20 @@ bool TextEditor::open_file(const std::filesystem::path& path)
                 const_cast<UI::Editor::TextDocumentModel*>(doc)->set_diagnostics(std::move(diags));
             }
         }
+        if (is_media_active())
+        {
+            m_media_preview_mode = true;
+        }
     }
     return opened;
+}
+
+bool TextEditor::is_media_active() const noexcept
+{
+    const auto* doc = m_controller.get_active_document();
+    if (doc == nullptr) return false;
+    const std::filesystem::path p = std::string(doc->get_file_name());
+    return UI::Editor::is_video_file(p) || UI::Editor::is_audio_file(p) || UI::Editor::is_image_file(p);
 }
 
 bool TextEditor::open_file_at_location(const std::filesystem::path& path, std::size_t line, std::size_t column)
@@ -437,6 +455,10 @@ bool TextEditor::select_all_occurrences()
 
 bool TextEditor::close_file(const std::filesystem::path& path)
 {
+    if (m_media_player_view.current_path() == path)
+    {
+        m_media_player_view.close();
+    }
     const auto docs = m_controller.get_documents();
     for (std::size_t i = 0; i < docs.size(); ++i)
     {
@@ -450,6 +472,7 @@ bool TextEditor::close_file(const std::filesystem::path& path)
 
 bool TextEditor::close_all_files()
 {
+    m_media_player_view.close();
     m_split_document_index.reset();
     m_is_split = false;
     m_is_resizing_split = false;
@@ -762,18 +785,34 @@ void TextEditor::draw_editor_header(
     {
         m_split_close_btn_bounds = UI::Rect{};
 
-        // Right side: The 4 Action Buttons aligned to the right of header_bounds
+        // Right side: Action Buttons aligned to the right of header_bounds
         const float actions_right = header_bounds.right() - 4.0F * scale;
-        m_tab_action_bounds[3] = UI::Rect{actions_right - 1.0F * button_w, button_y, button_w, button_h};
-        m_tab_action_bounds[2] = UI::Rect{actions_right - 2.0F * button_w - 2.0F * scale, button_y, button_w, button_h};
-        m_tab_action_bounds[1] = UI::Rect{actions_right - 3.0F * button_w - 4.0F * scale, button_y, button_w, button_h};
-        m_tab_action_bounds[0] = UI::Rect{actions_right - 4.0F * button_w - 6.0F * scale, button_y, button_w, button_h};
+        const bool has_media = is_media_active();
+
+        if (has_media)
+        {
+            m_tab_action_bounds[4] = UI::Rect{actions_right - 1.0F * button_w, button_y, button_w, button_h}; // ellipsis
+            m_tab_action_bounds[3] = UI::Rect{actions_right - 2.0F * button_w - 2.0F * scale, button_y, button_w, button_h}; // arrow-right
+            m_tab_action_bounds[2] = UI::Rect{actions_right - 3.0F * button_w - 4.0F * scale, button_y, button_w, button_h}; // arrow-left
+            m_tab_action_bounds[1] = UI::Rect{actions_right - 4.0F * button_w - 6.0F * scale, button_y, button_w, button_h}; // play.svg (media preview toggle)
+            m_tab_action_bounds[0] = UI::Rect{actions_right - 5.0F * button_w - 8.0F * scale, button_y, button_w, button_h}; // split-right
+        }
+        else
+        {
+            m_tab_action_bounds[4] = UI::Rect{actions_right - 1.0F * button_w, button_y, button_w, button_h}; // ellipsis
+            m_tab_action_bounds[3] = UI::Rect{actions_right - 2.0F * button_w - 2.0F * scale, button_y, button_w, button_h}; // arrow-right
+            m_tab_action_bounds[2] = UI::Rect{actions_right - 3.0F * button_w - 4.0F * scale, button_y, button_w, button_h}; // arrow-left
+            m_tab_action_bounds[1] = UI::Rect{};
+            m_tab_action_bounds[0] = UI::Rect{actions_right - 4.0F * button_w - 6.0F * scale, button_y, button_w, button_h}; // split-right
+        }
+
+        const float leftmost_btn_x = has_media ? m_tab_action_bounds[0].x : m_tab_action_bounds[0].x;
 
         // Left side: File title with Icon (Clipped before buttons)
         SaveDC(device_context);
         IntersectClipRect(device_context,
             round_to_int(header_bounds.x), round_to_int(header_bounds.y),
-            round_to_int(m_tab_action_bounds[0].x - 4.0F * scale), round_to_int(header_bounds.bottom()));
+            round_to_int(leftmost_btn_x - 4.0F * scale), round_to_int(header_bounds.bottom()));
 
         const std::string filename{document->get_file_name()};
         const std::string icon_asset = UI::Editor::file_icon_asset_for_path(std::filesystem::path{filename});
@@ -791,24 +830,35 @@ void TextEditor::draw_editor_header(
         RestoreDC(device_context, -1);
     }
 
-    const char* icons[] = {
-        "split-right.svg",
-        "arrow-left.svg",
-        "arrow-right.svg",
-        "ellipsis.svg"
+    const std::string media_icon = (is_media_active() && m_media_preview_mode) ? "file.svg" : "play.svg";
+    const std::string icon_0 = "split-right.svg";
+    const std::string icon_2 = "arrow-left.svg";
+    const std::string icon_3 = "arrow-right.svg";
+    const std::string icon_4 = "ellipsis.svg";
+    const std::string icons[] = {
+        icon_0,
+        media_icon,
+        icon_2,
+        icon_3,
+        icon_4
     };
     const int icon_sizes[] = {
+        std::max(round_to_int(13.0F * scale), 11),
         std::max(round_to_int(13.0F * scale), 11),
         std::max(round_to_int(12.0F * scale), 10),
         std::max(round_to_int(12.0F * scale), 10),
         std::max(round_to_int(13.0F * scale), 11)
     };
 
-    for (std::size_t i = 0; i < 4; ++i)
+    for (std::size_t i = 0; i < 5; ++i)
     {
         const UI::Rect& btn = m_tab_action_bounds[i];
+        if (btn.is_empty()) continue;
+
         const bool is_hovered = (m_hovered_tab_action && *m_hovered_tab_action == i);
-        const bool is_active_menu = (i == 3 && m_tab_action_menu.visible) || (i == 0 && m_is_split);
+        const bool is_active_menu = (i == 4 && m_tab_action_menu.visible) ||
+                                    (i == 0 && m_is_split) ||
+                                    (i == 1 && is_media_active() && m_media_preview_mode);
 
         if (is_active_menu || is_hovered)
         {
@@ -820,9 +870,14 @@ void TextEditor::draw_editor_header(
 
         const int cx = round_to_int(btn.x + btn.width * 0.5F);
         const int cy = round_to_int(btn.y + btn.height * 0.5F);
-        const UI::Theme::Color icon_col = (is_hovered || is_active_menu)
+        UI::Theme::Color icon_col = (is_hovered || is_active_menu)
             ? UI::Theme::Color{255, 255, 255, 255}
             : surface.m_palette.text_muted;
+
+        if (i == 1 && is_media_active() && m_media_preview_mode)
+        {
+            icon_col = surface.m_palette.accent;
+        }
 
         surface.draw_svg_icon(
             device_context, icons[i], cx, cy, icon_sizes[i],
@@ -1373,11 +1428,9 @@ bool TextEditor::handle_pointer_press(
         return true;
     }
 
-
-
-    for (std::size_t i = 0; i < 4; ++i)
+    for (std::size_t i = 0; i < 5; ++i)
     {
-        if (m_tab_action_bounds[i].contains(point_x, point_y))
+        if (!m_tab_action_bounds[i].is_empty() && m_tab_action_bounds[i].contains(point_x, point_y))
         {
             if (i == 0)
             {
@@ -1404,6 +1457,14 @@ bool TextEditor::handle_pointer_press(
             }
             else if (i == 1)
             {
+                if (is_media_active())
+                {
+                    m_media_preview_mode = !m_media_preview_mode;
+                    std::clog << "[ZDE] Media View mode toggled: " << (m_media_preview_mode ? "Media Output Preview" : "Decompiled Hex View") << "\n";
+                }
+            }
+            else if (i == 2)
+            {
                 const auto doc_count = m_controller.get_documents().size();
                 if (doc_count > 1)
                 {
@@ -1415,7 +1476,7 @@ bool TextEditor::handle_pointer_press(
                     m_caret_blink.reset();
                 }
             }
-            else if (i == 2)
+            else if (i == 3)
             {
                 const auto doc_count = m_controller.get_documents().size();
                 if (doc_count > 1)
@@ -1428,7 +1489,7 @@ bool TextEditor::handle_pointer_press(
                     m_caret_blink.reset();
                 }
             }
-            else if (i == 3)
+            else if (i == 4)
             {
                 const_cast<TextEditor*>(this)->show_tab_action_menu(layout);
             }
@@ -1521,6 +1582,10 @@ bool TextEditor::handle_pointer_press(
                     m_scrollbar.reset();
                     m_reveal_caret_pending = true;
                     m_caret_blink.reset();
+                    if (is_media_active())
+                    {
+                        m_media_preview_mode = true;
+                    }
 
                     if (const auto* doc = m_controller.get_active_document(); doc != nullptr)
                     {
@@ -1552,6 +1617,38 @@ bool TextEditor::handle_pointer_press(
     const float scale = surface.m_dpi_scale;
     const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
     const float splitter_x = layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) * m_split_ratio;
+
+    const UI::Rect left_pane = is_split_active
+        ? UI::Rect{layout.editor_bounds.x, layout.editor_bounds.y, splitter_x - layout.editor_bounds.x, layout.editor_bounds.height}
+        : layout.editor_bounds;
+    const UI::Rect right_pane{splitter_x + 2.0F * scale, layout.editor_bounds.y, std::max(layout.editor_bounds.right() - (splitter_x + 2.0F * scale), 0.0F), layout.editor_bounds.height};
+
+    const auto* left_doc = m_controller.get_active_document();
+    const bool left_is_media = left_doc && (UI::Editor::is_video_file(std::string(left_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(left_doc->get_file_name())) || UI::Editor::is_image_file(std::string(left_doc->get_file_name())));
+
+    const auto* right_doc = is_split_active ? m_controller.get_document(*m_split_document_index) : nullptr;
+    const bool right_is_media = right_doc && (UI::Editor::is_video_file(std::string(right_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(right_doc->get_file_name())) || UI::Editor::is_image_file(std::string(right_doc->get_file_name())));
+
+    if (left_is_media && m_media_preview_mode && left_pane.contains(point_x, point_y))
+    {
+        m_focused = true;
+        m_focused_pane = SplitPaneFocus::Left;
+        if (m_media_player_view.handle_mouse_down(point_x, point_y, left_pane, surface.m_dpi_scale))
+        {
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+    }
+    else if (right_is_media && m_media_preview_mode && is_split_active && right_pane.contains(point_x, point_y))
+    {
+        m_focused = true;
+        m_focused_pane = SplitPaneFocus::Right;
+        if (m_media_player_view.handle_mouse_down(point_x, point_y, right_pane, surface.m_dpi_scale))
+        {
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+    }
 
     if (is_split_active)
     {
@@ -1915,6 +2012,39 @@ bool TextEditor::handle_pointer_move(
     const bool scrollbar_changed = m_scrollbar.set_hovered(layout, point_x, point_y);
     
     UI::Editor::TextDocumentModel* document = m_controller.get_active_document();
+    const float scale = layout.dpi_scale;
+    const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
+    const float splitter_x = layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) * m_split_ratio;
+
+    const UI::Rect left_pane = is_split_active
+        ? UI::Rect{layout.editor_bounds.x, layout.editor_bounds.y, splitter_x - layout.editor_bounds.x, layout.editor_bounds.height}
+        : layout.editor_bounds;
+    const UI::Rect right_pane{splitter_x + 2.0F * scale, layout.editor_bounds.y, std::max(layout.editor_bounds.right() - (splitter_x + 2.0F * scale), 0.0F), layout.editor_bounds.height};
+
+    const auto* left_doc = m_controller.get_active_document();
+    const bool left_is_media = left_doc && (UI::Editor::is_video_file(std::string(left_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(left_doc->get_file_name())) || UI::Editor::is_image_file(std::string(left_doc->get_file_name())));
+
+    const auto* right_doc = is_split_active ? m_controller.get_document(*m_split_document_index) : nullptr;
+    const bool right_is_media = right_doc && (UI::Editor::is_video_file(std::string(right_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(right_doc->get_file_name())) || UI::Editor::is_image_file(std::string(right_doc->get_file_name())));
+
+    if (left_is_media && m_media_preview_mode && left_pane.contains(point_x, point_y))
+    {
+        const bool media_changed = m_media_player_view.handle_mouse_move(point_x, point_y, left_pane, layout.dpi_scale);
+        if (media_changed)
+        {
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+    }
+    else if (right_is_media && m_media_preview_mode && is_split_active && right_pane.contains(point_x, point_y))
+    {
+        const bool media_changed = m_media_player_view.handle_mouse_move(point_x, point_y, right_pane, layout.dpi_scale);
+        if (media_changed)
+        {
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+    }
     if (document == nullptr)
     {
         bool changed = false;
@@ -2027,19 +2157,19 @@ bool TextEditor::handle_pointer_move(
         }
     }
 
-    std::optional<std::size_t> next_tab_action;
-    for (std::size_t i = 0; i < 4; ++i)
+    std::optional<std::size_t> hovered_tab_action;
+    for (std::size_t i = 0; i < 5; ++i)
     {
-        if (m_tab_action_bounds[i].contains(point_x, point_y))
+        if (!m_tab_action_bounds[i].is_empty() && m_tab_action_bounds[i].contains(point_x, point_y))
         {
-            next_tab_action = i;
+            hovered_tab_action = i;
             break;
         }
     }
-    if (next_tab_action != m_hovered_tab_action)
+    if (hovered_tab_action != m_hovered_tab_action)
     {
-        m_hovered_tab_action = next_tab_action;
-        action_menu_changed = true;
+        m_hovered_tab_action = hovered_tab_action;
+        changed = true;
     }
 
     bool split_close_hover = m_is_split && m_split_close_btn_bounds.contains(point_x, point_y);
@@ -2625,6 +2755,11 @@ bool TextEditor::handle_pointer_drag(
 
 bool TextEditor::handle_pointer_release() noexcept
 {
+    if (is_media_active() && m_media_preview_mode)
+    {
+        m_media_player_view.handle_mouse_up(0.0F, 0.0F, UI::Rect{}, 1.0F);
+    }
+
     m_pointer_selecting = false;
     m_is_drag_selecting = false;
     m_has_drag_select_pos = false;
@@ -2713,6 +2848,44 @@ bool TextEditor::handle_scroll(
         return false;
     }
 
+    const float scale = layout.dpi_scale;
+    const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
+    const float splitter_x = layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) * m_split_ratio;
+
+    const UI::Rect left_pane = is_split_active
+        ? UI::Rect{layout.editor_bounds.x, layout.editor_bounds.y, splitter_x - layout.editor_bounds.x, layout.editor_bounds.height}
+        : layout.editor_bounds;
+    const UI::Rect right_pane{splitter_x + 2.0F * scale, layout.editor_bounds.y, std::max(layout.editor_bounds.right() - (splitter_x + 2.0F * scale), 0.0F), layout.editor_bounds.height};
+
+    const auto* left_doc = m_controller.get_active_document();
+    const bool left_is_media = left_doc && (UI::Editor::is_video_file(std::string(left_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(left_doc->get_file_name())) || UI::Editor::is_image_file(std::string(left_doc->get_file_name())));
+
+    const auto* right_doc = is_split_active ? m_controller.get_document(*m_split_document_index) : nullptr;
+    const bool right_is_media = right_doc && (UI::Editor::is_video_file(std::string(right_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(right_doc->get_file_name())) || UI::Editor::is_image_file(std::string(right_doc->get_file_name())));
+
+    if (left_is_media && m_media_preview_mode && left_pane.contains(event.point_x, event.point_y))
+    {
+        if (event.delta_y != 0)
+        {
+            const float new_vol = std::clamp(m_media_player_view.volume() + (event.delta_y > 0 ? 0.05f : -0.05f), 0.0f, 1.0f);
+            m_media_player_view.set_volume(new_vol);
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+        return false;
+    }
+    else if (right_is_media && m_media_preview_mode && is_split_active && right_pane.contains(event.point_x, event.point_y))
+    {
+        if (event.delta_y != 0)
+        {
+            const float new_vol = std::clamp(m_media_player_view.volume() + (event.delta_y > 0 ? 0.05f : -0.05f), 0.0f, 1.0f);
+            m_media_player_view.set_volume(new_vol);
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+        return false;
+    }
+
     // Horizontal scroll in editor area
     if (event.delta_x != 0)
     {
@@ -2780,6 +2953,34 @@ bool TextEditor::handle_input(
     UI::Editor::EditorInputCommand command,
     bool extend_selection)
 {
+    if (is_media_active() && m_media_preview_mode)
+    {
+        if (command == UI::Editor::EditorInputCommand::MoveLeft)
+        {
+            m_media_player_view.seek_relative(-5.0);
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+        if (command == UI::Editor::EditorInputCommand::MoveRight)
+        {
+            m_media_player_view.seek_relative(5.0);
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+        if (command == UI::Editor::EditorInputCommand::MoveUp)
+        {
+            m_media_player_view.set_volume(m_media_player_view.volume() + 0.1f);
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+        if (command == UI::Editor::EditorInputCommand::MoveDown)
+        {
+            m_media_player_view.set_volume(m_media_player_view.volume() - 0.1f);
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+    }
+
     {
         std::lock_guard<std::mutex> lock(m_lsp_mutex);
         if (m_completion_popup.is_visible())
@@ -3283,6 +3484,23 @@ bool TextEditor::handle_text_input(std::string_view utf8_text)
     if (!m_focused)
     {
         return false;
+    }
+
+    if (is_media_active() && m_media_preview_mode)
+    {
+        if (utf8_text == " ")
+        {
+            m_media_player_view.toggle_play_pause();
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+        if (utf8_text == "m" || utf8_text == "M")
+        {
+            m_media_player_view.toggle_mute();
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+        return true;
     }
 
     auto* doc = get_focused_document();
@@ -3940,6 +4158,12 @@ bool TextEditor::tick_animations() noexcept
     {
         m_split_brace_animation.clear();
     }
+
+    if (m_media_player_view.is_playing())
+    {
+        m_media_player_view.update();
+        animating = true;
+    }
     
     return needs_redraw || animating;
 }
@@ -3964,55 +4188,63 @@ void TextEditor::render(
         return;
     }
     draw_document(surface, device_context, layout);
-    if (!m_is_split)
+
+    const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
+    const auto* left_doc = m_controller.get_active_document();
+    const bool left_is_media = left_doc && (UI::Editor::is_video_file(std::string(left_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(left_doc->get_file_name())) || UI::Editor::is_image_file(std::string(left_doc->get_file_name())));
+
+    if (!is_split_active)
     {
-        m_scrollbar.render(surface, device_context, layout);
-
-        // Render Scrollbar Error / Warning Stripes (Overview Ruler)
-        if (const UI::Editor::TextDocumentModel* document = m_controller.get_active_document())
+        if (!(left_is_media && m_media_preview_mode))
         {
-            const std::size_t total_lines = document->get_line_count();
-            if (total_lines > 0)
+            m_scrollbar.render(surface, device_context, layout);
+
+            // Render Scrollbar Error / Warning Stripes (Overview Ruler)
+            if (left_doc)
             {
-                const float track_x = layout.scrollbar_bounds.x;
-                const float track_y = layout.scrollbar_bounds.y;
-                const float track_w = layout.scrollbar_bounds.width;
-                const float track_h = layout.scrollbar_bounds.height;
-
-                for (std::size_t line_idx = 0; line_idx < total_lines; ++line_idx)
+                const std::size_t total_lines = left_doc->get_line_count();
+                if (total_lines > 0)
                 {
-                    const auto diags = document->get_diagnostics_for_line(line_idx);
-                    if (diags.empty()) continue;
+                    const float track_x = layout.scrollbar_bounds.x;
+                    const float track_y = layout.scrollbar_bounds.y;
+                    const float track_w = layout.scrollbar_bounds.width;
+                    const float track_h = layout.scrollbar_bounds.height;
 
-                    bool has_err = false;
-                    bool has_warn = false;
-                    for (const auto& d : diags)
+                    for (std::size_t line_idx = 0; line_idx < total_lines; ++line_idx)
                     {
-                        if (d.severity == Language::Protocol::DiagnosticSeverity::Error) has_err = true;
-                        else if (d.severity == Language::Protocol::DiagnosticSeverity::Warning) has_warn = true;
+                        const auto diags = left_doc->get_diagnostics_for_line(line_idx);
+                        if (diags.empty()) continue;
+
+                        bool has_err = false;
+                        bool has_warn = false;
+                        for (const auto& d : diags)
+                        {
+                            if (d.severity == Language::Protocol::DiagnosticSeverity::Error) has_err = true;
+                            else if (d.severity == Language::Protocol::DiagnosticSeverity::Warning) has_warn = true;
+                        }
+
+                        const float stripe_y = track_y + (static_cast<float>(line_idx) / static_cast<float>(total_lines)) * track_h;
+                        const UI::Theme::Color stripe_color = has_err
+                            ? UI::Theme::Color{247, 84, 100, 255}
+                            : (has_warn ? UI::Theme::Color{240, 167, 50, 255} : UI::Theme::Color{86, 182, 194, 255});
+
+                        surface.fill_rectangle(device_context,
+                            UI::Rect{track_x + 1.0F, stripe_y, track_w - 2.0F, std::max(2.5F * surface.m_dpi_scale, 2.0F)},
+                            stripe_color);
                     }
-
-                    const float stripe_y = track_y + (static_cast<float>(line_idx) / static_cast<float>(total_lines)) * track_h;
-                    const UI::Theme::Color stripe_color = has_err
-                        ? UI::Theme::Color{247, 84, 100, 255}
-                        : (has_warn ? UI::Theme::Color{240, 167, 50, 255} : UI::Theme::Color{86, 182, 194, 255});
-
-                    surface.fill_rectangle(device_context,
-                        UI::Rect{track_x + 1.0F, stripe_y, track_w - 2.0F, std::max(2.5F * surface.m_dpi_scale, 2.0F)},
-                        stripe_color);
                 }
-            }
 
-            const float line_height = 20.0F * surface.m_dpi_scale;
-            const std::size_t visible_count = static_cast<std::size_t>(std::max(
-                static_cast<int>(layout.editor_bounds.height / line_height), 1));
-            m_minimap.render(
-                surface,
-                device_context,
-                layout,
-                *document,
-                m_scrollbar.get_first_visible_line(),
-                visible_count);
+                const float line_height = 20.0F * surface.m_dpi_scale;
+                const std::size_t visible_count = static_cast<std::size_t>(std::max(
+                    static_cast<int>(layout.editor_bounds.height / line_height), 1));
+                m_minimap.render(
+                    surface,
+                    device_context,
+                    layout,
+                    *left_doc,
+                    m_scrollbar.get_first_visible_line(),
+                    visible_count);
+            }
         }
     }
     else if (m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size())
@@ -4023,7 +4255,7 @@ void TextEditor::render(
             static_cast<int>(layout.editor_bounds.height / line_height), 1));
         const float splitter_x = layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) * m_split_ratio;
 
-        // --- Left Pane Minimap & Scrollbar ---
+        // --- Left Pane Minimap & Scrollbar (only if not media preview) ---
         const float scroll_top_y = layout.editor_bounds.y;
         const float scroll_total_h = layout.editor_bounds.height;
         const float scrollbar_w = FIXED_SCROLLBAR_WIDTH * scale;
@@ -4036,7 +4268,7 @@ void TextEditor::render(
         left_layout.minimap_bounds = left_minimap;
         left_layout.scrollbar_bounds = left_scrollbar;
 
-        if (const UI::Editor::TextDocumentModel* left_doc = m_controller.get_active_document())
+        if (left_doc != nullptr && !(left_is_media && m_media_preview_mode))
         {
             m_scrollbar.render(surface, device_context, left_layout);
 
@@ -4048,7 +4280,7 @@ void TextEditor::render(
             }
         }
 
-        // --- Right Pane Minimap & Scrollbar ---
+        // --- Right Pane Minimap & Scrollbar (only if not media preview) ---
         const UI::Rect right_bounds{splitter_x + 2.0F * scale, scroll_top_y, layout.editor_bounds.right() - (splitter_x + 2.0F * scale), scroll_total_h};
         const float right_minimap_w = (right_bounds.width >= MIN_PANE_WIDTH_FOR_MINIMAP * scale) ? (FIXED_MINIMAP_WIDTH * scale) : 0.0F;
         const UI::Rect right_scrollbar{right_bounds.right() - scrollbar_w, scroll_top_y, scrollbar_w, scroll_total_h};
@@ -4060,54 +4292,58 @@ void TextEditor::render(
 
         if (const UI::Editor::TextDocumentModel* right_doc = m_controller.get_document(*m_split_document_index))
         {
-            m_split_scrollbar.render(surface, device_context, right_layout);
-
-            // Right Overview Ruler
-            const std::size_t total_lines = right_doc->get_line_count();
-            if (total_lines > 0)
+            const bool right_is_media = UI::Editor::is_video_file(std::string(right_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(right_doc->get_file_name())) || UI::Editor::is_image_file(std::string(right_doc->get_file_name()));
+            if (!(right_is_media && m_media_preview_mode))
             {
-                for (std::size_t line_idx = 0; line_idx < total_lines; ++line_idx)
+                m_split_scrollbar.render(surface, device_context, right_layout);
+
+                // Right Overview Ruler
+                const std::size_t total_lines = right_doc->get_line_count();
+                if (total_lines > 0)
                 {
-                    const auto diags = right_doc->get_diagnostics_for_line(line_idx);
-                    if (diags.empty()) continue;
-                    bool has_err = false;
-                    bool has_warn = false;
-                    for (const auto& d : diags)
+                    for (std::size_t line_idx = 0; line_idx < total_lines; ++line_idx)
                     {
-                        if (d.severity == Language::Protocol::DiagnosticSeverity::Error) has_err = true;
-                        else if (d.severity == Language::Protocol::DiagnosticSeverity::Warning) has_warn = true;
+                        const auto diags = right_doc->get_diagnostics_for_line(line_idx);
+                        if (diags.empty()) continue;
+                        bool has_err = false;
+                        bool has_warn = false;
+                        for (const auto& d : diags)
+                        {
+                            if (d.severity == Language::Protocol::DiagnosticSeverity::Error) has_err = true;
+                            else if (d.severity == Language::Protocol::DiagnosticSeverity::Warning) has_warn = true;
+                        }
+                        const float stripe_y = right_scrollbar.y + (static_cast<float>(line_idx) / static_cast<float>(total_lines)) * right_scrollbar.height;
+                        const UI::Theme::Color stripe_color = has_err
+                            ? UI::Theme::Color{247, 84, 100, 255}
+                            : (has_warn ? UI::Theme::Color{240, 167, 50, 255} : UI::Theme::Color{86, 182, 194, 255});
+                        surface.fill_rectangle(device_context,
+                            UI::Rect{right_scrollbar.x + 1.0F, stripe_y, right_scrollbar.width - 2.0F, std::max(2.5F * scale, 2.0F)},
+                            stripe_color);
                     }
-                    const float stripe_y = right_scrollbar.y + (static_cast<float>(line_idx) / static_cast<float>(total_lines)) * right_scrollbar.height;
-                    const UI::Theme::Color stripe_color = has_err
-                        ? UI::Theme::Color{247, 84, 100, 255}
-                        : (has_warn ? UI::Theme::Color{240, 167, 50, 255} : UI::Theme::Color{86, 182, 194, 255});
-                    surface.fill_rectangle(device_context,
-                        UI::Rect{right_scrollbar.x + 1.0F, stripe_y, right_scrollbar.width - 2.0F, std::max(2.5F * scale, 2.0F)},
-                        stripe_color);
+                }
+
+                if (!right_minimap.is_empty())
+                {
+                    m_split_minimap.render(
+                        surface, device_context, right_layout, *right_doc,
+                        m_split_scrollbar.get_first_visible_line(), visible_count);
                 }
             }
-
-            if (!right_minimap.is_empty())
-            {
-                m_split_minimap.render(
-                    surface, device_context, right_layout, *right_doc,
-                    m_split_scrollbar.get_first_visible_line(), visible_count);
-            }
-
-            // Draw continuous split divider line on TOP of minimap and scrollbar (full height from tab bar to editor bottom)
-            const bool split_highlight = m_is_resizing_split || m_hovered_split_resize;
-            const UI::Theme::Color divider_col = split_highlight
-                ? surface.m_palette.accent
-                : surface.m_palette.border;
-            const float divider_top_y = (!layout.editor_header_bounds.is_empty() && layout.editor_header_bounds.height > 2.0F)
-                ? layout.editor_header_bounds.y
-                : layout.tab_bar_bounds.y;
-            const float divider_total_h = layout.editor_bounds.bottom() - divider_top_y;
-            surface.fill_rectangle(
-                device_context,
-                UI::Rect{splitter_x, divider_top_y, 2.0F * scale, divider_total_h},
-                divider_col);
         }
+
+        // Draw continuous split divider line on TOP of minimap and scrollbar (full height from tab bar to editor bottom)
+        const bool split_highlight = m_is_resizing_split || m_hovered_split_resize;
+        const UI::Theme::Color divider_col = split_highlight
+            ? surface.m_palette.accent
+            : surface.m_palette.border;
+        const float divider_top_y = (!layout.editor_header_bounds.is_empty() && layout.editor_header_bounds.height > 2.0F)
+            ? layout.editor_header_bounds.y
+            : layout.tab_bar_bounds.y;
+        const float divider_total_h = layout.editor_bounds.bottom() - divider_top_y;
+        surface.fill_rectangle(
+            device_context,
+            UI::Rect{splitter_x, divider_top_y, 2.0F * scale, divider_total_h},
+            divider_col);
     }
 }
 
@@ -4248,12 +4484,26 @@ void TextEditor::draw_tab_strip(
                     surface.m_palette.text_primary,
                     surface.m_palette.tab_background,
                     true);
+                const float label_x = bounds.x + UI::Editor::StudioEditorMetrics::editor_tab_label_offset *
+                    surface.m_dpi_scale;
+                const float max_label_width = bounds.right() - label_x -
+                    (UI::Editor::StudioEditorMetrics::editor_tab_close_width + 4.0F) * surface.m_dpi_scale;
+
+                std::string display_name = std::string(document.get_file_name());
+                if (max_label_width > 0.0F && surface.get_text_width(device_context, *surface.m_ui_font, display_name) > max_label_width)
+                {
+                    while (!display_name.empty() && surface.get_text_width(device_context, *surface.m_ui_font, display_name + "...") > max_label_width)
+                    {
+                        display_name.pop_back();
+                    }
+                    display_name += "...";
+                }
+
                 surface.draw_text(
                     device_context,
                     *surface.m_ui_font,
-                    document.get_file_name(),
-                    bounds.x + UI::Editor::StudioEditorMetrics::editor_tab_label_offset *
-                        surface.m_dpi_scale,
+                    display_name,
+                    label_x,
                     bounds.y + bounds.height * 0.5F,
                     active ? surface.m_palette.text_primary : surface.m_palette.text_muted);
                 const float close_cx = bounds.right() - UI::Editor::StudioEditorMetrics::editor_tab_close_width * 0.5F * surface.m_dpi_scale;
@@ -4344,6 +4594,268 @@ void TextEditor::draw_tab_strip(
     }
 }
 
+void TextEditor::draw_media_pane(
+    const StudioWorkspaceRenderer& surface,
+    HDC device_context,
+    const UI::Rect& pane_bounds,
+    const std::filesystem::path& doc_path) const
+{
+    if (pane_bounds.is_empty() || pane_bounds.width <= 4.0F || pane_bounds.height <= 4.0F)
+    {
+        return;
+    }
+
+    if (m_media_player_view.current_path() != doc_path)
+    {
+        const_cast<TextEditor*>(this)->m_media_player_view.open(doc_path);
+    }
+
+    const_cast<TextEditor*>(this)->m_media_player_view.update();
+    const float scale = surface.m_dpi_scale;
+
+    // 1. Fill entire pane seamlessly with editor background
+    surface.fill_rectangle(device_context, pane_bounds, surface.m_palette.editor_background);
+
+    const bool is_audio = UI::Editor::is_audio_file(doc_path);
+
+    if (is_audio)
+    {
+        // =========================================================================
+        // Centered Audio Player (Directly Centered in Text Editor Area, No Box Wrapper)
+        // =========================================================================
+        const float center_x = pane_bounds.x + pane_bounds.width * 0.5F;
+        const float center_y = pane_bounds.y + pane_bounds.height * 0.45F;
+
+        // Centered Music Icon Pill
+        const float icon_sz = 64.0F * scale;
+        const UI::Rect icon_rect{center_x - icon_sz * 0.5F, center_y - 90.0F * scale, icon_sz, icon_sz};
+        surface.fill_rounded_rectangle(device_context, icon_rect, surface.m_palette.accent, 16.0F * scale);
+        if (surface.m_large_font)
+        {
+            const int note_w = surface.m_large_font->getTextWidth(device_context, "♪");
+            surface.draw_text(device_context, *surface.m_large_font, "♪", center_x - static_cast<float>(note_w) * 0.5F, icon_rect.y + icon_sz * 0.5F, UI::Theme::Color{255, 255, 255, 255});
+        }
+
+        // Centered Title
+        const std::string filename_str = doc_path.filename().string();
+        if (surface.m_large_font)
+        {
+            const int title_w = surface.m_large_font->getTextWidth(device_context, filename_str);
+            surface.draw_text(device_context, *surface.m_large_font, filename_str, center_x - static_cast<float>(title_w) * 0.5F, center_y + 10.0F * scale, surface.m_palette.text_primary);
+        }
+        else if (surface.m_ui_font)
+        {
+            const int title_w = surface.m_ui_font->getTextWidth(device_context, filename_str);
+            surface.draw_text(device_context, *surface.m_ui_font, filename_str, center_x - static_cast<float>(title_w) * 0.5F, center_y + 10.0F * scale, surface.m_palette.text_primary);
+        }
+
+        // Centered Info
+        const std::string ext_str = doc_path.extension().string();
+        const std::string audio_info = "Audio Stream • " + (ext_str.empty() ? "Audio" : ext_str.substr(1)) + " • " + m_media_player_view.format_time_display();
+        if (surface.m_small_font)
+        {
+            const int info_w = surface.m_small_font->getTextWidth(device_context, audio_info);
+            surface.draw_text(device_context, *surface.m_small_font, audio_info, center_x - static_cast<float>(info_w) * 0.5F, center_y + 36.0F * scale, surface.m_palette.text_muted);
+        }
+
+        // Centered Scrubber Track
+        const float max_track_w = std::min(460.0F * scale, pane_bounds.width - 40.0F * scale);
+        const float track_x = center_x - max_track_w * 0.5F;
+        const float track_w = max_track_w;
+        const float track_h = 4.0F * scale;
+        const float track_y = center_y + 70.0F * scale;
+        const UI::Rect track_rect{track_x, track_y, track_w, track_h};
+        surface.fill_rounded_rectangle(device_context, track_rect, UI::Theme::Color{65, 70, 85, 220}, 2.0F * scale);
+
+        const float progress = m_media_player_view.progress_ratio();
+        if (progress > 0.0F)
+        {
+            const UI::Rect prog_rect{track_rect.x, track_rect.y, track_rect.width * progress, track_h};
+            surface.fill_rounded_rectangle(device_context, prog_rect, surface.m_palette.accent, 2.0F * scale);
+
+            const float knob_x = track_rect.x + track_rect.width * progress;
+            const float knob_y = track_y + track_h * 0.5F;
+            const float knob_r = (m_media_player_view.is_scrubber_hovered() || m_media_player_view.is_scrubbing()) ? (6.0F * scale) : (4.5F * scale);
+            const UI::Rect knob_rect{knob_x - knob_r, knob_y - knob_r, knob_r * 2.0F, knob_r * 2.0F};
+            surface.fill_rounded_rectangle(device_context, knob_rect, UI::Theme::Color{255, 255, 255, 255}, knob_r);
+        }
+
+        // Centered Controls Row
+        const float ctrl_y = center_y + 95.0F * scale;
+        const float play_btn_sz = 36.0F * scale;
+        const UI::Rect play_btn{center_x - play_btn_sz * 0.5F, ctrl_y, play_btn_sz, play_btn_sz};
+        if (m_media_player_view.is_play_hovered())
+        {
+            surface.fill_rounded_rectangle(device_context, play_btn, UI::Theme::Color{255, 255, 255, 30}, 8.0F * scale);
+        }
+        else
+        {
+            surface.fill_rounded_rectangle(device_context, play_btn, UI::Theme::Color{255, 255, 255, 15}, 8.0F * scale);
+        }
+        const std::string play_icon = m_media_player_view.is_playing() ? "||" : ">";
+        if (surface.m_ui_font)
+        {
+            surface.draw_text(device_context, *surface.m_ui_font, play_icon, play_btn.x + 11.0F * scale, play_btn.y + play_btn.height * 0.5F, UI::Theme::Color{255, 255, 255, 255});
+        }
+
+        const std::string time_text = m_media_player_view.format_time_display();
+        if (surface.m_small_font)
+        {
+            surface.draw_text(device_context, *surface.m_small_font, time_text, track_x, ctrl_y + play_btn_sz * 0.5F, UI::Theme::Color{255, 255, 255, 240});
+        }
+
+        // Volume Capsule on the right
+        const float vol_w = std::min(90.0F * scale, max_track_w * 0.3F);
+        const float vol_h = 24.0F * scale;
+        const UI::Rect vol_rect{track_x + track_w - vol_w, ctrl_y + (play_btn_sz - vol_h) * 0.5F, vol_w, vol_h};
+        surface.fill_rounded_rectangle(device_context, vol_rect, UI::Theme::Color{35, 40, 52, 220}, 10.0F * scale);
+        if (surface.m_small_font)
+        {
+            const std::string vol_icon = m_media_player_view.is_muted() ? "x" : "v";
+            surface.draw_text(device_context, *surface.m_small_font, vol_icon, vol_rect.x + 7.0F * scale, vol_rect.y + vol_rect.height * 0.5F, UI::Theme::Color{255, 255, 255, 220});
+        }
+        const float vol_track_x = vol_rect.x + 20.0F * scale;
+        const float vol_track_w = vol_rect.width - 28.0F * scale;
+        const float vol_track_h = 3.0F * scale;
+        const UI::Rect vol_track{vol_track_x, vol_rect.y + (vol_rect.height - vol_track_h) * 0.5F, vol_track_w, vol_track_h};
+        surface.fill_rounded_rectangle(device_context, vol_track, UI::Theme::Color{90, 95, 110, 200}, 1.5F * scale);
+        const float vol_val = m_media_player_view.is_muted() ? 0.0F : m_media_player_view.volume();
+        const UI::Rect vol_fill{vol_track.x, vol_track.y, vol_track.width * vol_val, vol_track_h};
+        surface.fill_rounded_rectangle(device_context, vol_fill, UI::Theme::Color{255, 255, 255, 255}, 1.5F * scale);
+
+        return;
+    }
+
+    // =========================================================================
+    // Centered Video Canvas (Fills Editor Seamlessly, Aspect-Ratio Preserved)
+    // =========================================================================
+    const UI::Rect canvas_rect = m_media_player_view.calculate_video_canvas_bounds(pane_bounds);
+
+    // Render video frame via StretchDIBits
+    const auto* frame = m_media_player_view.current_frame();
+    if (frame != nullptr && !frame->data.empty() && frame->width > 0 && frame->height > 0)
+    {
+        BITMAPINFO bmi{};
+        bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+        bmi.bmiHeader.biWidth = frame->width;
+        bmi.bmiHeader.biHeight = -frame->height; // top-down
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB;
+
+        SaveDC(device_context);
+        IntersectClipRect(
+            device_context,
+            round_to_int(pane_bounds.x),
+            round_to_int(pane_bounds.y),
+            round_to_int(pane_bounds.right()),
+            round_to_int(pane_bounds.bottom()));
+
+        StretchDIBits(
+            device_context,
+            round_to_int(canvas_rect.x),
+            round_to_int(canvas_rect.y),
+            round_to_int(canvas_rect.width),
+            round_to_int(canvas_rect.height),
+            0, 0,
+            frame->width, frame->height,
+            frame->data.data(),
+            &bmi,
+            DIB_RGB_COLORS,
+            SRCCOPY);
+
+        RestoreDC(device_context, -1);
+    }
+    else
+    {
+        // Centered stream status text
+        if (surface.m_ui_font)
+        {
+            const std::string badge = m_media_player_view.is_open() ? "ZDE Media Stream Loading..." : "Opening stream...";
+            const int badge_w = surface.m_ui_font->getTextWidth(device_context, badge);
+            surface.draw_text(device_context, *surface.m_ui_font, badge, pane_bounds.x + (pane_bounds.width - static_cast<float>(badge_w)) * 0.5F, pane_bounds.y + pane_bounds.height * 0.45F, surface.m_palette.text_muted);
+        }
+    }
+
+    // Render Browser HTML5-Style Minimalist Floating Bottom HUD Overlay docked to video pane
+    const UI::Rect hud = m_media_player_view.calculate_hud_bounds(pane_bounds, scale);
+    
+    // Full width sleek dark transparent gradient background at bottom edge of video
+    surface.fill_rectangle(device_context, hud, UI::Theme::Color{10, 12, 16, 210});
+
+    // Play / Pause Button (▶ / ❚❚)
+    const UI::Rect play_btn = m_media_player_view.calculate_play_button_bounds(hud, scale);
+    if (m_media_player_view.is_play_hovered())
+    {
+        surface.fill_rounded_rectangle(device_context, play_btn, UI::Theme::Color{255, 255, 255, 30}, 4.0F * scale);
+    }
+    const std::string play_icon = m_media_player_view.is_playing() ? "||" : ">";
+    if (surface.m_ui_font)
+    {
+        surface.draw_text(device_context, *surface.m_ui_font, play_icon, play_btn.x + 8.0F * scale, play_btn.y + play_btn.height * 0.5F, UI::Theme::Color{255, 255, 255, 255});
+    }
+
+    // Time Display ("0:00 / 0:47")
+    const std::string time_text = m_media_player_view.format_time_display();
+    if (surface.m_small_font && hud.width >= 340.0F * scale)
+    {
+        surface.draw_text(device_context, *surface.m_small_font, time_text, play_btn.right() + 8.0F * scale, hud.y + hud.height * 0.5F, UI::Theme::Color{255, 255, 255, 240});
+    }
+
+    // Scrubber Track & Progress across the center
+    const UI::Rect scrubber = m_media_player_view.calculate_scrubber_bounds(hud, scale);
+    const float track_h = 3.5F * scale;
+    const float track_y = scrubber.y + (scrubber.height - track_h) * 0.5F;
+    const UI::Rect track_rect{scrubber.x, track_y, scrubber.width, track_h};
+    surface.fill_rounded_rectangle(device_context, track_rect, UI::Theme::Color{100, 105, 120, 180}, 2.0F * scale);
+
+    const float progress = m_media_player_view.progress_ratio();
+    if (progress > 0.0F)
+    {
+        const UI::Rect prog_rect{track_rect.x, track_rect.y, track_rect.width * progress, track_h};
+        surface.fill_rounded_rectangle(device_context, prog_rect, UI::Theme::Color{255, 255, 255, 255}, 2.0F * scale);
+        
+        // Knob (Smooth white circle)
+        const float knob_x = track_rect.x + track_rect.width * progress;
+        const float knob_y = track_y + track_h * 0.5F;
+        const float knob_r = (m_media_player_view.is_scrubber_hovered() || m_media_player_view.is_scrubbing()) ? (6.0F * scale) : (4.5F * scale);
+        const UI::Rect knob_rect{knob_x - knob_r, knob_y - knob_r, knob_r * 2.0F, knob_r * 2.0F};
+        surface.fill_rounded_rectangle(device_context, knob_rect, UI::Theme::Color{255, 255, 255, 255}, knob_r);
+    }
+
+    // Volume Capsule (Browser style pill container)
+    const UI::Rect vol_rect = m_media_player_view.calculate_volume_bounds(hud, scale);
+    surface.fill_rounded_rectangle(device_context, vol_rect, UI::Theme::Color{30, 33, 42, 220}, 10.0F * scale);
+    if (surface.m_small_font)
+    {
+        const std::string vol_icon = m_media_player_view.is_muted() ? "x" : "v";
+        surface.draw_text(device_context, *surface.m_small_font, vol_icon, vol_rect.x + 7.0F * scale, vol_rect.y + vol_rect.height * 0.5F, UI::Theme::Color{255, 255, 255, 220});
+    }
+    
+    if (vol_rect.width >= 50.0F * scale)
+    {
+        const float vol_track_x = vol_rect.x + 20.0F * scale;
+        const float vol_track_w = vol_rect.width - 28.0F * scale;
+        const float vol_track_h = 3.0F * scale;
+        const UI::Rect vol_track{vol_track_x, vol_rect.y + (vol_rect.height - vol_track_h) * 0.5F, vol_track_w, vol_track_h};
+        surface.fill_rounded_rectangle(device_context, vol_track, UI::Theme::Color{90, 95, 110, 200}, 1.5F * scale);
+        
+        const float vol_val = m_media_player_view.is_muted() ? 0.0F : m_media_player_view.volume();
+        const UI::Rect vol_fill{vol_track.x, vol_track.y, vol_track.width * vol_val, vol_track_h};
+        surface.fill_rounded_rectangle(device_context, vol_fill, UI::Theme::Color{255, 255, 255, 255}, 1.5F * scale);
+    }
+
+    // Format Badge (Top-Right of video)
+    const std::string badge_str = m_media_player_view.format_badge_text();
+    if (!badge_str.empty() && surface.m_small_font)
+    {
+        const int badge_w = surface.m_small_font->getTextWidth(device_context, badge_str) + static_cast<int>(16.0F * scale);
+        const UI::Rect badge_rect{pane_bounds.right() - badge_w - 16.0F * scale, pane_bounds.y + 14.0F * scale, static_cast<float>(badge_w), 22.0F * scale};
+        surface.fill_rounded_rectangle(device_context, badge_rect, UI::Theme::Color{18, 20, 26, 210}, 4.0F * scale);
+        surface.draw_text(device_context, *surface.m_small_font, badge_str, badge_rect.x + 8.0F * scale, badge_rect.y + badge_rect.height * 0.5F, surface.m_palette.text_muted);
+    }
+}
+
 void TextEditor::draw_document(
     const StudioWorkspaceRenderer& surface,
     HDC device_context,
@@ -4431,18 +4943,29 @@ void TextEditor::draw_document(
 
         return;
     }
-    const float line_height = 20.0F * surface.m_dpi_scale;
-    const float first_center_y = layout.editor_bounds.y + line_height * 0.5F;
-    const float code_x = layout.editor_bounds.x + 14.0F * surface.m_dpi_scale - m_text_scroll_offset;
-    const std::size_t visible_count = static_cast<std::size_t>(std::max(
-        static_cast<int>(layout.editor_bounds.height / line_height), 1));
-    const std::size_t total_lines = document->get_line_count();
-
-    const std::size_t tab_size = document->get_status().indent_width > 0
-        ? document->get_status().indent_width
-        : 4;
 
     const float scale = surface.m_dpi_scale;
+    const float line_height = 20.0F * scale;
+    const float first_center_y = layout.editor_bounds.y + line_height * 0.5F;
+    const float code_x = layout.editor_bounds.x + 14.0F * scale - m_text_scroll_offset;
+    const std::size_t visible_count = static_cast<std::size_t>(std::max(
+        static_cast<int>(layout.editor_bounds.height / line_height), 1));
+
+    const auto token_color = [&surface](UI::Editor::EditorTokenKind kind)
+        -> const UI::Theme::Color& {
+        switch (kind)
+        {
+        case UI::Editor::EditorTokenKind::Keyword: return surface.m_palette.keyword;
+        case UI::Editor::EditorTokenKind::Number: return surface.m_palette.number;
+        case UI::Editor::EditorTokenKind::Label: return surface.m_palette.label;
+        case UI::Editor::EditorTokenKind::Type: return surface.m_palette.type;
+        case UI::Editor::EditorTokenKind::Comment: return surface.m_palette.comment;
+        case UI::Editor::EditorTokenKind::String: return surface.m_palette.success;
+        case UI::Editor::EditorTokenKind::Plain: return surface.m_palette.text_primary;
+        }
+        return surface.m_palette.text_primary;
+    };
+
     const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
     const float half_w = is_split_active ? ((layout.editor_bounds.width - 2.0F * scale) * m_split_ratio) : layout.editor_bounds.width;
     const float splitter_x_coord = layout.editor_bounds.x + half_w;
@@ -4452,6 +4975,22 @@ void TextEditor::draw_document(
     const float left_code_limit = is_split_active ? (left_bounds_r - scrollbar_w - left_minimap_w) : (layout.editor_bounds.right() - layout.scrollbar_bounds.width - layout.minimap_bounds.width);
     const float left_right_limit = splitter_x_coord;
     const float available_code_width = std::max(left_code_limit - (layout.editor_bounds.x + 14.0F * scale), 20.0F * scale);
+
+    const UI::Rect left_pane{layout.editor_bounds.x, layout.editor_bounds.y, half_w, layout.editor_bounds.height};
+    const std::filesystem::path left_path = std::string(document->get_file_name());
+    const bool left_is_media = UI::Editor::is_video_file(left_path) || UI::Editor::is_audio_file(left_path) || UI::Editor::is_image_file(left_path);
+
+    if (left_is_media && m_media_preview_mode)
+    {
+        draw_media_pane(surface, device_context, left_pane, left_path);
+    }
+    else
+    {
+    const std::size_t total_lines = document->get_line_count();
+
+    const std::size_t tab_size = document->get_status().indent_width > 0
+        ? document->get_status().indent_width
+        : 4;
 
     m_scrollbar.synchronize(count_visible_lines(m_folding, total_lines), visible_count);
     const bool is_this_pane_focused =
@@ -4499,20 +5038,6 @@ void TextEditor::draw_document(
     const std::size_t render_count = visible_count;
     const bool syntax_highlighting =
         UI::Editor::supports_editor_syntax_highlighting(document->get_file_name());
-    const auto token_color = [&surface](UI::Editor::EditorTokenKind kind)
-        -> const UI::Theme::Color& {
-        switch (kind)
-        {
-        case UI::Editor::EditorTokenKind::Keyword: return surface.m_palette.keyword;
-        case UI::Editor::EditorTokenKind::Number: return surface.m_palette.number;
-        case UI::Editor::EditorTokenKind::Label: return surface.m_palette.label;
-        case UI::Editor::EditorTokenKind::Type: return surface.m_palette.type;
-        case UI::Editor::EditorTokenKind::Comment: return surface.m_palette.comment;
-        case UI::Editor::EditorTokenKind::String: return surface.m_palette.success;
-        case UI::Editor::EditorTokenKind::Plain: return surface.m_palette.text_primary;
-        }
-        return surface.m_palette.text_primary;
-    };
 
     const float fold_margin = UI::Editor::StudioEditorMetrics::fold_margin_width * surface.m_dpi_scale;
     const float gutter_line_x = layout.gutter_bounds.right() - fold_margin - 1.0F;
@@ -5197,6 +5722,7 @@ void TextEditor::draw_document(
 
         surface.fill_rounded_rectangle(device_context, thumb_bounds, thumb_color, thumb_h * 0.5F);
     }
+    }
 
     if (m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size())
     {
@@ -5217,6 +5743,16 @@ void TextEditor::draw_document(
                 right_w,
                 layout.editor_bounds.height
             };
+
+            const std::filesystem::path right_path = std::string(split_doc.get_file_name());
+            const bool right_is_media = UI::Editor::is_video_file(right_path) || UI::Editor::is_audio_file(right_path) || UI::Editor::is_image_file(right_path);
+
+            if (right_is_media && m_media_preview_mode)
+            {
+                draw_media_pane(surface, device_context, right_pane, right_path);
+            }
+            else
+            {
             const float right_gutter_w = layout.gutter_bounds.width;
             const UI::Rect right_gutter{
                 right_pane.x,
@@ -5789,6 +6325,7 @@ void TextEditor::draw_document(
             }
 
             RestoreDC(device_context, -1);
+            }
         }
     }
 

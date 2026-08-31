@@ -7,18 +7,22 @@ if(WIN32)
         LIST_DIRECTORIES false
         CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/shared/*.dll"
+        "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/bin/*.dll"
+        "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/lib/*.dll"
     )
 elseif(APPLE)
     file(GLOB SHARED_LIBRARIES
         LIST_DIRECTORIES false
         CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/shared/*.dylib"
+        "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/lib/*.dylib"
     )
 elseif(UNIX)
     file(GLOB SHARED_LIBRARIES
         LIST_DIRECTORIES false
         CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/shared/*.so*"
+        "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/lib/*.so*"
     )
 endif()
 

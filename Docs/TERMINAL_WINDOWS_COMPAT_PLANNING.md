@@ -215,4 +215,4 @@ System32\cmd.exe            -> HIDUP >3000ms, output 281 byte  (SEHAT)
 3. P1-1 + P1-2 (probe SAC/debloat + hint) → diagnosis mandiri.
 4. P2-1 (doctor) → alat bantu bug report.
 5. P2-2 (docs) → penutup.
-6. Setiap item: build `windows-x64-clang-ninja-release`, uji manual di mesin mod insiden + unit test untuk fungsi murni (decoder NTSTATUS, urutan kandidat, klasifikasi probe).
+6. Setiap item: build `windows-clang-ninja-release`, uji manual di mesin mod insiden + unit test untuk fungsi murni (decoder NTSTATUS, urutan kandidat, klasifikasi probe).

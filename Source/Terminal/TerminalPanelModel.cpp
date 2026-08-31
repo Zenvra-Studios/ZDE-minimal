@@ -416,6 +416,12 @@ const TerminalSession* TerminalPanelModel::get_active_session() const noexcept
         : nullptr;
 }
 
+bool TerminalPanelModel::is_active_session_conpty() const noexcept
+{
+    const TerminalSession* session = get_active_session();
+    return session != nullptr && session->is_conpty_mode();
+}
+
 void TerminalPanelModel::start_selection(std::size_t line, std::size_t column) noexcept
 {
     m_selection.start = TerminalPosition{line, column};

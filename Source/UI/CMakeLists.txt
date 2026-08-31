@@ -25,6 +25,7 @@ add_library(ZDEUI
     Editor/EditorMinimapModel.cpp
     Editor/EditorSessionModel.cpp
     Editor/EditorScrollModel.cpp
+    Editor/MediaPlayerView.cpp
     Editor/SelectionAnimationModel.cpp
     Editor/StudioEditorModel.cpp
     Editor/TextDocumentModel.cpp
@@ -45,7 +46,7 @@ target_include_directories(ZDEUI PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/.."
     "${PROJECT_SOURCE_DIR}"
 )
-target_link_libraries(ZDEUI PUBLIC Zenvra::Core Zenvra::Graphics Zenvra::Language Zenvra::Terminal lunasvg PRIVATE Zenvra::Commands)
+target_link_libraries(ZDEUI PUBLIC Zenvra::Core Zenvra::Graphics Zenvra::Language Zenvra::Terminal Zenvra::Media Zenvra::Drivers::Media lunasvg PRIVATE Zenvra::Commands)
 find_library(ZDE_GIT2_LIBRARY git2)
 if(ZDE_GIT2_LIBRARY)
     target_link_libraries(ZDEUI PUBLIC "${ZDE_GIT2_LIBRARY}")

@@ -13,6 +13,7 @@
 #include "UI/Editor/BraceAnimationModel.h"
 #include "UI/Editor/CaretBlinkModel.h"
 #include "UI/Editor/EditorController.h"
+#include "UI/Editor/MediaPlayerView.h"
 #include "UI/Editor/SelectionAnimationModel.h"
 #include "UI/Editor/StudioEditorModel.h"
 #include "Utility/DragDropModel.h"
@@ -192,6 +193,9 @@ private:
   void close_saved_documents();
   void draw_document(const StudioWorkspaceRenderer &surface, HDC device_context,
                      const UI::Editor::StudioEditorLayoutResult &layout) const;
+  void draw_media_pane(const StudioWorkspaceRenderer &surface, HDC device_context,
+                       const UI::Rect &pane_bounds,
+                       const std::filesystem::path &doc_path) const;
   [[nodiscard]] UI::Editor::TextPosition
   position_from_point(const StudioWorkspaceRenderer &surface,
                       HDC device_context,
@@ -238,10 +242,11 @@ private:
   mutable std::size_t m_tab_count = 0;
   std::optional<std::size_t> m_hovered_tab_index;
   std::optional<std::size_t> m_hovered_tab_close_index;
-  mutable std::array<UI::Rect, 4> m_tab_action_bounds{};
+  mutable std::array<UI::Rect, 5> m_tab_action_bounds{};
   mutable std::optional<std::size_t> m_hovered_tab_action;
   mutable TabActionPopupMenu m_tab_action_menu;
   bool m_preview_editors_enabled = true;
+  mutable bool m_media_preview_mode = true;
   mutable SplitDropZone m_active_drop_zone = SplitDropZone::None;
   mutable float m_drag_cursor_x = 0.0F;
   mutable float m_drag_cursor_y = 0.0F;
@@ -253,8 +258,7 @@ private:
   mutable UI::Components::EditorFoldingModel m_split_folding;
   mutable const UI::Editor::TextDocumentModel *m_last_folded_doc = nullptr;
   mutable std::size_t m_last_folded_line_count = 0;
-  mutable const UI::Editor::TextDocumentModel *m_split_last_folded_doc =
-      nullptr;
+  mutable const UI::Editor::TextDocumentModel *m_split_last_folded_doc = nullptr;
   mutable std::size_t m_split_last_folded_line_count = 0;
   float m_split_ratio = 0.5F;
   bool m_is_resizing_split = false;
@@ -305,12 +309,21 @@ private:
   };
   mutable std::optional<CtrlHoverTokenInfo> m_ctrl_hovered_token;
   mutable float m_cached_char_width = 0.0F;
+  mutable UI::Editor::MediaPlayerView m_media_player_view;
 
 public:
+  [[nodiscard]] bool is_media_active() const noexcept;
+  [[nodiscard]] bool is_media_preview_mode() const noexcept { return m_media_preview_mode; }
+  void set_media_preview_mode(bool enabled) noexcept { m_media_preview_mode = enabled; }
+  void toggle_media_preview_mode() noexcept { m_media_preview_mode = !m_media_preview_mode; }
+  [[nodiscard]] UI::Editor::MediaPlayerView& media_player() noexcept { return m_media_player_view; }
+  [[nodiscard]] const UI::Editor::MediaPlayerView& media_player() const noexcept { return m_media_player_view; }
+
   void queue_lsp_document_sync() noexcept {
     m_lsp_sync_pending = true;
     m_last_edit_time = std::chrono::steady_clock::now();
   }
+
   void flush_lsp_document_sync_if_needed(bool force = false);
 };
 

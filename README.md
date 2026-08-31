@@ -49,15 +49,15 @@ ZenvraDevelopmentStudio/
 Simplest path: use the Visual Studio 2022 preset (Debug).
 
 ```powershell
-cmake --preset windows-x64-vs2022-debug
-cmake --build --preset windows-x64-vs2022-debug
+cmake --preset windows-vs2022-debug
+cmake --build --preset windows-vs2022-debug
 ```
 
 Or with Ninja + MinGW:
 
 ```powershell
-cmake --preset windows-x64-ninja-debug
-cmake --build --preset windows-x64-ninja-debug
+cmake --preset windows-ninja-debug
+cmake --build --preset windows-ninja-debug
 ```
 
 Build output lives outside the source tree:
@@ -87,7 +87,7 @@ cmake --build --preset macos-debug
 - First configure requires network access — CPM.cmake downloads
   dependencies (e.g., Skia tooling) into `build/_deps`.
 - For IDEs: open this folder directly in Visual Studio / CLion, or
-  generate `compile_commands.json` via the `windows-x64-clang-ninja-debug`
+  generate `compile_commands.json` via the `windows-clang-ninja-debug`
   preset (`EXPORT_COMPILE_COMMANDS=ON` is already enabled in all presets).
 - Full preset list (Debug/Release, VS/Ninja/clang, MinGW cross-compile
   from Linux) is in `CMakePresets.json`.

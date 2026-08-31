@@ -263,12 +263,12 @@ DWORD get_liveness_timeout_ms([[maybe_unused]] const std::filesystem::path &shel
 
 std::wstring windows_shell_arguments(const std::filesystem::path &shell_path) {
   if (is_windows_shell(shell_path, L"bash.exe")) {
-    return L" --noprofile --norc -i";
+    return L" --login -i";
   }
   if (is_windows_shell(shell_path, L"cmd.exe")) {
-    return L" /d /q";
+    return L" /d /q /k";
   }
-  return L" -NoLogo -NoExit -ExecutionPolicy Bypass";
+  return L" -NoLogo -NoExit";
 }
 
 #ifndef PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE
@@ -714,14 +714,14 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
                       "[ZDE Terminal] ConPTY CreateProcessW OK (PID " +
                       std::to_string(pid) + ")");
 
-                  // Instantaneous non-blocking launch check (0ms)
-                  if (WaitForSingleObject(m_implementation->process, 0) ==
+                  // Non-blocking launch check (50ms)
+                  if (WaitForSingleObject(m_implementation->process, 50) ==
                       WAIT_OBJECT_0) {
                     DWORD early_exit_code = 0;
                     GetExitCodeProcess(m_implementation->process,
                                        &early_exit_code);
                     terminal_debug_log(
-                        "[ZDE Terminal] ConPTY shell failed at launch for \"" +
+                        "[ZDE Terminal] ConPTY shell exited early at launch for \"" +
                         candidate_path.string() + "\" (exit code " +
                         std::to_string(early_exit_code) + ")");
                     CloseHandle(m_implementation->process);
@@ -790,6 +790,8 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
   // Step 2: Fallback to Pipe mode only if ConPTY failed for all candidates
   if (!started) {
     terminal_debug_log("[ZDE Terminal] ConPTY unavailable for all candidates, falling back to Pipe mode...");
+    _wputenv_s(L"TERM", L"dumb");
+    SetEnvironmentVariableW(L"TERM", L"dumb");
     for (const auto &candidate_path : shell_candidates) {
       m_shell_path = candidate_path;
       std::wstring command = quote_windows_argument(candidate_path.wstring()) +
@@ -858,8 +860,8 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
           terminal_debug_log("[ZDE Terminal] Pipe-mode CreateProcessW OK (PID " +
                              std::to_string(pid) + ")");
 
-          // Instantaneous non-blocking launch check (0ms)
-          if (WaitForSingleObject(m_implementation->process, 0) ==
+          // Early launch check (50ms)
+          if (WaitForSingleObject(m_implementation->process, 50) ==
               WAIT_OBJECT_0) {
             DWORD early_exit_code = 0;
             GetExitCodeProcess(m_implementation->process, &early_exit_code);
@@ -878,6 +880,7 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
             terminal_debug_log(
                 "[ZDE Terminal] Shell committed (Pipe mode) for \"" +
                 candidate_path.string() + "\"");
+            append_status("[Warning: Terminal is running in Pipe fallback mode (No TTY). Interactive CLI/TUI apps may not function.]");
             started = true;
             break;
           }
@@ -1014,6 +1017,14 @@ void TerminalSession::stop() noexcept {
 }
 
 bool TerminalSession::is_running() const noexcept { return m_running; }
+
+bool TerminalSession::is_conpty_mode() const noexcept {
+#if defined(_WIN32)
+  return m_implementation != nullptr && m_implementation->is_conpty;
+#else
+  return m_implementation != nullptr && m_implementation->master_fd >= 0;
+#endif
+}
 
 const std::filesystem::path &TerminalSession::get_shell_path() const noexcept {
   return m_shell_path;
@@ -1471,6 +1482,13 @@ bool TerminalSession::poll() {
     }
     consume_output(std::string_view{buffer.data(), bytes_read});
     changed = true;
+  }
+  if (changed) {
+    terminal_debug_log("[ZDE Terminal] poll changed, lines=" +
+                       std::to_string(m_lines.size()) +
+                       " cursor=" + std::to_string(m_cursor_line) + "," +
+                       std::to_string(m_cursor_column) +
+                       " first_line=\"" + (m_lines.empty() ? "" : m_lines[0].substr(0,80)) + "\"");
   }
 
   if (m_implementation->process != nullptr &&

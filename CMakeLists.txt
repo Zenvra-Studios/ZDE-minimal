@@ -71,6 +71,8 @@ endif()
 
 
 # --- Dependencies ---------------------------------------------------------
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Cmake")
+
 # CPM.cmake is CMake's package manager, used to fetch third-party libraries.
 # It is vendored in Cmake/CPM.cmake (v0.40.2, see https://github.com/cpm-cmake/CPM.cmake).
 include("${CMAKE_CURRENT_SOURCE_DIR}/Cmake/CPM.cmake")

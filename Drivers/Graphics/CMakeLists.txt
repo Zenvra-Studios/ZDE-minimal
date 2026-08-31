@@ -7,8 +7,10 @@ if(Graphics_SOURCES)
     add_library(Graphics STATIC ${Graphics_SOURCES})
     add_library(Zenvra::Graphics ALIAS Graphics)
     target_include_directories(Graphics PUBLIC 
+        "${CMAKE_SOURCE_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}/../.."
         "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/effect"
     )
     target_link_libraries(Graphics PUBLIC OpenGL::GL)
     if(WIN32)

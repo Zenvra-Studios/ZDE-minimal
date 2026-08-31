@@ -8,7 +8,7 @@ Dokumen ini merangkum temuan debugging koneksi **clangd** di ZDE Studio (Windows
 
 | # | Temuan | Status |
 |---|--------|--------|
-| T1 | Pipeline LSP (spawn → handshake → Active) **terbukti jalan** di build baru (`windows-x64-clang-ninja-debug`, 19 Agu 12:28) | ✅ Fixed |
+| T1 | Pipeline LSP (spawn → handshake → Active) **terbukti jalan** di build baru (`windows-clang-ninja-debug`, 19 Agu 12:28) | ✅ Fixed |
 | T2 | Pengguna menjalankan build lama `C:\Program Files\ZDE` (instalasi Inno Setup 18 Agu) yang tidak punya perbaikan terbaru | ⚠️ Perlu reinstall |
 | T3 | Pencarian `compile_commands.json` memprioritaskan build **Linux** (`build/linux-debug`) → intellisense tidak akurat di Windows | 🔴 Belum fix |
 | T4 | `on_document_opened` dipanggil berulang (~100x) untuk dokumen yang sama → `did_open` dikirim ulang → clangd parse ulang boros | 🔴 Belum fix |
@@ -23,7 +23,7 @@ Dokumen ini merangkum temuan debugging koneksi **clangd** di ZDE Studio (Windows
 ```text
 [zde-lsp] profile=cpp filename=...\ActivitySidebar.cpp
 [zde-lsp] exe=...\plugins\lsp\clangd.exe
-[zde-lsp] compile-dir=...\build\windows-x64-clang-ninja-debug
+[zde-lsp] compile-dir=...\build\windows-clang-ninja-debug
 [zde-lsp] CreateProcessW OK pid=18312
 [zde-lsp] client started for cpp
 ```
@@ -48,7 +48,7 @@ Dokumen ini merangkum temuan debugging koneksi **clangd** di ZDE Studio (Windows
 3. Pada platform Windows, **skip** kandidat `linux-*` dan `macos-*` (dan sebaliknya pada Linux).
 4. Pertahankan fallback `directory_iterator` pada `build/` sebagai cadangan terakhir.
 
-**Kriteria selesai:** Log menunjukkan `compile-dir=...\build\windows-x64-*` untuk semua project yang punya build Windows.
+**Kriteria selesai:** Log menunjukkan `compile-dir=...\build\windows-*` untuk semua project yang punya build Windows.
 
 ---
 
@@ -117,7 +117,7 @@ Dokumen ini merangkum temuan debugging koneksi **clangd** di ZDE Studio (Windows
 **Langkah:**
 ```powershell
 # Di root project
-cmake --preset windows-x64-ninja-debug        # atau preset ninja lain
+cmake --preset windows-ninja-debug        # atau preset ninja lain
 # pastikan CMakePresets.json punya preset windows dengan
 # CMAKE_EXPORT_COMPILE_COMMANDS=ON
 ```

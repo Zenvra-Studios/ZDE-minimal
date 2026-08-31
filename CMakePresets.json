@@ -26,7 +26,7 @@
       "inherits": "base"
     },
     {
-      "name": "windows-x64-vs2022-debug",
+      "name": "windows-vs2022-debug",
       "displayName": "Windows Debug (Visual Studio 2022)",
       "description": "Generate Visual Studio solution/project files for Debug builds.",
       "inherits": "base-msvc",
@@ -39,7 +39,7 @@
       "architecture": "x64"
     },
     {
-      "name": "windows-x64-vs2022-release",
+      "name": "windows-vs2022-release",
       "displayName": "Windows Release (Visual Studio 2022)",
       "description": "Generate Visual Studio solution/project files for Release builds.",
       "inherits": "base-msvc",
@@ -52,7 +52,7 @@
       "architecture": "x64"
     },
     {
-      "name": "windows-x64-ninja-debug",
+      "name": "windows-ninja-debug",
       "displayName": "Windows Debug (Ninja + GCC/MinGW)",
       "description": "Single-config Debug build for clangd compile_commands.json on Windows.",
       "inherits": "base-ninja",
@@ -66,7 +66,7 @@
       }
     },
     {
-      "name": "windows-x64-ninja-release",
+      "name": "windows-ninja-release",
       "displayName": "Windows Release (Ninja + GCC/MinGW)",
       "description": "Single-config Release build for clangd compile_commands.json on Windows.",
       "inherits": "base-ninja",
@@ -80,7 +80,7 @@
       }
     },
     {
-      "name": "windows-x64-clang-ninja-debug",
+      "name": "windows-clang-ninja-debug",
       "displayName": "Windows Debug (Clang + Ninja)",
       "description": "Single-config Debug build with Clang for clangd compile_commands.json on Windows.",
       "inherits": "base-ninja",
@@ -96,7 +96,7 @@
       }
     },
     {
-      "name": "windows-x64-clang-ninja-release",
+      "name": "windows-clang-ninja-release",
       "displayName": "Windows Release (Clang + Ninja)",
       "description": "Single-config Release build with Clang for clangd compile_commands.json on Windows.",
       "inherits": "base-ninja",
@@ -195,36 +195,36 @@
   ],
   "buildPresets": [
     {
-      "name": "windows-x64-vs2022-debug",
+      "name": "windows-vs2022-debug",
       "displayName": "Build Windows Debug (Visual Studio 2022)",
-      "configurePreset": "windows-x64-vs2022-debug",
+      "configurePreset": "windows-vs2022-debug",
       "configuration": "Debug"
     },
     {
-      "name": "windows-x64-vs2022-release",
+      "name": "windows-vs2022-release",
       "displayName": "Build Windows Release (Visual Studio 2022)",
-      "configurePreset": "windows-x64-vs2022-release",
+      "configurePreset": "windows-vs2022-release",
       "configuration": "Release"
     },
     {
-      "name": "windows-x64-ninja-debug",
+      "name": "windows-ninja-debug",
       "displayName": "Build Windows Debug (Ninja + GCC/MinGW)",
-      "configurePreset": "windows-x64-ninja-debug"
+      "configurePreset": "windows-ninja-debug"
     },
     {
-      "name": "windows-x64-ninja-release",
+      "name": "windows-ninja-release",
       "displayName": "Build Windows Release (Ninja + GCC/MinGW)",
-      "configurePreset": "windows-x64-ninja-release"
+      "configurePreset": "windows-ninja-release"
     },
     {
-      "name": "windows-x64-clang-ninja-debug",
+      "name": "windows-clang-ninja-debug",
       "displayName": "Build Windows Debug (clang-cl + Ninja)",
-      "configurePreset": "windows-x64-clang-ninja-debug"
+      "configurePreset": "windows-clang-ninja-debug"
     },
     {
-      "name": "windows-x64-clang-ninja-release",
+      "name": "windows-clang-ninja-release",
       "displayName": "Build Windows Release (clang-cl + Ninja)",
-      "configurePreset": "windows-x64-clang-ninja-release"
+      "configurePreset": "windows-clang-ninja-release"
     },
     {
       "name": "linux-debug",

@@ -147,7 +147,7 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
   
   const float integrated_tab_x = std::min(nav_width, safe_width);
   const float min_center_drag_gap = (safe_top > 0.0F && nav_width > 0.0F) ? (160.0F * safe_scale) : 0.0F;
-  const float max_tab_width_ratio = safe_width * 0.46F;
+  const float max_tab_width_ratio = safe_width * 0.75F;
   const float available_for_tabs =
       std::max(0.0F, safe_width - integrated_tab_x - ctrl_width - min_center_drag_gap);
   const float effective_tab_width =

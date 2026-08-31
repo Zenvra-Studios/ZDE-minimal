@@ -108,6 +108,7 @@ public:
                                          bool button_pressed, MouseButton pressed_button = MouseButton::Left,
                                          bool shift = false, bool meta = false, bool ctrl = false);
     [[nodiscard]] bool navigate_history(bool up);
+    [[nodiscard]] bool is_conpty_mode() const noexcept;
     [[nodiscard]] static std::filesystem::path resolve_host_shell();
     void consume_output(std::string_view output);
 

@@ -1,0 +1,94 @@
+#pragma once
+
+#include "Media/MediaPlayer.hpp"
+#include "Media/MediaTypes.hpp"
+#include "UI/Geometry.h"
+#include <chrono>
+#include <filesystem>
+#include <memory>
+#include <optional>
+#include <string>
+
+namespace Zenvra::UI::Editor {
+
+[[nodiscard]] bool is_video_file(const std::filesystem::path& path);
+[[nodiscard]] bool is_audio_file(const std::filesystem::path& path);
+[[nodiscard]] bool is_image_file(const std::filesystem::path& path);
+
+class MediaPlayerView {
+public:
+    MediaPlayerView();
+    ~MediaPlayerView();
+
+    bool open(const std::filesystem::path& file_path);
+    void close();
+
+    [[nodiscard]] bool is_open() const noexcept;
+    [[nodiscard]] const std::filesystem::path& current_path() const noexcept { return m_current_path; }
+
+    void play();
+    void pause();
+    void toggle_play_pause();
+    [[nodiscard]] bool is_playing() const noexcept;
+
+    void seek(double time_seconds);
+    void seek_relative(double delta_seconds);
+
+    void set_volume(float volume);
+    [[nodiscard]] float volume() const noexcept;
+    void toggle_mute();
+    [[nodiscard]] bool is_muted() const noexcept;
+
+    [[nodiscard]] double current_time() const noexcept;
+    [[nodiscard]] double duration() const noexcept;
+    [[nodiscard]] float progress_ratio() const noexcept;
+
+    [[nodiscard]] std::string format_time_display() const;
+    [[nodiscard]] std::string format_badge_text() const;
+
+    // Frame update & retrieval
+    void update();
+    [[nodiscard]] const Zenvra::Media::VideoFrame* current_frame() const noexcept;
+    [[nodiscard]] int video_width() const noexcept;
+    [[nodiscard]] int video_height() const noexcept;
+
+    // UI Layout Calculations (Letterboxed video viewport & HUD overlay)
+    [[nodiscard]] UI::Rect calculate_video_canvas_bounds(const UI::Rect& editor_bounds) const noexcept;
+    [[nodiscard]] UI::Rect calculate_hud_bounds(const UI::Rect& editor_bounds, float dpi_scale) const noexcept;
+    [[nodiscard]] UI::Rect calculate_play_button_bounds(const UI::Rect& hud_bounds, float dpi_scale) const noexcept;
+    [[nodiscard]] UI::Rect calculate_scrubber_bounds(const UI::Rect& hud_bounds, float dpi_scale) const noexcept;
+    [[nodiscard]] UI::Rect calculate_volume_bounds(const UI::Rect& hud_bounds, float dpi_scale) const noexcept;
+
+    // Mouse & Keyboard Input Event Handlers
+    bool handle_mouse_down(float x, float y, const UI::Rect& editor_bounds, float dpi_scale);
+    bool handle_mouse_move(float x, float y, const UI::Rect& editor_bounds, float dpi_scale);
+    bool handle_mouse_up(float x, float y, const UI::Rect& editor_bounds, float dpi_scale);
+    bool handle_key_down(int key_code);
+
+    [[nodiscard]] bool is_scrubbing() const noexcept { return m_is_scrubbing; }
+    [[nodiscard]] bool is_hud_visible() const noexcept { return m_hud_visible; }
+    [[nodiscard]] bool is_play_hovered() const noexcept { return m_play_hovered; }
+    [[nodiscard]] bool is_scrubber_hovered() const noexcept { return m_scrubber_hovered; }
+    [[nodiscard]] bool is_volume_hovered() const noexcept { return m_volume_hovered; }
+    [[nodiscard]] float hover_scrub_ratio() const noexcept { return m_hover_scrub_ratio; }
+
+private:
+    std::filesystem::path m_current_path;
+    std::shared_ptr<Zenvra::Media::IMediaPlayer> m_player;
+    std::optional<Zenvra::Media::VideoFrame> m_current_frame;
+
+    float m_volume = 1.0f;
+    bool m_muted = false;
+
+    bool m_is_scrubbing = false;
+    bool m_hud_visible = true;
+    bool m_play_hovered = false;
+    bool m_scrubber_hovered = false;
+    bool m_volume_hovered = false;
+    float m_hover_scrub_ratio = 0.0f;
+
+    std::chrono::steady_clock::time_point m_last_mouse_activity;
+    std::chrono::steady_clock::time_point m_last_frame_time;
+};
+
+} // namespace Zenvra::UI::Editor

@@ -146,8 +146,8 @@ SystemInfo initialize_system_info()
         info.default_preset_release = "macos-release";
         break;
     case OperatingSystem::Windows:
-        info.default_preset_debug = "windows-x64-ninja-debug";
-        info.default_preset_release = "windows-x64-ninja-release";
+        info.default_preset_debug = "windows-ninja-debug";
+        info.default_preset_release = "windows-ninja-release";
         break;
     case OperatingSystem::Linux:
         info.default_preset_debug = "linux-debug";

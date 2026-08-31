@@ -1,13 +1,27 @@
-# CMakeLists.txt for Audio module.
-# Only implementation files may enter the static library. The directory is
-# currently header-only, so the target is skipped until real sources exist.
-# (Building a library from a lone header makes `ar` fail with
-# "no archive members specified".)
+# CMakeLists.txt for Drivers/Audio subsystem.
 
-file(GLOB_RECURSE Audio_SOURCES CONFIGURE_DEPENDS "*.c" "*.cpp" "*.cc" "*.mm")
+file(GLOB_RECURSE Audio_SOURCES CONFIGURE_DEPENDS "*.hpp" "*.h" "*.c" "*.cpp" "*.cc" "*.mm")
 
 if(Audio_SOURCES)
-    add_library(Audio STATIC ${Audio_SOURCES})
-    target_include_directories(Audio PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-    set_target_properties(Audio PROPERTIES LINKER_LANGUAGE CXX)
+    add_library(DriversAudio STATIC ${Audio_SOURCES})
+    add_library(Zenvra::Drivers::Audio ALIAS DriversAudio)
+    add_library(Zenvra::Audio ALIAS DriversAudio)
+
+    target_include_directories(DriversAudio PUBLIC
+        "${CMAKE_SOURCE_DIR}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/.."
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+        "${CMAKE_SOURCE_DIR}/Source"
+    )
+
+    target_link_libraries(DriversAudio PUBLIC
+        Zenvra::Media
+        Zenvra::Drivers::Media
+    )
+
+    if(TARGET FFmpeg::FFmpeg)
+        target_link_libraries(DriversAudio PUBLIC FFmpeg::FFmpeg)
+    endif()
+
+    zde_enable_warnings(DriversAudio)
 endif()

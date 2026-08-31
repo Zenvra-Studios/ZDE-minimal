@@ -3,7 +3,7 @@
 #include "UI/Geometry.h"
 #include "UI/Theme/StudioTheme.h"
 #include "Drivers/Graphics/BackdropBlurPipeline.h"
-#include "Drivers/Graphics/shaders/BackdropBlur.h"
+#include "Drivers/Graphics/effect/BackdropBlur.h"
 
 #include <array>
 #include <functional>

@@ -78,6 +78,7 @@ public:
 
   [[nodiscard]] TerminalSession *get_active_session() noexcept;
   [[nodiscard]] const TerminalSession *get_active_session() const noexcept;
+  [[nodiscard]] bool is_active_session_conpty() const noexcept;
 
   void start_selection(std::size_t line, std::size_t column) noexcept;
   void update_selection(std::size_t line, std::size_t column) noexcept;

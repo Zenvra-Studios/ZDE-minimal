@@ -132,6 +132,13 @@ std::string Doctor::generate_report()
     ss << "\n[Terminal Subsystem]\n";
     const auto active_shell = Terminal::TerminalSession::resolve_host_shell();
     ss << "  Active Shell:   " << (active_shell.empty() ? "(None found)" : active_shell.string()) << "\n";
+#if defined(_WIN32)
+    HMODULE k32 = GetModuleHandleW(L"kernel32.dll");
+    const bool has_conpty = k32 && GetProcAddress(k32, "CreatePseudoConsole") != nullptr;
+    ss << "  ConPTY API:     " << (has_conpty ? "Available (kernel32!CreatePseudoConsole)" : "Unavailable (Fallback to Pipe)") << "\n";
+#else
+    ss << "  PTY Backend:    POSIX forkpty (libutil)\n";
+#endif
 
     const char* zde_shell_env = std::getenv("ZDE_SHELL");
     if (zde_shell_env != nullptr && zde_shell_env[0] != '\0')

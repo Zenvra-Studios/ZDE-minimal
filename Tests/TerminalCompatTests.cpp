@@ -252,3 +252,25 @@ TEST(TerminalFormattingTests, TabAndNewlineIndentation)
     EXPECT_EQ(lines[2], "        Command");
     session.stop();
 }
+
+TEST(TerminalModeTests, ConPTYModeDetectionAndModel)
+{
+    TerminalPanelModel model;
+    EXPECT_TRUE(model.create_session());
+    TerminalSession* session = model.get_active_session();
+    ASSERT_NE(session, nullptr);
+    EXPECT_TRUE(session->is_running());
+    EXPECT_EQ(model.is_active_session_conpty(), session->is_conpty_mode());
+    model.shutdown();
+}
+
+TEST(TerminalModeTests, DoctorReportContainsConPTYStatus)
+{
+    const std::string report = Doctor::generate_report();
+    EXPECT_FALSE(report.empty());
+#if defined(_WIN32)
+    EXPECT_NE(report.find("ConPTY API:"), std::string::npos);
+#else
+    EXPECT_NE(report.find("PTY Backend:"), std::string::npos);
+#endif
+}

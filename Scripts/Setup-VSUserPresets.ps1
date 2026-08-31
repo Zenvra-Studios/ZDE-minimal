@@ -17,7 +17,7 @@ $userPresetsJson = @'
   },
   "configurePresets": [
     {
-      "name": "windows-x64-vs2026-debug",
+      "name": "windows-vs2026-debug",
       "displayName": "Windows Debug (Visual Studio 2026)",
       "description": "Generate Visual Studio solution/project files for Debug builds in Visual Studio 2026.",
       "inherits": "base-msvc",
@@ -30,7 +30,7 @@ $userPresetsJson = @'
       "architecture": "x64"
     },
     {
-      "name": "windows-x64-vs2026-release",
+      "name": "windows-vs2026-release",
       "displayName": "Windows Release (Visual Studio 2026)",
       "description": "Generate Visual Studio solution/project files for Release builds in Visual Studio 2026.",
       "inherits": "base-msvc",
@@ -43,7 +43,7 @@ $userPresetsJson = @'
       "architecture": "x64"
     },
     {
-      "name": "windows-x64-vs-auto-debug",
+      "name": "windows-vs-auto-debug",
       "displayName": "Windows Debug (Visual Studio Auto/Default)",
       "description": "Generate Visual Studio project files using the default Visual Studio version installed.",
       "inherits": "base-msvc",
@@ -55,7 +55,7 @@ $userPresetsJson = @'
       "architecture": "x64"
     },
     {
-      "name": "windows-x64-vs-auto-release",
+      "name": "windows-vs-auto-release",
       "displayName": "Windows Release (Visual Studio Auto/Default)",
       "description": "Generate Visual Studio project files using the default Visual Studio version installed.",
       "inherits": "base-msvc",
@@ -67,7 +67,7 @@ $userPresetsJson = @'
       "architecture": "x64"
     },
     {
-      "name": "windows-x64-msvc-ninja-debug",
+      "name": "windows-msvc-ninja-debug",
       "displayName": "Windows Debug (Ninja + MSVC Environment)",
       "description": "Single-config Debug build using Ninja with active MSVC environment (VS 2022 to VS 2026).",
       "inherits": "base-ninja",
@@ -81,7 +81,7 @@ $userPresetsJson = @'
       }
     },
     {
-      "name": "windows-x64-msvc-ninja-release",
+      "name": "windows-msvc-ninja-release",
       "displayName": "Windows Release (Ninja + MSVC Environment)",
       "description": "Single-config Release build using Ninja with active MSVC environment (VS 2022 to VS 2026).",
       "inherits": "base-ninja",
@@ -97,38 +97,38 @@ $userPresetsJson = @'
   ],
   "buildPresets": [
     {
-      "name": "windows-x64-vs2026-debug",
+      "name": "windows-vs2026-debug",
       "displayName": "Build Windows Debug (Visual Studio 2026)",
-      "configurePreset": "windows-x64-vs2026-debug",
+      "configurePreset": "windows-vs2026-debug",
       "configuration": "Debug"
     },
     {
-      "name": "windows-x64-vs2026-release",
+      "name": "windows-vs2026-release",
       "displayName": "Build Windows Release (Visual Studio 2026)",
-      "configurePreset": "windows-x64-vs2026-release",
+      "configurePreset": "windows-vs2026-release",
       "configuration": "Release"
     },
     {
-      "name": "windows-x64-vs-auto-debug",
+      "name": "windows-vs-auto-debug",
       "displayName": "Build Windows Debug (Visual Studio Auto/Default)",
-      "configurePreset": "windows-x64-vs-auto-debug",
+      "configurePreset": "windows-vs-auto-debug",
       "configuration": "Debug"
     },
     {
-      "name": "windows-x64-vs-auto-release",
+      "name": "windows-vs-auto-release",
       "displayName": "Build Windows Release (Visual Studio Auto/Default)",
-      "configurePreset": "windows-x64-vs-auto-release",
+      "configurePreset": "windows-vs-auto-release",
       "configuration": "Release"
     },
     {
-      "name": "windows-x64-msvc-ninja-debug",
+      "name": "windows-msvc-ninja-debug",
       "displayName": "Build Windows Debug (Ninja + MSVC)",
-      "configurePreset": "windows-x64-msvc-ninja-debug"
+      "configurePreset": "windows-msvc-ninja-debug"
     },
     {
-      "name": "windows-x64-msvc-ninja-release",
+      "name": "windows-msvc-ninja-release",
       "displayName": "Build Windows Release (Ninja + MSVC)",
-      "configurePreset": "windows-x64-msvc-ninja-release"
+      "configurePreset": "windows-msvc-ninja-release"
     }
   ]
 }

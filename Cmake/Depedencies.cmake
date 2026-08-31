@@ -94,6 +94,37 @@ CPMAddPackage(
         "INSTALL_GTEST OFF"
 )
 
+# FFmpeg - Multimedia framework (libavcodec, libavformat, libavutil, libswscale, libswresample)
+if(EXISTS "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/include/libavcodec/avcodec.h")
+    set(FFMPEG_ROOT "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg" CACHE PATH "FFmpeg Root" FORCE)
+    set(FFMPEG_INCLUDE_DIRS "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/include")
+    set(FFMPEG_LIBRARIES
+        "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/lib/avcodec.lib"
+        "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/lib/avformat.lib"
+        "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/lib/avutil.lib"
+        "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/lib/swscale.lib"
+        "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/lib/swresample.lib"
+    )
+    if(NOT TARGET FFmpeg::FFmpeg)
+        add_library(FFmpeg::FFmpeg INTERFACE IMPORTED)
+        set_target_properties(FFmpeg::FFmpeg PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES "${FFMPEG_INCLUDE_DIRS}"
+            INTERFACE_LINK_LIBRARIES "${FFMPEG_LIBRARIES}"
+        )
+    endif()
+    set(FFmpeg_FOUND TRUE)
+    add_compile_definitions(ZDE_HAS_FFMPEG=1)
+    message(STATUS "Found FFmpeg (Bundled ThirdParty): ${FFMPEG_LIBRARIES}")
+else()
+    find_package(FFmpeg COMPONENTS avcodec avformat avutil swscale swresample QUIET)
+    if(FFmpeg_FOUND)
+        message(STATUS "Found FFmpeg ${FFMPEG_VERSION}: ${FFMPEG_LIBRARIES}")
+        add_compile_definitions(ZDE_HAS_FFMPEG=1)
+    else()
+        message(STATUS "FFmpeg not found. Multimedia features will use fallback/stubs until FFmpeg is placed in ThirdParty/ffmpeg or installed via vcpkg/system packages.")
+    endif()
+endif()
+
 # libgit2 - Core Git library (Disabled)
 # set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
 # set(BUILD_CLI OFF CACHE BOOL "" FORCE)

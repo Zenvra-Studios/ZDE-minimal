@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Drivers/Graphics/OpenGLShader.h"
-#include "Drivers/Graphics/shaders/BackdropBlur.h"
+#include "Drivers/Graphics/effect/BackdropBlur.h"
 
 #include <array>
 

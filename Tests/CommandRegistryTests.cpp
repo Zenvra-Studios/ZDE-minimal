@@ -20,7 +20,7 @@
 #include "UI/Components/Modal.h"
 #include "UI/Components/AboutModal.h"
 #include "Drivers/Graphics/BackdropBlurPipeline.h"
-#include "Drivers/Graphics/shaders/BackdropBlur.h"
+#include "Drivers/Graphics/effect/BackdropBlur.h"
 #include "Services/Shader/ShaderCompiler.h"
 #include "Services/Shader/ShaderRuntimeEngine.h"
 #include "Utility/Column.h"
@@ -303,9 +303,9 @@ void test_studio_editor_layout_and_tokenization()
         "the activity rail must use the medium workspace scale");
     expect(layout.editor_bounds.x == 104.0F,
         "the medium gutter and activity rail must preserve a wide editor viewport");
-    expect(calculate_editor_tab_width(20.0F, 1.0F) == 112.0F &&
+    expect(calculate_editor_tab_width(20.0F, 1.0F) == StudioEditorMetrics::editor_tab_minimum_width &&
             calculate_editor_tab_width(100.0F, 1.0F) == 168.0F &&
-            calculate_editor_tab_width(500.0F, 1.0F) == 224.0F,
+            calculate_editor_tab_width(500.0F, 1.0F) == StudioEditorMetrics::editor_tab_maximum_width,
         "buffer tabs must preserve internal padding while respecting medium width limits");
     expect(layout.minimap_bounds.width == 112.0F &&
             layout.minimap_bounds.right() == layout.scrollbar_bounds.x,

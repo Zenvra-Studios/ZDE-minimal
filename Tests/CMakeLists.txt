@@ -6,6 +6,7 @@ add_executable(ZDEUnitTests
     CommandRegistryTests.cpp
     LanguageServerTests.cpp
     TerminalCompatTests.cpp
+    FFmpegTests.cpp
     # SourceControlTests.cpp
 )
 
@@ -17,6 +18,9 @@ target_link_libraries(ZDEUnitTests PRIVATE
     Zenvra::Language
     Zenvra::Terminal
     Zenvra::Utility
+    Zenvra::Media
+    Zenvra::Drivers::Media
+    Zenvra::Drivers::Audio
     Zenvra::Tools
     Zenvra::Services
     # Zenvra::SourceControl

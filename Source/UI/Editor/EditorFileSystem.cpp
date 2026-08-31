@@ -15,52 +15,137 @@ namespace
 {
 
 constexpr std::uintmax_t maximum_editor_file_size = 8U * 1024U * 1024U;
-constexpr std::size_t maximum_binary_preview_size = 64U * 1024U;
 
-std::vector<std::string> build_binary_preview(
+std::string format_file_size(std::uintmax_t bytes)
+{
+    if (bytes >= 1024ULL * 1024ULL * 1024ULL)
+    {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.2f GB", static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0));
+        return std::string(buf);
+    }
+    if (bytes >= 1024ULL * 1024ULL)
+    {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.2f MB", static_cast<double>(bytes) / (1024.0 * 1024.0));
+        return std::string(buf);
+    }
+    if (bytes >= 1024ULL)
+    {
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.1f KB", static_cast<double>(bytes) / 1024.0);
+        return std::string(buf);
+    }
+    return std::to_string(bytes) + " bytes";
+}
+
+bool is_video_file(const std::filesystem::path& path)
+{
+    std::string ext = path.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return ext == ".mp4" || ext == ".mkv" || ext == ".webm" || ext == ".mov" ||
+           ext == ".avi" || ext == ".flv" || ext == ".wmv" || ext == ".ts" ||
+           ext == ".m4v" || ext == ".ogv" || ext == ".3gp" || ext == ".vob" ||
+           ext == ".rmvb" || ext == ".mjpg";
+}
+
+bool is_audio_file(const std::filesystem::path& path)
+{
+    std::string ext = path.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return ext == ".mp3" || ext == ".wav" || ext == ".flac" || ext == ".ogg" ||
+           ext == ".aac" || ext == ".m4a" || ext == ".opus" || ext == ".aiff" ||
+           ext == ".wma" || ext == ".ac3" || ext == ".mid" || ext == ".midi";
+}
+
+bool is_image_file(const std::filesystem::path& path)
+{
+    std::string ext = path.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" ||
+           ext == ".webp" || ext == ".bmp" || ext == ".ico" || ext == ".tiff" ||
+           ext == ".svg" || ext == ".psd" || ext == ".tga";
+}
+
+std::vector<std::string> build_decompiled_binary_preview(
+    const std::filesystem::path& file_path,
     std::string_view contents,
     std::uintmax_t file_size)
 {
-    const std::size_t preview_size = std::min(contents.size(), maximum_binary_preview_size);
     std::vector<std::string> lines;
-    lines.emplace_back("[Binary preview - read only]");
-    lines.emplace_back("Size: " + std::to_string(file_size) + " bytes");
-    lines.emplace_back();
-    constexpr char hexadecimal[] = "0123456789ABCDEF";
-    for (std::size_t offset = 0; offset < preview_size; offset += 16)
+    const std::string filename = file_path.filename().string();
+    const std::string ext = file_path.extension().string();
+    const std::string formatted_size = format_file_size(file_size);
+
+    std::string kind = "Binary Stream";
+    if (is_video_file(file_path)) kind = "Video Container (" + (ext.empty() ? "Video" : ext.substr(1)) + ")";
+    else if (is_audio_file(file_path)) kind = "Audio Stream (" + (ext.empty() ? "Audio" : ext.substr(1)) + ")";
+    else if (is_image_file(file_path)) kind = "Image Asset (" + (ext.empty() ? "Image" : ext.substr(1)) + ")";
+
+    lines.emplace_back("// ============================================================================");
+    lines.emplace_back("// ZDE Binary Decompiler & Hex Dump Inspector");
+    lines.emplace_back("// File:     " + filename);
+    lines.emplace_back("// Size:     " + formatted_size + " (" + std::to_string(file_size) + " bytes)");
+    lines.emplace_back("// Type:     " + kind);
+    if (is_video_file(file_path) || is_audio_file(file_path) || is_image_file(file_path))
     {
-        char address[32]{};
-        std::snprintf(address, sizeof(address), "%08zX", offset);
-        std::string line{address};
-        line += "  ";
-        std::string printable;
-        printable.reserve(16);
-        for (std::size_t column = 0; column < 16; ++column)
+        lines.emplace_back("// Playback: Click the Media Output icon [>] next to Split button to toggle visual preview");
+    }
+    lines.emplace_back("// ============================================================================");
+    lines.emplace_back("");
+    lines.emplace_back("OFFSET    00 01 02 03 04 05 06 07  08 09 0A 0B 0C 0D 0E 0F  DECOMPILED ASCII");
+    lines.emplace_back("--------  -----------------------  -----------------------  ----------------");
+
+    constexpr std::size_t bytes_per_line = 16;
+    constexpr std::size_t max_preview_bytes = 64 * 1024; // 64 KB preview
+    const std::size_t preview_len = std::min(contents.size(), max_preview_bytes);
+
+    for (std::size_t offset = 0; offset < preview_len; offset += bytes_per_line)
+    {
+        char offset_buf[16];
+        std::snprintf(offset_buf, sizeof(offset_buf), "%08zX  ", offset);
+        std::string line = offset_buf;
+
+        const std::size_t chunk_size = std::min(bytes_per_line, preview_len - offset);
+
+        for (std::size_t i = 0; i < bytes_per_line; ++i)
         {
-            if (offset + column < preview_size)
+            if (i == 8) line += " ";
+            if (i < chunk_size)
             {
-                const unsigned char byte = static_cast<unsigned char>(contents[offset + column]);
-                line.push_back(hexadecimal[byte >> 4U]);
-                line.push_back(hexadecimal[byte & 0x0FU]);
-                printable.push_back(byte >= 0x20U && byte <= 0x7EU
-                    ? static_cast<char>(byte)
-                    : '.');
+                char hex_buf[4];
+                std::snprintf(hex_buf, sizeof(hex_buf), "%02X ", static_cast<unsigned char>(contents[offset + i]));
+                line += hex_buf;
             }
             else
             {
-                line += "  ";
-                printable.push_back(' ');
+                line += "   ";
             }
-            line.push_back(column == 7 ? '-' : ' ');
         }
-        line += " |" + printable + '|';
+
+        line += " |";
+        for (std::size_t i = 0; i < chunk_size; ++i)
+        {
+            const unsigned char byte = static_cast<unsigned char>(contents[offset + i]);
+            if (byte >= 32 && byte <= 126)
+            {
+                line += static_cast<char>(byte);
+            }
+            else
+            {
+                line += '.';
+            }
+        }
+        line += "|";
         lines.push_back(std::move(line));
     }
-    if (preview_size < file_size)
+
+    if (contents.size() > max_preview_bytes)
     {
-        lines.emplace_back();
-        lines.emplace_back("[Binary preview truncated]");
+        lines.emplace_back("");
+        lines.emplace_back("[... Hex decompile preview truncated at 64 KB for performance ...]");
     }
+
     return lines;
 }
 
@@ -259,10 +344,10 @@ std::optional<TextFileSnapshot> EditorFileSystem::read_text_file(
     }
     if (!valid_text)
     {
-        snapshot.lines = build_binary_preview(contents, file_size);
+        snapshot.lines = build_decompiled_binary_preview(snapshot.absolute_path, contents, file_size);
         snapshot.read_only = true;
         snapshot.binary_preview = true;
-        snapshot.truncated = contents.size() < file_size;
+        snapshot.truncated = false;
         snapshot.line_ending = "LF";
         return snapshot;
     }
