@@ -92,6 +92,95 @@ bool ToolSidebar::handle_char(char32_t codepoint) {
 }
 
 bool ToolSidebar::handle_key(int vkey, bool ctrl, bool shift, bool alt) {
+  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
+    // Ctrl+C (Copy File/Folder or Multi-Selection)
+    if (ctrl && !shift && !alt && (vkey == 'C' || vkey == 'c')) {
+      const auto& selected = m_model.get_selected_paths();
+      if (!selected.empty()) {
+        m_model.copy_selected_to_clipboard();
+        std::wstring all_paths_w;
+        for (const auto& p : selected) {
+          if (!all_paths_w.empty()) all_paths_w += L"\r\n";
+          all_paths_w += p.wstring();
+        }
+        if (OpenClipboard(nullptr)) {
+          EmptyClipboard();
+          const size_t bytes = (all_paths_w.length() + 1) * sizeof(wchar_t);
+          HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+          if (hMem) {
+            memcpy(GlobalLock(hMem), all_paths_w.c_str(), bytes);
+            GlobalUnlock(hMem);
+            SetClipboardData(CF_UNICODETEXT, hMem);
+          }
+          CloseClipboard();
+        }
+        return true;
+      }
+      return false;
+    }
+
+    // Ctrl+X (Cut File/Folder or Multi-Selection)
+    if (ctrl && !shift && !alt && (vkey == 'X' || vkey == 'x')) {
+      const auto& selected = m_model.get_selected_paths();
+      if (!selected.empty()) {
+        m_model.cut_selected_to_clipboard();
+        std::wstring all_paths_w;
+        for (const auto& p : selected) {
+          if (!all_paths_w.empty()) all_paths_w += L"\r\n";
+          all_paths_w += p.wstring();
+        }
+        if (OpenClipboard(nullptr)) {
+          EmptyClipboard();
+          const size_t bytes = (all_paths_w.length() + 1) * sizeof(wchar_t);
+          HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+          if (hMem) {
+            memcpy(GlobalLock(hMem), all_paths_w.c_str(), bytes);
+            GlobalUnlock(hMem);
+            SetClipboardData(CF_UNICODETEXT, hMem);
+          }
+          CloseClipboard();
+        }
+        return true;
+      }
+      return false;
+    }
+
+    // Ctrl+V (Paste File/Folder)
+    if (ctrl && !shift && !alt && (vkey == 'V' || vkey == 'v')) {
+      std::filesystem::path out_p;
+      if (m_model.paste_from_clipboard(out_p)) {
+        return true;
+      }
+      return false;
+    }
+
+    // Arrow Key Navigation & Activation
+    if (!ctrl && !alt && !shift) {
+      if (vkey == VK_UP) {
+        return m_model.select_previous();
+      }
+      if (vkey == VK_DOWN) {
+        return m_model.select_next();
+      }
+      if (vkey == VK_LEFT) {
+        return m_model.select_parent_or_collapse();
+      }
+      if (vkey == VK_RIGHT) {
+        return m_model.select_first_child_or_expand();
+      }
+      if (vkey == VK_RETURN || vkey == VK_SPACE) {
+        const auto action = m_model.activate_selected();
+        return action.handled;
+      }
+      if (vkey == VK_DELETE) {
+        if (!m_model.get_selected_paths().empty()) {
+          return m_model.delete_selected_items();
+        }
+      }
+    }
+    return false;
+  }
+
   if (m_model.get_active_icon() != UI::Editor::SidebarIcon::Search) {
     return false;
   }
@@ -496,6 +585,8 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
     return SidebarPressResult{.handled = false};
   }
 
+  m_is_focused = true;
+
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Search) {
     return handle_search_press(layout, point_x, point_y);
   }
@@ -576,8 +667,10 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
     m_is_dragging_item = false;
     m_drag_target_row.reset();
 
+    const bool shift_down = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool ctrl_down = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
     const UI::Editor::ActivityPanelAction action =
-        m_model.activate_project_row(*row);
+        m_model.activate_project_row(*row, shift_down, ctrl_down);
     if (action.file_to_open) {
       return SidebarPressResult{.handled = true, .action = SidebarActionKind::OpenFile, .path = action.file_to_open};
     }
@@ -597,7 +690,9 @@ std::optional<std::filesystem::path> ToolSidebar::handle_right_click(
     const std::size_t item_index = m_model.get_scroll_offset() + *row;
     const auto items = m_model.get_project_items();
     if (item_index < items.size()) {
-      m_model.set_selected_path(items[item_index].path);
+      if (!m_model.is_selected(items[item_index].path)) {
+        m_model.select_single(items[item_index].path);
+      }
       return items[item_index].path;
     }
   }
@@ -906,7 +1001,7 @@ bool ToolSidebar::handle_pointer_drag(
 
     if (m_drag_source_row.has_value() && m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
         const float dist = std::hypot(point_x - m_drag_press_x, point_y - m_drag_press_y);
-        if (dist > 18.0F) {
+        if (dist > 5.0F) {
             m_is_dragging_item = true;
             m_drag_current_x = point_x;
             m_drag_current_y = point_y;
@@ -946,9 +1041,19 @@ bool ToolSidebar::handle_pointer_release() noexcept {
                 target_dir = m_model.get_workspace_root();
             }
 
-            if (!target_dir.empty() && target_dir != source_path) {
-                std::filesystem::path out_p;
-                static_cast<void>(m_model.move_item(source_path, target_dir, out_p));
+            if (!target_dir.empty()) {
+                const auto selected = m_model.get_selected_paths();
+                if (selected.size() > 1 && m_model.is_selected(source_path)) {
+                    for (const auto& p : selected) {
+                        if (p != target_dir && !target_dir.string().starts_with(p.string()) && p.parent_path() != target_dir) {
+                            std::filesystem::path out_p;
+                            static_cast<void>(m_model.move_item(p, target_dir, out_p));
+                        }
+                    }
+                } else if (source_path != target_dir && source_path.parent_path() != target_dir) {
+                    std::filesystem::path out_p;
+                    static_cast<void>(m_model.move_item(source_path, target_dir, out_p));
+                }
             }
         }
     }
@@ -1632,27 +1737,31 @@ void ToolSidebar::render(
         };
 
         if (is_drop_target) {
-          surface.fill_rectangle(device_context, row_bounds, UI::Theme::Color{255, 255, 255, 36});
-          surface.draw_rectangle(device_context, row_bounds, UI::Theme::Color{255, 255, 255, 90});
+          surface.fill_rectangle(device_context, row_bounds, UI::Theme::Color{35, 110, 190, 90});
+          surface.draw_rectangle(device_context, row_bounds, surface.m_palette.accent);
         } else if (is_drag_source) {
-          surface.fill_rectangle(device_context, row_bounds, UI::Theme::Color{255, 255, 255, 16});
+          surface.fill_rectangle(device_context, row_bounds, UI::Theme::Color{255, 255, 255, 20});
         } else if (is_selected) {
-          surface.fill_rectangle(device_context, row_bounds, surface.m_palette.tab_active_background);
-          const UI::Rect left_bar{
-              panel.x, row_bounds.y + 2.0F * scale,
-              3.0F * scale, row_bounds.height - 4.0F * scale
-          };
-          surface.fill_rectangle(device_context, left_bar, surface.m_palette.text_primary);
+          surface.fill_rectangle(device_context, row_bounds, UI::Theme::Color{14, 75, 130, 255});
+          if (m_model.get_selected_path() && *m_model.get_selected_path() == item.path) {
+            const UI::Rect left_bar{
+                panel.x, row_bounds.y + 1.0F * scale,
+                3.0F * scale, row_bounds.height - 2.0F * scale
+            };
+            surface.fill_rectangle(device_context, left_bar, surface.m_palette.accent);
+          }
         } else if (is_hovered) {
           surface.fill_rectangle(device_context, row_bounds, surface.m_palette.hover_background);
         }
 
         const UI::Theme::Color current_row_bg = is_selected
-            ? surface.m_palette.tab_active_background
+            ? UI::Theme::Color{14, 75, 130, 255}
             : (is_hovered ? surface.m_palette.hover_background : surface.m_palette.sidebar_background);
 
         const float indent_x = panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
         const int guide_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
+
+        const UI::Theme::Color guide_color{70, 76, 88, 200};
 
         for (std::size_t level = 0; level < item.depth; ++level) {
           const int guide_x = round_to_int(
@@ -1670,11 +1779,11 @@ void ToolSidebar::render(
             surface.draw_line(
                 device_context, guide_x, round_to_int(row_bounds.y), guide_x,
                 line_active ? round_to_int(row_bounds.bottom()) : guide_y,
-                surface.m_palette.border);
+                guide_color);
           } else if (line_active) {
             surface.draw_line(device_context, guide_x, round_to_int(row_bounds.y),
                               guide_x, round_to_int(row_bounds.bottom()),
-                              surface.m_palette.border);
+                              guide_color);
           }
         }
         if (item.depth > 0) {
@@ -1682,8 +1791,13 @@ void ToolSidebar::render(
               panel.x + (17.0F + static_cast<float>(item.depth - 1) * 16.0F) * scale);
           const int child_x = round_to_int(indent_x + 3.0F * scale);
           surface.draw_line(device_context, parent_x, guide_y, child_x, guide_y,
-                            surface.m_palette.border);
+                            guide_color);
         }
+
+        const bool is_cut = m_model.is_cut_path(item.path);
+        const UI::Theme::Color icon_color = is_cut
+            ? UI::Theme::Color{130, 130, 130, 120}
+            : (is_selected ? UI::Theme::Color{220, 230, 250, 255} : UI::Theme::Color{175, 185, 200, 255});
 
         if (item.directory) {
           const int arrow_x = round_to_int(indent_x + 3.0F * scale);
@@ -1695,7 +1809,7 @@ void ToolSidebar::render(
             surface.draw_svg_icon(
                 device_context, chevron_path, arrow_x, arrow_y,
                 std::max(round_to_int(8.0F * scale), 7),
-                surface.m_palette.text_muted,
+                icon_color,
                 current_row_bg);
           }
           const int folder_x = round_to_int(indent_x + 19.0F * scale);
@@ -1707,7 +1821,7 @@ void ToolSidebar::render(
             surface.draw_svg_icon(
                 device_context, folder_path, folder_x, arrow_y,
                 folder_size,
-                surface.m_palette.text_muted,
+                icon_color,
                 current_row_bg);
           }
         } else {
@@ -1719,9 +1833,9 @@ void ToolSidebar::render(
             surface.draw_svg_icon(
                 device_context, icon_asset, icon_x, icon_y,
                 std::max(round_to_int(14.0F * scale), 11),
-                surface.m_palette.text_muted,
+                icon_color,
                 current_row_bg,
-                true);
+                !is_cut);
           }
         }
 
@@ -1732,10 +1846,12 @@ void ToolSidebar::render(
             const std::string label = ellipsize(
                 device_context, *surface.m_small_font, item.label,
                 round_to_int(available_width));
+            const UI::Theme::Color text_color = is_cut
+                ? UI::Theme::Color{140, 140, 140, 130}
+                : (is_selected ? UI::Theme::Color{255, 255, 255, 255} : UI::Theme::Color{225, 228, 235, 255});
             surface.draw_text(device_context, *surface.m_small_font, label, label_x,
                               row_bounds.y + row_bounds.height * 0.5F,
-                              is_selected ? surface.m_palette.text_primary
-                                          : surface.m_palette.text_primary);
+                              text_color);
           }
         }
       }
@@ -1809,6 +1925,40 @@ void ToolSidebar::render(
             ? UI::Theme::Color{255, 255, 255, 115}
             : (m_hovered_scrollbar ? UI::Theme::Color{255, 255, 255, 75} : UI::Theme::Color{255, 255, 255, 40});
         surface.fill_rectangle(device_context, thumb_bounds, thumb_color);
+      }
+    }
+
+    // Ghost drag preview badge
+    if (m_is_dragging_item && m_drag_source_row.has_value() && *m_drag_source_row < items.size()) {
+      const auto& dragged = items[*m_drag_source_row];
+      const std::string badge_label = dragged.label;
+      const int text_w = surface.m_small_font ? surface.m_small_font->getTextWidth(device_context, badge_label) : 40;
+      const float badge_w = static_cast<float>(text_w) + 36.0F * scale;
+      const float badge_h = 24.0F * scale;
+      const UI::Rect badge_rect{m_drag_current_x + 12.0F * scale, m_drag_current_y + 12.0F * scale, badge_w, badge_h};
+
+      surface.fill_rounded_rectangle(device_context, badge_rect, UI::Theme::Color{24, 28, 38, 245}, 4.0F * scale);
+      surface.draw_rectangle(device_context, badge_rect, surface.m_palette.accent);
+
+      const int badge_icon_x = round_to_int(badge_rect.x + 12.0F * scale);
+      const int badge_icon_y = round_to_int(badge_rect.y + badge_h * 0.5F);
+      if (dragged.directory) {
+        surface.draw_svg_icon(device_context, "folder.svg", badge_icon_x, badge_icon_y,
+                              std::max(round_to_int(12.0F * scale), 10),
+                              UI::Theme::Color{255, 255, 255, 255}, UI::Theme::Color{24, 28, 38, 255});
+      } else {
+        const std::string icon_asset = UI::Editor::file_icon_asset_for_path(dragged.path);
+        surface.draw_svg_icon(device_context, icon_asset, badge_icon_x, badge_icon_y,
+                              std::max(round_to_int(12.0F * scale), 10),
+                              UI::Theme::Color{255, 255, 255, 255}, UI::Theme::Color{24, 28, 38, 255},
+                              true);
+      }
+
+      if (surface.m_small_font) {
+        surface.draw_text(device_context, *surface.m_small_font, badge_label,
+                          badge_rect.x + 22.0F * scale,
+                          badge_rect.y + badge_rect.height * 0.5F,
+                          UI::Theme::Color{255, 255, 255, 255});
       }
     }
   }

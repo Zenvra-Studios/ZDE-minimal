@@ -46,6 +46,11 @@ public:
     [[nodiscard]] std::string format_time_display() const;
     [[nodiscard]] std::string format_badge_text() const;
 
+    [[nodiscard]] bool has_error() const noexcept { return m_has_error; }
+    [[nodiscard]] const std::string& error_message() const noexcept { return m_error_message; }
+    [[nodiscard]] const Zenvra::Media::MediaMetadata& metadata() const noexcept;
+    [[nodiscard]] float audio_visualizer_level(int bar_index, int total_bars) const noexcept;
+
     // Frame update & retrieval
     void update();
     [[nodiscard]] const Zenvra::Media::VideoFrame* current_frame() const noexcept;
@@ -66,6 +71,7 @@ public:
     bool handle_key_down(int key_code);
 
     [[nodiscard]] bool is_scrubbing() const noexcept { return m_is_scrubbing; }
+    [[nodiscard]] bool is_dragging_volume() const noexcept { return m_is_dragging_volume; }
     [[nodiscard]] bool is_hud_visible() const noexcept { return m_hud_visible; }
     [[nodiscard]] bool is_play_hovered() const noexcept { return m_play_hovered; }
     [[nodiscard]] bool is_scrubber_hovered() const noexcept { return m_scrubber_hovered; }
@@ -77,10 +83,14 @@ private:
     std::shared_ptr<Zenvra::Media::IMediaPlayer> m_player;
     std::optional<Zenvra::Media::VideoFrame> m_current_frame;
 
-    float m_volume = 1.0f;
+    float m_volume = 0.70f;
     bool m_muted = false;
+    bool m_has_error = false;
+    std::string m_error_message;
 
     bool m_is_scrubbing = false;
+    bool m_is_dragging_volume = false;
+    bool m_was_playing_before_scrub = false;
     bool m_hud_visible = true;
     bool m_play_hovered = false;
     bool m_scrubber_hovered = false;

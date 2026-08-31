@@ -32,3 +32,15 @@ zde_enable_warnings(ZDEUnitTests)
 
 add_test(NAME ZDE.UnitTests COMMAND ZDEUnitTests)
 
+if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/bin")
+    file(GLOB FFMPEG_TEST_DLLS "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/bin/*.dll")
+    if(FFMPEG_TEST_DLLS)
+        add_custom_command(TARGET ZDEUnitTests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${FFMPEG_TEST_DLLS}
+                "$<TARGET_FILE_DIR:ZDEUnitTests>"
+            COMMENT "Deploying FFmpeg runtime DLLs to unit test binary directory..."
+        )
+    endif()
+endif()
+

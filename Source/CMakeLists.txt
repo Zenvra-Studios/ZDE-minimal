@@ -205,6 +205,19 @@ if(WIN32)
             COMMENT "Deploying TextMate Grammars to Assets/Grammars..."
         )
     endif()
+
+    # Deploy FFmpeg runtime DLLs next to executable
+    if(EXISTS "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/bin")
+        file(GLOB FFMPEG_RUNTIME_DLLS "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/bin/*.dll")
+        if(FFMPEG_RUNTIME_DLLS)
+            add_custom_command(TARGET ZDE POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${FFMPEG_RUNTIME_DLLS}
+                    "$<TARGET_FILE_DIR:ZDE>"
+                COMMENT "Deploying FFmpeg runtime DLLs to application binary directory..."
+            )
+        endif()
+    endif()
 endif()
 
 if(NOT WIN32)

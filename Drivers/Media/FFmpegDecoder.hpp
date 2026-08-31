@@ -105,9 +105,12 @@ public:
     [[nodiscard]] bool is_open() const noexcept;
     [[nodiscard]] const Zenvra::Media::MediaMetadata& metadata() const noexcept;
 
-    // Output video pixel format configuration
+    // Output video & audio format configuration
     void set_target_video_format(Zenvra::Media::VideoPixelFormat format);
     [[nodiscard]] Zenvra::Media::VideoPixelFormat target_video_format() const noexcept;
+    void set_target_audio_format(int sample_rate, int channels);
+    [[nodiscard]] int target_sample_rate() const noexcept;
+    [[nodiscard]] int target_channels() const noexcept;
 
     // Track Switching
     bool select_video_track(int track_index);

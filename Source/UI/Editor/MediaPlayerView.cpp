@@ -66,15 +66,52 @@ MediaPlayerView::~MediaPlayerView() {
 bool MediaPlayerView::open(const std::filesystem::path& file_path) {
     close();
 
+    m_has_error = false;
+    m_error_message.clear();
+
+    // Smart Path Resolution (Supports full path, relative path, or filename clicked from Explorer)
+    std::filesystem::path resolved_path = file_path;
+    std::error_code ec;
+    if (!std::filesystem::exists(resolved_path, ec)) {
+        auto from_cwd = std::filesystem::current_path(ec) / file_path;
+        if (std::filesystem::exists(from_cwd, ec)) {
+            resolved_path = from_cwd;
+        } else {
+            const std::filesystem::path candidates[] = {
+                std::filesystem::current_path(ec) / "Assets" / "vid" / file_path.filename(),
+                std::filesystem::current_path(ec) / "Assets" / "sounds" / file_path.filename(),
+                std::filesystem::current_path(ec) / "Assets" / "icons" / file_path.filename(),
+                std::filesystem::current_path(ec) / "Assets" / file_path.filename(),
+                std::filesystem::current_path(ec) / "videos" / file_path.filename(),
+                std::filesystem::current_path(ec) / "videos" / file_path,
+                std::filesystem::current_path(ec) / "Assets" / file_path
+            };
+            for (const auto& cand : candidates) {
+                if (std::filesystem::exists(cand, ec)) {
+                    resolved_path = cand;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (std::filesystem::exists(resolved_path, ec)) {
+        resolved_path = std::filesystem::absolute(resolved_path, ec);
+    }
+
     Zenvra::Drivers::Media::FFmpegPlayer::register_backend();
     m_player = Zenvra::Media::MediaFactory::create_player(Zenvra::Media::MediaBackendType::FFmpeg);
     if (!m_player) {
+        m_has_error = true;
+        m_error_message = "FFmpeg media player backend is not available.";
         return false;
     }
 
     m_player->set_target_video_format(Zenvra::Media::VideoPixelFormat::BGRA32);
-    auto source = Zenvra::Media::MediaSource::from_file(file_path);
+    auto source = Zenvra::Media::MediaSource::from_file(resolved_path);
     if (!m_player->open(source)) {
+        m_has_error = true;
+        m_error_message = m_player->last_error().empty() ? "Failed to open or decode media stream." : m_player->last_error();
         m_player.reset();
         return false;
     }
@@ -101,6 +138,29 @@ void MediaPlayerView::close() {
     m_current_frame.reset();
     m_current_path.clear();
     m_is_scrubbing = false;
+    m_has_error = false;
+    m_error_message.clear();
+}
+
+const Zenvra::Media::MediaMetadata& MediaPlayerView::metadata() const noexcept {
+    static const Zenvra::Media::MediaMetadata empty{};
+    return m_player ? m_player->metadata() : empty;
+}
+
+float MediaPlayerView::audio_visualizer_level(int bar_index, int total_bars) const noexcept {
+    if (total_bars <= 0 || bar_index < 0 || bar_index >= total_bars) return 0.1f;
+    if (!is_playing()) return 0.08f;
+
+    double t = current_time();
+    float normalized_idx = static_cast<float>(bar_index) / static_cast<float>(total_bars);
+    
+    // Multi-frequency harmonic wave simulation for energetic visualizer feedback
+    float w1 = std::sin(static_cast<float>(t * 8.0 + normalized_idx * 12.0));
+    float w2 = std::cos(static_cast<float>(t * 14.0 - normalized_idx * 20.0));
+    float w3 = std::sin(static_cast<float>(t * 4.0 + normalized_idx * 6.0));
+    
+    float raw = (std::abs(w1 * 0.5f + w2 * 0.35f + w3 * 0.15f));
+    return std::clamp(raw * 0.85f + 0.15f, 0.1f, 1.0f);
 }
 
 bool MediaPlayerView::is_open() const noexcept {
@@ -109,6 +169,9 @@ bool MediaPlayerView::is_open() const noexcept {
 
 void MediaPlayerView::play() {
     if (m_player) {
+        if (duration() > 0.0 && current_time() >= duration() - 0.08) {
+            seek(0.0);
+        }
         m_player->play();
     }
 }
@@ -124,6 +187,9 @@ void MediaPlayerView::toggle_play_pause() {
     if (is_playing()) {
         m_player->pause();
     } else {
+        if (duration() > 0.0 && current_time() >= duration() - 0.08) {
+            seek(0.0);
+        }
         m_player->play();
     }
 }
@@ -309,6 +375,58 @@ bool MediaPlayerView::handle_mouse_down(float x, float y, const UI::Rect& editor
     if (!is_open()) return false;
     m_last_mouse_activity = std::chrono::steady_clock::now();
 
+    const bool is_audio = UI::Editor::is_audio_file(m_current_path);
+
+    if (is_audio) {
+        const float center_x = editor_bounds.x + editor_bounds.width * 0.5F;
+        const float center_y = editor_bounds.y + editor_bounds.height * 0.42F;
+        const float max_track_w = std::min(480.0F * dpi_scale, editor_bounds.width - 40.0F * dpi_scale);
+        const float track_x = center_x - max_track_w * 0.5F;
+        const float track_w = max_track_w;
+        const float track_h = 24.0F * dpi_scale;
+        const float track_y = center_y + 70.0F * dpi_scale - 10.0F * dpi_scale;
+        const UI::Rect scrubber{track_x, track_y, track_w, track_h};
+
+        const float ctrl_y = center_y + 95.0F * dpi_scale;
+        const float play_btn_sz = 36.0F * dpi_scale;
+        const UI::Rect play_btn{center_x - play_btn_sz * 0.5F, ctrl_y, play_btn_sz, play_btn_sz};
+
+        const float vol_w = std::min(90.0F * dpi_scale, max_track_w * 0.3F);
+        const float vol_h = 24.0F * dpi_scale;
+        const UI::Rect volume_btn{track_x + track_w - vol_w, ctrl_y + (play_btn_sz - vol_h) * 0.5F, vol_w, vol_h};
+
+        if (play_btn.contains(x, y)) {
+            toggle_play_pause();
+            return true;
+        }
+
+        if (scrubber.contains(x, y)) {
+            m_was_playing_before_scrub = is_playing();
+            if (m_was_playing_before_scrub) {
+                pause();
+            }
+            m_is_scrubbing = true;
+            float ratio = std::clamp((x - scrubber.x) / scrubber.width, 0.0F, 1.0F);
+            seek(ratio * duration());
+            return true;
+        }
+
+        if (volume_btn.contains(x, y)) {
+            m_is_dragging_volume = true;
+            if (x < volume_btn.x + 18.0F * dpi_scale && volume_btn.width >= 50.0F * dpi_scale) {
+                toggle_mute();
+            } else {
+                const float v_track_x = volume_btn.x + 18.0F * dpi_scale;
+                const float v_track_w = std::max(10.0F * dpi_scale, volume_btn.width - 26.0F * dpi_scale);
+                float ratio = std::clamp((x - v_track_x) / v_track_w, 0.0F, 1.0F);
+                set_volume(ratio);
+            }
+            return true;
+        }
+
+        return false;
+    }
+
     const UI::Rect hud = calculate_hud_bounds(editor_bounds, dpi_scale);
     const UI::Rect play_btn = calculate_play_button_bounds(hud, dpi_scale);
     const UI::Rect scrubber = calculate_scrubber_bounds(hud, dpi_scale);
@@ -320,6 +438,10 @@ bool MediaPlayerView::handle_mouse_down(float x, float y, const UI::Rect& editor
     }
 
     if (scrubber.contains(x, y)) {
+        m_was_playing_before_scrub = is_playing();
+        if (m_was_playing_before_scrub) {
+            pause();
+        }
         m_is_scrubbing = true;
         float ratio = std::clamp((x - scrubber.x) / scrubber.width, 0.0F, 1.0F);
         seek(ratio * duration());
@@ -327,8 +449,15 @@ bool MediaPlayerView::handle_mouse_down(float x, float y, const UI::Rect& editor
     }
 
     if (volume_btn.contains(x, y)) {
-        float ratio = std::clamp((x - volume_btn.x) / volume_btn.width, 0.0F, 1.0F);
-        set_volume(ratio);
+        m_is_dragging_volume = true;
+        if (x < volume_btn.x + 18.0F * dpi_scale && volume_btn.width >= 50.0F * dpi_scale) {
+            toggle_mute();
+        } else {
+            const float v_track_x = volume_btn.x + 18.0F * dpi_scale;
+            const float v_track_w = std::max(10.0F * dpi_scale, volume_btn.width - 26.0F * dpi_scale);
+            float ratio = std::clamp((x - v_track_x) / v_track_w, 0.0F, 1.0F);
+            set_volume(ratio);
+        }
         return true;
     }
 
@@ -344,6 +473,51 @@ bool MediaPlayerView::handle_mouse_down(float x, float y, const UI::Rect& editor
 bool MediaPlayerView::handle_mouse_move(float x, float y, const UI::Rect& editor_bounds, float dpi_scale) {
     if (!is_open()) return false;
     m_last_mouse_activity = std::chrono::steady_clock::now();
+
+    const bool is_audio = UI::Editor::is_audio_file(m_current_path);
+
+    if (is_audio) {
+        const float center_x = editor_bounds.x + editor_bounds.width * 0.5F;
+        const float center_y = editor_bounds.y + editor_bounds.height * 0.42F;
+        const float max_track_w = std::min(480.0F * dpi_scale, editor_bounds.width - 40.0F * dpi_scale);
+        const float track_x = center_x - max_track_w * 0.5F;
+        const float track_w = max_track_w;
+        const float track_h = 24.0F * dpi_scale;
+        const float track_y = center_y + 70.0F * dpi_scale - 10.0F * dpi_scale;
+        const UI::Rect scrubber{track_x, track_y, track_w, track_h};
+
+        const float ctrl_y = center_y + 95.0F * dpi_scale;
+        const float play_btn_sz = 36.0F * dpi_scale;
+        const UI::Rect play_btn{center_x - play_btn_sz * 0.5F, ctrl_y, play_btn_sz, play_btn_sz};
+
+        const float vol_w = std::min(90.0F * dpi_scale, max_track_w * 0.3F);
+        const float vol_h = 24.0F * dpi_scale;
+        const UI::Rect volume_btn{track_x + track_w - vol_w, ctrl_y + (play_btn_sz - vol_h) * 0.5F, vol_w, vol_h};
+
+        m_play_hovered = play_btn.contains(x, y);
+        m_scrubber_hovered = scrubber.contains(x, y);
+        m_volume_hovered = volume_btn.contains(x, y);
+
+        if (m_scrubber_hovered && scrubber.width > 0.0F) {
+            m_hover_scrub_ratio = std::clamp((x - scrubber.x) / scrubber.width, 0.0F, 1.0F);
+        }
+
+        if (m_is_scrubbing && scrubber.width > 0.0F) {
+            float ratio = std::clamp((x - scrubber.x) / scrubber.width, 0.0F, 1.0F);
+            seek(ratio * duration());
+            return true;
+        }
+
+        if (m_is_dragging_volume && volume_btn.width > 0.0F) {
+            const float v_track_x = volume_btn.x + 18.0F * dpi_scale;
+            const float v_track_w = std::max(10.0F * dpi_scale, volume_btn.width - 26.0F * dpi_scale);
+            float ratio = std::clamp((x - v_track_x) / v_track_w, 0.0F, 1.0F);
+            set_volume(ratio);
+            return true;
+        }
+
+        return m_play_hovered || m_scrubber_hovered || m_volume_hovered;
+    }
 
     const UI::Rect hud = calculate_hud_bounds(editor_bounds, dpi_scale);
     const UI::Rect play_btn = calculate_play_button_bounds(hud, dpi_scale);
@@ -364,16 +538,33 @@ bool MediaPlayerView::handle_mouse_move(float x, float y, const UI::Rect& editor
         return true;
     }
 
+    if (m_is_dragging_volume && volume_btn.width > 0.0F) {
+        const float v_track_x = volume_btn.x + 18.0F * dpi_scale;
+        const float v_track_w = std::max(10.0F * dpi_scale, volume_btn.width - 26.0F * dpi_scale);
+        float ratio = std::clamp((x - v_track_x) / v_track_w, 0.0F, 1.0F);
+        set_volume(ratio);
+        return true;
+    }
+
     return m_play_hovered || m_scrubber_hovered || m_volume_hovered;
 }
 
 bool MediaPlayerView::handle_mouse_up(float x, float y, const UI::Rect& editor_bounds, float dpi_scale) {
     (void)x; (void)y; (void)editor_bounds; (void)dpi_scale;
+    bool released = false;
     if (m_is_scrubbing) {
         m_is_scrubbing = false;
-        return true;
+        released = true;
+        if (m_was_playing_before_scrub) {
+            play();
+            m_was_playing_before_scrub = false;
+        }
     }
-    return false;
+    if (m_is_dragging_volume) {
+        m_is_dragging_volume = false;
+        released = true;
+    }
+    return released;
 }
 
 bool MediaPlayerView::handle_key_down(int key_code) {

@@ -16,11 +16,14 @@ if(Audio_SOURCES)
 
     target_link_libraries(DriversAudio PUBLIC
         Zenvra::Media
-        Zenvra::Drivers::Media
     )
 
     if(TARGET FFmpeg::FFmpeg)
         target_link_libraries(DriversAudio PUBLIC FFmpeg::FFmpeg)
+    endif()
+
+    if(WIN32)
+        target_link_libraries(DriversAudio PUBLIC ole32)
     endif()
 
     zde_enable_warnings(DriversAudio)

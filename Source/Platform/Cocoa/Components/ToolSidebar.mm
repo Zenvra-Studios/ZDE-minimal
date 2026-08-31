@@ -2041,16 +2041,24 @@ void ToolSidebar::render(
                 const CGFloat drop_rgba[4] = {1.0, 1.0, 1.0, 0.14};
                 surface.fill_rectangle(context, row_bounds, drop_rgba);
                 surface.draw_rectangle(context, row_bounds, drop_rgba);
+            const bool is_cut = m_model.is_cut_path(item.path);
+
+            if (is_drop_target) {
+                const CGFloat drop_rgba[4] = {1.0, 1.0, 1.0, 0.14};
+                surface.fill_rectangle(context, row_bounds, drop_rgba);
+                surface.draw_rectangle(context, row_bounds, drop_rgba);
             } else if (is_drag_source) {
                 const CGFloat drag_rgba[4] = {1.0, 1.0, 1.0, 0.06};
                 surface.fill_rectangle(context, row_bounds, drag_rgba);
             } else if (is_selected) {
-                surface.fill_rectangle(context, row_bounds, surface.m_colors.tab_active_background);
-                const UI::Rect left_bar{
-                    panel.x, row_bounds.y + 2.0F * scale,
-                    3.0F * scale, row_bounds.height - 4.0F * scale
-                };
-                surface.fill_rectangle(context, left_bar, surface.m_colors.text_primary);
+                surface.fill_rectangle(context, row_bounds, surface.m_colors.selection_background);
+                if (m_model.get_selected_path() && *m_model.get_selected_path() == item.path) {
+                    const UI::Rect left_bar{
+                        panel.x, row_bounds.y + 1.0F * scale,
+                        3.0F * scale, row_bounds.height - 2.0F * scale
+                    };
+                    surface.fill_rectangle(context, left_bar, surface.m_colors.accent);
+                }
             } else if (is_hovered) {
                 surface.fill_rectangle(context, row_bounds, surface.m_colors.hover_background);
             }
@@ -2061,8 +2069,12 @@ void ToolSidebar::render(
             // Indentation guides
             for (std::size_t level = 0; level < item.depth; ++level) {
                 const int guide_x = round_to_int(panel.x + (17.0F + static_cast<float>(level) * 16.0F) * scale);
-                surface.draw_line(context, guide_x, round_to_int(row_bounds.y), guide_x, round_to_int(row_bounds.bottom()), surface.m_colors.border);
+                surface.draw_line(context, guide_x, round_to_int(row_bounds.y), guide_x, round_to_int(row_bounds.bottom()), surface.m_colors.indent_guide);
             }
+
+            const UI::Theme::Color icon_color = is_cut
+                ? UI::Theme::Color{130, 130, 130, 120}
+                : (is_selected ? UI::Theme::Color{220, 230, 250, 255} : UI::Theme::Color{175, 185, 200, 255});
 
             // Chevron
             if (item.directory) {
@@ -2070,7 +2082,7 @@ void ToolSidebar::render(
                 surface.draw_svg_icon(context, chevron_icon,
                     round_to_int(indent_x), guide_y,
                     std::max(round_to_int(10.0F * scale), 8),
-                    surface.m_palette.text_muted, surface.m_palette.sidebar_background);
+                    icon_color, is_selected ? surface.m_palette.selection_background : surface.m_palette.sidebar_background);
             }
 
             // File/Folder icon
@@ -2078,13 +2090,13 @@ void ToolSidebar::render(
             if (item.directory) {
                 surface.draw_svg_icon(context, "Assets/icons/folder.svg", icon_x, guide_y,
                     std::max(round_to_int(14.0F * scale), 12),
-                    surface.m_palette.text_primary, surface.m_palette.sidebar_background);
+                    icon_color, is_selected ? surface.m_palette.selection_background : surface.m_palette.sidebar_background);
             } else {
                 const std::string icon_asset = UI::Editor::file_icon_asset_for_path(item.path);
                 surface.draw_svg_icon(context, "Assets/icons/" + icon_asset, icon_x, guide_y,
                     std::max(round_to_int(14.0F * scale), 12),
-                    surface.m_palette.text_primary, surface.m_palette.sidebar_background,
-                    true);
+                    icon_color, is_selected ? surface.m_palette.selection_background : surface.m_palette.sidebar_background,
+                    !is_cut);
             }
 
             // Label
@@ -2092,7 +2104,7 @@ void ToolSidebar::render(
                 surface.draw_text(context, *surface.m_small_font, item.label,
                     indent_x + 28.0F * scale,
                     row_bounds.y + row_bounds.height * 0.5F,
-                    is_selected ? surface.m_text.primary : (is_hovered ? surface.m_text.primary : surface.m_text.primary));
+                    is_cut ? "#888888" : (is_selected ? "#ffffff" : surface.m_text.primary));
             }
         }
 

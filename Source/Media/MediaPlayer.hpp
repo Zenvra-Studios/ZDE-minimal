@@ -29,6 +29,7 @@ public:
     [[nodiscard]] virtual double position() const noexcept = 0;
     [[nodiscard]] virtual MediaBackendType backend_type() const noexcept = 0;
     [[nodiscard]] virtual std::string_view backend_name() const noexcept = 0;
+    [[nodiscard]] virtual std::string last_error() const { return ""; }
 
     // Track Selection
     virtual bool select_video_track(int track_index) = 0;

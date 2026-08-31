@@ -361,10 +361,58 @@ bool TextEditor::open_file(const std::filesystem::path& path)
 
 bool TextEditor::is_media_active() const noexcept
 {
+    if (const auto* active_p = m_controller.get_active_path(); active_p && !active_p->empty())
+    {
+        return UI::Editor::is_video_file(*active_p) || UI::Editor::is_audio_file(*active_p) || UI::Editor::is_image_file(*active_p);
+    }
     const auto* doc = m_controller.get_active_document();
     if (doc == nullptr) return false;
     const std::filesystem::path p = std::string(doc->get_file_name());
     return UI::Editor::is_video_file(p) || UI::Editor::is_audio_file(p) || UI::Editor::is_image_file(p);
+}
+
+bool TextEditor::is_media_point(
+    const UI::Editor::StudioEditorLayoutResult& layout,
+    float point_x, float point_y) const noexcept
+{
+    if (!m_media_preview_mode) return false;
+
+    const float scale = layout.dpi_scale;
+    const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
+    const float splitter_x = layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) * m_split_ratio;
+
+    const UI::Rect left_pane = is_split_active
+        ? UI::Rect{layout.editor_bounds.x, layout.editor_bounds.y, splitter_x - layout.editor_bounds.x, layout.editor_bounds.height}
+        : layout.editor_bounds;
+    const UI::Rect right_pane{splitter_x + 2.0F * scale, layout.editor_bounds.y, std::max(layout.editor_bounds.right() - (splitter_x + 2.0F * scale), 0.0F), layout.editor_bounds.height};
+
+    const auto* left_doc = m_controller.get_active_document();
+    const bool left_is_media = left_doc && (UI::Editor::is_video_file(std::string(left_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(left_doc->get_file_name())) || UI::Editor::is_image_file(std::string(left_doc->get_file_name())));
+
+    const auto* right_doc = is_split_active ? m_controller.get_document(*m_split_document_index) : nullptr;
+    const bool right_is_media = right_doc && (UI::Editor::is_video_file(std::string(right_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(right_doc->get_file_name())) || UI::Editor::is_image_file(std::string(right_doc->get_file_name())));
+
+    if (left_is_media && left_pane.contains(point_x, point_y)) return true;
+    if (right_is_media && is_split_active && right_pane.contains(point_x, point_y)) return true;
+
+    return false;
+}
+
+bool TextEditor::is_media_interactive_point(
+    const UI::Editor::StudioEditorLayoutResult& layout,
+    float point_x, float point_y) const noexcept
+{
+    if (!is_media_point(layout, point_x, point_y)) return false;
+
+    if (m_media_player_view.is_play_hovered() ||
+        m_media_player_view.is_scrubber_hovered() ||
+        m_media_player_view.is_volume_hovered() ||
+        m_media_player_view.is_scrubbing())
+    {
+        return true;
+    }
+
+    return false;
 }
 
 bool TextEditor::open_file_at_location(const std::filesystem::path& path, std::size_t line, std::size_t column)
@@ -455,16 +503,23 @@ bool TextEditor::select_all_occurrences()
 
 bool TextEditor::close_file(const std::filesystem::path& path)
 {
-    if (m_media_player_view.current_path() == path)
+    if (m_media_player_view.current_path() == path ||
+        m_media_player_view.current_path().filename() == path.filename() ||
+        m_controller.get_documents().size() <= 1)
     {
         m_media_player_view.close();
     }
     const auto docs = m_controller.get_documents();
     for (std::size_t i = 0; i < docs.size(); ++i)
     {
-        if (docs[i].path == path)
+        if (docs[i].path == path || docs[i].text.get_file_name() == path.string() || docs[i].path.filename() == path.filename())
         {
-            return m_controller.close_file(i);
+            const bool closed = m_controller.close_file(i);
+            if (m_controller.get_documents().empty() || !is_media_active())
+            {
+                m_media_player_view.close();
+            }
+            return closed;
         }
     }
     return false;
@@ -1471,6 +1526,10 @@ bool TextEditor::handle_pointer_press(
                     std::size_t active = m_controller.get_active_index().value_or(0);
                     std::size_t prev = (active == 0) ? (doc_count - 1) : (active - 1);
                     static_cast<void>(m_controller.activate_file(prev));
+                    if (!is_media_active())
+                    {
+                        m_media_player_view.close();
+                    }
                     m_scrollbar.reset();
                     m_reveal_caret_pending = true;
                     m_caret_blink.reset();
@@ -1484,6 +1543,10 @@ bool TextEditor::handle_pointer_press(
                     std::size_t active = m_controller.get_active_index().value_or(0);
                     std::size_t next = (active + 1) % doc_count;
                     static_cast<void>(m_controller.activate_file(next));
+                    if (!is_media_active())
+                    {
+                        m_media_player_view.close();
+                    }
                     m_scrollbar.reset();
                     m_reveal_caret_pending = true;
                     m_caret_blink.reset();
@@ -1561,9 +1624,24 @@ bool TextEditor::handle_pointer_press(
                 if (close_bounds.contains(point_x, point_y))
                 {
                     const float shift = bounds.width + UI::Editor::StudioEditorMetrics::editor_tab_gap * surface.m_dpi_scale;
+                    const auto closing_path = documents[index].path;
+                    const bool is_closing_active = (m_controller.get_active_index() == index);
+
+                    if (m_media_player_view.current_path() == closing_path || 
+                        m_media_player_view.current_path().filename() == closing_path.filename() ||
+                        is_closing_active ||
+                        documents.size() <= 1)
+                    {
+                        m_media_player_view.close();
+                    }
+
                     const bool closed = m_controller.close_file(index);
                     if (closed)
                     {
+                        if (is_closing_active || m_controller.get_documents().empty() || !is_media_active())
+                        {
+                            m_media_player_view.close();
+                        }
                         const auto remaining = m_controller.get_documents();
                         for (std::size_t k = index; k < remaining.size(); ++k)
                         {
@@ -1575,6 +1653,7 @@ bool TextEditor::handle_pointer_press(
                         m_hovered_tab_index.reset();
                         m_hovered_tab_close_index.reset();
                     }
+                    if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
                     return closed;
                 }
                 if (m_controller.activate_file(index))
@@ -1585,6 +1664,14 @@ bool TextEditor::handle_pointer_press(
                     if (is_media_active())
                     {
                         m_media_preview_mode = true;
+                        if (const auto* p = m_controller.get_active_path(); p && !p->empty() && m_media_player_view.current_path() != *p)
+                        {
+                            m_media_player_view.close();
+                        }
+                    }
+                    else
+                    {
+                        m_media_player_view.close();
                     }
 
                     if (const auto* doc = m_controller.get_active_document(); doc != nullptr)
@@ -1624,7 +1711,9 @@ bool TextEditor::handle_pointer_press(
     const UI::Rect right_pane{splitter_x + 2.0F * scale, layout.editor_bounds.y, std::max(layout.editor_bounds.right() - (splitter_x + 2.0F * scale), 0.0F), layout.editor_bounds.height};
 
     const auto* left_doc = m_controller.get_active_document();
-    const bool left_is_media = left_doc && (UI::Editor::is_video_file(std::string(left_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(left_doc->get_file_name())) || UI::Editor::is_image_file(std::string(left_doc->get_file_name())));
+    const std::filesystem::path* left_p = m_controller.get_active_path();
+    const bool left_is_media = left_p ? (UI::Editor::is_video_file(*left_p) || UI::Editor::is_audio_file(*left_p) || UI::Editor::is_image_file(*left_p))
+                                      : (left_doc && (UI::Editor::is_video_file(std::string(left_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(left_doc->get_file_name())) || UI::Editor::is_image_file(std::string(left_doc->get_file_name()))));
 
     const auto* right_doc = is_split_active ? m_controller.get_document(*m_split_document_index) : nullptr;
     const bool right_is_media = right_doc && (UI::Editor::is_video_file(std::string(right_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(right_doc->get_file_name())) || UI::Editor::is_image_file(std::string(right_doc->get_file_name())));
@@ -1633,21 +1722,43 @@ bool TextEditor::handle_pointer_press(
     {
         m_focused = true;
         m_focused_pane = SplitPaneFocus::Left;
+
+        if (m_media_player_view.has_error())
+        {
+            const float center_x = left_pane.x + left_pane.width * 0.5F;
+            const float center_y = left_pane.y + left_pane.height * 0.45F;
+            const float card_w = std::min(480.0F * scale, left_pane.width - 40.0F * scale);
+            const float card_h = 160.0F * scale;
+            const UI::Rect card_rect{center_x - card_w * 0.5F, center_y - card_h * 0.5F, card_w, card_h};
+            const float btn_w = 110.0F * scale;
+            const float btn_h = 28.0F * scale;
+            const UI::Rect btn_rect{center_x - btn_w * 0.5F, card_rect.y + 105.0F * scale, btn_w, btn_h};
+            if (btn_rect.contains(point_x, point_y))
+            {
+                const std::filesystem::path p = (left_p && !left_p->empty()) ? *left_p : std::filesystem::path(std::string(left_doc->get_file_name()));
+                m_media_player_view.open(p);
+                if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+                return true;
+            }
+        }
+
+        m_pointer_selecting = false;
         if (m_media_player_view.handle_mouse_down(point_x, point_y, left_pane, surface.m_dpi_scale))
         {
             if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
-            return true;
         }
+        return true;
     }
     else if (right_is_media && m_media_preview_mode && is_split_active && right_pane.contains(point_x, point_y))
     {
         m_focused = true;
         m_focused_pane = SplitPaneFocus::Right;
+        m_pointer_selecting = false;
         if (m_media_player_view.handle_mouse_down(point_x, point_y, right_pane, surface.m_dpi_scale))
         {
             if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
-            return true;
         }
+        return true;
     }
 
     if (is_split_active)
@@ -2462,6 +2573,25 @@ bool TextEditor::handle_pointer_drag(
     float point_x,
     float point_y)
 {
+    if (is_media_active() && m_media_preview_mode && (m_media_player_view.is_scrubbing() || m_media_player_view.is_dragging_volume()))
+    {
+        const float scale = surface.m_dpi_scale;
+        const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
+        const float splitter_x = layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) * m_split_ratio;
+
+        const UI::Rect left_pane = is_split_active
+            ? UI::Rect{layout.editor_bounds.x, layout.editor_bounds.y, splitter_x - layout.editor_bounds.x, layout.editor_bounds.height}
+            : layout.editor_bounds;
+        const UI::Rect right_pane{splitter_x + 2.0F * scale, layout.editor_bounds.y, std::max(layout.editor_bounds.right() - (splitter_x + 2.0F * scale), 0.0F), layout.editor_bounds.height};
+
+        const UI::Rect active_pane = (is_split_active && m_focused_pane == SplitPaneFocus::Right) ? right_pane : left_pane;
+        if (m_media_player_view.handle_mouse_move(point_x, point_y, active_pane, scale))
+        {
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+    }
+
     if (m_is_resizing_split)
     {
         const float rel_x = point_x - layout.editor_bounds.x;
@@ -2757,7 +2887,11 @@ bool TextEditor::handle_pointer_release() noexcept
 {
     if (is_media_active() && m_media_preview_mode)
     {
-        m_media_player_view.handle_mouse_up(0.0F, 0.0F, UI::Rect{}, 1.0F);
+        if (m_media_player_view.handle_mouse_up(0.0F, 0.0F, UI::Rect{}, 1.0F))
+        {
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
     }
 
     m_pointer_selecting = false;
@@ -2976,6 +3110,13 @@ bool TextEditor::handle_input(
         if (command == UI::Editor::EditorInputCommand::MoveDown)
         {
             m_media_player_view.set_volume(m_media_player_view.volume() - 0.1f);
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+        if (command == UI::Editor::EditorInputCommand::Escape)
+        {
+            m_media_player_view.close();
+            m_media_preview_mode = false;
             if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
             return true;
         }
@@ -4159,10 +4300,17 @@ bool TextEditor::tick_animations() noexcept
         m_split_brace_animation.clear();
     }
 
-    if (m_media_player_view.is_playing())
+    if (is_media_active() && m_media_preview_mode)
     {
-        m_media_player_view.update();
-        animating = true;
+        if (m_media_player_view.is_playing())
+        {
+            m_media_player_view.update();
+            animating = true;
+        }
+        else if (m_media_player_view.is_scrubbing())
+        {
+            animating = true;
+        }
     }
     
     return needs_redraw || animating;
@@ -4616,24 +4764,85 @@ void TextEditor::draw_media_pane(
     // 1. Fill entire pane seamlessly with editor background
     surface.fill_rectangle(device_context, pane_bounds, surface.m_palette.editor_background);
 
+    // 2. Error Card State Handling
+    if (m_media_player_view.has_error())
+    {
+        const float center_x = pane_bounds.x + pane_bounds.width * 0.5F;
+        const float center_y = pane_bounds.y + pane_bounds.height * 0.45F;
+
+        const float card_w = std::min(480.0F * scale, pane_bounds.width - 40.0F * scale);
+        const float card_h = 160.0F * scale;
+        const UI::Rect card_rect{center_x - card_w * 0.5F, center_y - card_h * 0.5F, card_w, card_h};
+
+        surface.fill_rounded_rectangle(device_context, card_rect, UI::Theme::Color{28, 22, 24, 240}, 8.0F * scale);
+        surface.draw_rectangle(device_context, card_rect, UI::Theme::Color{180, 50, 60, 180});
+
+        const std::string title = "Media Playback Error";
+        if (surface.m_large_font)
+        {
+            const int tw = surface.m_large_font->getTextWidth(device_context, title);
+            surface.draw_text(device_context, *surface.m_large_font, title, center_x - static_cast<float>(tw) * 0.5F, card_rect.y + 24.0F * scale, UI::Theme::Color{245, 90, 100, 255});
+        }
+
+        std::string err = m_media_player_view.error_message();
+        if (err.empty()) err = "Unable to decode or render media stream.";
+        if (surface.m_ui_font)
+        {
+            const int ew = surface.m_ui_font->getTextWidth(device_context, err);
+            surface.draw_text(device_context, *surface.m_ui_font, err, center_x - static_cast<float>(ew) * 0.5F, card_rect.y + 60.0F * scale, surface.m_palette.text_muted);
+        }
+
+        // Retry Button
+        const float btn_w = 110.0F * scale;
+        const float btn_h = 28.0F * scale;
+        const UI::Rect btn_rect{center_x - btn_w * 0.5F, card_rect.y + 105.0F * scale, btn_w, btn_h};
+        surface.fill_rounded_rectangle(device_context, btn_rect, surface.m_palette.accent, 4.0F * scale);
+        if (surface.m_ui_font)
+        {
+            const std::string retry_text = "Reload Media";
+            const int rw = surface.m_ui_font->getTextWidth(device_context, retry_text);
+            surface.draw_text(device_context, *surface.m_ui_font, retry_text, center_x - static_cast<float>(rw) * 0.5F, btn_rect.y + btn_h * 0.5F, UI::Theme::Color{255, 255, 255, 255});
+        }
+        return;
+    }
+
     const bool is_audio = UI::Editor::is_audio_file(doc_path);
 
     if (is_audio)
     {
         // =========================================================================
-        // Centered Audio Player (Directly Centered in Text Editor Area, No Box Wrapper)
+        // Centered Audio Player with Live Dynamic Visualizer
         // =========================================================================
         const float center_x = pane_bounds.x + pane_bounds.width * 0.5F;
-        const float center_y = pane_bounds.y + pane_bounds.height * 0.45F;
+        const float center_y = pane_bounds.y + pane_bounds.height * 0.42F;
 
         // Centered Music Icon Pill
-        const float icon_sz = 64.0F * scale;
-        const UI::Rect icon_rect{center_x - icon_sz * 0.5F, center_y - 90.0F * scale, icon_sz, icon_sz};
-        surface.fill_rounded_rectangle(device_context, icon_rect, surface.m_palette.accent, 16.0F * scale);
+        const float icon_sz = 56.0F * scale;
+        const UI::Rect icon_rect{center_x - icon_sz * 0.5F, center_y - 100.0F * scale, icon_sz, icon_sz};
+        surface.fill_rounded_rectangle(device_context, icon_rect, surface.m_palette.accent, 14.0F * scale);
         if (surface.m_large_font)
         {
             const int note_w = surface.m_large_font->getTextWidth(device_context, "♪");
             surface.draw_text(device_context, *surface.m_large_font, "♪", center_x - static_cast<float>(note_w) * 0.5F, icon_rect.y + icon_sz * 0.5F, UI::Theme::Color{255, 255, 255, 255});
+        }
+
+        // Animated Spectrum Visualizer Bars
+        constexpr int total_bars = 24;
+        const float bar_w = 4.0F * scale;
+        const float bar_gap = 3.5F * scale;
+        const float max_bar_h = 44.0F * scale;
+        const float total_viz_w = total_bars * bar_w + (total_bars - 1) * bar_gap;
+        const float viz_start_x = center_x - total_viz_w * 0.5F;
+        const float viz_baseline_y = center_y - 20.0F * scale;
+
+        for (int b = 0; b < total_bars; ++b)
+        {
+            float level = m_media_player_view.audio_visualizer_level(b, total_bars);
+            float bar_h = std::max(3.0F * scale, level * max_bar_h);
+            float bx = viz_start_x + static_cast<float>(b) * (bar_w + bar_gap);
+            float by = viz_baseline_y - bar_h * 0.5F;
+            UI::Theme::Color bar_col = m_media_player_view.is_playing() ? surface.m_palette.accent : UI::Theme::Color{80, 85, 105, 180};
+            surface.fill_rounded_rectangle(device_context, UI::Rect{bx, by, bar_w, bar_h}, bar_col, 2.0F * scale);
         }
 
         // Centered Title
@@ -4641,12 +4850,12 @@ void TextEditor::draw_media_pane(
         if (surface.m_large_font)
         {
             const int title_w = surface.m_large_font->getTextWidth(device_context, filename_str);
-            surface.draw_text(device_context, *surface.m_large_font, filename_str, center_x - static_cast<float>(title_w) * 0.5F, center_y + 10.0F * scale, surface.m_palette.text_primary);
+            surface.draw_text(device_context, *surface.m_large_font, filename_str, center_x - static_cast<float>(title_w) * 0.5F, center_y + 16.0F * scale, surface.m_palette.text_primary);
         }
         else if (surface.m_ui_font)
         {
             const int title_w = surface.m_ui_font->getTextWidth(device_context, filename_str);
-            surface.draw_text(device_context, *surface.m_ui_font, filename_str, center_x - static_cast<float>(title_w) * 0.5F, center_y + 10.0F * scale, surface.m_palette.text_primary);
+            surface.draw_text(device_context, *surface.m_ui_font, filename_str, center_x - static_cast<float>(title_w) * 0.5F, center_y + 16.0F * scale, surface.m_palette.text_primary);
         }
 
         // Centered Info
@@ -4655,11 +4864,11 @@ void TextEditor::draw_media_pane(
         if (surface.m_small_font)
         {
             const int info_w = surface.m_small_font->getTextWidth(device_context, audio_info);
-            surface.draw_text(device_context, *surface.m_small_font, audio_info, center_x - static_cast<float>(info_w) * 0.5F, center_y + 36.0F * scale, surface.m_palette.text_muted);
+            surface.draw_text(device_context, *surface.m_small_font, audio_info, center_x - static_cast<float>(info_w) * 0.5F, center_y + 40.0F * scale, surface.m_palette.text_muted);
         }
 
         // Centered Scrubber Track
-        const float max_track_w = std::min(460.0F * scale, pane_bounds.width - 40.0F * scale);
+        const float max_track_w = std::min(480.0F * scale, pane_bounds.width - 40.0F * scale);
         const float track_x = center_x - max_track_w * 0.5F;
         const float track_w = max_track_w;
         const float track_h = 4.0F * scale;
@@ -4868,6 +5077,10 @@ void TextEditor::draw_document(
     }
     if (document == nullptr)
     {
+        if (m_media_player_view.is_open())
+        {
+            const_cast<TextEditor*>(this)->m_media_player_view.close();
+        }
         surface.fill_rectangle(device_context, layout.editor_bounds,
                                surface.m_palette.editor_background);
 
@@ -4977,7 +5190,8 @@ void TextEditor::draw_document(
     const float available_code_width = std::max(left_code_limit - (layout.editor_bounds.x + 14.0F * scale), 20.0F * scale);
 
     const UI::Rect left_pane{layout.editor_bounds.x, layout.editor_bounds.y, half_w, layout.editor_bounds.height};
-    const std::filesystem::path left_path = std::string(document->get_file_name());
+    const std::filesystem::path* active_p = m_controller.get_active_path();
+    const std::filesystem::path left_path = (active_p && !active_p->empty()) ? *active_p : std::filesystem::path(std::string(document->get_file_name()));
     const bool left_is_media = UI::Editor::is_video_file(left_path) || UI::Editor::is_audio_file(left_path) || UI::Editor::is_image_file(left_path);
 
     if (left_is_media && m_media_preview_mode)
@@ -4986,7 +5200,11 @@ void TextEditor::draw_document(
     }
     else
     {
-    const std::size_t total_lines = document->get_line_count();
+        if (m_media_player_view.is_open())
+        {
+            const_cast<TextEditor*>(this)->m_media_player_view.close();
+        }
+        const std::size_t total_lines = document->get_line_count();
 
     const std::size_t tab_size = document->get_status().indent_width > 0
         ? document->get_status().indent_width

@@ -105,8 +105,11 @@ public:
         float content_top) noexcept;
     [[nodiscard]] bool open_file_at_location(const std::filesystem::path& path, std::size_t line, std::size_t column);
     [[nodiscard]] bool is_search_focused() const noexcept;
+    [[nodiscard]] bool is_sidebar_focused() const noexcept;
+    [[nodiscard]] bool is_explorer_focused() const noexcept;
     [[nodiscard]] bool handle_search_char(char32_t codepoint);
     [[nodiscard]] bool handle_search_key(int vkey, bool ctrl, bool shift, bool alt);
+    [[nodiscard]] bool handle_sidebar_key(int vkey, bool ctrl, bool shift, bool alt);
     [[nodiscard]] bool is_editor_focused() const noexcept;
     [[nodiscard]] bool is_terminal_focused() const noexcept;
     [[nodiscard]] bool is_activity_bar_point(
@@ -122,6 +125,18 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_editor_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_media_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_media_interactive_point(
         float point_x,
         float point_y,
         int client_width,

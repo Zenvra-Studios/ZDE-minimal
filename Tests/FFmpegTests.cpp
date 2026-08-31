@@ -8,10 +8,15 @@
 #include "Drivers/Audio/AudioClip.h"
 #include "Drivers/Audio/AudioDevice.h"
 #include "Drivers/Audio/AudioEngine.h"
+#include "UI/Editor/MediaPlayerView.h"
+#include <filesystem>
+#include <thread>
+#include <chrono>
 
 using namespace Zenvra::Media;
 using namespace Zenvra::Drivers::Media;
 using namespace Zenvra::Drivers::Audio;
+using namespace Zenvra::UI::Editor;
 
 TEST(MediaTests, MediaSourceCreation) {
     auto file_src = MediaSource::from_file("Assets/sounds/click.wav");
@@ -67,6 +72,7 @@ TEST(MediaTests, FFmpegPlayerLifecycleAndState) {
     EXPECT_FALSE(opened);
     EXPECT_EQ(player.state(), PlaybackState::Error);
     EXPECT_EQ(state_observed, PlaybackState::Error);
+    EXPECT_FALSE(player.last_error().empty());
 
     player.set_volume(0.5f);
     player.set_looping(true);
@@ -143,6 +149,10 @@ TEST(MediaTests, FFmpegDecoderEmptyOperations) {
     decoder.set_target_video_format(VideoPixelFormat::BGRA32);
     EXPECT_EQ(decoder.target_video_format(), VideoPixelFormat::BGRA32);
 
+    decoder.set_target_audio_format(48000, 2);
+    EXPECT_EQ(decoder.target_sample_rate(), 48000);
+    EXPECT_EQ(decoder.target_channels(), 2);
+
     auto v_frame = decoder.decode_next_video_frame();
     EXPECT_FALSE(v_frame.has_value());
 
@@ -176,6 +186,104 @@ TEST(MediaTests, FFmpegDecoderDiagnosticsAndMemorySource) {
     EXPECT_FALSE(decoder.open(mem_src));
     EXPECT_FALSE(decoder.last_error().empty());
 }
+
+#ifdef ZDE_HAS_FFMPEG
+TEST(MediaTests, FFmpegRAIIAllocators) {
+    auto pkt = make_packet();
+    ASSERT_NE(pkt, nullptr);
+    EXPECT_EQ(pkt->size, 0);
+
+    auto frame = make_frame();
+    ASSERT_NE(frame, nullptr);
+    EXPECT_EQ(frame->width, 0);
+    EXPECT_EQ(frame->height, 0);
+}
+
+TEST(MediaTests, RealVideoFilePlaybackAndDecoding) {
+    std::filesystem::path sample_path = "videos/_Oz8FQMit88.mp4";
+    if (!std::filesystem::exists(sample_path)) {
+        // Fallback check
+        sample_path = "../videos/_Oz8FQMit88.mp4";
+    }
+
+    if (std::filesystem::exists(sample_path)) {
+        FFmpegDecoder decoder;
+        auto source = MediaSource::from_file(sample_path);
+        ASSERT_TRUE(decoder.open(source));
+        EXPECT_TRUE(decoder.is_open());
+
+        const auto& meta = decoder.metadata();
+        EXPECT_TRUE(meta.has_video());
+        EXPECT_GT(meta.duration_seconds, 0.0);
+        EXPECT_GT(meta.primary_width(), 0);
+        EXPECT_GT(meta.primary_height(), 0);
+
+        // Decode first video frame
+        auto first_frame = decoder.decode_next_video_frame();
+        ASSERT_TRUE(first_frame.has_value());
+        EXPECT_GT(first_frame->width, 0);
+        EXPECT_GT(first_frame->height, 0);
+        EXPECT_FALSE(first_frame->data.empty());
+
+        // Test Seek
+        EXPECT_TRUE(decoder.seek(1.0, SeekMode::FastKeyframe));
+        auto seek_frame = decoder.decode_next_video_frame();
+        EXPECT_TRUE(seek_frame.has_value());
+
+        decoder.close();
+        EXPECT_FALSE(decoder.is_open());
+    }
+}
+
+TEST(MediaTests, MediaPlayerViewEndToEnd) {
+    std::filesystem::path sample_path = "videos/_Oz8FQMit88.mp4";
+    if (!std::filesystem::exists(sample_path)) {
+        sample_path = "../videos/_Oz8FQMit88.mp4";
+    }
+
+    MediaPlayerView view;
+    EXPECT_FALSE(view.is_open());
+    EXPECT_FALSE(view.has_error());
+
+    if (std::filesystem::exists(sample_path)) {
+        ASSERT_TRUE(view.open(sample_path));
+        EXPECT_TRUE(view.is_open());
+        EXPECT_TRUE(view.is_playing());
+        EXPECT_GT(view.duration(), 0.0);
+        EXPECT_FALSE(view.format_time_display().empty());
+        EXPECT_FALSE(view.format_badge_text().empty());
+
+        // Update step
+        view.update();
+        EXPECT_NE(view.current_frame(), nullptr);
+
+        // Play / Pause toggle
+        view.toggle_play_pause();
+        EXPECT_FALSE(view.is_playing());
+        view.play();
+        EXPECT_TRUE(view.is_playing());
+
+        // Volume & Mute
+        view.set_volume(0.8f);
+        EXPECT_FLOAT_EQ(view.volume(), 0.8f);
+        view.toggle_mute();
+        EXPECT_TRUE(view.is_muted());
+        view.toggle_mute();
+        EXPECT_FALSE(view.is_muted());
+
+        // Seek
+        view.seek(1.0);
+        EXPECT_GE(view.current_time(), 0.0);
+
+        // Audio visualizer
+        float viz = view.audio_visualizer_level(5, 24);
+        EXPECT_GT(viz, 0.0f);
+
+        view.close();
+        EXPECT_FALSE(view.is_open());
+    }
+}
+#endif
 
 TEST(AudioDriverTests, AudioClipCreationAndPlayback) {
     std::vector<float> sine_wave(44100 * 2, 0.5f); // 1 second of stereo 44.1kHz
@@ -216,6 +324,29 @@ TEST(AudioDriverTests, AudioClipCreationAndPlayback) {
     device.render_mix(mix_buffer, 512);
     EXPECT_EQ(device.active_voice_count(), 0);
 
+    // Test stream sample submission & pause/resume
+    std::vector<float> stream_data(256, 0.3f);
+    device.submit_stream_samples(stream_data.data(), stream_data.size());
+    EXPECT_EQ(device.buffered_stream_samples(), 256);
+
+    device.set_stream_volume(0.9f);
+    EXPECT_FLOAT_EQ(device.stream_volume(), 0.9f);
+
+    device.set_stream_paused(true);
+    EXPECT_TRUE(device.is_stream_paused());
+    std::fill(mix_buffer.begin(), mix_buffer.end(), 0.0f);
+    device.render_mix(mix_buffer, 64);
+    // When paused, stream samples should NOT be consumed
+    EXPECT_EQ(device.buffered_stream_samples(), 256);
+
+    device.set_stream_paused(false);
+    EXPECT_FALSE(device.is_stream_paused());
+    device.render_mix(mix_buffer, 64);
+    EXPECT_LT(device.buffered_stream_samples(), 256);
+
+    device.clear_stream_samples();
+    EXPECT_EQ(device.buffered_stream_samples(), 0);
+
     device.close();
     EXPECT_FALSE(device.is_open());
 }
@@ -237,16 +368,3 @@ TEST(AudioDriverTests, AudioEngineSingletonLifecycle) {
     engine.shutdown();
     EXPECT_FALSE(engine.is_initialized());
 }
-
-#ifdef ZDE_HAS_FFMPEG
-TEST(MediaTests, FFmpegRAIIAllocators) {
-    auto pkt = make_packet();
-    ASSERT_NE(pkt, nullptr);
-    EXPECT_EQ(pkt->size, 0);
-
-    auto frame = make_frame();
-    ASSERT_NE(frame, nullptr);
-    EXPECT_EQ(frame->width, 0);
-    EXPECT_EQ(frame->height, 0);
-}
-#endif

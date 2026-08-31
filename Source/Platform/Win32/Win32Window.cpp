@@ -1872,6 +1872,25 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
               client_bounds.bottom - client_bounds.top,
               m_chrome_layout.titlebar_bounds.bottom()) &&
           m_workspace_renderer.get_text_editor().get_document() != nullptr) {
+        if (m_workspace_renderer.is_media_point(
+                static_cast<float>(cursor_position.x),
+                static_cast<float>(cursor_position.y),
+                client_bounds.right - client_bounds.left,
+                client_bounds.bottom - client_bounds.top,
+                m_chrome_layout.titlebar_bounds.bottom())) {
+          if (m_workspace_renderer.is_media_interactive_point(
+                  static_cast<float>(cursor_position.x),
+                  static_cast<float>(cursor_position.y),
+                  client_bounds.right - client_bounds.left,
+                  client_bounds.bottom - client_bounds.top,
+                  m_chrome_layout.titlebar_bounds.bottom())) {
+            SetCursor(LoadCursorW(nullptr, IDC_HAND));
+            return TRUE;
+          }
+          SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+          return TRUE;
+        }
+
         if ((GetKeyState(VK_CONTROL) & 0x8000) != 0) {
           SetCursor(LoadCursorW(nullptr, IDC_HAND));
           return TRUE;
@@ -2072,13 +2091,14 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         }
       }
     }
-    if (m_custom_chrome_enabled && m_workspace_renderer.is_search_focused()) {
+    if (m_custom_chrome_enabled &&
+        (m_workspace_renderer.is_search_focused() || m_workspace_renderer.is_sidebar_focused())) {
       const bool alt_pressed = (GetKeyState(VK_MENU) & 0x8000) != 0;
       const bool control_pressed = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
       const bool shift_pressed = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-      if (m_workspace_renderer.handle_search_key(static_cast<int>(w_param),
-                                                 control_pressed, shift_pressed,
-                                                 alt_pressed)) {
+      if (m_workspace_renderer.handle_sidebar_key(static_cast<int>(w_param),
+                                                  control_pressed, shift_pressed,
+                                                  alt_pressed)) {
         InvalidateRect(window_handle, nullptr, FALSE);
         return 0;
       }
@@ -4565,8 +4585,57 @@ void Win32Window::execute_explorer_context_menu_item(std::size_t item_index) {
         m_workspace_renderer.m_terminal_panel.handle_text_input(cd_cmd));
     break;
   }
-  case CmdCut:
-  case CmdCopy:
+  case CmdCut: {
+    const auto& selected = m_workspace_renderer.m_tool_sidebar.get_model().get_selected_paths();
+    if (selected.size() > 1 && m_workspace_renderer.m_tool_sidebar.get_model().is_selected(target_path)) {
+      m_workspace_renderer.m_tool_sidebar.get_model().cut_selected_to_clipboard();
+    } else {
+      m_workspace_renderer.m_tool_sidebar.get_model().cut_to_clipboard(target_path);
+    }
+    const std::wstring path_w = target_path.wstring();
+    if (OpenClipboard(m_window_handle)) {
+      EmptyClipboard();
+      const size_t bytes = (path_w.length() + 1) * sizeof(wchar_t);
+      HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+      if (hMem) {
+        memcpy(GlobalLock(hMem), path_w.c_str(), bytes);
+        GlobalUnlock(hMem);
+        SetClipboardData(CF_UNICODETEXT, hMem);
+      }
+      CloseClipboard();
+    }
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+    break;
+  }
+  case CmdCopy: {
+    const auto& selected = m_workspace_renderer.m_tool_sidebar.get_model().get_selected_paths();
+    if (selected.size() > 1 && m_workspace_renderer.m_tool_sidebar.get_model().is_selected(target_path)) {
+      m_workspace_renderer.m_tool_sidebar.get_model().copy_selected_to_clipboard();
+    } else {
+      m_workspace_renderer.m_tool_sidebar.get_model().copy_to_clipboard(target_path);
+    }
+    const std::wstring path_w = target_path.wstring();
+    if (OpenClipboard(m_window_handle)) {
+      EmptyClipboard();
+      const size_t bytes = (path_w.length() + 1) * sizeof(wchar_t);
+      HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+      if (hMem) {
+        memcpy(GlobalLock(hMem), path_w.c_str(), bytes);
+        GlobalUnlock(hMem);
+        SetClipboardData(CF_UNICODETEXT, hMem);
+      }
+      CloseClipboard();
+    }
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+    break;
+  }
+  case CmdPaste: {
+    std::filesystem::path out_p;
+    if (m_workspace_renderer.m_tool_sidebar.get_model().paste_from_clipboard(out_p)) {
+      InvalidateRect(m_window_handle, nullptr, FALSE);
+    }
+    break;
+  }
   case CmdCopyPath: {
     const std::wstring path_w = target_path.wstring();
     if (OpenClipboard(m_window_handle)) {
@@ -4617,15 +4686,24 @@ void Win32Window::execute_explorer_context_menu_item(std::size_t item_index) {
     break;
   }
   case CmdDelete: {
-    m_workspace_renderer.get_prompt_dialog().open_delete(
-        m_window_handle, target_path, [this, target_path]() {
-          static_cast<void>(
-              m_workspace_renderer.m_text_editor.close_file(target_path));
-          static_cast<void>(
-              m_workspace_renderer.m_tool_sidebar.get_model().delete_item(
-                  target_path));
-          InvalidateRect(m_window_handle, nullptr, FALSE);
-        });
+    const auto selected = m_workspace_renderer.m_tool_sidebar.get_model().get_selected_paths();
+    if (selected.size() > 1 && m_workspace_renderer.m_tool_sidebar.get_model().is_selected(target_path)) {
+      m_workspace_renderer.get_prompt_dialog().open_delete(
+          m_window_handle, target_path, [this]() {
+            m_workspace_renderer.m_tool_sidebar.get_model().delete_selected_items();
+            InvalidateRect(m_window_handle, nullptr, FALSE);
+          });
+    } else {
+      m_workspace_renderer.get_prompt_dialog().open_delete(
+          m_window_handle, target_path, [this, target_path]() {
+            static_cast<void>(
+                m_workspace_renderer.m_text_editor.close_file(target_path));
+            static_cast<void>(
+                m_workspace_renderer.m_tool_sidebar.get_model().delete_item(
+                    target_path));
+            InvalidateRect(m_window_handle, nullptr, FALSE);
+          });
+    }
     break;
   }
   default:

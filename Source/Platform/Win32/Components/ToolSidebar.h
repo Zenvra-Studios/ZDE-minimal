@@ -61,6 +61,11 @@ public:
     [[nodiscard]] bool handle_char(char32_t codepoint);
     [[nodiscard]] bool handle_key(int vkey, bool ctrl, bool shift, bool alt);
     [[nodiscard]] bool is_search_focused() const noexcept;
+    [[nodiscard]] bool is_focused() const noexcept { return m_is_focused; }
+    void set_focused(bool focused) noexcept { m_is_focused = focused; }
+    [[nodiscard]] bool is_explorer_focused() const noexcept {
+        return m_is_focused && m_model.get_active_icon() == UI::Editor::SidebarIcon::Project;
+    }
 
     [[nodiscard]] UI::Editor::ActivityPanelModel& get_model() noexcept { return m_model; }
     [[nodiscard]] const UI::Editor::ActivityPanelModel& get_model() const noexcept { return m_model; }
@@ -102,6 +107,7 @@ public:
         float point_y) noexcept;
     [[nodiscard]] bool handle_pointer_release() noexcept;
     [[nodiscard]] bool is_dragging_item() const noexcept { return m_is_dragging_item; }
+    [[nodiscard]] bool is_holding_item() const noexcept { return m_drag_source_row.has_value(); }
     [[nodiscard]] bool is_dragging_scrollbar() const noexcept { return m_project_scrollbar.is_dragging() || m_search_scrollbar.is_dragging(); }
     [[nodiscard]] bool tick_animations() noexcept;
 
@@ -185,6 +191,7 @@ private:
     float m_drag_current_y = 0.0F;
     bool m_is_dragging_item = false;
     bool m_is_selecting_search_text = false;
+    bool m_is_focused = false;
     std::uint64_t m_last_search_click_time = 0;
     std::chrono::steady_clock::time_point m_last_refresh_time{};
 };

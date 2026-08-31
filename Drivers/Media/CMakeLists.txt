@@ -13,10 +13,12 @@ if(Media_SOURCES)
         "${CMAKE_CURRENT_SOURCE_DIR}"
         "${CMAKE_SOURCE_DIR}/Source"
         "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/include"
-        "C:/ThirdParty/ffmpeg/include"
     )
 
-    target_link_libraries(DriversMedia PUBLIC Zenvra::Media)
+    target_link_libraries(DriversMedia PUBLIC
+        Zenvra::Media
+        Zenvra::Drivers::Audio
+    )
     if(TARGET FFmpeg::FFmpeg)
         target_link_libraries(DriversMedia PUBLIC FFmpeg::FFmpeg)
     endif()

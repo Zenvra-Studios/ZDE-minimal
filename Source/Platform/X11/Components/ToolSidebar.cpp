@@ -67,7 +67,7 @@ bool ToolSidebar::activate(UI::Editor::SidebarIcon icon) noexcept {
 
 SidebarPressResult ToolSidebar::handle_pointer_press(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
-    float point_y) {
+    float point_y, bool shift, bool ctrl) {
   if (is_resize_handle_point(layout, point_x, point_y)) {
     m_resizing = true;
     m_drag_start_x = point_x;
@@ -165,7 +165,7 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
     m_drag_target_row.reset();
 
     const UI::Editor::ActivityPanelAction action =
-        m_model.activate_project_row(*row);
+        m_model.activate_project_row(*row, shift, ctrl);
     if (action.file_to_open) {
       return SidebarPressResult{.handled = true, .action = SidebarActionKind::OpenFile, .path = action.file_to_open};
     }
@@ -186,11 +186,12 @@ std::optional<std::filesystem::path> ToolSidebar::handle_right_click(
     const std::size_t item_index = m_model.get_scroll_offset() + *row;
     const auto items = m_model.get_project_items();
     if (item_index < items.size()) {
-      m_model.set_selected_path(items[item_index].path);
+      if (!m_model.is_selected(items[item_index].path)) {
+        m_model.select_single(items[item_index].path);
+      }
       return items[item_index].path;
     }
   }
-  m_model.set_selected_path(m_model.get_workspace_root());
   return m_model.get_workspace_root();
 }
 
@@ -565,16 +566,14 @@ void ToolSidebar::render(
           4.0F * scale, surface.m_pixels.sidebar_background);
       surface.draw_rectangle(drawable, highlight_rect, surface.m_pixels.accent);
     } else if (is_selected) {
-      surface.fill_rounded_rectangle(
-          drawable, highlight_rect, surface.m_pixels.tab_active_background,
-          4.0F * scale, surface.m_pixels.sidebar_background);
-      const UI::Rect left_bar{
-          highlight_rect.x, highlight_rect.y + 2.0F * scale,
-          2.5F * scale, highlight_rect.height - 4.0F * scale,
-      };
-      surface.fill_rounded_rectangle(
-          drawable, left_bar, surface.m_pixels.text_primary,
-          1.25F * scale, surface.m_pixels.tab_active_background);
+      surface.fill_rectangle(drawable, row_bounds, surface.m_pixels.selection_background);
+      if (m_model.get_selected_path() && *m_model.get_selected_path() == item.path) {
+        const UI::Rect left_bar{
+            panel.x, row_bounds.y + 1.0F * scale,
+            3.0F * scale, row_bounds.height - 2.0F * scale
+        };
+        surface.fill_rectangle(drawable, left_bar, surface.m_pixels.accent);
+      }
     } else if (is_hovered) {
       surface.fill_rounded_rectangle(
           drawable, highlight_rect, surface.m_pixels.hover_background,
@@ -600,11 +599,11 @@ void ToolSidebar::render(
         surface.draw_line(
             drawable, guide_x, round_to_int(row_bounds.y), guide_x,
             line_active ? round_to_int(row_bounds.bottom()) : guide_y,
-            surface.m_pixels.border);
+            surface.m_pixels.indent_guide);
       } else if (line_active) {
         surface.draw_line(drawable, guide_x, round_to_int(row_bounds.y),
                           guide_x, round_to_int(row_bounds.bottom()),
-                          surface.m_pixels.border);
+                          surface.m_pixels.indent_guide);
       }
     }
     if (item.depth > 0) {
@@ -613,13 +612,17 @@ void ToolSidebar::render(
           (17.0F + static_cast<float>(item.depth - 1) * 16.0F) * scale);
       const int child_x = round_to_int(indent_x + 3.0F * scale);
       surface.draw_line(drawable, parent_x, guide_y, child_x, guide_y,
-                        surface.m_pixels.border);
+                        surface.m_pixels.indent_guide);
     }
 
     const UI::Theme::Color &row_background =
-        is_selected ? surface.m_palette.tab_active_background
+        is_selected ? surface.m_palette.selection_background
         : (is_hovered ? surface.m_palette.hover_background
                       : surface.m_palette.sidebar_background);
+
+    const UI::Theme::Color icon_color = is_cut
+        ? UI::Theme::Color{130, 130, 130, 120}
+        : (is_selected ? UI::Theme::Color{220, 230, 250, 255} : UI::Theme::Color{175, 185, 200, 255});
 
     if (item.directory) {
       const int arrow_x = round_to_int(indent_x + 3.0F * scale);
@@ -629,7 +632,7 @@ void ToolSidebar::render(
             drawable,
             item.expanded ? "chevron-down.svg" : "chevron-right.svg",
             arrow_x, arrow_y, std::max(round_to_int(8.0F * scale), 7),
-            is_selected ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
+            icon_color,
             row_background);
       }
       const int folder_x = round_to_int(indent_x + 19.0F * scale);
@@ -639,7 +642,7 @@ void ToolSidebar::render(
             drawable,
             item.expanded ? "folder-open.svg" : "folder.svg",
             folder_x, arrow_y, folder_size,
-            is_selected ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
+            icon_color,
             row_background);
       }
     } else {
@@ -651,7 +654,7 @@ void ToolSidebar::render(
         surface.draw_svg_icon(
             drawable, icon_asset, icon_x, icon_y,
             std::max(round_to_int(14.0F * scale), 11),
-            surface.m_palette.text_muted, row_background, true);
+            icon_color, row_background, !is_cut);
       }
     }
 
@@ -661,10 +664,13 @@ void ToolSidebar::render(
       if (available_width > 0.0F) {
         const std::string label = ellipsize(
             *surface.m_ui_font, item.label, round_to_int(available_width));
+        const UI::Theme::Color text_color = is_cut
+            ? UI::Theme::Color{140, 140, 140, 130}
+            : (is_selected ? UI::Theme::Color{255, 255, 255, 255} : UI::Theme::Color{225, 228, 235, 255});
         surface.draw_text(
             drawable, *surface.m_ui_font, label, label_x,
             row_bounds.y + row_bounds.height * 0.5F,
-            is_selected ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_primary);
+            text_color);
       }
     }
   }

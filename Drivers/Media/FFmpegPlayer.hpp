@@ -26,6 +26,7 @@ public:
     [[nodiscard]] double position() const noexcept override;
     [[nodiscard]] Zenvra::Media::MediaBackendType backend_type() const noexcept override;
     [[nodiscard]] std::string_view backend_name() const noexcept override;
+    [[nodiscard]] std::string last_error() const override;
 
     // Track Switching
     bool select_video_track(int track_index) override;

@@ -46,7 +46,9 @@ public:
     [[nodiscard]] SidebarPressResult handle_pointer_press(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
-        float point_y);
+        float point_y,
+        bool shift = false,
+        bool ctrl = false);
     [[nodiscard]] std::optional<std::filesystem::path> handle_right_click(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,

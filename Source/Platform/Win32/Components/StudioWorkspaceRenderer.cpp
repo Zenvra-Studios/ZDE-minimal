@@ -446,9 +446,11 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
   }
   if (m_terminal_panel.is_visible() &&
       m_terminal_panel.handle_pointer_press(layout, point_x, point_y)) {
+    m_tool_sidebar.set_focused(false);
     return true;
   }
   m_terminal_panel.set_focused(false);
+  m_tool_sidebar.set_focused(false);
   const bool editor_pressed = m_text_editor.handle_pointer_press(
       *this, device_context, layout, point_x, point_y, extend_selection,
       command_out);
@@ -550,12 +552,13 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(HDC device_context,
   }
 
   if (m_text_editor.is_pointer_selecting() || m_text_editor.is_resizing_split() ||
-      m_text_editor.is_tab_dragging() || m_text_editor.is_scrollbar_dragging()) {
+      m_text_editor.is_tab_dragging() || m_text_editor.is_scrollbar_dragging() ||
+      m_text_editor.is_media_dragging()) {
     return m_text_editor.handle_pointer_drag(*this, device_context, layout,
                                              point_x, point_y);
   }
   if (m_tool_sidebar.is_resizing() || m_tool_sidebar.is_dragging_item() ||
-      m_tool_sidebar.is_dragging_scrollbar()) {
+      m_tool_sidebar.is_holding_item() || m_tool_sidebar.is_dragging_scrollbar()) {
     return m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y);
   }
   if (m_terminal_panel.is_resizing()) {
@@ -789,6 +792,14 @@ bool StudioWorkspaceRenderer::is_search_focused() const noexcept {
   return m_tool_sidebar.is_search_focused();
 }
 
+bool StudioWorkspaceRenderer::is_sidebar_focused() const noexcept {
+  return m_tool_sidebar.is_focused();
+}
+
+bool StudioWorkspaceRenderer::is_explorer_focused() const noexcept {
+  return m_tool_sidebar.is_explorer_focused();
+}
+
 bool StudioWorkspaceRenderer::handle_search_char(char32_t codepoint) {
   return m_tool_sidebar.handle_char(codepoint);
 }
@@ -797,8 +808,12 @@ bool StudioWorkspaceRenderer::handle_search_key(int vkey, bool ctrl, bool shift,
   return m_tool_sidebar.handle_key(vkey, ctrl, shift, alt);
 }
 
+bool StudioWorkspaceRenderer::handle_sidebar_key(int vkey, bool ctrl, bool shift, bool alt) {
+  return m_tool_sidebar.handle_key(vkey, ctrl, shift, alt);
+}
+
 bool StudioWorkspaceRenderer::is_editor_focused() const noexcept {
-  return !m_terminal_panel.is_focused() && !m_tool_sidebar.is_search_focused() && m_text_editor.is_focused();
+  return !m_terminal_panel.is_focused() && !m_tool_sidebar.is_focused() && m_text_editor.is_focused();
 }
 
 bool StudioWorkspaceRenderer::is_terminal_focused() const noexcept {
@@ -841,6 +856,22 @@ bool StudioWorkspaceRenderer::is_editor_point(
           layout.editor_bounds.contains(point_x, point_y)) &&
          !m_text_editor.is_minimap_point(layout, point_x, point_y) &&
          !m_text_editor.is_scrollbar_point(layout, point_x, point_y);
+}
+
+bool StudioWorkspaceRenderer::is_media_point(
+    float point_x, float point_y, int client_width, int client_height,
+    float content_top) const noexcept {
+  const UI::Editor::StudioEditorLayoutResult layout =
+      calculate_layout(client_width, client_height, content_top);
+  return m_text_editor.is_media_point(layout, point_x, point_y);
+}
+
+bool StudioWorkspaceRenderer::is_media_interactive_point(
+    float point_x, float point_y, int client_width, int client_height,
+    float content_top) const noexcept {
+  const UI::Editor::StudioEditorLayoutResult layout =
+      calculate_layout(client_width, client_height, content_top);
+  return m_text_editor.is_media_interactive_point(layout, point_x, point_y);
 }
 
 bool StudioWorkspaceRenderer::is_editor_interactive_point(

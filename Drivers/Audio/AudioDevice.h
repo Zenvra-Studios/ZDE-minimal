@@ -54,6 +54,17 @@ public:
     [[nodiscard]] float master_volume() const noexcept;
     [[nodiscard]] size_t active_voice_count() const noexcept;
 
+    // Streaming Audio Support (for media player audio pipeline)
+    void submit_stream_samples(const float* samples, size_t sample_count);
+    void clear_stream_samples();
+    [[nodiscard]] size_t buffered_stream_samples() const noexcept;
+    void set_stream_volume(float volume);
+    [[nodiscard]] float stream_volume() const noexcept;
+    void set_stream_paused(bool paused);
+    [[nodiscard]] bool is_stream_paused() const noexcept;
+    void reset_stream_clock(double start_time = 0.0);
+    [[nodiscard]] double stream_time_seconds() const noexcept;
+
     // Software Audio Mixer render step (for output hardware or test buffers)
     void render_mix(std::span<float> out_interleaved_buffer, size_t frame_count);
 

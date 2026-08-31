@@ -314,6 +314,11 @@ private:
 public:
   [[nodiscard]] bool is_media_active() const noexcept;
   [[nodiscard]] bool is_media_preview_mode() const noexcept { return m_media_preview_mode; }
+  [[nodiscard]] bool is_media_point(const UI::Editor::StudioEditorLayoutResult& layout, float point_x, float point_y) const noexcept;
+  [[nodiscard]] bool is_media_interactive_point(const UI::Editor::StudioEditorLayoutResult& layout, float point_x, float point_y) const noexcept;
+  [[nodiscard]] bool is_media_dragging() const noexcept {
+    return m_media_preview_mode && (m_media_player_view.is_scrubbing() || m_media_player_view.is_dragging_volume());
+  }
   void set_media_preview_mode(bool enabled) noexcept { m_media_preview_mode = enabled; }
   void toggle_media_preview_mode() noexcept { m_media_preview_mode = !m_media_preview_mode; }
   [[nodiscard]] UI::Editor::MediaPlayerView& media_player() noexcept { return m_media_player_view; }
