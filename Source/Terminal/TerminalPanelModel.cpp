@@ -212,9 +212,18 @@ bool TerminalPanelModel::send_control(char letter)
 bool TerminalPanelModel::poll()
 {
     bool changed = false;
-    for (TerminalSessionEntry& entry : m_sessions)
+    for (std::size_t i = 0; i < m_sessions.size(); )
     {
+        TerminalSessionEntry& entry = m_sessions[i];
         changed = entry.session->poll() || changed;
+
+        if (!entry.session->is_running())
+        {
+            remove_session(i);
+            changed = true;
+            continue;
+        }
+
         std::string tab_title = entry.session->get_title();
         if (tab_title.empty())
         {
@@ -225,6 +234,7 @@ bool TerminalPanelModel::poll()
             entry.title = tab_title;
             changed = true;
         }
+        ++i;
     }
     return changed;
 }

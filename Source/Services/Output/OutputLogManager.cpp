@@ -17,8 +17,8 @@ OutputLogManager::OutputLogManager()
 
 OutputLogManager& OutputLogManager::instance()
 {
-    static OutputLogManager s_instance;
-    return s_instance;
+    static auto* s_instance = new OutputLogManager();
+    return *s_instance;
 }
 
 void OutputLogManager::append_line(OutputCategory category, std::string_view line)

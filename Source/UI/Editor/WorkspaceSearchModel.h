@@ -9,6 +9,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace Zenvra::UI::Editor
@@ -70,6 +71,9 @@ struct SearchNavigationTarget
 class WorkspaceSearchModel
 {
 public:
+    WorkspaceSearchModel();
+    ~WorkspaceSearchModel();
+
     void set_workspace_root(const std::filesystem::path& root);
     [[nodiscard]] const std::filesystem::path& get_workspace_root() const noexcept { return m_workspace_root; }
 
@@ -186,6 +190,7 @@ private:
     std::vector<std::filesystem::path> m_cached_files;
     std::mutex m_cache_mutex;
 
+    std::thread m_search_thread;
     std::mutex m_staging_mutex;
     std::vector<FileSearchResult> m_staging_results;
     std::string m_staging_error;

@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
+#include <utility>
 
 namespace Zenvra::Platform::Cocoa::Components
 {
@@ -31,6 +33,8 @@ void ActivitySidebar::render(
         items.begin(), items.end(), [](const UI::Editor::SidebarItem& item) {
             return item.placement == UI::Editor::SidebarPlacement::Bottom;
         }));
+
+    std::optional<std::pair<std::string_view, float>> hovered_tooltip;
 
     for (const UI::Editor::SidebarItem& item : items)
     {
@@ -70,30 +74,36 @@ void ActivitySidebar::render(
                 ? surface.m_shader_sandbox_panel.is_visible()
                 : surface.m_tool_sidebar.is_active(item.icon));
         const bool hovered = surface.m_tool_sidebar.is_hovered(item.icon);
-        if (active || hovered)
-        {
-            surface.fill_rectangle(
-                context,
-                UI::Rect{
-                    layout.activity_bar_bounds.x,
-                    center_y - UI::Editor::StudioEditorMetrics::sidebar_item_height *
-                        0.5F * surface.m_dpi_scale,
-                    layout.activity_bar_bounds.width,
-                    UI::Editor::StudioEditorMetrics::sidebar_item_height * surface.m_dpi_scale,
-                },
-                surface.m_colors.tab_active_background);
-        }
+
+        const float item_h = UI::Editor::StudioEditorMetrics::sidebar_item_height * surface.m_dpi_scale;
+        const UI::Rect item_bounds{
+            layout.activity_bar_bounds.x,
+            center_y - item_h * 0.5F,
+            layout.activity_bar_bounds.width,
+            item_h,
+        };
+
         if (active)
         {
-            surface.fill_rectangle(
-                context,
-                UI::Rect{
-                    layout.activity_bar_bounds.x,
-                    center_y - 13.0F * surface.m_dpi_scale,
-                    2.0F * surface.m_dpi_scale,
-                    26.0F * surface.m_dpi_scale,
-                },
-                surface.m_colors.text_primary);
+            surface.fill_rectangle(context, item_bounds, surface.m_colors.tab_active_background);
+            const UI::Rect pill_rect{
+                layout.activity_bar_bounds.x,
+                center_y - 13.0F * surface.m_dpi_scale,
+                2.5F * surface.m_dpi_scale,
+                26.0F * surface.m_dpi_scale,
+            };
+            surface.fill_rounded_rectangle(context, pill_rect, surface.m_colors.text_primary, 1.25F * surface.m_dpi_scale);
+        }
+        else if (hovered)
+        {
+            const UI::Rect hover_rect{
+                layout.activity_bar_bounds.x + 4.0F * surface.m_dpi_scale,
+                center_y - (item_h * 0.5F - 3.0F),
+                layout.activity_bar_bounds.width - 8.0F * surface.m_dpi_scale,
+                item_h - 6.0F * surface.m_dpi_scale,
+            };
+            const CGFloat hover_col[4] = {1.0, 1.0, 1.0, 0.08};
+            surface.fill_rounded_rectangle(context, hover_rect, hover_col, 5.0F * surface.m_dpi_scale);
         }
         draw_icon(surface, context, item.icon, center_x, round_to_int(center_y), active, hovered);
 
@@ -123,6 +133,33 @@ void ActivitySidebar::render(
                 }
             }
         }
+
+        if (hovered && !item.tooltip.empty())
+        {
+            hovered_tooltip = std::make_pair(item.tooltip, center_y);
+        }
+    }
+
+    if (hovered_tooltip.has_value() && surface.m_small_font)
+    {
+        const auto& [tip_text, tip_cy] = *hovered_tooltip;
+        const int tip_w = surface.m_small_font->getTextWidth(tip_text);
+        const float tip_box_w = static_cast<float>(tip_w) + 14.0F * surface.m_dpi_scale;
+        const float tip_box_h = 22.0F * surface.m_dpi_scale;
+        const UI::Rect tip_rect{
+            layout.activity_bar_bounds.right() + 6.0F * surface.m_dpi_scale,
+            tip_cy - tip_box_h * 0.5F,
+            tip_box_w,
+            tip_box_h,
+        };
+        const CGFloat tip_bg[4] = {0.14, 0.15, 0.18, 0.96};
+        const CGFloat tip_border[4] = {0.28, 0.30, 0.35, 0.85};
+        surface.fill_rounded_rectangle(context, tip_rect, tip_bg, 4.0F * surface.m_dpi_scale);
+        surface.draw_rectangle(context, tip_rect, tip_border);
+        surface.draw_text(context, *surface.m_small_font, tip_text,
+                          tip_rect.x + 7.0F * surface.m_dpi_scale,
+                          tip_rect.y + tip_box_h * 0.5F,
+                          "#ffffff");
     }
 
     surface.draw_line(

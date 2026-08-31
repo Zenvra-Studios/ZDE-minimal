@@ -17,8 +17,8 @@ namespace Zenvra::Language::Registry
 
 ServerRegistry& ServerRegistry::instance() noexcept
 {
-    static ServerRegistry registry;
-    return registry;
+    static auto* registry = new ServerRegistry();
+    return *registry;
 }
 
 ServerRegistry::ServerRegistry()

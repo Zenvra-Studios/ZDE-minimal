@@ -50,8 +50,8 @@ public:
 
     [[nodiscard]] static MultiContextManager& instance() noexcept
     {
-        static MultiContextManager s_instance;
-        return s_instance;
+        static auto* s_instance = new MultiContextManager();
+        return *s_instance;
     }
 
     /**

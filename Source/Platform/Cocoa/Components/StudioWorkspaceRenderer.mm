@@ -1467,6 +1467,39 @@ void StudioWorkspaceRenderer::draw_text(
     }
 }
 
+void StudioWorkspaceRenderer::draw_text(
+    CGContextRef context,
+    AntialiasedFont& font,
+    std::string_view text,
+    float point_x, float center_y,
+    const CGFloat* rgba,
+    const UI::Rect* clip_rect) const
+{
+    if (text.empty() || !rgba)
+    {
+        return;
+    }
+    const int baseline = round_to_int(
+        center_y - static_cast<float>(font.getAscent() + font.getDescent()) * 0.5F +
+        static_cast<float>(font.getAscent()));
+
+    if (clip_rect)
+    {
+        CGRect cg_clip = CGRectMake(
+            static_cast<CGFloat>(clip_rect->x),
+            static_cast<CGFloat>(clip_rect->y),
+            static_cast<CGFloat>(std::max(0.0F, clip_rect->width)),
+            static_cast<CGFloat>(std::max(0.0F, clip_rect->height)));
+        font.drawString(context, rgba, round_to_int(point_x), baseline,
+                        text, &cg_clip);
+    }
+    else
+    {
+        font.drawString(context, rgba, round_to_int(point_x), baseline,
+                        text);
+    }
+}
+
 void StudioWorkspaceRenderer::push_clip(CGContextRef context, const UI::Rect& rect) const
 {
     CGContextSaveGState(context);

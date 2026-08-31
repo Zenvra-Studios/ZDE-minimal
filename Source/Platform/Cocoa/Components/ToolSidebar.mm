@@ -161,24 +161,35 @@ bool ToolSidebar::handle_pointer_press(
 bool ToolSidebar::handle_pointer_move(
     const UI::Editor::StudioEditorLayoutResult& layout, float px, float py) noexcept
 {
-    if (!is_visible()) return false;
+    bool changed = false;
+
+    // Check sidebar icon hover (independent of whether tool_sidebar is open/contains mouse)
+    const std::span<const UI::Editor::SidebarItem> items = UI::Editor::get_studio_sidebar_items();
+    std::optional<UI::Editor::SidebarIcon> new_icon;
+    if (auto index = UI::Editor::hit_test_studio_sidebar(layout, px, py)) {
+        new_icon = items[*index].icon;
+    }
+    changed |= (new_icon != m_hovered_icon);
+    m_hovered_icon = new_icon;
+
+    if (!is_visible()) {
+        return changed;
+    }
 
     // Pointer left the sidebar: clear hover states
     if (!layout.tool_sidebar_bounds.contains(px, py)) {
-        bool changed = m_hovered_row.has_value() || m_hovered_search_row.has_value() ||
-                       m_hovered_sc_row.has_value() || m_hovered_sticky_index.has_value() ||
-                       m_hovered_icon.has_value() || m_resize_hovered;
+        changed |= m_hovered_row.has_value() || m_hovered_search_row.has_value() ||
+                   m_hovered_sc_row.has_value() || m_hovered_sticky_index.has_value() ||
+                   m_resize_hovered;
         m_hovered_row.reset();
         m_hovered_search_row.reset();
         m_hovered_sc_row.reset();
         m_hovered_sticky_index.reset();
-        m_hovered_icon.reset();
         m_resize_hovered = false;
         changed |= m_explorer_header.handle_pointer_move(layout, px, py);
         return changed;
     }
 
-    bool changed = false;
     if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Search)
     {
         changed |= handle_search_move(layout, px, py);
@@ -220,15 +231,6 @@ bool ToolSidebar::handle_pointer_move(
         m_hovered_sticky_index.reset();
         m_hovered_sc_row.reset();
     }
-
-    // Check sidebar icon hover
-    const std::span<const UI::Editor::SidebarItem> items = UI::Editor::get_studio_sidebar_items();
-    std::optional<UI::Editor::SidebarIcon> new_icon;
-    if (auto index = UI::Editor::hit_test_studio_sidebar(layout, px, py)) {
-        new_icon = items[*index].icon;
-    }
-    changed |= new_icon != m_hovered_icon;
-    m_hovered_icon = new_icon;
 
     // Track resize handle hover
     const bool next_resize_hovered = is_resize_handle_point(layout, px, py);
@@ -1967,11 +1969,11 @@ void ToolSidebar::render(
         {
             const float msg_y = panel.y + (header_height + 22.0F) * scale;
             surface.draw_text(context, *surface.m_ui_font, "No Folder Opened",
-                              panel.x + 14.0F * scale, msg_y, surface.m_colors.text_primary);
+                              panel.x + 14.0F * scale, msg_y, surface.m_text.primary);
             surface.draw_text(context, *surface.m_small_font,
                               "You have not yet opened a folder.",
                               panel.x + 14.0F * scale, msg_y + 20.0F * scale,
-                              surface.m_colors.text_muted);
+                              surface.m_text.muted);
 
             float btn_y = msg_y + 36.0F * scale;
             const float btn_w = std::max(panel.width - 28.0F * scale, 0.0F);
@@ -1993,7 +1995,7 @@ void ToolSidebar::render(
             btn_y += btn_h + 20.0F * scale;
             surface.draw_text(context, *surface.m_small_font,
                               "Clone from a remote repository.",
-                              panel.x + 14.0F * scale, btn_y, surface.m_colors.text_muted);
+                              panel.x + 14.0F * scale, btn_y, surface.m_text.muted);
 
             btn_y += 14.0F * scale;
             m_empty_state_clone_btn.set_bounds(UI::Rect{btn_x, btn_y, btn_w, btn_h});
@@ -2216,6 +2218,7 @@ void ToolSidebar::render(
                     "#ffffff");
             }
         }
+    }
     }
     else
     {

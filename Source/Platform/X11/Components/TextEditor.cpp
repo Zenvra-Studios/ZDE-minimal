@@ -173,22 +173,28 @@ std::string TextEditor::get_active_document_filename() const {
 
 void TextEditor::on_diagnostics_updated(
     const std::string &uri, std::vector<Language::Protocol::Diagnostic> diags) {
-  std::lock_guard<std::recursive_mutex> lock(m_lsp_mutex);
-  const std::string active_uri = get_active_document_uri();
-  const std::string active_fname = get_active_document_filename();
-  if (uri == active_uri || uri.ends_with(active_fname) ||
-      (uri.starts_with("file://") && active_uri.ends_with(uri.substr(7)))) {
-    if (auto *doc = m_controller.get_active_document()) {
-      doc->set_diagnostics(diags);
-    }
-  }
-  if (m_is_split && m_split_document_index.has_value()) {
-    if (auto *split_doc = m_controller.get_document(*m_split_document_index)) {
-      const std::string split_fname = std::string(split_doc->get_file_name());
-      if (uri.ends_with(split_fname)) {
-        split_doc->set_diagnostics(diags);
+  try {
+    std::lock_guard<std::recursive_mutex> lock(m_lsp_mutex);
+    const std::string active_uri = get_active_document_uri();
+    const std::string active_fname = get_active_document_filename();
+    if (uri == active_uri || uri.ends_with(active_fname) ||
+        (uri.starts_with("file://") && active_uri.ends_with(uri.substr(7)))) {
+      if (auto *doc = m_controller.get_active_document()) {
+        doc->set_diagnostics(diags);
       }
     }
+    if (m_is_split && m_split_document_index.has_value()) {
+      if (auto *split_doc = m_controller.get_document(*m_split_document_index)) {
+        const std::string split_fname = std::string(split_doc->get_file_name());
+        if (uri.ends_with(split_fname)) {
+          split_doc->set_diagnostics(diags);
+        }
+      }
+    }
+  } catch (const std::exception& ex) {
+    std::cerr << "[TextEditor] Diagnostics update exception caught: " << ex.what() << '\n';
+  } catch (...) {
+    std::cerr << "[TextEditor] Diagnostics update unknown exception caught.\n";
   }
 }
 

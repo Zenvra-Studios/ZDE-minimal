@@ -30,8 +30,8 @@ bool file_exists(const std::filesystem::path& p)
 
 ToolchainDetector& ToolchainDetector::instance()
 {
-    static ToolchainDetector s_instance;
-    return s_instance;
+    static auto* s_instance = new ToolchainDetector();
+    return *s_instance;
 }
 
 ToolchainDetector::ToolchainDetector()

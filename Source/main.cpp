@@ -10,6 +10,7 @@
 #endif
 
 #include <algorithm>
+#include <iostream>
 #include <string_view>
 #include <utility>
 #include <filesystem>
@@ -147,6 +148,14 @@ int main(int argument_count, char** argument_values)
         }
     }
 
-    Zenvra::Application::Application application(std::move(specification));
-    return application.run();
+    try {
+        Zenvra::Application::Application application(std::move(specification));
+        return application.run();
+    } catch (const std::exception& ex) {
+        std::cerr << "[ZDE Fatal Error] Uncaught exception: " << ex.what() << '\n';
+        return 1;
+    } catch (...) {
+        std::cerr << "[ZDE Fatal Error] Unknown uncaught exception occurred.\n";
+        return 1;
+    }
 }

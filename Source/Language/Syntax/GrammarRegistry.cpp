@@ -11,8 +11,8 @@ namespace Zenvra::Language::Syntax
 
 GrammarRegistry& GrammarRegistry::instance() noexcept
 {
-    static GrammarRegistry registry;
-    return registry;
+    static auto* registry = new GrammarRegistry();
+    return *registry;
 }
 
 GrammarRegistry::GrammarRegistry()

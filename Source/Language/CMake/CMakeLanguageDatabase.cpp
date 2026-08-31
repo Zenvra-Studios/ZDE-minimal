@@ -8,8 +8,8 @@
 namespace Zenvra::Language::CMake {
 
 CMakeLanguageDatabase &CMakeLanguageDatabase::instance() noexcept {
-  static CMakeLanguageDatabase s_instance;
-  return s_instance;
+  static auto* s_instance = new CMakeLanguageDatabase();
+  return *s_instance;
 }
 
 CMakeLanguageDatabase::CMakeLanguageDatabase() { initialize_database(); }

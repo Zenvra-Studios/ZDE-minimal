@@ -49,7 +49,10 @@ namespace {
 
 constexpr std::size_t maximum_scrollback_lines = 4000;
 
-static std::mutex s_log_mutex;
+static std::mutex& get_log_mutex() {
+  static auto* m = new std::mutex();
+  return *m;
+}
 
 void terminal_debug_log(std::string_view msg) {
   const char *disable_log = std::getenv("ZDE_TERMINAL_LOG");
@@ -84,7 +87,7 @@ void terminal_debug_log(std::string_view msg) {
 #endif
   log_path /= "zde-terminal.log";
 
-  std::lock_guard<std::mutex> lock(s_log_mutex);
+  std::lock_guard<std::mutex> lock(get_log_mutex());
   if (std::filesystem::exists(log_path, ec)) {
     const auto sz = std::filesystem::file_size(log_path, ec);
     if (!ec && sz > 1024 * 1024) {
@@ -128,7 +131,10 @@ void remove_last_utf8_code_point(std::string &text) noexcept {
 }
 
 #if defined(_WIN32)
-static std::mutex s_shell_state_mutex;
+static std::mutex& get_shell_state_mutex() {
+  static auto* m = new std::mutex();
+  return *m;
+}
 static std::unordered_set<std::string> s_dead_shell_blacklist;
 
 static std::string normalize_shell_key(const std::filesystem::path &path) {
@@ -142,17 +148,17 @@ static std::string normalize_shell_key(const std::filesystem::path &path) {
 }
 
 void mark_shell_dead(const std::filesystem::path &path) {
-  std::lock_guard<std::mutex> lock(s_shell_state_mutex);
+  std::lock_guard<std::mutex> lock(get_shell_state_mutex());
   s_dead_shell_blacklist.insert(normalize_shell_key(path));
 }
 
 void clear_shell_blacklist() {
-  std::lock_guard<std::mutex> lock(s_shell_state_mutex);
+  std::lock_guard<std::mutex> lock(get_shell_state_mutex());
   s_dead_shell_blacklist.clear();
 }
 
 bool is_shell_blacklisted(const std::filesystem::path &path) {
-  std::lock_guard<std::mutex> lock(s_shell_state_mutex);
+  std::lock_guard<std::mutex> lock(get_shell_state_mutex());
   return s_dead_shell_blacklist.find(normalize_shell_key(path)) !=
          s_dead_shell_blacklist.end();
 }
@@ -519,10 +525,12 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
                             std::size_t initial_columns,
                             std::size_t initial_rows) {
   stop();
+#if defined(_WIN32)
   if (m_implementation && m_implementation->recovery_attempts == 0) {
     m_implementation->disable_conpty_for_session = false;
     clear_shell_blacklist();
   }
+#endif
   m_lines.assign(1, std::string{});
   m_grid.assign(1, std::vector<TerminalCell>{});
   m_main_screen_lines.clear();
@@ -1658,15 +1666,15 @@ static std::string sanitize_terminal_title(std::string_view raw_title) {
 
 static TerminalColor ansi_indexed_color(std::size_t index) {
   static const std::array<TerminalColor, 16> standard_16 = {{
-      {0x5c, 0x63, 0x70, false}, // 0: Black (VS Code dark theme ANSI black - legible gray)
+      {0x1e, 0x1e, 0x24, false}, // 0: Black (proper dark charcoal for dark theme)
       {0xf4, 0x47, 0x47, false}, // 1: Red
-      {0x23, 0xd1, 0x8b, false}, // 2: Green
-      {0xf5, 0xf5, 0x43, false}, // 3: Yellow
-      {0x3b, 0x8e, 0xed, false}, // 4: Blue
-      {0xd6, 0x70, 0xd6, false}, // 5: Magenta
-      {0x29, 0xb8, 0xdb, false}, // 6: Cyan
-      {0xe5, 0xe5, 0xe5, false}, // 7: White
-      {0x7f, 0x84, 0x8e, false}, // 8: Bright Black (Gray)
+      {0x60, 0x8b, 0x4e, false}, // 2: Green
+      {0xd7, 0xba, 0x7d, false}, // 3: Yellow
+      {0x56, 0x9c, 0xd6, false}, // 4: Blue
+      {0xc5, 0x86, 0xc0, false}, // 5: Magenta
+      {0x4e, 0xc9, 0xb0, false}, // 6: Cyan
+      {0xd4, 0xd4, 0xd4, false}, // 7: White
+      {0x5c, 0x63, 0x70, false}, // 8: Bright Black (Gray)
       {0xf1, 0x4c, 0x4c, false}, // 9: Bright Red
       {0x23, 0xd1, 0x8b, false}, // 10: Bright Green
       {0xf5, 0xf5, 0x43, false}, // 11: Bright Yellow
@@ -1693,7 +1701,7 @@ static TerminalColor ansi_indexed_color(std::size_t index) {
     const uint8_t gray = static_cast<uint8_t>(8 + (index - 232) * 10);
     return TerminalColor{gray, gray, gray, false};
   }
-  return TerminalColor{255, 255, 255, true};
+  return TerminalColor{0, 0, 0, true};
 }
 
 void TerminalSession::apply_sgr_parameters(
@@ -1754,7 +1762,7 @@ void TerminalSession::apply_sgr_parameters(
       m_current_attributes.foreground = ansi_indexed_color(code - 30);
       break;
     case 39:
-      m_current_attributes.foreground = TerminalColor{};
+      m_current_attributes.foreground = TerminalColor{0, 0, 0, true};
       break;
     case 40:
     case 41:
@@ -1767,7 +1775,7 @@ void TerminalSession::apply_sgr_parameters(
       m_current_attributes.background = ansi_indexed_color(code - 40);
       break;
     case 49:
-      m_current_attributes.background = TerminalColor{};
+      m_current_attributes.background = TerminalColor{0, 0, 0, true};
       break;
     case 90:
     case 91:
@@ -1795,8 +1803,8 @@ void TerminalSession::apply_sgr_parameters(
           m_current_attributes.foreground = ansi_indexed_color(params[i + 2]);
           i += 2;
         } else if (params[i + 1] == 2) {
-          if (i + 5 < params.size()) {
-            // ITU T.416 format: 38;2;colorspace;r;g;b
+          if (params.size() - i == 6 && params[i + 2] == 0) {
+            // Standalone ITU T.416 format: 38;2;0;r;g;b
             m_current_attributes.foreground = TerminalColor{
                 static_cast<uint8_t>(std::min<std::size_t>(params[i + 3], 255)),
                 static_cast<uint8_t>(std::min<std::size_t>(params[i + 4], 255)),
@@ -1804,7 +1812,7 @@ void TerminalSession::apply_sgr_parameters(
                 false};
             i += 5;
           } else if (i + 4 < params.size()) {
-            // Standard: 38;2;r;g;b
+            // Standard TrueColor: 38;2;r;g;b
             m_current_attributes.foreground = TerminalColor{
                 static_cast<uint8_t>(std::min<std::size_t>(params[i + 2], 255)),
                 static_cast<uint8_t>(std::min<std::size_t>(params[i + 3], 255)),
@@ -1822,8 +1830,8 @@ void TerminalSession::apply_sgr_parameters(
           m_current_attributes.background = ansi_indexed_color(params[i + 2]);
           i += 2;
         } else if (params[i + 1] == 2) {
-          if (i + 5 < params.size()) {
-            // ITU T.416 format: 48;2;colorspace;r;g;b
+          if (params.size() - i == 6 && params[i + 2] == 0) {
+            // Standalone ITU T.416 format: 48;2;0;r;g;b
             m_current_attributes.background = TerminalColor{
                 static_cast<uint8_t>(std::min<std::size_t>(params[i + 3], 255)),
                 static_cast<uint8_t>(std::min<std::size_t>(params[i + 4], 255)),
@@ -1831,7 +1839,7 @@ void TerminalSession::apply_sgr_parameters(
                 false};
             i += 5;
           } else if (i + 4 < params.size()) {
-            // Standard: 48;2;r;g;b
+            // Standard TrueColor: 48;2;r;g;b
             m_current_attributes.background = TerminalColor{
                 static_cast<uint8_t>(std::min<std::size_t>(params[i + 2], 255)),
                 static_cast<uint8_t>(std::min<std::size_t>(params[i + 3], 255)),

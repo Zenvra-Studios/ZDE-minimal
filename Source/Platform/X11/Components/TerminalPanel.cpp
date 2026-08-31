@@ -830,6 +830,99 @@ void TerminalPanel::render(
         const std::string& line = lines[index];
         const std::size_t len = line.size();
 
+        const auto spans = session->get_line_spans(index);
+        float cur_x = layout.terminal_content_bounds.x + padding_x;
+
+        if (spans.empty())
+        {
+            if (!line.empty())
+            {
+                surface.draw_text(drawable, *surface.m_editor_font, line,
+                    cur_x, center_y, surface.m_text.primary,
+                    &terminal_clip_rect);
+            }
+        }
+        else
+        {
+            for (const auto& span : spans)
+            {
+                if (span.text.empty())
+                {
+                    continue;
+                }
+                const int span_w = surface.m_editor_font->getTextWidth(span.text);
+                if (span_w <= 0)
+                {
+                    continue;
+                }
+
+                if (!span.attributes.background.is_default || span.attributes.inverse)
+                {
+                    UI::Theme::Color bg_theme;
+                    if (span.attributes.inverse)
+                    {
+                        bg_theme = span.attributes.foreground.is_default
+                            ? surface.m_palette.text_primary
+                            : UI::Theme::Color{span.attributes.foreground.r, span.attributes.foreground.g, span.attributes.foreground.b, 255};
+                    }
+                    else
+                    {
+                        bg_theme = UI::Theme::Color{span.attributes.background.r, span.attributes.background.g, span.attributes.background.b, 255};
+                    }
+                    const unsigned long bg_pixel = surface.allocate_color(bg_theme);
+                    surface.fill_rectangle(
+                        drawable,
+                        UI::Rect{cur_x, center_y - line_height * 0.5F, static_cast<float>(span_w), line_height},
+                        bg_pixel);
+                }
+
+                UI::Theme::Color fg_theme;
+                if (span.attributes.inverse)
+                {
+                    fg_theme = span.attributes.background.is_default
+                        ? surface.m_palette.editor_background
+                        : UI::Theme::Color{span.attributes.background.r, span.attributes.background.g, span.attributes.background.b, 255};
+                }
+                else if (span.attributes.foreground.is_default)
+                {
+                    fg_theme = surface.m_palette.text_primary;
+                }
+                else
+                {
+                    fg_theme = UI::Theme::Color{span.attributes.foreground.r, span.attributes.foreground.g, span.attributes.foreground.b, 255};
+                }
+
+                if (span.attributes.bold)
+                {
+                    fg_theme.red = static_cast<uint8_t>(std::min<int>(fg_theme.red + 40, 255));
+                    fg_theme.green = static_cast<uint8_t>(std::min<int>(fg_theme.green + 40, 255));
+                    fg_theme.blue = static_cast<uint8_t>(std::min<int>(fg_theme.blue + 40, 255));
+                }
+                if (span.attributes.dim)
+                {
+                    fg_theme.red = static_cast<uint8_t>(fg_theme.red * 0.65F);
+                    fg_theme.green = static_cast<uint8_t>(fg_theme.green * 0.65F);
+                    fg_theme.blue = static_cast<uint8_t>(fg_theme.blue * 0.65F);
+                }
+
+                if (!span.attributes.hidden)
+                {
+                    surface.draw_text(drawable, *surface.m_editor_font, span.text,
+                        cur_x, center_y, fg_theme, &terminal_clip_rect);
+                }
+
+                if (span.attributes.underline)
+                {
+                    const int ul_y = round_to_int(center_y + line_height * 0.38F);
+                    const unsigned long fg_pixel = surface.allocate_color(fg_theme);
+                    surface.draw_line(drawable, round_to_int(cur_x), ul_y,
+                        round_to_int(cur_x + span_w), ul_y, fg_pixel);
+                }
+
+                cur_x += static_cast<float>(span_w);
+            }
+        }
+
         if (has_selection && !session->is_in_alternate_screen() && !m_model.is_mouse_tracking_active() && selection.intersects_line(index))
         {
             const auto [col_start, col_end] = selection.get_line_range(index, len);
@@ -858,9 +951,6 @@ void TerminalPanel::render(
             }
         }
 
-        surface.draw_text(drawable, *surface.m_editor_font, line,
-            layout.terminal_content_bounds.x + padding_x, center_y, surface.m_text.primary,
-            &terminal_clip_rect);
         center_y += line_height;
     }
     // Vertical scrollbar.

@@ -108,13 +108,14 @@ CocoaWindow::~CocoaWindow()
     Runtime::CocoaMenuBridge::set_command_callback(nullptr);
     Runtime::CocoaMenuBridge::set_command_state_query_callback(nullptr);
 
+    m_renderer.shutdown();
+
     if (m_content_view != nullptr)
     {
         ZenvraContentView* view = (__bridge ZenvraContentView*)m_content_view;
         [view setRenderer:nullptr];
         [view setCommandInvokedCallback:nullptr];
         [view setCommandCallback:nullptr];
-        m_content_view = nullptr;
     }
     if (m_delegate != nullptr)
     {
@@ -128,9 +129,16 @@ CocoaWindow::~CocoaWindow()
         NSWindow* window = (__bridge NSWindow*)m_window_handle;
         [window setDelegate:nil];
         [window setContentView:nil];
+        [window orderOut:nil];
         [window close];
         [window release];
         m_window_handle = nullptr;
+    }
+    if (m_content_view != nullptr)
+    {
+        ZenvraContentView* view = (__bridge ZenvraContentView*)m_content_view;
+        [view release];
+        m_content_view = nullptr;
     }
     if (m_delegate != nullptr)
     {
@@ -173,6 +181,7 @@ bool CocoaWindow::initialize()
                                                    styleMask:style
                                                      backing:NSBackingStoreBuffered
                                                        defer:NO];
+    [window setReleasedWhenClosed:NO];
     NSString* title = [NSString stringWithUTF8String:m_specification.title.c_str()];
     [window setTitle:title];
     [window setBackgroundColor:[NSColor colorWithSRGBRed:30.0/255.0 green:31.0/255.0 blue:34.0/255.0 alpha:1.0]];

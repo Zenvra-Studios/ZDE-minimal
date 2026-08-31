@@ -973,15 +973,13 @@ public:
   int getDescent() const { return m_descent; }
   int getHeight() const { return m_ascent + m_descent; }
 
-  /**
-   * @brief Calculate the exact pixel width of a UTF-8 text string.
-   */
-  int getTextWidth(const std::string &text) const {
+  int getTextWidth(std::string_view text) const {
     if (!m_font || text.empty()) {
       return 0;
     }
-    CFStringRef str = CFStringCreateWithCString(nullptr, text.c_str(),
-                                                kCFStringEncodingUTF8);
+    CFStringRef str = CFStringCreateWithBytes(
+        nullptr, reinterpret_cast<const UInt8 *>(text.data()), text.size(),
+        kCFStringEncodingUTF8, false);
     if (!str) {
       return 0;
     }
@@ -1001,28 +999,20 @@ public:
   }
 
   /**
-   * @brief Draw a UTF-8 string into a CGContext.
-   * @param context   The CoreGraphics context to draw into.
-   * @param color_hex Color as hex string (e.g. "#3b82f6") or named color.
-   * @param x         X coordinate (baseline origin).
-   * @param y         Y coordinate (baseline origin, flipped for CG).
-   * @param text      UTF-8 text to draw.
-   * @param clip      Optional clip rect (in CG coordinates, already flipped).
+   * @brief Draw a UTF-8 string into a CGContext with direct RGBA array.
    */
-  void drawString(CGContextRef context, const std::string &color_hex, int x,
-                  int y, const std::string &text,
+  void drawString(CGContextRef context, const CGFloat *rgba, int x,
+                  int y, std::string_view text,
                   const CGRect *clip = nullptr) {
-    if (!m_font || !context || text.empty()) {
+    if (!m_font || !context || text.empty() || !rgba) {
       return;
     }
 
-    CGFloat r = 1.0, g = 1.0, b = 1.0, a = 1.0;
-    parseHexColor(color_hex, r, g, b, a);
+    CGColorRef cg_color = CGColorCreateSRGB(rgba[0], rgba[1], rgba[2], rgba[3]);
 
-    CGColorRef cg_color = CGColorCreateSRGB(r, g, b, a);
-
-    CFStringRef str = CFStringCreateWithCString(nullptr, text.c_str(),
-                                                kCFStringEncodingUTF8);
+    CFStringRef str = CFStringCreateWithBytes(
+        nullptr, reinterpret_cast<const UInt8 *>(text.data()), text.size(),
+        kCFStringEncodingUTF8, false);
     if (!str) {
       CGColorRelease(cg_color);
       return;
@@ -1056,6 +1046,28 @@ public:
     CFRelease(attrs);
     CFRelease(str);
     CGColorRelease(cg_color);
+  }
+
+  /**
+   * @brief Draw a UTF-8 string into a CGContext.
+   * @param context   The CoreGraphics context to draw into.
+   * @param color_hex Color as hex string (e.g. "#3b82f6") or named color.
+   * @param x         X coordinate (baseline origin).
+   * @param y         Y coordinate (baseline origin, flipped for CG).
+   * @param text      UTF-8 text to draw.
+   * @param clip      Optional clip rect (in CG coordinates, already flipped).
+   */
+  void drawString(CGContextRef context, const std::string &color_hex, int x,
+                  int y, const std::string &text,
+                  const CGRect *clip = nullptr) {
+    if (!m_font || !context || text.empty()) {
+      return;
+    }
+
+    CGFloat r = 1.0, g = 1.0, b = 1.0, a = 1.0;
+    parseHexColor(color_hex, r, g, b, a);
+    const CGFloat rgba[4] = {r, g, b, a};
+    drawString(context, rgba, x, y, std::string_view{text}, clip);
   }
 
   CTFontRef getCTFont() const { return m_font; }

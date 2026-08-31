@@ -50,6 +50,8 @@ public:
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x, float point_y) const noexcept;
     [[nodiscard]] bool is_resizing() const noexcept;
+    [[nodiscard]] bool is_dragging_item() const noexcept { return m_is_dragging_item; }
+    [[nodiscard]] bool is_dragging_scrollbar() const noexcept { return false; }
     [[nodiscard]] float get_width() const noexcept;
 
     [[nodiscard]] bool handle_pointer_drag(

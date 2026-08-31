@@ -303,6 +303,8 @@ bool StdioProcessTransport::start()
 void StdioProcessTransport::stop()
 {
     m_running.store(false);
+    m_message_handler = nullptr;
+    m_error_handler = nullptr;
 
 #if defined(_WIN32)
     // 1. Close stdin to notify server of EOF
@@ -588,9 +590,20 @@ void StdioProcessTransport::reader_thread_loop()
             }
 
             const std::string_view payload(buffer.data() + content_start, content_length);
-            if (m_message_handler)
+            try
             {
-                m_message_handler(payload);
+                if (m_running.load() && m_message_handler)
+                {
+                    m_message_handler(payload);
+                }
+            }
+            catch (const std::exception& ex)
+            {
+                std::cerr << "[StdioProcessTransport] Reader message handler exception: " << ex.what() << '\n';
+            }
+            catch (...)
+            {
+                std::cerr << "[StdioProcessTransport] Reader message handler unknown exception.\n";
             }
 
             buffer.erase(0, content_start + content_length);
@@ -617,9 +630,20 @@ void StdioProcessTransport::stderr_thread_loop()
             break;
         }
         const std::string_view err_view(chunk.data(), bytes_read);
-        if (m_error_handler)
+        try
         {
-            m_error_handler(err_view);
+            if (m_running.load() && m_error_handler)
+            {
+                m_error_handler(err_view);
+            }
+        }
+        catch (const std::exception& ex)
+        {
+            std::cerr << "[StdioProcessTransport] Stderr handler exception: " << ex.what() << '\n';
+        }
+        catch (...)
+        {
+            std::cerr << "[StdioProcessTransport] Stderr handler unknown exception.\n";
         }
 #else
         if (m_process->stderr_read < 0)
@@ -632,9 +656,20 @@ void StdioProcessTransport::stderr_thread_loop()
             break;
         }
         const std::string_view err_view(chunk.data(), static_cast<std::size_t>(bytes_read));
-        if (m_error_handler)
+        try
         {
-            m_error_handler(err_view);
+            if (m_running.load() && m_error_handler)
+            {
+                m_error_handler(err_view);
+            }
+        }
+        catch (const std::exception& ex)
+        {
+            std::cerr << "[StdioProcessTransport] Stderr handler exception: " << ex.what() << '\n';
+        }
+        catch (...)
+        {
+            std::cerr << "[StdioProcessTransport] Stderr handler unknown exception.\n";
         }
 #endif
     }

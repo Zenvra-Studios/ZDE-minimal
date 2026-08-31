@@ -5,6 +5,7 @@
 #include <cstring>
 #include <fstream>
 #include <future>
+#include <iostream>
 #include <mutex>
 #include <regex>
 #include <sstream>
@@ -52,6 +53,25 @@ bool is_word_char(char c)
 }
 
 } // namespace
+
+WorkspaceSearchModel::WorkspaceSearchModel() = default;
+
+WorkspaceSearchModel::~WorkspaceSearchModel()
+{
+    m_cancel_requested.store(true);
+    m_search_generation.fetch_add(1);
+    if (m_search_thread.joinable())
+    {
+        if (m_search_thread.get_id() != std::this_thread::get_id())
+        {
+            m_search_thread.join();
+        }
+        else
+        {
+            m_search_thread.detach();
+        }
+    }
+}
 
 void WorkspaceSearchModel::set_workspace_root(const std::filesystem::path& root)
 {
@@ -660,8 +680,22 @@ void WorkspaceSearchModel::trigger_async_search()
         }
     }
 
-    std::thread([this, current_gen, query, match_case, match_word, use_regex, search_root]() {
-        if (m_cancel_requested.load() || current_gen != m_search_generation.load()) return;
+    if (m_search_thread.joinable())
+    {
+        if (m_search_thread.get_id() != std::this_thread::get_id())
+        {
+            m_search_thread.join();
+        }
+        else
+        {
+            m_search_thread.detach();
+        }
+    }
+
+    m_search_thread = std::thread([this, current_gen, query, match_case, match_word, use_regex, search_root]() {
+        try
+        {
+            if (m_cancel_requested.load() || current_gen != m_search_generation.load()) return;
 
         std::error_code ec;
         if (!std::filesystem::exists(search_root, ec) || !std::filesystem::is_directory(search_root, ec))
@@ -967,7 +1001,16 @@ void WorkspaceSearchModel::trigger_async_search()
             m_staging_error.clear();
             m_results_ready = true;
         }
-    }).detach();
+        }
+        catch (const std::exception& ex)
+        {
+            std::cerr << "[WorkspaceSearchModel] Search thread exception: " << ex.what() << '\n';
+        }
+        catch (...)
+        {
+            std::cerr << "[WorkspaceSearchModel] Search thread unknown exception caught.\n";
+        }
+    });
 }
 
 void WorkspaceSearchModel::rebuild_visible_rows()

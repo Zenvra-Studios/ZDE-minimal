@@ -78,7 +78,7 @@ std::optional<std::size_t> EditorMinimap::handle_pointer_drag(
       const float click_y = point_y - bounds.y - vp_h * 0.5F;
       const float line_float = click_y / row_height;
       const std::size_t requested_first = static_cast<std::size_t>(
-          std::clamp(std::lround(line_float), std::int64_t{0}, static_cast<std::int64_t>(max_first_line)));
+          std::clamp<std::int64_t>(static_cast<std::int64_t>(std::lround(line_float)), 0, static_cast<std::int64_t>(max_first_line)));
       return requested_first;
     } else {
       const float vp_h = std::clamp(

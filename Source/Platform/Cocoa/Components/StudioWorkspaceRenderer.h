@@ -191,19 +191,7 @@ public:
     void render_explorer_context_menu(CGContextRef context, const UI::Editor::StudioEditorLayoutResult& layout) const;
     [[nodiscard]] bool is_explorer_context_menu_open() const noexcept { return m_explorer_context_menu.visible; }
 
-private:
-    friend class CocoaChromeRenderer;
-    friend class CocoaPromptDialog;
-    friend class ActivitySidebar;
-    friend class EditorMinimap;
-    friend class EditorScrollbar;
-    friend class ExplorerHeader;
-    friend class FooterToolbar;
-    friend class ShaderSandboxPanel;
-    friend class TerminalPanel;
-    friend class TextEditor;
-    friend class ToolSidebar;
-
+public:
     struct PaletteColors
     {
         CGFloat workspace_background[4]{};
@@ -250,6 +238,9 @@ private:
     void draw_text(CGContextRef context, AntialiasedFont& font,
                    std::string_view text, float point_x, float center_y,
                    const std::string& color, const UI::Rect* clip_rect = nullptr) const;
+    void draw_text(CGContextRef context, AntialiasedFont& font,
+                   std::string_view text, float point_x, float center_y,
+                   const CGFloat* rgba, const UI::Rect* clip_rect = nullptr) const;
     void push_clip(CGContextRef context, const UI::Rect& rect) const;
     void pop_clip(CGContextRef context) const;
     void draw_svg_icon(CGContextRef context, const std::string& asset_path,

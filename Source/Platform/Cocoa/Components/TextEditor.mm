@@ -279,6 +279,14 @@ std::string make_lsp_uri(std::string_view filename) {
 
 } // namespace
 
+TextEditor::TextEditor() = default;
+
+TextEditor::~TextEditor() {
+  if (m_alive_flag) {
+    m_alive_flag->store(false);
+  }
+}
+
 std::string TextEditor::get_active_document_uri() const {
   if (const auto *path_ptr = m_controller.get_active_path()) {
     return make_lsp_uri(path_ptr->string());
@@ -301,12 +309,18 @@ std::string TextEditor::get_active_document_filename() const {
 
 void TextEditor::on_diagnostics_updated(
     const std::string &uri, std::vector<Language::Protocol::Diagnostic> diags) {
-  std::lock_guard<std::mutex> lock(m_lsp_mutex);
-  const std::string active_uri = get_active_document_uri();
-  if (uri == active_uri || uri.ends_with(get_active_document_filename())) {
-    if (auto *doc = m_controller.get_active_document()) {
-      doc->set_diagnostics(std::move(diags));
+  try {
+    std::lock_guard<std::mutex> lock(m_lsp_mutex);
+    const std::string active_uri = get_active_document_uri();
+    if (uri == active_uri || uri.ends_with(get_active_document_filename())) {
+      if (auto *doc = m_controller.get_active_document()) {
+        doc->set_diagnostics(std::move(diags));
+      }
     }
+  } catch (const std::exception &ex) {
+    std::cerr << "[TextEditor] Diagnostics update exception caught: " << ex.what() << '\n';
+  } catch (...) {
+    std::cerr << "[TextEditor] Diagnostics update unknown exception caught.\n";
   }
 }
 
@@ -438,8 +452,8 @@ bool TextEditor::go_to_definition() {
 
   Language::LanguageServerManager::instance().request_definition(
       uri, fname, pos,
-      [this](std::vector<Language::Protocol::Location> locations) {
-        if (locations.empty())
+      [this, alive = m_alive_flag](std::vector<Language::Protocol::Location> locations) {
+        if (!alive || !alive->load() || locations.empty())
           return;
         const auto &loc = locations[0];
         std::filesystem::path target_path =
@@ -908,6 +922,7 @@ bool TextEditor::handle_pointer_press(
       }
       m_reveal_caret_pending = true;
       m_caret_blink.reset();
+      const NSEventModifierFlags flags = [NSEvent modifierFlags];
       if ((flags & (NSEventModifierFlagCommand | NSEventModifierFlagControl)) != 0) {
         static_cast<void>(go_to_definition());
       }
@@ -1572,6 +1587,8 @@ bool TextEditor::handle_text_input(std::string_view utf8) {
   const bool changed = m_controller.insert_text(utf8);
   if (changed) {
     queue_lsp_document_sync();
+    const std::string uri = get_active_document_uri();
+    const std::string fname = get_active_document_filename();
 
       const std::string_view current_line =
           doc->get_line(doc->get_caret_line());
@@ -1649,8 +1666,10 @@ bool TextEditor::handle_text_input(std::string_view utf8) {
                                                  doc->get_caret_column()};
         Language::LanguageServerManager::instance().request_signature_help(
             uri, fname, sig_pos, current_line,
-            [this](std::optional<Language::Protocol::SignatureHelp> help) {
+            [this, alive = m_alive_flag](std::optional<Language::Protocol::SignatureHelp> help) {
+              if (!alive || !alive->load()) return;
               std::lock_guard<std::mutex> lock(m_lsp_mutex);
+              if (!alive->load()) return;
               if (help.has_value() && !help->signatures.empty()) {
                 m_signature_help.show(std::move(*help), 0.0F, 0.0F);
               } else {
@@ -1755,8 +1774,10 @@ bool TextEditor::handle_text_input(std::string_view utf8) {
                                          .character = doc->get_caret_column()};
         Language::LanguageServerManager::instance().request_completion(
             uri, fname, pos, doc->get_line(doc->get_caret_line()),
-            [this](std::vector<Language::Protocol::CompletionItem> items) {
+            [this, alive = m_alive_flag](std::vector<Language::Protocol::CompletionItem> items) {
+              if (!alive || !alive->load()) return;
               std::lock_guard<std::mutex> lk(m_lsp_mutex);
+              if (!alive->load()) return;
               if (!items.empty()) {
                 if (m_completion_popup.is_visible()) {
                   m_completion_popup.merge_items(std::move(items));
@@ -1791,7 +1812,6 @@ bool TextEditor::handle_text_input(std::string_view utf8) {
             });
       }
     }
-  }
   return changed;
 }
 bool TextEditor::is_focused() const noexcept { return m_focused; }
@@ -2941,13 +2961,12 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
             surface.draw_text(context, *surface.m_editor_font, pre, token_x,
                               center_y, token_color(token.kind, unused));
             token_x += static_cast<float>(
-                surface.get_text_width(context, *surface.m_editor_font, pre));
+                surface.m_editor_font->getTextWidth(pre));
           }
 
           std::string_view brace_char = token.text.substr(brace_offset, 1);
           float pulse = m_brace_animation.get_pulse_scale();
-          float brace_w = static_cast<float>(surface.get_text_width(
-              context, *surface.m_editor_font, brace_char));
+          float brace_w = static_cast<float>(surface.m_editor_font->getTextWidth(brace_char));
           float extra_w = (brace_w * pulse - brace_w) * 0.5F;
           float extra_h = (line_height * pulse - line_height) * 0.5F;
           float screen_y = center_y - line_height * 0.5F;
@@ -2956,17 +2975,19 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
           pulse_color.red = std::min(pulse_color.red + 30, 255);
           pulse_color.green = std::min(pulse_color.green + 30, 255);
           pulse_color.blue = std::min(pulse_color.blue + 30, 255);
+          CGFloat pulse_rgba[4];
+          StudioWorkspaceRenderer::color_to_rgba(pulse_color, pulse_rgba);
 
           surface.fill_rounded_rectangle(
               context,
               UI::Rect{token_x - extra_w - 2.0F, screen_y - extra_h,
                        brace_w + extra_w * 2.0F + 4.0F,
                        line_height + extra_h * 2.0F},
-              pulse_color, 3.0F * surface.m_dpi_scale * pulse);
+              pulse_rgba, 3.0F * surface.m_dpi_scale * pulse);
 
-          surface.draw_scaled_text(context, *surface.m_editor_font, brace_char,
-                                   token_x, center_y, pulse,
-                                   surface.m_text.accent);
+          surface.draw_text(context, *surface.m_editor_font, brace_char,
+                            token_x, center_y,
+                            surface.m_text.accent);
           token_x += brace_w;
 
           if (brace_offset + 1 < token.text.size()) {
@@ -2974,13 +2995,12 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
             surface.draw_text(context, *surface.m_editor_font, post, token_x,
                               center_y, token_color(token.kind, unused));
             token_x += static_cast<float>(
-                surface.get_text_width(context, *surface.m_editor_font, post));
+                surface.m_editor_font->getTextWidth(post));
           }
         } else {
           surface.draw_text(context, *surface.m_editor_font, token.text, token_x,
                             center_y, token_color(token.kind, unused));
-          token_x += static_cast<float>(surface.get_text_width(
-              context, *surface.m_editor_font, token.text));
+          token_x += static_cast<float>(surface.m_editor_font->getTextWidth(token.text));
         }
         rendered_bytes += token.text.size();
       }

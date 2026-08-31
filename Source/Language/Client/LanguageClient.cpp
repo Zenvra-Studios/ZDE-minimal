@@ -18,8 +18,19 @@ LanguageClient::LanguageClient(
 
 LanguageClient::~LanguageClient()
 {
-    shutdown();
-    exit();
+    if (m_transport)
+    {
+        m_transport->set_message_handler(nullptr);
+        m_transport->set_error_handler(nullptr);
+        m_transport->stop();
+    }
+    m_diagnostics_handler = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(m_request_mutex);
+        m_pending_requests.clear();
+        m_queued_packets.clear();
+    }
+    m_state.store(ClientState::Exit);
 }
 
 void LanguageClient::set_initialization_options(nlohmann::json options)
@@ -189,7 +200,14 @@ void LanguageClient::exit()
         send_notification("exit", nlohmann::json::object());
         if (m_transport)
         {
+            m_transport->set_message_handler(nullptr);
+            m_transport->set_error_handler(nullptr);
             m_transport->stop();
+        }
+        m_diagnostics_handler = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(m_request_mutex);
+            m_pending_requests.clear();
         }
         m_state.store(ClientState::Exit);
     }
@@ -385,7 +403,18 @@ void LanguageClient::on_message_received(std::string_view json_string)
                     const auto diags = Protocol::LspProtocolSerializer::parse_diagnostics(params["diagnostics"]);
                     if (m_diagnostics_handler)
                     {
-                        m_diagnostics_handler(uri, diags);
+                        try
+                        {
+                            m_diagnostics_handler(uri, diags);
+                        }
+                        catch (const std::exception& ex)
+                        {
+                            std::cerr << "[LanguageClient] Diagnostics callback exception (" << m_language_id << "): " << ex.what() << '\n';
+                        }
+                        catch (...)
+                        {
+                            std::cerr << "[LanguageClient] Diagnostics callback unknown exception (" << m_language_id << ").\n";
+                        }
                     }
                 }
             }
@@ -408,20 +437,35 @@ void LanguageClient::on_message_received(std::string_view json_string)
 
             if (cb)
             {
-                if (root.contains("result"))
+                try
                 {
-                    cb(root["result"]);
+                    if (root.contains("result"))
+                    {
+                        cb(root["result"]);
+                    }
+                    else if (root.contains("error"))
+                    {
+                        cb(nullptr);
+                    }
                 }
-                else if (root.contains("error"))
+                catch (const std::exception& ex)
                 {
-                    cb(nullptr);
+                    std::cerr << "[LanguageClient] Request callback exception (id " << req_id << ", " << m_language_id << "): " << ex.what() << '\n';
+                }
+                catch (...)
+                {
+                    std::cerr << "[LanguageClient] Request callback unknown exception (id " << req_id << ", " << m_language_id << ").\n";
                 }
             }
         }
     }
+    catch (const std::exception& ex)
+    {
+        std::cerr << "[LanguageClient] Message parsing exception (" << m_language_id << "): " << ex.what() << '\n';
+    }
     catch (...)
     {
-        // JSON parsing error ignored for malformed packets
+        std::cerr << "[LanguageClient] Message parsing unknown exception (" << m_language_id << ").\n";
     }
 }
 

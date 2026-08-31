@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <unordered_set>
 
 namespace Zenvra::Language {
@@ -1238,13 +1239,16 @@ LanguageServerManager::get_templates_for_filename(std::string_view filename) {
 }
 
 namespace {
-static std::mutex s_header_cache_mutex;
+static std::mutex& get_header_cache_mutex() {
+  static auto* m = new std::mutex();
+  return *m;
+}
 static std::unordered_map<std::string, std::vector<Protocol::CompletionItem>>
     s_header_cache;
 } // namespace
 
 void LanguageServerManager::clear_header_cache() noexcept {
-  std::lock_guard<std::mutex> lock(s_header_cache_mutex);
+  std::lock_guard<std::mutex> lock(get_header_cache_mutex());
   s_header_cache.clear();
 }
 
@@ -1279,7 +1283,7 @@ LanguageServerManager::get_header_completions(
   const std::string cache_key =
       (is_system ? "sys:" : "quote:") + sub_dir + "|" + workspace_root.string();
   {
-    std::lock_guard<std::mutex> lock(s_header_cache_mutex);
+    std::lock_guard<std::mutex> lock(get_header_cache_mutex());
     auto it = s_header_cache.find(cache_key);
     if (it != s_header_cache.end()) {
       return it->second;
@@ -1429,8 +1433,8 @@ LanguageServerManager::get_header_completions(
 }
 
 LanguageServerManager &LanguageServerManager::instance() noexcept {
-  static LanguageServerManager manager;
-  return manager;
+  static auto* manager = new LanguageServerManager();
+  return *manager;
 }
 
 LanguageServerManager::LanguageServerManager() {}
@@ -1733,12 +1737,20 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
   client->set_diagnostics_handler(
       [this](const std::string &uri,
              const std::vector<Protocol::Diagnostic> &diags) {
+        std::function<void(const std::string&, const std::vector<Protocol::Diagnostic>&)> cb;
         {
           std::lock_guard<std::mutex> lock(m_clients_mutex);
           m_document_diagnostics[uri] = diags;
+          cb = m_diagnostics_callback;
         }
-        if (m_diagnostics_callback) {
-          m_diagnostics_callback(uri, diags);
+        if (cb) {
+          try {
+            cb(uri, diags);
+          } catch (const std::exception &ex) {
+            std::cerr << "[LanguageServerManager] Diagnostics callback exception: " << ex.what() << '\n';
+          } catch (...) {
+            std::cerr << "[LanguageServerManager] Diagnostics callback unknown exception caught.\n";
+          }
         }
       });
 
@@ -2139,6 +2151,7 @@ void LanguageServerManager::set_diagnostics_callback(
     std::function<void(const std::string &uri,
                        const std::vector<Protocol::Diagnostic> &)>
         callback) {
+  std::lock_guard<std::mutex> lock(m_clients_mutex);
   m_diagnostics_callback = std::move(callback);
 }
 
@@ -2155,6 +2168,7 @@ LanguageServerManager::get_diagnostics_for_document(
 
 void LanguageServerManager::shutdown_all() {
   std::lock_guard<std::mutex> lock(m_clients_mutex);
+  m_diagnostics_callback = nullptr;
   for (auto &[id, client] : m_clients) {
     if (client) {
       client->shutdown();

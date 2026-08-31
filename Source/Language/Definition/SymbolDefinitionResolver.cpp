@@ -14,8 +14,8 @@ namespace Zenvra::Language::Definition
 
 SymbolDefinitionResolver& SymbolDefinitionResolver::instance()
 {
-    static SymbolDefinitionResolver s_instance;
-    return s_instance;
+    static auto* s_instance = new SymbolDefinitionResolver();
+    return *s_instance;
 }
 
 std::string SymbolDefinitionResolver::extract_symbol_at(std::string_view line_text, std::size_t col)

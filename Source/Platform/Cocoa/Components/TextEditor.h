@@ -19,7 +19,9 @@
 #include <CoreGraphics/CoreGraphics.h>
 
 #include <array>
+#include <atomic>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -35,6 +37,9 @@ class StudioWorkspaceRenderer;
 class TextEditor
 {
 public:
+    TextEditor();
+    ~TextEditor();
+
     [[nodiscard]] bool open_file(const std::filesystem::path& path);
     [[nodiscard]] std::size_t open_dropped_paths(
         std::span<const std::filesystem::path> dropped_paths);
@@ -239,6 +244,7 @@ private:
     mutable std::mutex m_lsp_mutex;
     mutable bool m_lsp_sync_pending = false;
     mutable std::chrono::steady_clock::time_point m_last_edit_time{};
+    std::shared_ptr<std::atomic<bool>> m_alive_flag{std::make_shared<std::atomic<bool>>(true)};
 
     // Split state
     bool m_is_split = false;
