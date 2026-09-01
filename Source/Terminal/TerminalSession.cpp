@@ -201,7 +201,8 @@ std::filesystem::path load_last_good_shell() {
       for (char &c : lower)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
       if (lower.find("syswow64") != std::string::npos ||
-          lower.find("cmd.exe") != std::string::npos) {
+          lower.find("cmd.exe") != std::string::npos ||
+          lower.find("bash.exe") != std::string::npos) {
         return {};
       }
       std::filesystem::path candidate(line);
@@ -218,7 +219,8 @@ void save_last_good_shell(const std::filesystem::path &path) {
   for (char &c : lower)
     c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   if (lower.find("syswow64") != std::string::npos ||
-      lower.find("cmd.exe") != std::string::npos)
+      lower.find("cmd.exe") != std::string::npos ||
+      lower.find("bash.exe") != std::string::npos)
     return;
 
   const std::filesystem::path state_file = get_last_good_shell_path();
@@ -243,12 +245,11 @@ std::filesystem::path find_windows_executable(const wchar_t *executable) {
 }
 
 bool is_windows_shell(const std::filesystem::path &path,
-                      const wchar_t *filename) {
+                       const wchar_t *filename) {
   const std::wstring actual = path.filename().wstring();
   return CompareStringOrdinal(actual.c_str(), -1, filename, -1, TRUE) ==
          CSTR_EQUAL;
 }
-
 
 DWORD get_liveness_timeout_ms([[maybe_unused]] const std::filesystem::path &shell_path) {
   if (const char *env_timeout = std::getenv("ZDE_LIVENESS_MS");
@@ -363,14 +364,23 @@ std::vector<std::filesystem::path> resolve_host_shell_candidates() {
     }
   };
 
-  // 0. Explicit ZDE override ($ZDE_SHELL)
+  // 0. Explicit ZDE override ($ZDE_SHELL) — always first, even if bash
+  // Allows user to force any shell (including bash) via ZDE_SHELL
   if (const char *zde_shell = std::getenv("ZDE_SHELL");
       zde_shell != nullptr && zde_shell[0] != '\0') {
     add_candidate(zde_shell);
   }
 
-  // 1. TOP PRIORITY: PowerShell 7+ (pwsh.exe) in standard installation
-  // directories
+  // 1. Persistent last known good shell (PowerShell-family only)
+  // load_last_good_shell() already filters cmd/bash/syswow64, so this is strictly pwsh/powershell
+  // Placed before stock candidates so a healthy shell from previous session is reused instantly (P1-3)
+  if (const std::filesystem::path last_good = load_last_good_shell();
+      !last_good.empty()) {
+    add_candidate(last_good);
+  }
+
+  // 2. TOP PRIORITY: PowerShell 7+ (pwsh.exe) in standard installation
+  // directories — Windows native only (no bash/WSL auto-discovery)
   constexpr std::array<const wchar_t *, 3> standard_pwsh_paths{
       L"C:\\Program Files\\PowerShell\\7\\pwsh.exe",
       L"C:\\Program Files\\PowerShell\\7-preview\\pwsh.exe",
@@ -398,7 +408,10 @@ std::vector<std::filesystem::path> resolve_host_shell_candidates() {
     add_candidate(pwsh);
   }
 
-  // 2. Windows PowerShell 5.1 (System32 built-in 64-bit)
+  // 3. Windows PowerShell 5.1 (System32 built-in 64-bit) — PowerShell-only
+  // Sesuai permintaan "powershell aja ga harus ke switch cmd": cmd tidak di-auto-discover.
+  // Jika PowerShell rusak, terminal akan menampilkan error alih-alih fallback diam-diam ke cmd/bash.
+  // User yang butuh cmd/bash tetap bisa paksa via ZDE_SHELL (kandidat #0).
   add_candidate(
       L"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
 
@@ -408,37 +421,13 @@ std::vector<std::filesystem::path> resolve_host_shell_candidates() {
     add_candidate(ps);
   }
 
-  // 3. Persistent last known good shell
-  if (const std::filesystem::path last_good = load_last_good_shell();
-      !last_good.empty()) {
-    add_candidate(last_good);
-  }
-
-  // 4. Command Prompt (cmd.exe)
-  add_candidate(L"C:\\Windows\\System32\\cmd.exe");
-  if (const std::filesystem::path cmd = find_windows_executable(L"cmd.exe");
-      !cmd.empty()) {
-    add_candidate(cmd);
-  }
-
-  // 5. Git Bash
-  add_candidate(L"C:\\Program Files\\Git\\bin\\bash.exe");
-  add_candidate(L"C:\\Program Files (x86)\\Git\\bin\\bash.exe");
-  // FIX marga Unix-like: mesin ini pakai Scoop Git, Program Files tidak ada (Test-Path False)
-  // Tambah Scoop candidates agar bash sehat masuk list, bukan cuma WSL bash.exe yang rusak
-  add_candidate(L"C:\\Users\\Administrator\\scoop\\apps\\git\\current\\bin\\bash.exe");
-  add_candidate(L"C:\\Users\\Administrator\\scoop\\shims\\bash.exe");
-  // Juga coba bash dari PATH tapi filter WSL launcher yang error "WSL must be updated"
-  if (const std::filesystem::path bash = find_windows_executable(L"bash.exe");
-      !bash.empty()) {
-    std::string bl = bash.string();
-    for (char &c : bl) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    // skip WSL bash.exe di System32 kalau mengandung wsl error (sudah rusak)
-    if (bl.find("system32\\bash.exe") == std::string::npos &&
-        bl.find("syswow64\\bash.exe") == std::string::npos) {
-      add_candidate(bash);
-    }
-  }
+  // 4. PowerShell-only: NO auto fallback to cmd.exe / bash / WSL
+  // Windows native terminal sekarang strict PowerShell-only. cmd.exe sebelumnya sebagai
+  // fallback telah dihapus agar sesuai "powershell aja". Jika butuh cmd/bash, pakai:
+  //   set ZDE_SHELL=C:\Windows\System32\cmd.exe
+  //   set ZDE_SHELL=C:\Program Files\Git\bin\bash.exe
+  //   set ZDE_SHELL=C:\Windows\System32\bash.exe   (WSL)
+  // Kandidat non-PowerShell sengaja tidak di-add agar ConPTY tidak switch diam-diam.
 
   // Fallback: guarantee native System32 powershell
   if (candidates.empty()) {

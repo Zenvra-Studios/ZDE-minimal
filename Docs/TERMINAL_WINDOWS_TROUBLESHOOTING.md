@@ -10,7 +10,7 @@ ZDE menyediakan sejumlah variabel lingkungan untuk mengatur perilaku terminal se
 
 | Variabel | Nilai Contoh | Penjelasan |
 |---|---|---|
-| `ZDE_SHELL` | `C:\Windows\System32\cmd.exe` | Memaksa ZDE menggunakan executable shell tertentu (prioritas #0). Berguna jika PowerShell sistem rusak atau bermasalah. |
+| `ZDE_SHELL` | `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe` | Memaksa ZDE menggunakan executable shell tertentu (prioritas #0). Default PowerShell-only; set ke `cmd.exe`/`bash.exe`/`wsl` hanya jika butuh manual override. |
 | `ZDE_NO_CONPTY` | `1` atau `true` | Menonaktifkan Windows Pseudoconsole (ConPTY) API dan memaksa penggunaan mode Anonymous Pipe standar. Sangat berguna pada Windows mod yang komponen ConPTY-nya rusak/dipangkas. |
 | `ZDE_LIVENESS_MS` | `2000` (dalam milidetik) | Mengatur durasi *liveness check* saat inisialisasi shell (default: `1500` ms untuk PowerShell/pwsh, `300` ms untuk cmd). |
 | `ZDE_TERMINAL_LOG` | `0` | Mematikan logging diagnostik terminal ke `%TEMP%\zde-terminal.log` (default: aktif). |
@@ -54,11 +54,47 @@ Laporan Doctor mencakup:
 
 ZDE dilengkapi lapisan proteksi bertingkat untuk memastikan terminal selalu dapat digunakan:
 
-1. **Liveness Check & Candidate Blacklist**:
-   Jika shell yang dicoba (misal PowerShell 5.1) mati instan (<1.5 detik) karena CLR crash atau SAC timeout, ZDE otomatis melakukan fallback ke kandidat berikutnya (`cmd.exe`) dan mencatat shell yang rusak ke blacklist in-memory sesi agar tab baru berikutnya terbuka instan tanpa menunggu kegagalan berulang.
+1. **Liveness Check & Candidate Blacklist (PowerShell-only)**:
+   Jika `pwsh.exe`/`powershell.exe` mati instan (<1.5 detik) karena CLR crash atau SAC timeout, ZDE otomatis fallback ke kandidat PowerShell berikutnya dan mencatat yang rusak ke blacklist in-memory sesi agar tab baru berikutnya langsung coba kandidat PowerShell sehat tanpa menunggu kegagalan berulang. Tidak ada fallback diam-diam ke `cmd.exe`/`bash`.
 2. **Transient Retry**:
    Untuk kandidat pertama yang gagal akibat cold-start / SAC verdict lag, ZDE mencoba satu kali retry transien setelah jeda 500 ms sebelum beralih ke fallback.
 3. **Persistensi Shell Sehat (`last_good_shell`)**:
-   Setelah sebuah shell berhasil hidup normal >= 3 detik, path shell tersebut disimpan secara persisten di `%LOCALAPPDATA%\ZDE\terminal_last_good_shell.txt`. Pada pembukaan ZDE sesi berikutnya, shell ini menjadi prioritas utama.
+   Setelah sebuah shell berhasil hidup normal >= 3 detik, path shell tersebut disimpan secara persisten di `%LOCALAPPDATA%\ZDE\terminal_last_good_shell.txt`. Pada pembukaan ZDE sesi berikutnya, shell ini menjadi prioritas utama. Hanya shell keluarga PowerShell (`pwsh.exe` / `powershell.exe`) yang dipersist; `cmd.exe` dan `bash.exe` tidak pernah dipersist agar sesi berikutnya selalu mencoba PowerShell dulu.
 4. **Crash-Safe File Logging**:
    Seluruh siklus hidup shell tercatat di `%TEMP%\zde-terminal.log` (dibatasi otomatis maksimal 1 MB).
+
+---
+
+## 5. Kebijakan PowerShell-Only di Windows (ConPTY)
+
+Sejak perbaikan `Source/Terminal/TerminalSession.cpp:363`, terminal Windows bersifat **PowerShell-only** sesuai permintaan "powershell aja ga harus ke switch cmd":
+
+> Windows native-only kini = PowerShell saja. `cmd.exe` dan `bash.exe` (WSL/Git/Scoop) **tidak lagi di-auto-discover** agar ConPTY tidak switch diam-diam saat PowerShell transient gagal.
+
+**Urutan kandidat default (ConPTY → Pipe fallback, keduanya sama) — hanya PowerShell:**
+
+1. `ZDE_SHELL` (jika di-set — satu-satunya cara memaksa `cmd.exe`/`bash.exe`/WSL)
+2. `last_good_shell` (persist dari sesi sebelumnya, hanya PowerShell-family `pwsh.exe`/`powershell.exe`)
+3. `pwsh.exe` — PowerShell 7+ (`C:\Program Files\PowerShell\7\pwsh.exe`, `%LOCALAPPDATA%\Programs\PowerShell\7\pwsh.exe`, dan `PATH`)
+4. `powershell.exe` — Windows PowerShell 5.1 (`C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe` + `PATH`)
+
+Tidak ada `cmd.exe` / `bash.exe` otomatis — baik `C:\Windows\System32\cmd.exe`, `C:\Program Files\Git\bin\bash.exe`, `Scoop`, maupun `WSL bash.exe` (`System32\bash.exe`) **sengaja dihapus** dari `resolve_host_shell_candidates()`. Jika PowerShell semua gagal, terminal menampilkan error alih-alih fallback diam-diam ke cmd.
+
+**Mengapa bash/cmd tidak ikut lagi saat ConPTY dibuka?**
+Sebelumnya kandidat non-PowerShell dimasukkan unconditional sebagai #5–6. Jika PowerShell transient gagal (CLR init lambat, SAC verdict timeout 50ms liveness), shell berikutnya yang sehat — sering `cmd`/`Git Bash` — langsung dipilih dan di-persist, sehingga tab berikutnya langsung cmd/bash padahal PowerShell sudah sehat. Sekarang ConPTY **hanya** mencoba `pwsh → powershell`. Jika Anda memang butuh cmd/bash/WSL, paksa eksplisit via `ZDE_SHELL`:
+
+```cmd
+:: PowerShell 5.1 eksplisit (default)
+set ZDE_SHELL=C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+ZDE.exe
+
+:: Cmd (hanya jika benar-benar dibutuhkan)
+set ZDE_SHELL=C:\Windows\System32\cmd.exe
+ZDE.exe
+
+:: Git Bash / WSL (hanya jika benar-benar dibutuhkan)
+set ZDE_SHELL=C:\Program Files\Git\bin\bash.exe
+ZDE.exe
+set ZDE_SHELL=C:\Windows\System32\bash.exe
+ZDE.exe
+```
