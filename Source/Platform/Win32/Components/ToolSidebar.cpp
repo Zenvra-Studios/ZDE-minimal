@@ -1761,7 +1761,7 @@ void ToolSidebar::render(
         const float indent_x = panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
         const int guide_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
 
-        const UI::Theme::Color guide_color{70, 76, 88, 200};
+        const UI::Theme::Color guide_color{85, 92, 105, 190};
 
         for (std::size_t level = 0; level < item.depth; ++level) {
           const int guide_x = round_to_int(
@@ -1796,8 +1796,8 @@ void ToolSidebar::render(
 
         const bool is_cut = m_model.is_cut_path(item.path);
         const UI::Theme::Color icon_color = is_cut
-            ? UI::Theme::Color{130, 130, 130, 120}
-            : (is_selected ? UI::Theme::Color{220, 230, 250, 255} : UI::Theme::Color{175, 185, 200, 255});
+            ? UI::Theme::Color{140, 140, 140, 120}
+            : (is_selected ? UI::Theme::Color{255, 255, 255, 255} : UI::Theme::Color{225, 230, 240, 255});
 
         if (item.directory) {
           const int arrow_x = round_to_int(indent_x + 3.0F * scale);
@@ -1847,8 +1847,8 @@ void ToolSidebar::render(
                 device_context, *surface.m_small_font, item.label,
                 round_to_int(available_width));
             const UI::Theme::Color text_color = is_cut
-                ? UI::Theme::Color{140, 140, 140, 130}
-                : (is_selected ? UI::Theme::Color{255, 255, 255, 255} : UI::Theme::Color{225, 228, 235, 255});
+                ? UI::Theme::Color{160, 165, 175, 130}
+                : (is_selected ? UI::Theme::Color{255, 255, 255, 255} : UI::Theme::Color{242, 244, 250, 255});
             surface.draw_text(device_context, *surface.m_small_font, label, label_x,
                               row_bounds.y + row_bounds.height * 0.5F,
                               text_color);
@@ -1892,7 +1892,7 @@ void ToolSidebar::render(
               arrow_x,
               arrow_y,
               std::max(round_to_int(8.0F * scale), 7),
-              surface.m_palette.text_muted,
+              UI::Theme::Color{220, 225, 235, 255},
               sticky_bg);
 
           const int folder_x = round_to_int(indent_x + 19.0F * scale);
@@ -1901,7 +1901,7 @@ void ToolSidebar::render(
               folder_x,
               arrow_y,
               std::max(round_to_int(14.0F * scale), 11),
-              surface.m_palette.text_muted,
+              UI::Theme::Color{235, 240, 250, 255},
               sticky_bg);
 
           const float label_x = indent_x + 30.0F * scale;
@@ -1910,7 +1910,7 @@ void ToolSidebar::render(
               std::max(round_to_int(panel.right() - label_x - 8.0F * scale), 1));
           surface.draw_text(device_context, *surface.m_small_font, label, label_x,
                             arrow_y,
-                            surface.m_palette.text_primary);
+                            UI::Theme::Color{250, 252, 255, 255});
       }
 
       RestoreDC(device_context, clip_saved);

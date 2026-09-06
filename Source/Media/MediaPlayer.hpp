@@ -43,6 +43,12 @@ public:
     // Video Output Configuration
     virtual void set_target_video_format(VideoPixelFormat format) = 0;
     [[nodiscard]] virtual VideoPixelFormat target_video_format() const noexcept = 0;
+    virtual void set_target_video_size(int width, int height) { (void)width; (void)height; }
+    [[nodiscard]] virtual std::pair<int, int> target_video_size() const noexcept { return {0, 0}; }
+    virtual void set_debanding(bool enabled) { (void)enabled; }
+    [[nodiscard]] virtual bool is_debanding_enabled() const noexcept { return false; }
+    virtual void set_edge_aa(bool enabled) { (void)enabled; }
+    [[nodiscard]] virtual bool is_edge_aa_enabled() const noexcept { return false; }
 
     // Controls
     virtual void set_volume(float volume) = 0; // 0.0f to 1.0f

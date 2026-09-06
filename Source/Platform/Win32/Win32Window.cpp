@@ -516,6 +516,11 @@ bool Win32Window::initialize() {
   }
   m_workspace_renderer.set_window_handle(m_window_handle);
   m_workspace_renderer.m_text_editor.set_window_handle(m_window_handle);
+  m_workspace_renderer.m_text_editor.set_fullscreen_handler([this](bool enter_fullscreen) {
+    if (enter_fullscreen != m_is_fullscreen) {
+      toggle_fullscreen();
+    }
+  });
   Language::LanguageServerManager::instance().set_diagnostics_callback(
       [this](const std::string &uri,
              const std::vector<Language::Protocol::Diagnostic> &diags) {
@@ -638,6 +643,9 @@ void Win32Window::toggle_fullscreen() {
     }
   } else {
     m_is_fullscreen = false;
+    if (m_workspace_renderer.m_text_editor.is_media_fullscreen()) {
+      m_workspace_renderer.m_text_editor.media_player().set_fullscreen(false);
+    }
     SetWindowLongW(m_window_handle, GWL_STYLE,
                    (style & ~WS_POPUP) | WS_OVERLAPPEDWINDOW);
     SetWindowPlacement(m_window_handle, &m_saved_placement);
@@ -892,6 +900,9 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     break;
 
   case WM_NCHITTEST:
+    if (m_workspace_renderer.get_text_editor().is_media_fullscreen()) {
+      return HTCLIENT;
+    }
     if (m_custom_chrome_enabled) {
       return hit_test_non_client(l_param);
     }
@@ -1025,7 +1036,36 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
       RECT client_bounds{};
       GetClientRect(window_handle, &client_bounds);
-      if (m_workspace_pointer_captured) {
+      if (m_workspace_renderer.get_text_editor().is_media_fullscreen()) {
+        bool changed = false;
+        if (m_workspace_pointer_captured || (w_param & MK_LBUTTON) != 0) {
+          HDC device_context = GetDC(window_handle);
+          changed = device_context != nullptr &&
+                    m_workspace_renderer.handle_pointer_drag(
+                        device_context, point_x, point_y,
+                        client_bounds.right - client_bounds.left,
+                        client_bounds.bottom - client_bounds.top,
+                        0.0F);
+          if (device_context != nullptr) {
+            ReleaseDC(window_handle, device_context);
+          }
+        } else {
+          changed = m_workspace_renderer.handle_pointer_move(
+              point_x, point_y, client_bounds.right - client_bounds.left,
+              client_bounds.bottom - client_bounds.top,
+              0.0F);
+        }
+        if (changed) {
+          InvalidateRect(window_handle, nullptr, FALSE);
+          if (m_workspace_renderer.get_text_editor().is_media_dragging()) {
+            UpdateWindow(window_handle);
+          }
+        }
+        return 0;
+      }
+      if (m_workspace_pointer_captured ||
+          ((w_param & MK_LBUTTON) != 0 &&
+           m_workspace_renderer.get_text_editor().is_media_dragging())) {
         HDC device_context = GetDC(window_handle);
         const bool changed = device_context != nullptr &&
                              m_workspace_renderer.handle_pointer_drag(
@@ -1038,6 +1078,9 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         }
         if (changed) {
           InvalidateRect(window_handle, nullptr, FALSE);
+          if (m_workspace_renderer.get_text_editor().is_media_dragging()) {
+            UpdateWindow(window_handle);
+          }
         }
         return 0;
       }
@@ -1180,6 +1223,28 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     return 0;
 
   case WM_MOUSEWHEEL:
+    if (m_workspace_renderer.get_text_editor().is_media_fullscreen()) {
+      POINT point{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
+      ScreenToClient(window_handle, &point);
+      RECT client_bounds{};
+      GetClientRect(window_handle, &client_bounds);
+      const short wheel_delta = GET_WHEEL_DELTA_WPARAM(w_param);
+      const std::ptrdiff_t steps =
+          (std::abs(wheel_delta) >= WHEEL_DELTA)
+              ? (static_cast<std::ptrdiff_t>(wheel_delta) / WHEEL_DELTA) * 3
+              : (wheel_delta > 0 ? 1 : (wheel_delta < 0 ? -1 : 0));
+      Event::ScrollEvent scroll_event;
+      scroll_event.is_mouse_wheel = true;
+      scroll_event.point_x = static_cast<float>(point.x);
+      scroll_event.point_y = static_cast<float>(point.y);
+      scroll_event.delta_y = -steps;
+      if (m_workspace_renderer.handle_scroll(
+              scroll_event, client_bounds.right - client_bounds.left,
+              client_bounds.bottom - client_bounds.top, 0.0F)) {
+        InvalidateRect(window_handle, nullptr, FALSE);
+      }
+      return 0;
+    }
     if (m_custom_chrome_enabled) {
       POINT point{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
       ScreenToClient(window_handle, &point);
@@ -1340,6 +1405,26 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     return 0;
 
   case WM_LBUTTONDOWN:
+    if (m_workspace_renderer.get_text_editor().is_media_fullscreen()) {
+      const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
+      const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
+      RECT client_bounds{};
+      GetClientRect(window_handle, &client_bounds);
+      HDC device_context = GetDC(window_handle);
+      std::string command_out;
+      if (device_context != nullptr) {
+        static_cast<void>(m_workspace_renderer.handle_pointer_press(
+            device_context, point_x, point_y,
+            client_bounds.right - client_bounds.left,
+            client_bounds.bottom - client_bounds.top,
+            0.0F, false, command_out));
+        ReleaseDC(window_handle, device_context);
+      }
+      m_workspace_pointer_captured = true;
+      SetCapture(window_handle);
+      InvalidateRect(window_handle, nullptr, FALSE);
+      return 0;
+    }
     if (m_workspace_renderer.get_prompt_dialog().is_open()) {
       m_workspace_renderer.get_prompt_dialog().close();
     }
@@ -1546,6 +1631,11 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
             !m_about_modal.is_visible()) {
           if (editor_point || scrollbar_point || minimap_point ||
               tab_bar_point ||
+              m_workspace_renderer.is_media_point(
+                  point_x, point_y, client_bounds.right - client_bounds.left,
+                  client_bounds.bottom - client_bounds.top,
+                  m_chrome_layout.titlebar_bounds.bottom()) ||
+              m_workspace_renderer.get_text_editor().is_media_dragging() ||
               m_workspace_renderer.is_editor_split_resizing() ||
               m_workspace_renderer.is_terminal_resizing() ||
               m_workspace_renderer.is_sidebar_resizing() ||
@@ -1568,6 +1658,47 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     break;
 
   case WM_LBUTTONDBLCLK:
+    if (m_workspace_renderer.get_text_editor().is_media_fullscreen()) {
+      const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
+      const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
+      RECT client_bounds{};
+      GetClientRect(window_handle, &client_bounds);
+      HDC device_context = GetDC(window_handle);
+      std::string command_out;
+      if (device_context != nullptr) {
+        static_cast<void>(m_workspace_renderer.handle_pointer_press(
+            device_context, point_x, point_y,
+            client_bounds.right - client_bounds.left,
+            client_bounds.bottom - client_bounds.top,
+            0.0F, false, command_out));
+        ReleaseDC(window_handle, device_context);
+      }
+      InvalidateRect(window_handle, nullptr, FALSE);
+      return 0;
+    }
+    {
+      const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
+      const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
+      RECT client_bounds{};
+      GetClientRect(window_handle, &client_bounds);
+      if (m_workspace_renderer.is_media_point(
+              point_x, point_y, client_bounds.right - client_bounds.left,
+              client_bounds.bottom - client_bounds.top,
+              m_chrome_layout.titlebar_bounds.bottom())) {
+        HDC device_context = GetDC(window_handle);
+        std::string command_out;
+        if (device_context != nullptr) {
+          static_cast<void>(m_workspace_renderer.handle_pointer_press(
+              device_context, point_x, point_y,
+              client_bounds.right - client_bounds.left,
+              client_bounds.bottom - client_bounds.top,
+              m_chrome_layout.titlebar_bounds.bottom(), false, command_out));
+          ReleaseDC(window_handle, device_context);
+        }
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
+    }
     if (m_custom_chrome_enabled) {
       const float point_x = static_cast<float>(GET_X_LPARAM(l_param));
       const float point_y = static_cast<float>(GET_Y_LPARAM(l_param));
@@ -1589,6 +1720,15 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     break;
 
   case WM_LBUTTONUP:
+    if (m_workspace_renderer.get_text_editor().is_media_fullscreen()) {
+      m_workspace_pointer_captured = false;
+      static_cast<void>(m_workspace_renderer.handle_pointer_release());
+      if (GetCapture() == window_handle) {
+        ReleaseCapture();
+      }
+      InvalidateRect(window_handle, nullptr, FALSE);
+      return 0;
+    }
     if (m_custom_chrome_enabled) {
       m_workspace_pointer_captured = false;
       static_cast<void>(m_workspace_renderer.handle_pointer_release());
@@ -1756,6 +1896,23 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
 
   case WM_SETCURSOR:
     if (m_custom_chrome_enabled && LOWORD(l_param) == HTCLIENT) {
+      if (m_workspace_renderer.get_text_editor().is_media_fullscreen()) {
+        POINT cursor_position{};
+        GetCursorPos(&cursor_position);
+        ScreenToClient(window_handle, &cursor_position);
+        RECT client_bounds{};
+        GetClientRect(window_handle, &client_bounds);
+        if (m_workspace_renderer.is_media_interactive_point(
+                static_cast<float>(cursor_position.x),
+                static_cast<float>(cursor_position.y),
+                client_bounds.right - client_bounds.left,
+                client_bounds.bottom - client_bounds.top, 0.0F)) {
+          SetCursor(LoadCursorW(nullptr, IDC_HAND));
+        } else {
+          SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+        }
+        return TRUE;
+      }
       POINT cursor_position{};
       GetCursorPos(&cursor_position);
       ScreenToClient(window_handle, &cursor_position);
@@ -1970,6 +2127,52 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     break;
 
   case WM_KEYDOWN: {
+    if (m_workspace_renderer.get_text_editor().is_media_fullscreen()) {
+      if (w_param == VK_ESCAPE) {
+        m_workspace_renderer.get_text_editor().media_player().set_fullscreen(false);
+        m_workspace_renderer.get_text_editor().notify_fullscreen_changed();
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
+      if (w_param == 'F') {
+        m_workspace_renderer.get_text_editor().media_player().toggle_fullscreen();
+        m_workspace_renderer.get_text_editor().notify_fullscreen_changed();
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
+      if (w_param == VK_SPACE) {
+        m_workspace_renderer.get_text_editor().media_player().toggle_play_pause();
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
+      if (w_param == 'M') {
+        m_workspace_renderer.get_text_editor().media_player().toggle_mute();
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
+      if (w_param == VK_LEFT) {
+        m_workspace_renderer.get_text_editor().media_player().seek_relative(-5.0);
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
+      if (w_param == VK_RIGHT) {
+        m_workspace_renderer.get_text_editor().media_player().seek_relative(5.0);
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
+      if (w_param == VK_UP) {
+        auto &mp = m_workspace_renderer.get_text_editor().media_player();
+        mp.set_volume(mp.volume() + 0.05f);
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
+      if (w_param == VK_DOWN) {
+        auto &mp = m_workspace_renderer.get_text_editor().media_player();
+        mp.set_volume(mp.volume() - 0.05f);
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
+    }
     if (m_custom_chrome_enabled &&
         m_workspace_renderer.is_prompt_modal_visible()) {
       if (w_param == VK_ESCAPE) {
@@ -2777,6 +2980,9 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
 }
 
 LRESULT Win32Window::hit_test_non_client(LPARAM l_param) {
+  if (m_is_fullscreen || m_workspace_renderer.get_text_editor().is_media_fullscreen()) {
+    return HTCLIENT;
+  }
   POINT cursor_position{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
   ScreenToClient(m_window_handle, &cursor_position);
 
@@ -2905,6 +3111,25 @@ void Win32Window::paint_custom_chrome() {
 
   SetBkMode(buffer_context, TRANSPARENT);
   HGDIOBJ previous_font = SelectObject(buffer_context, m_ui_font);
+
+  if (m_workspace_renderer.get_text_editor().is_media_fullscreen()) {
+    fill_rectangle(
+        buffer_context,
+        UI::Rect{0.0F, 0.0F, static_cast<float>(client_width),
+                 static_cast<float>(client_height)},
+        UI::Theme::Color{0, 0, 0, 255});
+    static_cast<void>(m_workspace_renderer.tick_animations());
+    m_workspace_renderer.render(buffer_context, client_width, client_height, 0.0F);
+
+    BitBlt(window_context, 0, 0, client_width, client_height, buffer_context, 0,
+           0, SRCCOPY);
+    SelectObject(buffer_context, previous_font);
+    SelectObject(buffer_context, previous_bitmap);
+    DeleteObject(buffer_bitmap);
+    DeleteDC(buffer_context);
+    EndPaint(m_window_handle, &paint_data);
+    return;
+  }
 
   if (m_chrome_layout.has_overflow_menu()) {
     const bool hidden_menu_open =

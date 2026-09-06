@@ -165,8 +165,16 @@ struct FFmpegDecoder::Impl {
     SwsContext* sws_ctx = nullptr;
     int current_sws_src_w = 0;
     int current_sws_src_h = 0;
+    int target_video_w = 0;
+    int target_video_h = 0;
+    int current_sws_dst_w = 0;
+    int current_sws_dst_h = 0;
     AVPixelFormat current_sws_src_fmt = AV_PIX_FMT_NONE;
     AVPixelFormat current_sws_dst_fmt = AV_PIX_FMT_NONE;
+    AVColorSpace current_sws_colorspace = AVCOL_SPC_UNSPECIFIED;
+    AVColorRange current_sws_color_range = AVCOL_RANGE_UNSPECIFIED;
+    bool deband_enabled = false;
+    bool edge_aa_enabled = false;
     int active_video_stream_idx = -1;
     AVRational video_time_base = {1, 1000};
     int video_rotation = 0;
@@ -200,25 +208,62 @@ struct FFmpegDecoder::Impl {
         memory_reader = {};
     }
 
-    void recreate_sws_if_needed(int src_w, int src_h, AVPixelFormat src_fmt, AVPixelFormat dst_fmt) {
+    void recreate_sws_if_needed(int src_w, int src_h, AVPixelFormat src_fmt, AVPixelFormat dst_fmt,
+                                AVColorSpace color_spc = AVCOL_SPC_UNSPECIFIED,
+                                AVColorRange color_rng = AVCOL_RANGE_UNSPECIFIED) {
+        int out_w = (target_video_w > 0) ? target_video_w : src_w;
+        int out_h = (target_video_h > 0) ? target_video_h : src_h;
+        out_w = (out_w + 1) & ~1;
+        out_h = (out_h + 1) & ~1;
+
         if (sws_ctx && current_sws_src_w == src_w && current_sws_src_h == src_h &&
-            current_sws_src_fmt == src_fmt && current_sws_dst_fmt == dst_fmt) {
+            current_sws_dst_w == out_w && current_sws_dst_h == out_h &&
+            current_sws_src_fmt == src_fmt && current_sws_dst_fmt == dst_fmt &&
+            current_sws_colorspace == color_spc && current_sws_color_range == color_rng) {
             return;
         }
         if (sws_ctx) {
             sws_freeContext(sws_ctx);
             sws_ctx = nullptr;
         }
+
+        // Ultra-fast hardware-accelerated scaling flags: Bicubic SIMD (AVX2/SSE4), accurate rounding, full chroma interpolation
+        constexpr int flags = SWS_BICUBIC | SWS_ACCURATE_RND | SWS_FULL_CHR_H_INT | SWS_FULL_CHR_H_INP | SWS_BITEXACT;
         sws_ctx = sws_getContext(
             src_w, src_h, src_fmt,
-            src_w, src_h, dst_fmt,
-            SWS_FAST_BILINEAR,
+            out_w, out_h, dst_fmt,
+            flags,
             nullptr, nullptr, nullptr
         );
+
+        if (sws_ctx) {
+            // Determine input color space: BT.2020 (4K/HDR), BT.709 (HD 1080p/720p), or BT.601 (SD)
+            int sws_cs = SWS_CS_DEFAULT;
+            if (color_spc == AVCOL_SPC_BT2020_CL || color_spc == AVCOL_SPC_BT2020_NCL) {
+                sws_cs = SWS_CS_BT2020;
+            } else if (color_spc == AVCOL_SPC_BT709 || (color_spc == AVCOL_SPC_UNSPECIFIED && src_w >= 1280)) {
+                sws_cs = SWS_CS_ITU709;
+            } else if (color_spc == AVCOL_SPC_SMPTE170M || color_spc == AVCOL_SPC_BT470BG) {
+                sws_cs = SWS_CS_ITU601;
+            }
+
+            int *inv_table = nullptr, *table = nullptr;
+            int src_range = 0, dst_range = 1, brightness = 0, contrast = 1 << 16, saturation = 1 << 16;
+            if (sws_getColorspaceDetails(sws_ctx, &inv_table, &src_range, &table, &dst_range, &brightness, &contrast, &saturation) >= 0) {
+                const int* coeff = sws_getCoefficients(sws_cs);
+                int is_full_range = (color_rng == AVCOL_RANGE_JPEG) ? 1 : 0;
+                sws_setColorspaceDetails(sws_ctx, coeff, is_full_range, coeff, 1 /* RGB is always full range 0-255 */, brightness, contrast, saturation);
+            }
+        }
+
         current_sws_src_w = src_w;
         current_sws_src_h = src_h;
+        current_sws_dst_w = out_w;
+        current_sws_dst_h = out_h;
         current_sws_src_fmt = src_fmt;
         current_sws_dst_fmt = dst_fmt;
+        current_sws_colorspace = color_spc;
+        current_sws_color_range = color_rng;
     }
 
     bool read_next_demux_packet() {
@@ -264,6 +309,225 @@ Zenvra::Media::VideoPixelFormat FFmpegDecoder::target_video_format() const noexc
     if (!m_impl) return Zenvra::Media::VideoPixelFormat::RGBA32;
     std::lock_guard<std::mutex> lock(m_impl->decoder_mutex);
     return m_impl->target_video_format;
+}
+
+void FFmpegDecoder::set_target_video_size(int width, int height) {
+    if (m_impl && width > 0 && height > 0) {
+        std::lock_guard<std::mutex> lock(m_impl->decoder_mutex);
+        int aligned_w = (width + 1) & ~1;
+        int aligned_h = (height + 1) & ~1;
+        if (std::abs(m_impl->target_video_w - aligned_w) > 2 ||
+            std::abs(m_impl->target_video_h - aligned_h) > 2) {
+            m_impl->target_video_w = aligned_w;
+            m_impl->target_video_h = aligned_h;
+        }
+    }
+}
+
+std::pair<int, int> FFmpegDecoder::target_video_size() const noexcept {
+    if (!m_impl) return {0, 0};
+    std::lock_guard<std::mutex> lock(m_impl->decoder_mutex);
+    return {m_impl->target_video_w, m_impl->target_video_h};
+}
+
+void FFmpegDecoder::set_deband_enabled(bool enabled) {
+    if (m_impl) {
+        std::lock_guard<std::mutex> lock(m_impl->decoder_mutex);
+        m_impl->deband_enabled = enabled;
+    }
+}
+
+bool FFmpegDecoder::is_deband_enabled() const noexcept {
+    if (!m_impl) return false;
+    std::lock_guard<std::mutex> lock(m_impl->decoder_mutex);
+    return m_impl->deband_enabled;
+}
+
+void FFmpegDecoder::apply_deband(Zenvra::Media::VideoFrame& frame, int range, int threshold) {
+    if (frame.data.empty() || frame.width <= 4 || frame.height <= 4) return;
+    if (frame.format != Zenvra::Media::VideoPixelFormat::BGRA32 &&
+        frame.format != Zenvra::Media::VideoPixelFormat::RGBA32) {
+        return; // Debanding supports 32-bit pixel formats
+    }
+
+    const int w = frame.width;
+    const int h = frame.height;
+    const int stride = frame.linesize > 0 ? frame.linesize : (w * 4);
+    uint8_t* pixels = frame.data.data();
+
+    // Multi-direction sample offsets for gradient banding detection
+    const int r1 = std::clamp(range, 2, 8);
+    const int r2 = std::max(1, r1 / 2);
+    const int thresh = std::clamp(threshold, 2, 14);
+
+    std::vector<uint8_t> temp_row(static_cast<size_t>(w) * 4);
+
+    for (int y = 0; y < h; ++y) {
+        const uint8_t* row_src = pixels + y * stride;
+        uint8_t* row_dst = temp_row.data();
+
+        const int y_up1 = std::max(0, y - r1);
+        const int y_dn1 = std::min(h - 1, y + r1);
+        const int y_up2 = std::max(0, y - r2);
+        const int y_dn2 = std::min(h - 1, y + r2);
+
+        const uint8_t* p_up1 = pixels + y_up1 * stride;
+        const uint8_t* p_dn1 = pixels + y_dn1 * stride;
+        const uint8_t* p_up2 = pixels + y_up2 * stride;
+        const uint8_t* p_dn2 = pixels + y_dn2 * stride;
+
+        for (int x = 0; x < w; ++x) {
+            const int idx = x * 4;
+
+            const int x_lt1 = std::max(0, x - r1) * 4;
+            const int x_rt1 = std::min(w - 1, x + r1) * 4;
+            const int x_lt2 = std::max(0, x - r2) * 4;
+            const int x_rt2 = std::min(w - 1, x + r2) * 4;
+
+            // Deterministic high-frequency subpixel dither hash (breaks banding lines without blurring)
+            const uint32_t hash = static_cast<uint32_t>(x * 1234567 + y * 7654321 + 54321);
+            const int dither = static_cast<int>((hash >> 29) & 3) - 1; // -1, 0, 1, 2
+
+            bool is_banded = false;
+            int smoothed_c[3] = {0, 0, 0};
+
+            for (int c = 0; c < 3; ++c) {
+                const int cur = row_src[idx + c];
+
+                const int s1 = row_src[x_lt1 + c];
+                const int s2 = row_src[x_rt1 + c];
+                const int s3 = p_up1[idx + c];
+                const int s4 = p_dn1[idx + c];
+
+                const int s5 = p_up2[x_lt2 + c];
+                const int s6 = p_up2[x_rt2 + c];
+                const int s7 = p_dn2[x_lt2 + c];
+                const int s8 = p_dn2[x_rt2 + c];
+
+                const int min_val = std::min({s1, s2, s3, s4, s5, s6, s7, s8});
+                const int max_val = std::max({s1, s2, s3, s4, s5, s6, s7, s8});
+                const int avg = (s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8 + 4) >> 3;
+                const int diff = std::abs(cur - avg);
+
+                // Edge preservation: only touch pixels in very flat gradient regions (max_val - min_val <= thresh * 2)
+                if (diff > 0 && diff <= thresh && (max_val - min_val) <= (thresh * 2)) {
+                    is_banded = true;
+                    // Gradient contour smoothing: blend towards local neighborhood average with micro-dither
+                    smoothed_c[c] = std::clamp(((cur + avg) >> 1) + dither, 0, 255);
+                } else {
+                    smoothed_c[c] = cur;
+                }
+            }
+
+            if (is_banded) {
+                row_dst[idx + 0] = static_cast<uint8_t>(smoothed_c[0]);
+                row_dst[idx + 1] = static_cast<uint8_t>(smoothed_c[1]);
+                row_dst[idx + 2] = static_cast<uint8_t>(smoothed_c[2]);
+            } else {
+                row_dst[idx + 0] = row_src[idx + 0];
+                row_dst[idx + 1] = row_src[idx + 1];
+                row_dst[idx + 2] = row_src[idx + 2];
+            }
+            row_dst[idx + 3] = row_src[idx + 3];
+        }
+
+        std::memcpy(pixels + y * stride, temp_row.data(), static_cast<size_t>(w) * 4);
+    }
+}
+
+void FFmpegDecoder::set_edge_aa_enabled(bool enabled) {
+    if (m_impl) {
+        std::lock_guard<std::mutex> lock(m_impl->decoder_mutex);
+        m_impl->edge_aa_enabled = enabled;
+    }
+}
+
+bool FFmpegDecoder::is_edge_aa_enabled() const noexcept {
+    if (!m_impl) return false;
+    std::lock_guard<std::mutex> lock(m_impl->decoder_mutex);
+    return m_impl->edge_aa_enabled;
+}
+
+void FFmpegDecoder::apply_edge_aa(Zenvra::Media::VideoFrame& frame, int contrast_threshold) {
+    if (frame.data.empty() || frame.width < 3 || frame.height < 3) return;
+    if (frame.format != Zenvra::Media::VideoPixelFormat::BGRA32 &&
+        frame.format != Zenvra::Media::VideoPixelFormat::RGBA32) {
+        return;
+    }
+
+    const int w = frame.width;
+    const int h = frame.height;
+    const int stride = frame.linesize > 0 ? frame.linesize : (w * 4);
+    uint8_t* pixels = frame.data.data();
+
+    auto get_luma = [](const uint8_t* p, bool is_bgra) noexcept -> int {
+        int r = is_bgra ? p[2] : p[0];
+        int g = p[1];
+        int b = is_bgra ? p[0] : p[2];
+        return (r * 77 + g * 150 + b * 29) >> 8;
+    };
+
+    const bool is_bgra = (frame.format == Zenvra::Media::VideoPixelFormat::BGRA32);
+    const int thresh = std::clamp(contrast_threshold, 8, 64);
+
+    std::vector<uint8_t> prev_row(stride);
+    std::vector<uint8_t> curr_row(stride);
+    std::memcpy(curr_row.data(), pixels, stride);
+
+    for (int y = 1; y < h - 1; ++y) {
+        std::memcpy(prev_row.data(), curr_row.data(), stride);
+        std::memcpy(curr_row.data(), pixels + y * stride, stride);
+        const uint8_t* next_row = pixels + (y + 1) * stride;
+        uint8_t* out_row = pixels + y * stride;
+
+        for (int x = 1; x < w - 1; ++x) {
+            const int idx = x * 4;
+            const uint8_t* c = curr_row.data() + idx;
+            const int l_c = get_luma(c, is_bgra);
+
+            const uint8_t* l = curr_row.data() + idx - 4;
+            const uint8_t* r = curr_row.data() + idx + 4;
+            const uint8_t* u = prev_row.data() + idx;
+            const uint8_t* d = next_row + idx;
+
+            const int l_l = get_luma(l, is_bgra);
+            const int l_r = get_luma(r, is_bgra);
+            const int l_u = get_luma(u, is_bgra);
+            const int l_d = get_luma(d, is_bgra);
+
+            const int min_l = std::min({l_c, l_l, l_r, l_u, l_d});
+            const int max_l = std::max({l_c, l_l, l_r, l_u, l_d});
+            const int range = max_l - min_l;
+
+            // Flat surface or gentle texture: untouched (0% blur)
+            if (range < thresh) {
+                continue;
+            }
+
+            // High contrast edge: detect edge orientation (horizontal vs vertical step)
+            const int l_ul = get_luma(prev_row.data() + idx - 4, is_bgra);
+            const int l_ur = get_luma(prev_row.data() + idx + 4, is_bgra);
+            const int l_dl = get_luma(next_row + idx - 4, is_bgra);
+            const int l_dr = get_luma(next_row + idx + 4, is_bgra);
+
+            const int grad_h = std::abs(l_ul - l_ur) + 2 * std::abs(l_l - l_r) + std::abs(l_dl - l_dr);
+            const int grad_v = std::abs(l_ul - l_dl) + 2 * std::abs(l_u - l_d) + std::abs(l_ur - l_dr);
+
+            const uint8_t* blend_neighbor = nullptr;
+            if (grad_v >= grad_h) {
+                // Horizontal edge (contrast step along vertical direction)
+                blend_neighbor = (std::abs(l_u - l_c) > std::abs(l_d - l_c)) ? u : d;
+            } else {
+                // Vertical edge (contrast step along horizontal direction)
+                blend_neighbor = (std::abs(l_l - l_c) > std::abs(l_r - l_c)) ? l : r;
+            }
+
+            // Subpixel coverage blend: 75% center pixel + 25% edge neighbor (gentle anti-aliasing)
+            out_row[idx + 0] = static_cast<uint8_t>((c[0] * 3 + blend_neighbor[0] + 2) >> 2);
+            out_row[idx + 1] = static_cast<uint8_t>((c[1] * 3 + blend_neighbor[1] + 2) >> 2);
+            out_row[idx + 2] = static_cast<uint8_t>((c[2] * 3 + blend_neighbor[2] + 2) >> 2);
+        }
+    }
 }
 
 void FFmpegDecoder::set_target_audio_format(int sample_rate, int channels) {
@@ -519,6 +783,8 @@ bool FFmpegDecoder::open(const Zenvra::Media::MediaSource& source) {
                 avcodec_parameters_to_context(ctx, st->codecpar);
                 ctx->thread_count = 0;
                 ctx->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
+                ctx->flags |= AV_CODEC_FLAG_LOOP_FILTER;
+                ctx->skip_loop_filter = AVDISCARD_DEFAULT;
                 if (avcodec_open2(ctx, codec, nullptr) >= 0) {
                     m_impl->video_codec_ctx.reset(ctx);
                     m_impl->active_video_stream_idx = v_idx;
@@ -612,6 +878,8 @@ bool FFmpegDecoder::select_video_track(int track_index) {
     avcodec_parameters_to_context(ctx, st->codecpar);
     ctx->thread_count = 0;
     ctx->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
+    ctx->flags |= AV_CODEC_FLAG_LOOP_FILTER;
+    ctx->skip_loop_filter = AVDISCARD_DEFAULT;
     if (avcodec_open2(ctx, codec, nullptr) < 0) {
         avcodec_free_context(&ctx);
         return false;
@@ -732,6 +1000,8 @@ void FFmpegDecoder::close() {
         m_impl->current_sws_src_h = 0;
         m_impl->current_sws_src_fmt = AV_PIX_FMT_NONE;
         m_impl->current_sws_dst_fmt = AV_PIX_FMT_NONE;
+        m_impl->current_sws_colorspace = AVCOL_SPC_UNSPECIFIED;
+        m_impl->current_sws_color_range = AVCOL_RANGE_UNSPECIFIED;
         m_impl->demux_eof = false;
 #endif
     }
@@ -750,7 +1020,7 @@ const Zenvra::Media::MediaMetadata& FFmpegDecoder::metadata() const noexcept {
     return m_impl->metadata;
 }
 
-std::optional<Zenvra::Media::VideoFrame> FFmpegDecoder::decode_next_video_frame() {
+std::optional<Zenvra::Media::VideoFrame> FFmpegDecoder::decode_next_video_frame(bool fast_preview) {
 #ifdef ZDE_HAS_FFMPEG
     if (!m_impl) return std::nullopt;
     std::lock_guard<std::mutex> lock(m_impl->decoder_mutex);
@@ -769,17 +1039,43 @@ std::optional<Zenvra::Media::VideoFrame> FFmpegDecoder::decode_next_video_frame(
         // 1. Try to receive already decoded frame
         int ret = avcodec_receive_frame(m_impl->video_codec_ctx.get(), frame.get());
         if (ret == 0) {
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(58, 0, 100)
+            bool is_interlaced = (frame->flags & AV_FRAME_FLAG_INTERLACED);
+#else
+            bool is_interlaced = (frame->interlaced_frame != 0);
+#endif
+            // Fast deinterlace: eliminate comb-teeth / serrated gerigi on moving fields
+            if (is_interlaced && frame->data[0] && frame->linesize[0] > 0) {
+                const int fh = frame->height;
+                const int stride = frame->linesize[0];
+                uint8_t* y_plane = frame->data[0];
+                for (int y = 1; y < fh - 1; y += 2) {
+                    uint8_t* prev = y_plane + (y - 1) * stride;
+                    uint8_t* curr = y_plane + y * stride;
+                    uint8_t* next = y_plane + (y + 1) * stride;
+                    for (int x = 0; x < frame->width; ++x) {
+                        curr[x] = static_cast<uint8_t>((prev[x] + 2 * curr[x] + next[x] + 2) >> 2);
+                    }
+                }
+            }
+
             m_impl->recreate_sws_if_needed(frame->width, frame->height,
-                                          static_cast<AVPixelFormat>(frame->format), dst_pix_fmt);
+                                          static_cast<AVPixelFormat>(frame->format), dst_pix_fmt,
+                                          frame->colorspace, frame->color_range);
 
             if (!m_impl->sws_ctx) {
                 m_impl->last_error = "Failed to initialize SwsContext";
                 return std::nullopt;
             }
 
+            int out_w = (m_impl->target_video_w > 0) ? m_impl->target_video_w : frame->width;
+            int out_h = (m_impl->target_video_h > 0) ? m_impl->target_video_h : frame->height;
+            out_w = (out_w + 1) & ~1;
+            out_h = (out_h + 1) & ~1;
+
             Zenvra::Media::VideoFrame vf;
-            vf.width = frame->width;
-            vf.height = frame->height;
+            vf.width = out_w;
+            vf.height = out_h;
             vf.linesize = vf.width * bpp;
             vf.format = m_impl->target_video_format;
             vf.rotation_degrees = m_impl->video_rotation;
@@ -798,6 +1094,12 @@ std::optional<Zenvra::Media::VideoFrame> FFmpegDecoder::decode_next_video_frame(
             int dst_stride[4] = { vf.linesize, 0, 0, 0 };
 
             sws_scale(m_impl->sws_ctx, frame->data, frame->linesize, 0, frame->height, dst, dst_stride);
+            if (!fast_preview && m_impl->deband_enabled) {
+                apply_deband(vf);
+            }
+            if (!fast_preview && m_impl->edge_aa_enabled) {
+                apply_edge_aa(vf);
+            }
             return vf;
         }
 
@@ -836,7 +1138,8 @@ std::optional<Zenvra::Media::VideoFrame> FFmpegDecoder::decode_next_video_frame(
             int flush_ret = avcodec_receive_frame(m_impl->video_codec_ctx.get(), frame.get());
             if (flush_ret == 0) {
                 m_impl->recreate_sws_if_needed(frame->width, frame->height,
-                                              static_cast<AVPixelFormat>(frame->format), dst_pix_fmt);
+                                              static_cast<AVPixelFormat>(frame->format), dst_pix_fmt,
+                                              frame->colorspace, frame->color_range);
                 if (m_impl->sws_ctx) {
                     Zenvra::Media::VideoFrame vf;
                     vf.width = frame->width;
@@ -853,6 +1156,9 @@ std::optional<Zenvra::Media::VideoFrame> FFmpegDecoder::decode_next_video_frame(
                     uint8_t* dst[4] = { vf.data.data(), nullptr, nullptr, nullptr };
                     int dst_stride[4] = { vf.linesize, 0, 0, 0 };
                     sws_scale(m_impl->sws_ctx, frame->data, frame->linesize, 0, frame->height, dst, dst_stride);
+                    if (m_impl->deband_enabled) {
+                        apply_deband(vf);
+                    }
                     return vf;
                 }
             }
@@ -992,7 +1298,9 @@ bool FFmpegDecoder::seek(double timestamp_seconds, Zenvra::Media::SeekMode mode)
         swr_init(m_impl->swr_ctx);
     }
 
-    if (timestamp_seconds > 0.0) {
+    // In FastKeyframe mode (used for ultra-responsive live scrubbing like VLC),
+    // skip the frame-by-frame forward decoding loop to return immediately.
+    if (mode == Zenvra::Media::SeekMode::Exact && timestamp_seconds > 0.0) {
         // 1. Fast forward video stream to timestamp_seconds
         AVFramePtr v_frame = make_frame();
         AVPixelFormat dst_pix_fmt = to_ffmpeg_pixel_format(m_impl->target_video_format);

@@ -23,6 +23,7 @@
 #include <array>
 #include <chrono>
 #include <filesystem>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -310,9 +311,12 @@ private:
   mutable std::optional<CtrlHoverTokenInfo> m_ctrl_hovered_token;
   mutable float m_cached_char_width = 0.0F;
   mutable UI::Editor::MediaPlayerView m_media_player_view;
+  using FullscreenHandler = std::function<void(bool)>;
+  FullscreenHandler m_fullscreen_handler;
 
 public:
   [[nodiscard]] bool is_media_active() const noexcept;
+  [[nodiscard]] bool is_media_fullscreen() const noexcept;
   [[nodiscard]] bool is_media_preview_mode() const noexcept { return m_media_preview_mode; }
   [[nodiscard]] bool is_media_point(const UI::Editor::StudioEditorLayoutResult& layout, float point_x, float point_y) const noexcept;
   [[nodiscard]] bool is_media_interactive_point(const UI::Editor::StudioEditorLayoutResult& layout, float point_x, float point_y) const noexcept;
@@ -323,6 +327,12 @@ public:
   void toggle_media_preview_mode() noexcept { m_media_preview_mode = !m_media_preview_mode; }
   [[nodiscard]] UI::Editor::MediaPlayerView& media_player() noexcept { return m_media_player_view; }
   [[nodiscard]] const UI::Editor::MediaPlayerView& media_player() const noexcept { return m_media_player_view; }
+  void set_fullscreen_handler(FullscreenHandler handler) noexcept { m_fullscreen_handler = std::move(handler); }
+  void notify_fullscreen_changed() {
+    if (m_fullscreen_handler) {
+      m_fullscreen_handler(m_media_player_view.is_fullscreen());
+    }
+  }
 
   void queue_lsp_document_sync() noexcept {
     m_lsp_sync_pending = true;

@@ -108,6 +108,14 @@ public:
     // Output video & audio format configuration
     void set_target_video_format(Zenvra::Media::VideoPixelFormat format);
     [[nodiscard]] Zenvra::Media::VideoPixelFormat target_video_format() const noexcept;
+    void set_target_video_size(int width, int height);
+    [[nodiscard]] std::pair<int, int> target_video_size() const noexcept;
+    void set_deband_enabled(bool enabled);
+    [[nodiscard]] bool is_deband_enabled() const noexcept;
+    static void apply_deband(Zenvra::Media::VideoFrame& frame, int range = 16, int threshold = 28);
+    void set_edge_aa_enabled(bool enabled);
+    [[nodiscard]] bool is_edge_aa_enabled() const noexcept;
+    static void apply_edge_aa(Zenvra::Media::VideoFrame& frame, int contrast_threshold = 24);
     void set_target_audio_format(int sample_rate, int channels);
     [[nodiscard]] int target_sample_rate() const noexcept;
     [[nodiscard]] int target_channels() const noexcept;
@@ -117,7 +125,7 @@ public:
     bool select_audio_track(int track_index);
 
     // Frame & Audio Acquisition
-    std::optional<Zenvra::Media::VideoFrame> decode_next_video_frame();
+    std::optional<Zenvra::Media::VideoFrame> decode_next_video_frame(bool fast_preview = false);
     std::optional<Zenvra::Media::AudioBuffer> decode_next_audio_samples(int max_samples = 4096);
 
     // Seek

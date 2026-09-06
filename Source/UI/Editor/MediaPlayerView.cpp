@@ -9,7 +9,7 @@
 
 namespace Zenvra::UI::Editor {
 
-bool is_video_file(const std::filesystem::path& path) {
+bool MediaPlayerView::is_video_file(const std::filesystem::path& path) {
     std::string ext = path.extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return ext == ".mp4" || ext == ".mkv" || ext == ".webm" || ext == ".mov" ||
@@ -18,7 +18,7 @@ bool is_video_file(const std::filesystem::path& path) {
            ext == ".rmvb" || ext == ".mjpg";
 }
 
-bool is_audio_file(const std::filesystem::path& path) {
+bool MediaPlayerView::is_audio_file(const std::filesystem::path& path) {
     std::string ext = path.extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return ext == ".mp3" || ext == ".wav" || ext == ".flac" || ext == ".ogg" ||
@@ -26,13 +26,17 @@ bool is_audio_file(const std::filesystem::path& path) {
            ext == ".wma" || ext == ".ac3" || ext == ".mid" || ext == ".midi";
 }
 
-bool is_image_file(const std::filesystem::path& path) {
+bool MediaPlayerView::is_image_file(const std::filesystem::path& path) {
     std::string ext = path.extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".bmp" ||
            ext == ".gif" || ext == ".webp" || ext == ".ico" || ext == ".tiff" ||
            ext == ".tif" || ext == ".tga" || ext == ".svg" || ext == ".dds" ||
            ext == ".exr" || ext == ".hdr" || ext == ".psd";
+}
+
+bool MediaPlayerView::is_media_file(const std::filesystem::path& path) {
+    return is_video_file(path) || is_audio_file(path) || is_image_file(path);
 }
 
 namespace {
@@ -66,6 +70,7 @@ MediaPlayerView::~MediaPlayerView() {
 bool MediaPlayerView::open(const std::filesystem::path& file_path) {
     close();
 
+    m_current_path = file_path;
     m_has_error = false;
     m_error_message.clear();
 
@@ -120,12 +125,18 @@ bool MediaPlayerView::open(const std::filesystem::path& file_path) {
     m_volume = 1.0f;
     m_muted = false;
     m_player->set_volume(m_volume);
+    m_player->set_debanding(m_deband_enabled);
+    m_player->set_edge_aa(m_edge_aa_enabled);
     m_player->play();
 
     // Pull first frame
     m_current_frame = m_player->get_next_video_frame();
     m_last_mouse_activity = std::chrono::steady_clock::now();
     m_last_frame_time = std::chrono::steady_clock::now();
+    m_last_mouse_activity = std::chrono::steady_clock::now();
+    m_hud_opacity = 1.0f;
+    m_target_hud_opacity = 1.0f;
+    m_hud_visible = true;
     return true;
 }
 
@@ -138,6 +149,11 @@ void MediaPlayerView::close() {
     m_current_frame.reset();
     m_current_path.clear();
     m_is_scrubbing = false;
+    m_is_fullscreen = false;
+    m_fullscreen_hovered = false;
+    m_hud_opacity = 1.0f;
+    m_target_hud_opacity = 1.0f;
+    m_hud_visible = true;
     m_has_error = false;
     m_error_message.clear();
 }
@@ -198,9 +214,9 @@ bool MediaPlayerView::is_playing() const noexcept {
     return m_player && m_player->state() == Zenvra::Media::PlaybackState::Playing;
 }
 
-void MediaPlayerView::seek(double time_seconds) {
+void MediaPlayerView::seek(double time_seconds, Zenvra::Media::SeekMode mode) {
     if (m_player) {
-        m_player->seek(time_seconds, Zenvra::Media::SeekMode::Exact);
+        m_player->seek(time_seconds, mode);
         m_current_frame = m_player->get_next_video_frame();
     }
 }
@@ -214,8 +230,11 @@ void MediaPlayerView::seek_relative(double delta_seconds) {
 
 void MediaPlayerView::set_volume(float volume) {
     m_volume = std::clamp(volume, 0.0f, 1.0f);
-    if (m_muted && m_volume > 0.0f) {
+    if (m_volume > 0.01f) {
+        m_unmuted_volume = m_volume;
         m_muted = false;
+    } else {
+        m_muted = true;
     }
     if (m_player) {
         m_player->set_volume(m_muted ? 0.0f : m_volume);
@@ -227,7 +246,19 @@ float MediaPlayerView::volume() const noexcept {
 }
 
 void MediaPlayerView::toggle_mute() {
-    m_muted = !m_muted;
+    if (m_muted) {
+        // Unmuting: restore saved volume
+        m_muted = false;
+        if (m_volume <= 0.01f) {
+            m_volume = (m_unmuted_volume > 0.05f) ? m_unmuted_volume : 0.50f;
+        }
+    } else {
+        // Muting: remember current volume
+        if (m_volume > 0.05f) {
+            m_unmuted_volume = m_volume;
+        }
+        m_muted = true;
+    }
     if (m_player) {
         m_player->set_volume(m_muted ? 0.0f : m_volume);
     }
@@ -235,6 +266,14 @@ void MediaPlayerView::toggle_mute() {
 
 bool MediaPlayerView::is_muted() const noexcept {
     return m_muted;
+}
+
+void MediaPlayerView::toggle_fullscreen() {
+    m_is_fullscreen = !m_is_fullscreen;
+}
+
+void MediaPlayerView::set_fullscreen(bool fullscreen) {
+    m_is_fullscreen = fullscreen;
 }
 
 double MediaPlayerView::current_time() const noexcept {
@@ -246,13 +285,18 @@ double MediaPlayerView::duration() const noexcept {
 }
 
 float MediaPlayerView::progress_ratio() const noexcept {
+    if (m_is_scrubbing) {
+        return std::clamp(m_scrub_ratio, 0.0f, 1.0f);
+    }
     double dur = duration();
     if (dur <= 0.0) return 0.0f;
     return static_cast<float>(std::clamp(current_time() / dur, 0.0, 1.0));
 }
 
 std::string MediaPlayerView::format_time_display() const {
-    return format_seconds(current_time()) + " / " + format_seconds(duration());
+    double dur = duration();
+    double cur = m_is_scrubbing ? (m_scrub_ratio * dur) : current_time();
+    return format_seconds(cur) + " / " + format_seconds(dur);
 }
 
 std::string MediaPlayerView::format_badge_text() const {
@@ -270,12 +314,48 @@ std::string MediaPlayerView::format_badge_text() const {
         if (!vt.codec_name.empty()) {
             text += " (" + vt.codec_name + ")";
         }
+        if (m_edge_aa_enabled) {
+            text += " [AA]";
+        }
+        if (m_deband_enabled) {
+            text += " [Deband/HD]";
+        }
     }
     return text;
 }
 
+void MediaPlayerView::toggle_deband() {
+    set_deband_enabled(!m_deband_enabled);
+}
+
+void MediaPlayerView::set_deband_enabled(bool enabled) {
+    m_deband_enabled = enabled;
+    if (m_player) {
+        m_player->set_debanding(m_deband_enabled);
+    }
+}
+
+bool MediaPlayerView::is_deband_enabled() const noexcept {
+    return m_deband_enabled;
+}
+
+void MediaPlayerView::toggle_edge_aa() {
+    set_edge_aa_enabled(!m_edge_aa_enabled);
+}
+
+void MediaPlayerView::set_edge_aa_enabled(bool enabled) {
+    m_edge_aa_enabled = enabled;
+    if (m_player) {
+        m_player->set_edge_aa(m_edge_aa_enabled);
+    }
+}
+
+bool MediaPlayerView::is_edge_aa_enabled() const noexcept {
+    return m_edge_aa_enabled;
+}
+
 void MediaPlayerView::update() {
-    if (!m_player || !is_playing()) {
+    if (!m_player || (!is_playing() && !m_is_scrubbing)) {
         return;
     }
 
@@ -285,6 +365,60 @@ void MediaPlayerView::update() {
         m_current_frame = std::move(frame);
     }
     m_last_frame_time = now;
+}
+
+void MediaPlayerView::show_hud() noexcept {
+    m_last_mouse_activity = std::chrono::steady_clock::now();
+    m_target_hud_opacity = 1.0f;
+}
+
+void MediaPlayerView::set_hud_inactivity_for_testing(int milliseconds) noexcept {
+    m_last_mouse_activity = std::chrono::steady_clock::now() - std::chrono::milliseconds(milliseconds);
+}
+
+bool MediaPlayerView::tick_hud_fade(float delta_seconds) noexcept {
+    if (!is_open() || !is_video()) {
+        m_hud_opacity = 1.0f;
+        m_target_hud_opacity = 1.0f;
+        m_hud_visible = true;
+        return false;
+    }
+
+    auto now = std::chrono::steady_clock::now();
+
+    const bool interacting = m_is_scrubbing || m_is_dragging_volume;
+    const bool hovering_controls = m_play_hovered || m_scrubber_hovered || m_volume_hovered || m_fullscreen_hovered;
+    const bool paused = !is_playing();
+
+    if (interacting || hovering_controls) {
+        m_last_mouse_activity = now;
+        m_target_hud_opacity = 1.0f;
+    } else if (paused) {
+        m_target_hud_opacity = 1.0f;
+    } else {
+        auto inactive_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_last_mouse_activity).count();
+        if (inactive_ms >= 2500) {
+            m_target_hud_opacity = 0.0f;
+        } else {
+            m_target_hud_opacity = 1.0f;
+        }
+    }
+
+    if (std::abs(m_hud_opacity - m_target_hud_opacity) > 0.001f) {
+        if (m_hud_opacity < m_target_hud_opacity) {
+            // Smooth fade-in (~200ms)
+            m_hud_opacity = std::min(m_target_hud_opacity, m_hud_opacity + delta_seconds / 0.20f);
+        } else {
+            // Elegant crossfade out (~400ms)
+            m_hud_opacity = std::max(m_target_hud_opacity, m_hud_opacity - delta_seconds / 0.40f);
+        }
+        m_hud_visible = (m_hud_opacity > 0.01f);
+        return true;
+    }
+
+    m_hud_opacity = m_target_hud_opacity;
+    m_hud_visible = (m_hud_opacity > 0.01f);
+    return false;
 }
 
 const Zenvra::Media::VideoFrame* MediaPlayerView::current_frame() const noexcept {
@@ -311,8 +445,23 @@ int MediaPlayerView::video_height() const noexcept {
     return 1080;
 }
 
+void MediaPlayerView::set_target_display_size(int width, int height) {
+    if (m_player) {
+        m_player->set_target_video_size(width, height);
+    }
+}
+
+std::pair<int, int> MediaPlayerView::target_display_size() const noexcept {
+    return m_player ? m_player->target_video_size() : std::pair<int, int>{0, 0};
+}
+
 UI::Rect MediaPlayerView::calculate_video_canvas_bounds(const UI::Rect& editor_bounds) const noexcept {
     if (editor_bounds.width <= 0.0F || editor_bounds.height <= 0.0F) {
+        return editor_bounds;
+    }
+
+    // Layaknya VLC: saat fullscreen, beneran rapet banget atas, bawah, kiri, dan kanan ke monitor tanpa ada sela hitam
+    if (m_is_fullscreen) {
         return editor_bounds;
     }
 
@@ -337,25 +486,53 @@ UI::Rect MediaPlayerView::calculate_video_canvas_bounds(const UI::Rect& editor_b
 UI::Rect MediaPlayerView::calculate_hud_bounds(const UI::Rect& editor_bounds, float dpi_scale) const noexcept {
     const float hud_h = 44.0F * dpi_scale;
     const UI::Rect canvas = calculate_video_canvas_bounds(editor_bounds);
-    const float hud_bottom = std::min(editor_bounds.bottom(), canvas.bottom());
-    const float hud_w = std::min(editor_bounds.width, canvas.width);
-    const float hud_x = canvas.x + (canvas.width - hud_w) * 0.5F;
+    const float margin_x = m_is_fullscreen ? (18.0F * dpi_scale) : (12.0F * dpi_scale);
+    const float margin_b = m_is_fullscreen ? (14.0F * dpi_scale) : (8.0F * dpi_scale);
+    const float hud_bottom = std::min(editor_bounds.bottom(), canvas.bottom()) - margin_b;
+    const float max_w = std::min(editor_bounds.width, canvas.width);
+    const float hud_w = std::max(120.0F * dpi_scale, max_w - margin_x * 2.0F);
+    const float hud_x = editor_bounds.x + (editor_bounds.width - hud_w) * 0.5F;
     return UI::Rect{hud_x, hud_bottom - hud_h, hud_w, hud_h};
 }
 
 UI::Rect MediaPlayerView::calculate_play_button_bounds(const UI::Rect& hud_bounds, float dpi_scale) const noexcept {
-    const float btn_sz = 28.0F * dpi_scale;
+    const float btn_sz = 30.0F * dpi_scale;
     const float btn_x = hud_bounds.x + 10.0F * dpi_scale;
     const float btn_y = hud_bounds.y + (hud_bounds.height - btn_sz) * 0.5F;
     return UI::Rect{btn_x, btn_y, btn_sz, btn_sz};
 }
 
+UI::Rect MediaPlayerView::calculate_fullscreen_button_bounds(const UI::Rect& hud_bounds, float dpi_scale) const noexcept {
+    const float btn_sz = 30.0F * dpi_scale;
+    const float btn_x = hud_bounds.right() - btn_sz - 10.0F * dpi_scale;
+    const float btn_y = hud_bounds.y + (hud_bounds.height - btn_sz) * 0.5F;
+    return UI::Rect{btn_x, btn_y, btn_sz, btn_sz};
+}
+
+UI::Rect MediaPlayerView::calculate_volume_bounds(const UI::Rect& hud_bounds, float dpi_scale) const noexcept {
+    const float fs_sz = 30.0F * dpi_scale;
+    const float vol_w = (hud_bounds.width < 340.0F * dpi_scale) ? (30.0F * dpi_scale) : (88.0F * dpi_scale);
+    const float vol_h = 24.0F * dpi_scale;
+    const float vol_x = hud_bounds.right() - 10.0F * dpi_scale - fs_sz - 8.0F * dpi_scale - vol_w;
+    const float vol_y = hud_bounds.y + (hud_bounds.height - vol_h) * 0.5F;
+    return UI::Rect{vol_x, vol_y, vol_w, vol_h};
+}
+
 UI::Rect MediaPlayerView::calculate_scrubber_bounds(const UI::Rect& hud_bounds, float dpi_scale) const noexcept {
-    const float play_w = 38.0F * dpi_scale;
-    const float time_w = (hud_bounds.width < 340.0F * dpi_scale) ? 0.0F : (90.0F * dpi_scale);
-    const float left_offset = play_w + time_w + 10.0F * dpi_scale;
-    const float vol_w = (hud_bounds.width < 280.0F * dpi_scale) ? (30.0F * dpi_scale) : (80.0F * dpi_scale);
-    const float right_offset = vol_w + 16.0F * dpi_scale;
+    const float play_w = 30.0F * dpi_scale;
+    const float btn_time_gap = 10.0F * dpi_scale;
+    // Format "00:10 / 05:31:29" (17 chars) needs ~150px; "00:11 / 00:47" needs ~105px
+    float time_w = 0.0F;
+    if (hud_bounds.width >= 340.0F * dpi_scale) {
+        time_w = (duration() >= 3600.0) ? (150.0F * dpi_scale) : (105.0F * dpi_scale);
+    }
+    const float time_track_gap = (time_w > 0.0F) ? (18.0F * dpi_scale) : (10.0F * dpi_scale);
+    const float left_offset = 10.0F * dpi_scale + play_w + btn_time_gap + time_w + time_track_gap;
+
+    const float fs_sz = 30.0F * dpi_scale;
+    const float vol_w = (hud_bounds.width < 340.0F * dpi_scale) ? (30.0F * dpi_scale) : (88.0F * dpi_scale);
+    const float right_offset = 10.0F * dpi_scale + fs_sz + 8.0F * dpi_scale + vol_w + 18.0F * dpi_scale;
+
     const float track_x = hud_bounds.x + left_offset;
     const float track_w = std::max(10.0F, hud_bounds.width - left_offset - right_offset);
     const float track_h = 24.0F * dpi_scale;
@@ -363,21 +540,14 @@ UI::Rect MediaPlayerView::calculate_scrubber_bounds(const UI::Rect& hud_bounds, 
     return UI::Rect{track_x, track_y, track_w, track_h};
 }
 
-UI::Rect MediaPlayerView::calculate_volume_bounds(const UI::Rect& hud_bounds, float dpi_scale) const noexcept {
-    const float vol_w = (hud_bounds.width < 280.0F * dpi_scale) ? (26.0F * dpi_scale) : (75.0F * dpi_scale);
-    const float vol_h = 22.0F * dpi_scale;
-    const float vol_x = hud_bounds.right() - vol_w - 10.0F * dpi_scale;
-    const float vol_y = hud_bounds.y + (hud_bounds.height - vol_h) * 0.5F;
-    return UI::Rect{vol_x, vol_y, vol_w, vol_h};
-}
-
 bool MediaPlayerView::handle_mouse_down(float x, float y, const UI::Rect& editor_bounds, float dpi_scale) {
     if (!is_open()) return false;
+    if (!editor_bounds.contains(x, y)) return false;
     m_last_mouse_activity = std::chrono::steady_clock::now();
 
-    const bool is_audio = UI::Editor::is_audio_file(m_current_path);
+    const bool is_audio_track = is_audio();
 
-    if (is_audio) {
+    if (is_audio_track) {
         const float center_x = editor_bounds.x + editor_bounds.width * 0.5F;
         const float center_y = editor_bounds.y + editor_bounds.height * 0.42F;
         const float max_track_w = std::min(480.0F * dpi_scale, editor_bounds.width - 40.0F * dpi_scale);
@@ -401,13 +571,10 @@ bool MediaPlayerView::handle_mouse_down(float x, float y, const UI::Rect& editor
         }
 
         if (scrubber.contains(x, y)) {
-            m_was_playing_before_scrub = is_playing();
-            if (m_was_playing_before_scrub) {
-                pause();
-            }
             m_is_scrubbing = true;
-            float ratio = std::clamp((x - scrubber.x) / scrubber.width, 0.0F, 1.0F);
-            seek(ratio * duration());
+            m_scrub_ratio = std::clamp((x - scrubber.x) / scrubber.width, 0.0F, 1.0F);
+            m_last_seek_time = std::chrono::steady_clock::now();
+            seek(m_scrub_ratio * duration(), Zenvra::Media::SeekMode::FastKeyframe);
             return true;
         }
 
@@ -431,39 +598,55 @@ bool MediaPlayerView::handle_mouse_down(float x, float y, const UI::Rect& editor
     const UI::Rect play_btn = calculate_play_button_bounds(hud, dpi_scale);
     const UI::Rect scrubber = calculate_scrubber_bounds(hud, dpi_scale);
     const UI::Rect volume_btn = calculate_volume_bounds(hud, dpi_scale);
+    const UI::Rect fs_btn = calculate_fullscreen_button_bounds(hud, dpi_scale);
 
-    if (play_btn.contains(x, y)) {
-        toggle_play_pause();
-        return true;
-    }
-
-    if (scrubber.contains(x, y)) {
-        m_was_playing_before_scrub = is_playing();
-        if (m_was_playing_before_scrub) {
-            pause();
+    // Only process HUD buttons if HUD is visibly present (VLC style)
+    if (m_hud_opacity >= 0.15f) {
+        if (fs_btn.contains(x, y)) {
+            toggle_fullscreen();
+            return true;
         }
-        m_is_scrubbing = true;
-        float ratio = std::clamp((x - scrubber.x) / scrubber.width, 0.0F, 1.0F);
-        seek(ratio * duration());
-        return true;
-    }
 
-    if (volume_btn.contains(x, y)) {
-        m_is_dragging_volume = true;
-        if (x < volume_btn.x + 18.0F * dpi_scale && volume_btn.width >= 50.0F * dpi_scale) {
-            toggle_mute();
-        } else {
-            const float v_track_x = volume_btn.x + 18.0F * dpi_scale;
-            const float v_track_w = std::max(10.0F * dpi_scale, volume_btn.width - 26.0F * dpi_scale);
-            float ratio = std::clamp((x - v_track_x) / v_track_w, 0.0F, 1.0F);
-            set_volume(ratio);
+        if (play_btn.contains(x, y)) {
+            toggle_play_pause();
+            return true;
         }
-        return true;
+
+        if (scrubber.contains(x, y)) {
+            m_is_scrubbing = true;
+            m_scrub_ratio = std::clamp((x - scrubber.x) / scrubber.width, 0.0F, 1.0F);
+            m_last_seek_time = std::chrono::steady_clock::now();
+            seek(m_scrub_ratio * duration(), Zenvra::Media::SeekMode::FastKeyframe);
+            return true;
+        }
+
+        if (volume_btn.contains(x, y)) {
+            m_is_dragging_volume = true;
+            if (x < volume_btn.x + 22.0F * dpi_scale && volume_btn.width >= 50.0F * dpi_scale) {
+                toggle_mute();
+            } else {
+                const float v_track_x = volume_btn.x + 24.0F * dpi_scale;
+                const float v_track_w = std::max(10.0F * dpi_scale, volume_btn.width - 32.0F * dpi_scale);
+                float ratio = std::clamp((x - v_track_x) / v_track_w, 0.0F, 1.0F);
+                set_volume(ratio);
+            }
+            return true;
+        }
     }
 
     const UI::Rect canvas = calculate_video_canvas_bounds(editor_bounds);
-    if (canvas.contains(x, y)) {
-        toggle_play_pause();
+    if (canvas.contains(x, y) || editor_bounds.contains(x, y)) {
+        show_hud();
+        static auto s_last_click_time = std::chrono::steady_clock::time_point{};
+        auto now = std::chrono::steady_clock::now();
+        bool is_double_click = (std::chrono::duration_cast<std::chrono::milliseconds>(now - s_last_click_time).count() < 300);
+        s_last_click_time = now;
+
+        if (is_double_click) {
+            toggle_fullscreen();
+        } else {
+            toggle_play_pause();
+        }
         return true;
     }
 
@@ -472,11 +655,14 @@ bool MediaPlayerView::handle_mouse_down(float x, float y, const UI::Rect& editor
 
 bool MediaPlayerView::handle_mouse_move(float x, float y, const UI::Rect& editor_bounds, float dpi_scale) {
     if (!is_open()) return false;
+    if (!editor_bounds.contains(x, y) && !m_is_scrubbing && !m_is_dragging_volume) {
+        return false;
+    }
     m_last_mouse_activity = std::chrono::steady_clock::now();
 
-    const bool is_audio = UI::Editor::is_audio_file(m_current_path);
+    const bool is_audio_track = is_audio();
 
-    if (is_audio) {
+    if (is_audio_track) {
         const float center_x = editor_bounds.x + editor_bounds.width * 0.5F;
         const float center_y = editor_bounds.y + editor_bounds.height * 0.42F;
         const float max_track_w = std::min(480.0F * dpi_scale, editor_bounds.width - 40.0F * dpi_scale);
@@ -503,8 +689,13 @@ bool MediaPlayerView::handle_mouse_move(float x, float y, const UI::Rect& editor
         }
 
         if (m_is_scrubbing && scrubber.width > 0.0F) {
-            float ratio = std::clamp((x - scrubber.x) / scrubber.width, 0.0F, 1.0F);
-            seek(ratio * duration());
+            m_scrub_ratio = std::clamp((x - scrubber.x) / scrubber.width, 0.0F, 1.0F);
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_last_seek_time).count();
+            if (elapsed >= 8) {
+                m_last_seek_time = now;
+                seek(m_scrub_ratio * duration(), Zenvra::Media::SeekMode::FastKeyframe);
+            }
             return true;
         }
 
@@ -519,34 +710,45 @@ bool MediaPlayerView::handle_mouse_move(float x, float y, const UI::Rect& editor
         return m_play_hovered || m_scrubber_hovered || m_volume_hovered;
     }
 
+    const bool was_faded = (m_hud_opacity < 0.99f);
+    show_hud();
+
     const UI::Rect hud = calculate_hud_bounds(editor_bounds, dpi_scale);
     const UI::Rect play_btn = calculate_play_button_bounds(hud, dpi_scale);
     const UI::Rect scrubber = calculate_scrubber_bounds(hud, dpi_scale);
     const UI::Rect volume_btn = calculate_volume_bounds(hud, dpi_scale);
+    const UI::Rect fs_btn = calculate_fullscreen_button_bounds(hud, dpi_scale);
 
-    m_play_hovered = play_btn.contains(x, y);
-    m_scrubber_hovered = scrubber.contains(x, y);
-    m_volume_hovered = volume_btn.contains(x, y);
+    const bool hud_active = (m_hud_opacity >= 0.15f);
+    m_play_hovered = hud_active && play_btn.contains(x, y);
+    m_scrubber_hovered = hud_active && scrubber.contains(x, y);
+    m_volume_hovered = hud_active && volume_btn.contains(x, y);
+    m_fullscreen_hovered = hud_active && fs_btn.contains(x, y);
 
     if (m_scrubber_hovered && scrubber.width > 0.0F) {
         m_hover_scrub_ratio = std::clamp((x - scrubber.x) / scrubber.width, 0.0F, 1.0F);
     }
 
     if (m_is_scrubbing && scrubber.width > 0.0F) {
-        float ratio = std::clamp((x - scrubber.x) / scrubber.width, 0.0F, 1.0F);
-        seek(ratio * duration());
+        m_scrub_ratio = std::clamp((x - scrubber.x) / scrubber.width, 0.0F, 1.0F);
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_last_seek_time).count();
+        if (elapsed >= 8) {
+            m_last_seek_time = now;
+            seek(m_scrub_ratio * duration(), Zenvra::Media::SeekMode::FastKeyframe);
+        }
         return true;
     }
 
     if (m_is_dragging_volume && volume_btn.width > 0.0F) {
-        const float v_track_x = volume_btn.x + 18.0F * dpi_scale;
-        const float v_track_w = std::max(10.0F * dpi_scale, volume_btn.width - 26.0F * dpi_scale);
+        const float v_track_x = volume_btn.x + 24.0F * dpi_scale;
+        const float v_track_w = std::max(10.0F * dpi_scale, volume_btn.width - 32.0F * dpi_scale);
         float ratio = std::clamp((x - v_track_x) / v_track_w, 0.0F, 1.0F);
         set_volume(ratio);
         return true;
     }
 
-    return m_play_hovered || m_scrubber_hovered || m_volume_hovered;
+    return was_faded || m_play_hovered || m_scrubber_hovered || m_volume_hovered || m_fullscreen_hovered;
 }
 
 bool MediaPlayerView::handle_mouse_up(float x, float y, const UI::Rect& editor_bounds, float dpi_scale) {
@@ -555,10 +757,7 @@ bool MediaPlayerView::handle_mouse_up(float x, float y, const UI::Rect& editor_b
     if (m_is_scrubbing) {
         m_is_scrubbing = false;
         released = true;
-        if (m_was_playing_before_scrub) {
-            play();
-            m_was_playing_before_scrub = false;
-        }
+        seek(m_scrub_ratio * duration(), Zenvra::Media::SeekMode::Exact);
     }
     if (m_is_dragging_volume) {
         m_is_dragging_volume = false;
@@ -569,6 +768,7 @@ bool MediaPlayerView::handle_mouse_up(float x, float y, const UI::Rect& editor_b
 
 bool MediaPlayerView::handle_key_down(int key_code) {
     if (!is_open()) return false;
+    show_hud();
 
     // VK_SPACE (0x20)
     if (key_code == 0x20) {
@@ -599,6 +799,28 @@ bool MediaPlayerView::handle_key_down(int key_code) {
     if (key_code == 0x4D) {
         toggle_mute();
         return true;
+    }
+    // 'D' (0x44) -> Toggle Deband (MPV standard)
+    if (key_code == 0x44 || key_code == 'd' || key_code == 'D') {
+        toggle_deband();
+        return true;
+    }
+    // 'A' (0x41) -> Toggle Anti-Aliasing (Edge AA)
+    if (key_code == 0x41 || key_code == 'a' || key_code == 'A') {
+        toggle_edge_aa();
+        return true;
+    }
+    // 'F' (0x46) -> Toggle Fullscreen
+    if (key_code == 0x46 || key_code == 'f' || key_code == 'F') {
+        toggle_fullscreen();
+        return true;
+    }
+    // 'Escape' (0x1B) -> Exit Fullscreen if active
+    if (key_code == 0x1B) {
+        if (m_is_fullscreen) {
+            set_fullscreen(false);
+            return true;
+        }
     }
 
     return false;

@@ -55,6 +55,14 @@ Docs/*.exe
 Thumbs.db
 Desktop.ini
 
+# --- Media test files ---------------------------------------------------
+Assets/vid/
+videos/
+*.mp4
+*.mkv
+*.avi
+*.mov
+
 # --- Others ------------------------------------------------------------
 .idea
 .cache

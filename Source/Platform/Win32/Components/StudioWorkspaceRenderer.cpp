@@ -331,6 +331,14 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     return m_prompt_modal.handle_pointer_press(point_x, point_y, prompt_layout);
   }
 
+  if (m_text_editor.is_media_fullscreen()) {
+    const UI::Editor::StudioEditorLayoutResult layout =
+        calculate_layout(client_width, client_height, 0.0F);
+    return m_text_editor.handle_pointer_press(
+        *this, device_context, layout, point_x, point_y, extend_selection,
+        command_out);
+  }
+
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
   if (const std::optional<std::size_t> sidebar_index =
@@ -470,6 +478,12 @@ bool StudioWorkspaceRenderer::handle_pointer_move(float point_x, float point_y,
     return m_prompt_modal.handle_pointer_move(point_x, point_y, prompt_layout);
   }
 
+  if (m_text_editor.is_media_fullscreen()) {
+    const UI::Editor::StudioEditorLayoutResult layout =
+        calculate_layout(client_width, client_height, 0.0F);
+    return m_text_editor.handle_pointer_move(layout, point_x, point_y);
+  }
+
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
 
@@ -517,6 +531,13 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(HDC device_context,
                                                   int client_width,
                                                   int client_height,
                                                   float content_top) {
+  if (m_text_editor.is_media_fullscreen()) {
+    const UI::Editor::StudioEditorLayoutResult fs_layout =
+        calculate_layout(client_width, client_height, 0.0F);
+    return m_text_editor.handle_pointer_drag(*this, device_context, fs_layout,
+                                             point_x, point_y);
+  }
+
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
 
@@ -872,16 +893,18 @@ bool StudioWorkspaceRenderer::is_editor_point(
 bool StudioWorkspaceRenderer::is_media_point(
     float point_x, float point_y, int client_width, int client_height,
     float content_top) const noexcept {
+  const float effective_top = m_text_editor.is_media_fullscreen() ? 0.0F : content_top;
   const UI::Editor::StudioEditorLayoutResult layout =
-      calculate_layout(client_width, client_height, content_top);
+      calculate_layout(client_width, client_height, effective_top);
   return m_text_editor.is_media_point(layout, point_x, point_y);
 }
 
 bool StudioWorkspaceRenderer::is_media_interactive_point(
     float point_x, float point_y, int client_width, int client_height,
     float content_top) const noexcept {
+  const float effective_top = m_text_editor.is_media_fullscreen() ? 0.0F : content_top;
   const UI::Editor::StudioEditorLayoutResult layout =
-      calculate_layout(client_width, client_height, content_top);
+      calculate_layout(client_width, client_height, effective_top);
   return m_text_editor.is_media_interactive_point(layout, point_x, point_y);
 }
 
@@ -1128,6 +1151,13 @@ void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
 
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
+  if (m_text_editor.is_media_fullscreen()) {
+    fill_rectangle(device_context, layout.workspace_bounds,
+                   UI::Theme::Color{0, 0, 0, 255});
+    SetBkMode(device_context, TRANSPARENT);
+    m_text_editor.render_overlays(*this, device_context, layout);
+    return;
+  }
   fill_rectangle(device_context, layout.workspace_bounds,
                  m_palette.workspace_background);
   fill_rectangle(device_context, layout.tab_bar_bounds,
@@ -1531,7 +1561,7 @@ void StudioWorkspaceRenderer::draw_svg_icon(
     BLENDFUNCTION blend{};
     blend.BlendOp = AC_SRC_OVER;
     blend.BlendFlags = 0;
-    blend.SourceConstantAlpha = 255;
+    blend.SourceConstantAlpha = color.alpha;
     blend.AlphaFormat = AC_SRC_ALPHA;
 
     const int half = size / 2;

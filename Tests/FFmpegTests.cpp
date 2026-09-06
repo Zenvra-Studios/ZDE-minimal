@@ -368,3 +368,329 @@ TEST(AudioDriverTests, AudioEngineSingletonLifecycle) {
     engine.shutdown();
     EXPECT_FALSE(engine.is_initialized());
 }
+
+TEST(MediaTests, FFmpegDecoderDebandingAndQuality) {
+    FFmpegDecoder decoder;
+    EXPECT_FALSE(decoder.is_deband_enabled());
+    decoder.set_deband_enabled(true);
+    EXPECT_TRUE(decoder.is_deband_enabled());
+    decoder.set_deband_enabled(false);
+    EXPECT_FALSE(decoder.is_deband_enabled());
+
+    FFmpegPlayer player;
+    EXPECT_FALSE(player.is_debanding_enabled());
+    player.set_debanding(true);
+    EXPECT_TRUE(player.is_debanding_enabled());
+    player.set_debanding(false);
+    EXPECT_FALSE(player.is_debanding_enabled());
+
+    MediaPlayerView view;
+    EXPECT_FALSE(view.is_deband_enabled());
+    view.toggle_deband();
+    EXPECT_TRUE(view.is_deband_enabled());
+    view.toggle_deband();
+    EXPECT_FALSE(view.is_deband_enabled());
+
+    // Verify Deband algorithm on synthetic banded frame
+    VideoFrame frame;
+    frame.width = 64;
+    frame.height = 32;
+    frame.linesize = 64 * 4;
+    frame.format = VideoPixelFormat::BGRA32;
+    frame.data.resize(frame.linesize * frame.height);
+
+    // Create a stepped color band (e.g. step from 100 to 116 at column 32)
+    for (int y = 0; y < frame.height; ++y) {
+        for (int x = 0; x < frame.width; ++x) {
+            int idx = y * frame.linesize + x * 4;
+            uint8_t val = (x < 32) ? 100 : 116;
+            frame.data[idx + 0] = val; // B
+            frame.data[idx + 1] = val; // G
+            frame.data[idx + 2] = val; // R
+            frame.data[idx + 3] = 255; // A
+        }
+    }
+
+    // Measure step difference before deband
+    int diff_before = std::abs(static_cast<int>(frame.data[0 * frame.linesize + 31 * 4]) -
+                               static_cast<int>(frame.data[0 * frame.linesize + 32 * 4]));
+    EXPECT_EQ(diff_before, 16);
+
+    // Apply Debanding filter
+    FFmpegDecoder::apply_deband(frame, 12, 28);
+
+    // Verify boundary transition was smoothed (step between adjacent pixels decreased)
+    int diff_after = std::abs(static_cast<int>(frame.data[0 * frame.linesize + 31 * 4]) -
+                              static_cast<int>(frame.data[0 * frame.linesize + 32 * 4]));
+    EXPECT_LT(diff_after, diff_before);
+}
+
+TEST(MediaTests, VideoEdgeAntiAliasingAndSmoothness) {
+    FFmpegPlayer player;
+    EXPECT_FALSE(player.is_open());
+    player.set_edge_aa(true);
+    EXPECT_TRUE(player.is_edge_aa_enabled());
+    player.set_edge_aa(false);
+    EXPECT_FALSE(player.is_edge_aa_enabled());
+
+    MediaPlayerView view;
+    EXPECT_FALSE(view.is_edge_aa_enabled()); // Default false for ultra-fast zero-lag playback
+    view.toggle_edge_aa();
+    EXPECT_TRUE(view.is_edge_aa_enabled());
+    view.toggle_edge_aa();
+    EXPECT_FALSE(view.is_edge_aa_enabled());
+
+    // Construct a synthetic 32x32 frame with a sharp high-contrast vertical edge
+    VideoFrame frame;
+    frame.width = 32;
+    frame.height = 32;
+    frame.linesize = 32 * 4;
+    frame.format = VideoPixelFormat::BGRA32;
+    frame.data.resize(frame.linesize * frame.height);
+
+    for (int y = 0; y < frame.height; ++y) {
+        for (int x = 0; x < frame.width; ++x) {
+            int idx = y * frame.linesize + x * 4;
+            // Left side dark (20), right side bright (220)
+            uint8_t val = (x < 16) ? 20 : 220;
+            frame.data[idx + 0] = val; // B
+            frame.data[idx + 1] = val; // G
+            frame.data[idx + 2] = val; // R
+            frame.data[idx + 3] = 255; // A
+        }
+    }
+
+    // Flat interior pixels must be strictly preserved
+    const uint8_t interior_before = frame.data[5 * frame.linesize + 5 * 4];
+    EXPECT_EQ(interior_before, 20);
+
+    // Apply CPU edge anti-aliasing (MSAA concept)
+    FFmpegDecoder::apply_edge_aa(frame, 24);
+
+    // 1. Flat interior is 100% untouched (zero texture blur)
+    const uint8_t interior_after = frame.data[5 * frame.linesize + 5 * 4];
+    EXPECT_EQ(interior_after, interior_before);
+
+    // 2. Pixels at the boundary edge (x=15, 16) have been smoothed with subpixel blending
+    const uint8_t edge_left = frame.data[10 * frame.linesize + 15 * 4];
+    const uint8_t edge_right = frame.data[10 * frame.linesize + 16 * 4];
+
+    // Left edge (was 20) receives blend from right neighbor (220) -> should be > 20
+    EXPECT_GT(edge_left, 20);
+    // Right edge (was 220) receives blend from left neighbor (20) -> should be < 220
+    EXPECT_LT(edge_right, 220);
+    // Smooth transition: edge step is softer than the original 200 contrast jump
+    EXPECT_LT(edge_right - edge_left, 200);
+
+    // Verify Target Display Resampling
+    player.set_target_video_size(640, 360);
+    EXPECT_EQ(player.target_video_size().first, 640);
+    EXPECT_EQ(player.target_video_size().second, 360);
+
+    view.set_target_display_size(800, 450);
+}
+
+TEST(MediaTests, VolumeMuteMemoryAndHudSpacing) {
+    MediaPlayerView view;
+    // 1. Initial default volume
+    view.set_volume(0.75f);
+    EXPECT_FLOAT_EQ(view.volume(), 0.75f);
+    EXPECT_FALSE(view.is_muted());
+
+    // 2. Mute remembers original volume
+    view.toggle_mute();
+    EXPECT_TRUE(view.is_muted());
+    EXPECT_FLOAT_EQ(view.volume(), 0.75f);
+
+    // 3. Unmute restores volume cleanly
+    view.toggle_mute();
+    EXPECT_FALSE(view.is_muted());
+    EXPECT_FLOAT_EQ(view.volume(), 0.75f);
+
+    // 4. Modifying volume while muted automatically un-mutes
+    view.toggle_mute(); // now muted
+    EXPECT_TRUE(view.is_muted());
+    view.set_volume(0.40f);
+    EXPECT_FALSE(view.is_muted());
+    EXPECT_FLOAT_EQ(view.volume(), 0.40f);
+
+    // 5. Scrubber layout never collides with play button or time display
+    Zenvra::UI::Rect hud{0.0F, 500.0F, 800.0F, 44.0F};
+    Zenvra::UI::Rect play_btn = view.calculate_play_button_bounds(hud, 1.0F);
+    Zenvra::UI::Rect scrubber = view.calculate_scrubber_bounds(hud, 1.0F);
+    Zenvra::UI::Rect volume_btn = view.calculate_volume_bounds(hud, 1.0F);
+
+    // Scrubber starts comfortably past play button and time display
+    EXPECT_GT(scrubber.x, play_btn.right() + 100.0F);
+    // Scrubber ends comfortably before volume button
+    EXPECT_LT(scrubber.right(), volume_btn.x - 10.0F);
+}
+
+TEST(MediaTests, MediaPlayerViewClassEncapsulation) {
+    // 1. Static unified media detector
+    EXPECT_TRUE(MediaPlayerView::is_media_file("video.mp4"));
+    EXPECT_TRUE(MediaPlayerView::is_media_file("video.MKV"));
+    EXPECT_TRUE(MediaPlayerView::is_media_file("audio.mp3"));
+    EXPECT_TRUE(MediaPlayerView::is_media_file("sound.WAV"));
+    EXPECT_TRUE(MediaPlayerView::is_media_file("image.png"));
+    EXPECT_TRUE(MediaPlayerView::is_media_file("vector.svg"));
+    EXPECT_FALSE(MediaPlayerView::is_media_file("source.cpp"));
+    EXPECT_FALSE(MediaPlayerView::is_media_file("document.txt"));
+    EXPECT_FALSE(MediaPlayerView::is_media_file("config.json"));
+
+    // 2. Class instance state inspectors
+    MediaPlayerView view;
+    EXPECT_FALSE(view.is_video());
+    EXPECT_FALSE(view.is_audio());
+    EXPECT_FALSE(view.is_image());
+
+    view.open("sample.mp4");
+    EXPECT_TRUE(view.is_video());
+    EXPECT_FALSE(view.is_audio());
+    EXPECT_FALSE(view.is_image());
+
+    view.open("sample.wav");
+    EXPECT_FALSE(view.is_video());
+    EXPECT_TRUE(view.is_audio());
+    EXPECT_FALSE(view.is_image());
+
+    view.open("sample.png");
+    EXPECT_FALSE(view.is_video());
+    EXPECT_FALSE(view.is_audio());
+    EXPECT_TRUE(view.is_image());
+}
+
+TEST(MediaTests, MediaPlayerViewFullscreenAndHUDLayout) {
+    MediaPlayerView view;
+    EXPECT_FALSE(view.is_fullscreen());
+
+    view.toggle_fullscreen();
+    EXPECT_TRUE(view.is_fullscreen());
+
+    view.toggle_fullscreen();
+    EXPECT_FALSE(view.is_fullscreen());
+
+    view.set_fullscreen(true);
+    EXPECT_TRUE(view.is_fullscreen());
+
+    view.set_fullscreen(false);
+    EXPECT_FALSE(view.is_fullscreen());
+
+    // Check bounds calculation with fullscreen button
+    Zenvra::UI::Rect hud{0.0F, 500.0F, 800.0F, 44.0F};
+    Zenvra::UI::Rect play_btn = view.calculate_play_button_bounds(hud, 1.0F);
+    Zenvra::UI::Rect scrubber = view.calculate_scrubber_bounds(hud, 1.0F);
+    Zenvra::UI::Rect volume_btn = view.calculate_volume_bounds(hud, 1.0F);
+    Zenvra::UI::Rect fs_btn = view.calculate_fullscreen_button_bounds(hud, 1.0F);
+
+    // Fullscreen button is within HUD bounds on the far right
+    EXPECT_GT(fs_btn.x, hud.x);
+    EXPECT_LE(fs_btn.right(), hud.right());
+
+    // Volume button is positioned before fullscreen button with margin
+    EXPECT_LT(volume_btn.right(), fs_btn.x);
+
+    // Scrubber is positioned between play button (left) and volume/fs button (right)
+    EXPECT_GT(scrubber.x, play_btn.right());
+    EXPECT_LT(scrubber.right(), volume_btn.x);
+
+    // Check VLC-style true rapet fullscreen bounds (no gaps at top, bottom, left, right)
+    Zenvra::UI::Rect monitor_bounds{0.0F, 0.0F, 1920.0F, 1080.0F};
+    view.set_fullscreen(true);
+    Zenvra::UI::Rect fs_canvas = view.calculate_video_canvas_bounds(monitor_bounds);
+    EXPECT_FLOAT_EQ(fs_canvas.x, 0.0F);
+    EXPECT_FLOAT_EQ(fs_canvas.y, 0.0F);
+    EXPECT_FLOAT_EQ(fs_canvas.width, 1920.0F);
+    EXPECT_FLOAT_EQ(fs_canvas.height, 1080.0F);
+}
+
+TEST(MediaTests, AggressiveScrubberLiveTracking) {
+    MediaPlayerView view;
+    std::filesystem::path test_vid = "Assets/vid/Tutorial Golang Dasar (Bahasa Indonesia) - 1699333216.mp4";
+    if (std::filesystem::exists(test_vid)) {
+        ASSERT_TRUE(view.open(test_vid));
+        Zenvra::UI::Rect editor_bounds{0.0F, 0.0F, 1000.0F, 600.0F};
+        Zenvra::UI::Rect hud = view.calculate_hud_bounds(editor_bounds, 1.0F);
+        Zenvra::UI::Rect scrubber = view.calculate_scrubber_bounds(hud, 1.0F);
+
+        // 1. Mouse down on scrubber at 25%
+        float click_x = scrubber.x + scrubber.width * 0.25F;
+        EXPECT_TRUE(view.handle_mouse_down(click_x, scrubber.y + 2.0F, editor_bounds, 1.0F));
+        EXPECT_TRUE(view.is_scrubbing());
+        EXPECT_NEAR(view.progress_ratio(), 0.25F, 0.02F);
+
+        // 2. Aggressive drag forward to 75%
+        float drag_x1 = scrubber.x + scrubber.width * 0.75F;
+        EXPECT_TRUE(view.handle_mouse_move(drag_x1, scrubber.y + 2.0F, editor_bounds, 1.0F));
+        EXPECT_NEAR(view.progress_ratio(), 0.75F, 0.02F);
+
+        // 3. Aggressive drag backward to 10%
+        float drag_x2 = scrubber.x + scrubber.width * 0.10F;
+        EXPECT_TRUE(view.handle_mouse_move(drag_x2, scrubber.y + 2.0F, editor_bounds, 1.0F));
+        EXPECT_NEAR(view.progress_ratio(), 0.10F, 0.02F);
+
+        // 4. Release mouse
+        EXPECT_TRUE(view.handle_mouse_up(drag_x2, scrubber.y + 2.0F, editor_bounds, 1.0F));
+        EXPECT_FALSE(view.is_scrubbing());
+        view.close();
+    }
+}
+
+TEST(MediaTests, HudAutoCrossfadeAndMouseMoveWake) {
+    MediaPlayerView view;
+    std::filesystem::path test_vid = "Assets/vid/Tutorial Golang Dasar (Bahasa Indonesia) - 1699333216.mp4";
+    if (std::filesystem::exists(test_vid)) {
+        ASSERT_TRUE(view.open(test_vid));
+        EXPECT_TRUE(view.is_video());
+        EXPECT_TRUE(view.is_playing());
+
+        Zenvra::UI::Rect editor_bounds{0.0F, 0.0F, 1000.0F, 600.0F};
+
+        // 1. Initially HUD is fully visible
+        EXPECT_FLOAT_EQ(view.hud_opacity(), 1.0f);
+        EXPECT_FALSE(view.is_hud_faded_out());
+
+        // 2. Ticking with recent activity stays at 1.0f
+        view.set_hud_inactivity_for_testing(500);
+        EXPECT_FALSE(view.tick_hud_fade(0.016f));
+        EXPECT_FLOAT_EQ(view.hud_opacity(), 1.0f);
+
+        // 3. After 2.5s (2600ms) of inactivity, tick starts crossfading down
+        view.set_hud_inactivity_for_testing(2600);
+        EXPECT_TRUE(view.tick_hud_fade(0.10f));
+        EXPECT_LT(view.hud_opacity(), 1.0f);
+        EXPECT_GT(view.hud_opacity(), 0.5f);
+
+        // Continue ticking to completion (400ms fade-out total)
+        for (int i = 0; i < 10; ++i) {
+            view.tick_hud_fade(0.05f);
+        }
+        EXPECT_TRUE(view.is_hud_faded_out());
+        EXPECT_FLOAT_EQ(view.hud_opacity(), 0.0f);
+
+        // 4. Moving mouse OUTSIDE the video area does NOT wake HUD
+        EXPECT_FALSE(view.handle_mouse_move(-10.0F, -10.0F, editor_bounds, 1.0F));
+        EXPECT_TRUE(view.is_hud_faded_out());
+
+        // 5. Moving mouse INSIDE the video area immediately wakes HUD (VLC behavior)
+        EXPECT_TRUE(view.handle_mouse_move(500.0F, 300.0F, editor_bounds, 1.0F));
+        // Crossfade in (~200ms)
+        EXPECT_TRUE(view.tick_hud_fade(0.10f));
+        EXPECT_GT(view.hud_opacity(), 0.0f);
+        for (int i = 0; i < 10; ++i) {
+            view.tick_hud_fade(0.05f);
+        }
+        EXPECT_FLOAT_EQ(view.hud_opacity(), 1.0f);
+        EXPECT_FALSE(view.is_hud_faded_out());
+
+        // 6. When video is paused, HUD never fades out even after inactivity
+        view.toggle_play_pause();
+        EXPECT_FALSE(view.is_playing());
+        view.set_hud_inactivity_for_testing(5000);
+        EXPECT_FALSE(view.tick_hud_fade(0.10f));
+        EXPECT_FLOAT_EQ(view.hud_opacity(), 1.0f);
+
+        view.close();
+    }
+}
+

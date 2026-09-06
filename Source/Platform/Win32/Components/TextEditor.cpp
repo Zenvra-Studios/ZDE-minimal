@@ -320,7 +320,7 @@ bool TextEditor::open_file(const std::filesystem::path& path)
         m_hovered_tab_close_index.reset();
         m_hovered_fold_line.reset();
 
-        const bool is_media = UI::Editor::is_video_file(path) || UI::Editor::is_audio_file(path) || UI::Editor::is_image_file(path);
+        const bool is_media = UI::Editor::MediaPlayerView::is_media_file(path);
         if (is_media)
         {
             m_media_preview_mode = true;
@@ -363,12 +363,17 @@ bool TextEditor::is_media_active() const noexcept
 {
     if (const auto* active_p = m_controller.get_active_path(); active_p && !active_p->empty())
     {
-        return UI::Editor::is_video_file(*active_p) || UI::Editor::is_audio_file(*active_p) || UI::Editor::is_image_file(*active_p);
+        return UI::Editor::MediaPlayerView::is_media_file(*active_p);
     }
     const auto* doc = m_controller.get_active_document();
     if (doc == nullptr) return false;
     const std::filesystem::path p = std::string(doc->get_file_name());
-    return UI::Editor::is_video_file(p) || UI::Editor::is_audio_file(p) || UI::Editor::is_image_file(p);
+    return UI::Editor::MediaPlayerView::is_media_file(p);
+}
+
+bool TextEditor::is_media_fullscreen() const noexcept
+{
+    return m_media_preview_mode && m_media_player_view.is_open() && m_media_player_view.is_fullscreen();
 }
 
 bool TextEditor::is_media_point(
@@ -377,20 +382,31 @@ bool TextEditor::is_media_point(
 {
     if (!m_media_preview_mode) return false;
 
+    if (is_media_fullscreen())
+    {
+        return layout.workspace_bounds.contains(point_x, point_y);
+    }
+
     const float scale = layout.dpi_scale;
     const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
-    const float splitter_x = layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) * m_split_ratio;
-
-    const UI::Rect left_pane = is_split_active
-        ? UI::Rect{layout.editor_bounds.x, layout.editor_bounds.y, splitter_x - layout.editor_bounds.x, layout.editor_bounds.height}
-        : layout.editor_bounds;
-    const UI::Rect right_pane{splitter_x + 2.0F * scale, layout.editor_bounds.y, std::max(layout.editor_bounds.right() - (splitter_x + 2.0F * scale), 0.0F), layout.editor_bounds.height};
 
     const auto* left_doc = m_controller.get_active_document();
-    const bool left_is_media = left_doc && (UI::Editor::is_video_file(std::string(left_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(left_doc->get_file_name())) || UI::Editor::is_image_file(std::string(left_doc->get_file_name())));
+    const auto* left_p = m_controller.get_active_path();
+    const bool left_is_media = left_p ? UI::Editor::MediaPlayerView::is_media_file(*left_p)
+                                      : (left_doc && UI::Editor::MediaPlayerView::is_media_file(std::string(left_doc->get_file_name())));
 
     const auto* right_doc = is_split_active ? m_controller.get_document(*m_split_document_index) : nullptr;
-    const bool right_is_media = right_doc && (UI::Editor::is_video_file(std::string(right_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(right_doc->get_file_name())) || UI::Editor::is_image_file(std::string(right_doc->get_file_name())));
+    const bool right_is_media = right_doc && UI::Editor::MediaPlayerView::is_media_file(std::string(right_doc->get_file_name()));
+
+    const float pane_left_x = (left_is_media && m_media_preview_mode) ? layout.gutter_bounds.x : layout.editor_bounds.x;
+    const float full_editor_w = (left_is_media && m_media_preview_mode) ? (layout.gutter_bounds.width + layout.editor_bounds.width) : layout.editor_bounds.width;
+    const float half_w = is_split_active ? ((full_editor_w - 2.0F * scale) * m_split_ratio) : full_editor_w;
+    const float splitter_x = pane_left_x + half_w;
+
+    const UI::Rect left_pane = is_split_active
+        ? UI::Rect{pane_left_x, layout.editor_bounds.y, half_w, layout.editor_bounds.height}
+        : UI::Rect{pane_left_x, layout.editor_bounds.y, full_editor_w, layout.editor_bounds.height};
+    const UI::Rect right_pane{splitter_x + 2.0F * scale, layout.editor_bounds.y, std::max(layout.editor_bounds.right() - (splitter_x + 2.0F * scale), 0.0F), layout.editor_bounds.height};
 
     if (left_is_media && left_pane.contains(point_x, point_y)) return true;
     if (right_is_media && is_split_active && right_pane.contains(point_x, point_y)) return true;
@@ -407,7 +423,9 @@ bool TextEditor::is_media_interactive_point(
     if (m_media_player_view.is_play_hovered() ||
         m_media_player_view.is_scrubber_hovered() ||
         m_media_player_view.is_volume_hovered() ||
-        m_media_player_view.is_scrubbing())
+        m_media_player_view.is_fullscreen_hovered() ||
+        m_media_player_view.is_scrubbing() ||
+        m_media_player_view.is_dragging_volume())
     {
         return true;
     }
@@ -1700,23 +1718,43 @@ bool TextEditor::handle_pointer_press(
         return false;
     }
 
+    if (is_media_fullscreen())
+    {
+        m_focused = true;
+        m_pointer_selecting = false;
+        const bool was_fs = m_media_player_view.is_fullscreen();
+        if (m_media_player_view.handle_mouse_down(point_x, point_y, layout.workspace_bounds, surface.m_dpi_scale))
+        {
+            if (was_fs != m_media_player_view.is_fullscreen())
+            {
+                notify_fullscreen_changed();
+            }
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+        }
+        return true;
+    }
+
     UI::Editor::TextDocumentModel* document = m_controller.get_active_document();
     const float scale = surface.m_dpi_scale;
     const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
-    const float splitter_x = layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) * m_split_ratio;
-
-    const UI::Rect left_pane = is_split_active
-        ? UI::Rect{layout.editor_bounds.x, layout.editor_bounds.y, splitter_x - layout.editor_bounds.x, layout.editor_bounds.height}
-        : layout.editor_bounds;
-    const UI::Rect right_pane{splitter_x + 2.0F * scale, layout.editor_bounds.y, std::max(layout.editor_bounds.right() - (splitter_x + 2.0F * scale), 0.0F), layout.editor_bounds.height};
 
     const auto* left_doc = m_controller.get_active_document();
     const std::filesystem::path* left_p = m_controller.get_active_path();
-    const bool left_is_media = left_p ? (UI::Editor::is_video_file(*left_p) || UI::Editor::is_audio_file(*left_p) || UI::Editor::is_image_file(*left_p))
-                                      : (left_doc && (UI::Editor::is_video_file(std::string(left_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(left_doc->get_file_name())) || UI::Editor::is_image_file(std::string(left_doc->get_file_name()))));
+    const bool left_is_media = left_p ? UI::Editor::MediaPlayerView::is_media_file(*left_p)
+                                      : (left_doc && UI::Editor::MediaPlayerView::is_media_file(std::string(left_doc->get_file_name())));
 
     const auto* right_doc = is_split_active ? m_controller.get_document(*m_split_document_index) : nullptr;
-    const bool right_is_media = right_doc && (UI::Editor::is_video_file(std::string(right_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(right_doc->get_file_name())) || UI::Editor::is_image_file(std::string(right_doc->get_file_name())));
+    const bool right_is_media = right_doc && UI::Editor::MediaPlayerView::is_media_file(std::string(right_doc->get_file_name()));
+
+    const float pane_left_x = (left_is_media && m_media_preview_mode) ? layout.gutter_bounds.x : layout.editor_bounds.x;
+    const float full_editor_w = (left_is_media && m_media_preview_mode) ? (layout.gutter_bounds.width + layout.editor_bounds.width) : layout.editor_bounds.width;
+    const float half_w = is_split_active ? ((full_editor_w - 2.0F * scale) * m_split_ratio) : full_editor_w;
+    const float splitter_x = pane_left_x + half_w;
+
+    const UI::Rect left_pane = is_split_active
+        ? UI::Rect{pane_left_x, layout.editor_bounds.y, half_w, layout.editor_bounds.height}
+        : UI::Rect{pane_left_x, layout.editor_bounds.y, full_editor_w, layout.editor_bounds.height};
+    const UI::Rect right_pane{splitter_x + 2.0F * scale, layout.editor_bounds.y, std::max(layout.editor_bounds.right() - (splitter_x + 2.0F * scale), 0.0F), layout.editor_bounds.height};
 
     if (left_is_media && m_media_preview_mode && left_pane.contains(point_x, point_y))
     {
@@ -1743,8 +1781,13 @@ bool TextEditor::handle_pointer_press(
         }
 
         m_pointer_selecting = false;
+        const bool was_fs = m_media_player_view.is_fullscreen();
         if (m_media_player_view.handle_mouse_down(point_x, point_y, left_pane, surface.m_dpi_scale))
         {
+            if (was_fs != m_media_player_view.is_fullscreen())
+            {
+                notify_fullscreen_changed();
+            }
             if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
         }
         return true;
@@ -2120,23 +2163,40 @@ bool TextEditor::handle_pointer_move(
     float point_x,
     float point_y) noexcept
 {
+    if (is_media_fullscreen())
+    {
+        const bool media_changed = m_media_player_view.handle_mouse_move(point_x, point_y, layout.workspace_bounds, layout.dpi_scale);
+        if (media_changed)
+        {
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+        return true;
+    }
+
     const bool scrollbar_changed = m_scrollbar.set_hovered(layout, point_x, point_y);
     
     UI::Editor::TextDocumentModel* document = m_controller.get_active_document();
     const float scale = layout.dpi_scale;
     const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
-    const float splitter_x = layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) * m_split_ratio;
-
-    const UI::Rect left_pane = is_split_active
-        ? UI::Rect{layout.editor_bounds.x, layout.editor_bounds.y, splitter_x - layout.editor_bounds.x, layout.editor_bounds.height}
-        : layout.editor_bounds;
-    const UI::Rect right_pane{splitter_x + 2.0F * scale, layout.editor_bounds.y, std::max(layout.editor_bounds.right() - (splitter_x + 2.0F * scale), 0.0F), layout.editor_bounds.height};
 
     const auto* left_doc = m_controller.get_active_document();
-    const bool left_is_media = left_doc && (UI::Editor::is_video_file(std::string(left_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(left_doc->get_file_name())) || UI::Editor::is_image_file(std::string(left_doc->get_file_name())));
+    const std::filesystem::path* left_p = m_controller.get_active_path();
+    const bool left_is_media = left_p ? UI::Editor::MediaPlayerView::is_media_file(*left_p)
+                                      : (left_doc && UI::Editor::MediaPlayerView::is_media_file(std::string(left_doc->get_file_name())));
 
     const auto* right_doc = is_split_active ? m_controller.get_document(*m_split_document_index) : nullptr;
-    const bool right_is_media = right_doc && (UI::Editor::is_video_file(std::string(right_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(right_doc->get_file_name())) || UI::Editor::is_image_file(std::string(right_doc->get_file_name())));
+    const bool right_is_media = right_doc && UI::Editor::MediaPlayerView::is_media_file(std::string(right_doc->get_file_name()));
+
+    const float pane_left_x = (left_is_media && m_media_preview_mode) ? layout.gutter_bounds.x : layout.editor_bounds.x;
+    const float full_editor_w = (left_is_media && m_media_preview_mode) ? (layout.gutter_bounds.width + layout.editor_bounds.width) : layout.editor_bounds.width;
+    const float half_w = is_split_active ? ((full_editor_w - 2.0F * scale) * m_split_ratio) : full_editor_w;
+    const float splitter_x = pane_left_x + half_w;
+
+    const UI::Rect left_pane = is_split_active
+        ? UI::Rect{pane_left_x, layout.editor_bounds.y, half_w, layout.editor_bounds.height}
+        : UI::Rect{pane_left_x, layout.editor_bounds.y, full_editor_w, layout.editor_bounds.height};
+    const UI::Rect right_pane{splitter_x + 2.0F * scale, layout.editor_bounds.y, std::max(layout.editor_bounds.right() - (splitter_x + 2.0F * scale), 0.0F), layout.editor_bounds.height};
 
     if (left_is_media && m_media_preview_mode && left_pane.contains(point_x, point_y))
     {
@@ -2576,18 +2636,42 @@ bool TextEditor::handle_pointer_drag(
     if (is_media_active() && m_media_preview_mode && (m_media_player_view.is_scrubbing() || m_media_player_view.is_dragging_volume()))
     {
         const float scale = surface.m_dpi_scale;
+        if (is_media_fullscreen())
+        {
+            if (m_media_player_view.handle_mouse_move(point_x, point_y, layout.workspace_bounds, scale))
+            {
+                if (m_window_handle) {
+                    InvalidateRect(m_window_handle, nullptr, FALSE);
+                    UpdateWindow(m_window_handle);
+                }
+                return true;
+            }
+            return true;
+        }
+
         const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
-        const float splitter_x = layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) * m_split_ratio;
+        const auto* left_doc = m_controller.get_active_document();
+        const auto* left_p = m_controller.get_active_path();
+        const bool left_is_media = left_p ? UI::Editor::MediaPlayerView::is_media_file(*left_p)
+                                          : (left_doc && UI::Editor::MediaPlayerView::is_media_file(std::string(left_doc->get_file_name())));
+
+        const float pane_left_x = (left_is_media && m_media_preview_mode) ? layout.gutter_bounds.x : layout.editor_bounds.x;
+        const float full_editor_w = (left_is_media && m_media_preview_mode) ? (layout.gutter_bounds.width + layout.editor_bounds.width) : layout.editor_bounds.width;
+        const float half_w = is_split_active ? ((full_editor_w - 2.0F * scale) * m_split_ratio) : full_editor_w;
+        const float splitter_x = pane_left_x + half_w;
 
         const UI::Rect left_pane = is_split_active
-            ? UI::Rect{layout.editor_bounds.x, layout.editor_bounds.y, splitter_x - layout.editor_bounds.x, layout.editor_bounds.height}
-            : layout.editor_bounds;
+            ? UI::Rect{pane_left_x, layout.editor_bounds.y, half_w, layout.editor_bounds.height}
+            : UI::Rect{pane_left_x, layout.editor_bounds.y, full_editor_w, layout.editor_bounds.height};
         const UI::Rect right_pane{splitter_x + 2.0F * scale, layout.editor_bounds.y, std::max(layout.editor_bounds.right() - (splitter_x + 2.0F * scale), 0.0F), layout.editor_bounds.height};
 
         const UI::Rect active_pane = (is_split_active && m_focused_pane == SplitPaneFocus::Right) ? right_pane : left_pane;
         if (m_media_player_view.handle_mouse_move(point_x, point_y, active_pane, scale))
         {
-            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            if (m_window_handle) {
+                InvalidateRect(m_window_handle, nullptr, FALSE);
+                UpdateWindow(m_window_handle);
+            }
             return true;
         }
     }
@@ -2982,20 +3066,38 @@ bool TextEditor::handle_scroll(
         return false;
     }
 
+    if (is_media_fullscreen())
+    {
+        if (event.delta_y != 0)
+        {
+            const float new_vol = std::clamp(m_media_player_view.volume() + (event.delta_y > 0 ? 0.05f : -0.05f), 0.0f, 1.0f);
+            m_media_player_view.set_volume(new_vol);
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+        return false;
+    }
+
     const float scale = layout.dpi_scale;
     const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
-    const float splitter_x = layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) * m_split_ratio;
-
-    const UI::Rect left_pane = is_split_active
-        ? UI::Rect{layout.editor_bounds.x, layout.editor_bounds.y, splitter_x - layout.editor_bounds.x, layout.editor_bounds.height}
-        : layout.editor_bounds;
-    const UI::Rect right_pane{splitter_x + 2.0F * scale, layout.editor_bounds.y, std::max(layout.editor_bounds.right() - (splitter_x + 2.0F * scale), 0.0F), layout.editor_bounds.height};
 
     const auto* left_doc = m_controller.get_active_document();
-    const bool left_is_media = left_doc && (UI::Editor::is_video_file(std::string(left_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(left_doc->get_file_name())) || UI::Editor::is_image_file(std::string(left_doc->get_file_name())));
+    const std::filesystem::path* left_p = m_controller.get_active_path();
+    const bool left_is_media = left_p ? UI::Editor::MediaPlayerView::is_media_file(*left_p)
+                                      : (left_doc && UI::Editor::MediaPlayerView::is_media_file(std::string(left_doc->get_file_name())));
 
     const auto* right_doc = is_split_active ? m_controller.get_document(*m_split_document_index) : nullptr;
-    const bool right_is_media = right_doc && (UI::Editor::is_video_file(std::string(right_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(right_doc->get_file_name())) || UI::Editor::is_image_file(std::string(right_doc->get_file_name())));
+    const bool right_is_media = right_doc && UI::Editor::MediaPlayerView::is_media_file(std::string(right_doc->get_file_name()));
+
+    const float pane_left_x = (left_is_media && m_media_preview_mode) ? layout.gutter_bounds.x : layout.editor_bounds.x;
+    const float full_editor_w = (left_is_media && m_media_preview_mode) ? (layout.gutter_bounds.width + layout.editor_bounds.width) : layout.editor_bounds.width;
+    const float half_w = is_split_active ? ((full_editor_w - 2.0F * scale) * m_split_ratio) : full_editor_w;
+    const float splitter_x = pane_left_x + half_w;
+
+    const UI::Rect left_pane = is_split_active
+        ? UI::Rect{pane_left_x, layout.editor_bounds.y, half_w, layout.editor_bounds.height}
+        : UI::Rect{pane_left_x, layout.editor_bounds.y, full_editor_w, layout.editor_bounds.height};
+    const UI::Rect right_pane{splitter_x + 2.0F * scale, layout.editor_bounds.y, std::max(layout.editor_bounds.right() - (splitter_x + 2.0F * scale), 0.0F), layout.editor_bounds.height};
 
     if (left_is_media && m_media_preview_mode && left_pane.contains(event.point_x, event.point_y))
     {
@@ -3115,6 +3217,13 @@ bool TextEditor::handle_input(
         }
         if (command == UI::Editor::EditorInputCommand::Escape)
         {
+            if (m_media_player_view.is_fullscreen())
+            {
+                m_media_player_view.set_fullscreen(false);
+                notify_fullscreen_changed();
+                if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+                return true;
+            }
             m_media_player_view.close();
             m_media_preview_mode = false;
             if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
@@ -3638,6 +3747,25 @@ bool TextEditor::handle_text_input(std::string_view utf8_text)
         if (utf8_text == "m" || utf8_text == "M")
         {
             m_media_player_view.toggle_mute();
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+        if (utf8_text == "f" || utf8_text == "F")
+        {
+            m_media_player_view.toggle_fullscreen();
+            notify_fullscreen_changed();
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+        if (utf8_text == "d" || utf8_text == "D")
+        {
+            m_media_player_view.toggle_deband();
+            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            return true;
+        }
+        if (utf8_text == "a" || utf8_text == "A")
+        {
+            m_media_player_view.toggle_edge_aa();
             if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
             return true;
         }
@@ -4302,12 +4430,12 @@ bool TextEditor::tick_animations() noexcept
 
     if (is_media_active() && m_media_preview_mode)
     {
-        if (m_media_player_view.is_playing())
+        if (m_media_player_view.is_playing() || m_media_player_view.is_scrubbing())
         {
             m_media_player_view.update();
             animating = true;
         }
-        else if (m_media_player_view.is_scrubbing())
+        if (m_media_player_view.tick_hud_fade(0.016f))
         {
             animating = true;
         }
@@ -4339,7 +4467,7 @@ void TextEditor::render(
 
     const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
     const auto* left_doc = m_controller.get_active_document();
-    const bool left_is_media = left_doc && (UI::Editor::is_video_file(std::string(left_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(left_doc->get_file_name())) || UI::Editor::is_image_file(std::string(left_doc->get_file_name())));
+    const bool left_is_media = left_doc && UI::Editor::MediaPlayerView::is_media_file(std::string(left_doc->get_file_name()));
 
     if (!is_split_active)
     {
@@ -4440,7 +4568,7 @@ void TextEditor::render(
 
         if (const UI::Editor::TextDocumentModel* right_doc = m_controller.get_document(*m_split_document_index))
         {
-            const bool right_is_media = UI::Editor::is_video_file(std::string(right_doc->get_file_name())) || UI::Editor::is_audio_file(std::string(right_doc->get_file_name())) || UI::Editor::is_image_file(std::string(right_doc->get_file_name()));
+            const bool right_is_media = UI::Editor::MediaPlayerView::is_media_file(std::string(right_doc->get_file_name()));
             if (!(right_is_media && m_media_preview_mode))
             {
                 m_split_scrollbar.render(surface, device_context, right_layout);
@@ -4806,7 +4934,7 @@ void TextEditor::draw_media_pane(
         return;
     }
 
-    const bool is_audio = UI::Editor::is_audio_file(doc_path);
+    const bool is_audio = m_media_player_view.is_audio();
 
     if (is_audio)
     {
@@ -4820,11 +4948,11 @@ void TextEditor::draw_media_pane(
         const float icon_sz = 56.0F * scale;
         const UI::Rect icon_rect{center_x - icon_sz * 0.5F, center_y - 100.0F * scale, icon_sz, icon_sz};
         surface.fill_rounded_rectangle(device_context, icon_rect, surface.m_palette.accent, 14.0F * scale);
-        if (surface.m_large_font)
-        {
-            const int note_w = surface.m_large_font->getTextWidth(device_context, "♪");
-            surface.draw_text(device_context, *surface.m_large_font, "♪", center_x - static_cast<float>(note_w) * 0.5F, icon_rect.y + icon_sz * 0.5F, UI::Theme::Color{255, 255, 255, 255});
-        }
+        const int note_center_x = round_to_int(icon_rect.x + icon_sz * 0.5F);
+        const int note_center_y = round_to_int(icon_rect.y + icon_sz * 0.5F);
+        surface.draw_svg_icon(device_context, "music.svg", note_center_x, note_center_y,
+                              round_to_int(28.0F * scale), UI::Theme::Color{255, 255, 255, 255},
+                              surface.m_palette.accent, false);
 
         // Animated Spectrum Visualizer Bars
         constexpr int total_bars = 24;
@@ -4901,11 +5029,12 @@ void TextEditor::draw_media_pane(
         {
             surface.fill_rounded_rectangle(device_context, play_btn, UI::Theme::Color{255, 255, 255, 15}, 8.0F * scale);
         }
-        const std::string play_icon = m_media_player_view.is_playing() ? "||" : ">";
-        if (surface.m_ui_font)
-        {
-            surface.draw_text(device_context, *surface.m_ui_font, play_icon, play_btn.x + 11.0F * scale, play_btn.y + play_btn.height * 0.5F, UI::Theme::Color{255, 255, 255, 255});
-        }
+        const std::string_view play_icon_asset = m_media_player_view.is_playing() ? "debug-pause.svg" : "play.svg";
+        const int play_center_x = round_to_int(play_btn.x + play_btn.width * 0.5F);
+        const int play_center_y = round_to_int(play_btn.y + play_btn.height * 0.5F);
+        const int play_icon_sz = round_to_int(18.0F * scale);
+        surface.draw_svg_icon(device_context, play_icon_asset, play_center_x, play_center_y, play_icon_sz,
+                              UI::Theme::Color{255, 255, 255, 255}, UI::Theme::Color{0, 0, 0, 0}, false);
 
         const std::string time_text = m_media_player_view.format_time_display();
         if (surface.m_small_font)
@@ -4918,11 +5047,12 @@ void TextEditor::draw_media_pane(
         const float vol_h = 24.0F * scale;
         const UI::Rect vol_rect{track_x + track_w - vol_w, ctrl_y + (play_btn_sz - vol_h) * 0.5F, vol_w, vol_h};
         surface.fill_rounded_rectangle(device_context, vol_rect, UI::Theme::Color{35, 40, 52, 220}, 10.0F * scale);
-        if (surface.m_small_font)
-        {
-            const std::string vol_icon = m_media_player_view.is_muted() ? "x" : "v";
-            surface.draw_text(device_context, *surface.m_small_font, vol_icon, vol_rect.x + 7.0F * scale, vol_rect.y + vol_rect.height * 0.5F, UI::Theme::Color{255, 255, 255, 220});
-        }
+        const std::string_view vol_icon_asset = m_media_player_view.is_muted() ? "mute.svg" : "unmute.svg";
+        const int vol_center_x = round_to_int(vol_rect.x + 10.0F * scale);
+        const int vol_center_y = round_to_int(vol_rect.y + vol_rect.height * 0.5F);
+        const int vol_icon_sz = round_to_int(13.0F * scale);
+        surface.draw_svg_icon(device_context, vol_icon_asset, vol_center_x, vol_center_y, vol_icon_sz,
+                              UI::Theme::Color{255, 255, 255, 220}, UI::Theme::Color{0, 0, 0, 0}, false);
         const float vol_track_x = vol_rect.x + 20.0F * scale;
         const float vol_track_w = vol_rect.width - 28.0F * scale;
         const float vol_track_h = 3.0F * scale;
@@ -4939,6 +5069,11 @@ void TextEditor::draw_media_pane(
     // Centered Video Canvas (Fills Editor Seamlessly, Aspect-Ratio Preserved)
     // =========================================================================
     const UI::Rect canvas_rect = m_media_player_view.calculate_video_canvas_bounds(pane_bounds);
+    const int target_disp_w = (round_to_int(canvas_rect.width) + 1) & ~1;
+    const int target_disp_h = (round_to_int(canvas_rect.height) + 1) & ~1;
+    if (target_disp_w > 0 && target_disp_h > 0) {
+        m_media_player_view.set_target_display_size(target_disp_w, target_disp_h);
+    }
 
     // Render video frame via StretchDIBits
     const auto* frame = m_media_player_view.current_frame();
@@ -4959,6 +5094,9 @@ void TextEditor::draw_media_pane(
             round_to_int(pane_bounds.y),
             round_to_int(pane_bounds.right()),
             round_to_int(pane_bounds.bottom()));
+
+        // Use COLORONCOLOR to preserve crisp pixel contrast and 100% sharpness without GDI halftone blurring
+        SetStretchBltMode(device_context, COLORONCOLOR);
 
         StretchDIBits(
             device_context,
@@ -4987,72 +5125,105 @@ void TextEditor::draw_media_pane(
     }
 
     // Render Browser HTML5-Style Minimalist Floating Bottom HUD Overlay docked to video pane
+    const float hud_alpha = m_media_player_view.hud_opacity();
+    if (hud_alpha <= 0.005f)
+    {
+        // HUD is completely hidden / faded out (VLC style)
+        return;
+    }
+
+    auto fade_col = [hud_alpha](UI::Theme::Color c) -> UI::Theme::Color {
+        const float a = hud_alpha;
+        return UI::Theme::Color{
+            static_cast<std::uint8_t>(std::clamp(round_to_int(static_cast<float>(c.red) * a), 0, 255)),
+            static_cast<std::uint8_t>(std::clamp(round_to_int(static_cast<float>(c.green) * a), 0, 255)),
+            static_cast<std::uint8_t>(std::clamp(round_to_int(static_cast<float>(c.blue) * a), 0, 255)),
+            static_cast<std::uint8_t>(std::clamp(round_to_int(static_cast<float>(c.alpha) * a), 0, 255))
+        };
+    };
+
+    // Render Browser HTML5-Style Minimalist Floating Bottom HUD Overlay docked to video pane
     const UI::Rect hud = m_media_player_view.calculate_hud_bounds(pane_bounds, scale);
     
-    // Full width sleek dark transparent gradient background at bottom edge of video
-    surface.fill_rectangle(device_context, hud, UI::Theme::Color{10, 12, 16, 210});
+    // Sleek transparent floating glass background (video shines through cleanly)
+    surface.fill_rounded_rectangle(device_context, hud, fade_col(UI::Theme::Color{12, 15, 22, 115}), 10.0F * scale);
 
     // Play / Pause Button (▶ / ❚❚)
     const UI::Rect play_btn = m_media_player_view.calculate_play_button_bounds(hud, scale);
     if (m_media_player_view.is_play_hovered())
     {
-        surface.fill_rounded_rectangle(device_context, play_btn, UI::Theme::Color{255, 255, 255, 30}, 4.0F * scale);
+        surface.fill_rounded_rectangle(device_context, play_btn, fade_col(UI::Theme::Color{255, 255, 255, 40}), 6.0F * scale);
     }
-    const std::string play_icon = m_media_player_view.is_playing() ? "||" : ">";
-    if (surface.m_ui_font)
-    {
-        surface.draw_text(device_context, *surface.m_ui_font, play_icon, play_btn.x + 8.0F * scale, play_btn.y + play_btn.height * 0.5F, UI::Theme::Color{255, 255, 255, 255});
-    }
+    const std::string_view play_icon_asset = m_media_player_view.is_playing() ? "debug-pause.svg" : "play.svg";
+    const int play_center_x = round_to_int(play_btn.x + play_btn.width * 0.5F);
+    const int play_center_y = round_to_int(play_btn.y + play_btn.height * 0.5F);
+    const int play_icon_sz = round_to_int(15.0F * scale);
+    surface.draw_svg_icon(device_context, play_icon_asset, play_center_x, play_center_y, play_icon_sz,
+                          fade_col(UI::Theme::Color{255, 255, 255, 255}), UI::Theme::Color{0, 0, 0, 0}, false);
 
-    // Time Display ("0:00 / 0:47")
+    // Time Display ("00:10 / 05:31:29") with generous breathing room
     const std::string time_text = m_media_player_view.format_time_display();
     if (surface.m_small_font && hud.width >= 340.0F * scale)
     {
-        surface.draw_text(device_context, *surface.m_small_font, time_text, play_btn.right() + 8.0F * scale, hud.y + hud.height * 0.5F, UI::Theme::Color{255, 255, 255, 240});
+        surface.draw_text(device_context, *surface.m_small_font, time_text, play_btn.right() + 10.0F * scale, hud.y + hud.height * 0.5F, fade_col(UI::Theme::Color{255, 255, 255, 230}));
     }
 
-    // Scrubber Track & Progress across the center
+    // Scrubber Track & Progress across the center (guaranteed no collision with time text)
     const UI::Rect scrubber = m_media_player_view.calculate_scrubber_bounds(hud, scale);
     const float track_h = 3.5F * scale;
     const float track_y = scrubber.y + (scrubber.height - track_h) * 0.5F;
     const UI::Rect track_rect{scrubber.x, track_y, scrubber.width, track_h};
-    surface.fill_rounded_rectangle(device_context, track_rect, UI::Theme::Color{100, 105, 120, 180}, 2.0F * scale);
+    surface.fill_rounded_rectangle(device_context, track_rect, fade_col(UI::Theme::Color{255, 255, 255, 50}), 2.0F * scale);
 
     const float progress = m_media_player_view.progress_ratio();
     if (progress > 0.0F)
     {
         const UI::Rect prog_rect{track_rect.x, track_rect.y, track_rect.width * progress, track_h};
-        surface.fill_rounded_rectangle(device_context, prog_rect, UI::Theme::Color{255, 255, 255, 255}, 2.0F * scale);
-        
-        // Knob (Smooth white circle)
-        const float knob_x = track_rect.x + track_rect.width * progress;
-        const float knob_y = track_y + track_h * 0.5F;
-        const float knob_r = (m_media_player_view.is_scrubber_hovered() || m_media_player_view.is_scrubbing()) ? (6.0F * scale) : (4.5F * scale);
-        const UI::Rect knob_rect{knob_x - knob_r, knob_y - knob_r, knob_r * 2.0F, knob_r * 2.0F};
-        surface.fill_rounded_rectangle(device_context, knob_rect, UI::Theme::Color{255, 255, 255, 255}, knob_r);
+        surface.fill_rounded_rectangle(device_context, prog_rect, fade_col(UI::Theme::Color{255, 255, 255, 255}), 2.0F * scale);
     }
 
-    // Volume Capsule (Browser style pill container)
+    // Knob (Smooth white circle) - always visible and accurately positioned at progress ratio
+    const float knob_x = track_rect.x + track_rect.width * std::clamp(progress, 0.0F, 1.0F);
+    const float knob_y = track_y + track_h * 0.5F;
+    const float knob_r = (m_media_player_view.is_scrubber_hovered() || m_media_player_view.is_scrubbing()) ? (6.5F * scale) : (4.5F * scale);
+    const UI::Rect knob_rect{knob_x - knob_r, knob_y - knob_r, knob_r * 2.0F, knob_r * 2.0F};
+    surface.fill_rounded_rectangle(device_context, knob_rect, fade_col(UI::Theme::Color{255, 255, 255, 255}), knob_r);
+
+    // Volume Capsule (Transparent glass pill container)
     const UI::Rect vol_rect = m_media_player_view.calculate_volume_bounds(hud, scale);
-    surface.fill_rounded_rectangle(device_context, vol_rect, UI::Theme::Color{30, 33, 42, 220}, 10.0F * scale);
-    if (surface.m_small_font)
-    {
-        const std::string vol_icon = m_media_player_view.is_muted() ? "x" : "v";
-        surface.draw_text(device_context, *surface.m_small_font, vol_icon, vol_rect.x + 7.0F * scale, vol_rect.y + vol_rect.height * 0.5F, UI::Theme::Color{255, 255, 255, 220});
-    }
+    surface.fill_rounded_rectangle(device_context, vol_rect, fade_col(UI::Theme::Color{255, 255, 255, 22}), 10.0F * scale);
+    const std::string_view vol_icon_asset = m_media_player_view.is_muted() ? "mute.svg" : "unmute.svg";
+    const int vol_center_x = round_to_int(vol_rect.x + 12.0F * scale);
+    const int vol_center_y = round_to_int(vol_rect.y + vol_rect.height * 0.5F);
+    const int vol_icon_sz = round_to_int(13.0F * scale);
+    surface.draw_svg_icon(device_context, vol_icon_asset, vol_center_x, vol_center_y, vol_icon_sz,
+                          fade_col(UI::Theme::Color{255, 255, 255, 225}), UI::Theme::Color{0, 0, 0, 0}, false);
     
     if (vol_rect.width >= 50.0F * scale)
     {
-        const float vol_track_x = vol_rect.x + 20.0F * scale;
-        const float vol_track_w = vol_rect.width - 28.0F * scale;
+        const float vol_track_x = vol_rect.x + 24.0F * scale;
+        const float vol_track_w = vol_rect.width - 32.0F * scale;
         const float vol_track_h = 3.0F * scale;
         const UI::Rect vol_track{vol_track_x, vol_rect.y + (vol_rect.height - vol_track_h) * 0.5F, vol_track_w, vol_track_h};
-        surface.fill_rounded_rectangle(device_context, vol_track, UI::Theme::Color{90, 95, 110, 200}, 1.5F * scale);
+        surface.fill_rounded_rectangle(device_context, vol_track, fade_col(UI::Theme::Color{255, 255, 255, 45}), 1.5F * scale);
         
         const float vol_val = m_media_player_view.is_muted() ? 0.0F : m_media_player_view.volume();
         const UI::Rect vol_fill{vol_track.x, vol_track.y, vol_track.width * vol_val, vol_track_h};
-        surface.fill_rounded_rectangle(device_context, vol_fill, UI::Theme::Color{255, 255, 255, 255}, 1.5F * scale);
+        surface.fill_rounded_rectangle(device_context, vol_fill, fade_col(UI::Theme::Color{255, 255, 255, 255}), 1.5F * scale);
     }
+
+    // Fullscreen Button (Minimalist corner brackets icon)
+    const UI::Rect fs_btn = m_media_player_view.calculate_fullscreen_button_bounds(hud, scale);
+    if (m_media_player_view.is_fullscreen_hovered())
+    {
+        surface.fill_rounded_rectangle(device_context, fs_btn, fade_col(UI::Theme::Color{255, 255, 255, 40}), 6.0F * scale);
+    }
+    const std::string_view fs_icon_asset = m_media_player_view.is_fullscreen() ? "media-exit-fullscreen.svg" : "media-fullscreen.svg";
+    const int fs_center_x = round_to_int(fs_btn.x + fs_btn.width * 0.5F);
+    const int fs_center_y = round_to_int(fs_btn.y + fs_btn.height * 0.5F);
+    const int fs_icon_sz = round_to_int(16.0F * scale);
+    surface.draw_svg_icon(device_context, fs_icon_asset, fs_center_x, fs_center_y, fs_icon_sz,
+                          fade_col(UI::Theme::Color{255, 255, 255, 255}), UI::Theme::Color{0, 0, 0, 0}, false);
 
     // Format Badge (Top-Right of video)
     const std::string badge_str = m_media_player_view.format_badge_text();
@@ -5060,8 +5231,8 @@ void TextEditor::draw_media_pane(
     {
         const int badge_w = surface.m_small_font->getTextWidth(device_context, badge_str) + static_cast<int>(16.0F * scale);
         const UI::Rect badge_rect{pane_bounds.right() - badge_w - 16.0F * scale, pane_bounds.y + 14.0F * scale, static_cast<float>(badge_w), 22.0F * scale};
-        surface.fill_rounded_rectangle(device_context, badge_rect, UI::Theme::Color{18, 20, 26, 210}, 4.0F * scale);
-        surface.draw_text(device_context, *surface.m_small_font, badge_str, badge_rect.x + 8.0F * scale, badge_rect.y + badge_rect.height * 0.5F, surface.m_palette.text_muted);
+        surface.fill_rounded_rectangle(device_context, badge_rect, fade_col(UI::Theme::Color{18, 20, 26, 210}), 4.0F * scale);
+        surface.draw_text(device_context, *surface.m_small_font, badge_str, badge_rect.x + 8.0F * scale, badge_rect.y + badge_rect.height * 0.5F, fade_col(surface.m_palette.text_muted));
     }
 }
 
@@ -5180,8 +5351,14 @@ void TextEditor::draw_document(
     };
 
     const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
-    const float half_w = is_split_active ? ((layout.editor_bounds.width - 2.0F * scale) * m_split_ratio) : layout.editor_bounds.width;
-    const float splitter_x_coord = layout.editor_bounds.x + half_w;
+    const std::filesystem::path* active_p = m_controller.get_active_path();
+    const std::filesystem::path left_path = (active_p && !active_p->empty()) ? *active_p : std::filesystem::path(std::string(document->get_file_name()));
+    const bool left_is_media = UI::Editor::MediaPlayerView::is_media_file(left_path);
+
+    const float pane_left_x = (left_is_media && m_media_preview_mode) ? layout.gutter_bounds.x : layout.editor_bounds.x;
+    const float full_editor_w = (left_is_media && m_media_preview_mode) ? (layout.gutter_bounds.width + layout.editor_bounds.width) : layout.editor_bounds.width;
+    const float half_w = is_split_active ? ((full_editor_w - 2.0F * scale) * m_split_ratio) : full_editor_w;
+    const float splitter_x_coord = pane_left_x + half_w;
     const float left_bounds_r = splitter_x_coord;
     const float scrollbar_w = FIXED_SCROLLBAR_WIDTH * scale;
     const float left_minimap_w = (half_w >= MIN_PANE_WIDTH_FOR_MINIMAP * scale) ? (FIXED_MINIMAP_WIDTH * scale) : 0.0F;
@@ -5189,14 +5366,20 @@ void TextEditor::draw_document(
     const float left_right_limit = splitter_x_coord;
     const float available_code_width = std::max(left_code_limit - (layout.editor_bounds.x + 14.0F * scale), 20.0F * scale);
 
-    const UI::Rect left_pane{layout.editor_bounds.x, layout.editor_bounds.y, half_w, layout.editor_bounds.height};
-    const std::filesystem::path* active_p = m_controller.get_active_path();
-    const std::filesystem::path left_path = (active_p && !active_p->empty()) ? *active_p : std::filesystem::path(std::string(document->get_file_name()));
-    const bool left_is_media = UI::Editor::is_video_file(left_path) || UI::Editor::is_audio_file(left_path) || UI::Editor::is_image_file(left_path);
+    const UI::Rect left_pane = is_split_active
+        ? UI::Rect{pane_left_x, layout.editor_bounds.y, half_w, layout.editor_bounds.height}
+        : UI::Rect{pane_left_x, layout.editor_bounds.y, full_editor_w, layout.editor_bounds.height};
 
     if (left_is_media && m_media_preview_mode)
     {
-        draw_media_pane(surface, device_context, left_pane, left_path);
+        if (!is_media_fullscreen())
+        {
+            draw_media_pane(surface, device_context, left_pane, left_path);
+        }
+        else
+        {
+            surface.fill_rectangle(device_context, left_pane, surface.m_palette.editor_background);
+        }
     }
     else
     {
@@ -5967,7 +6150,7 @@ void TextEditor::draw_document(
             };
 
             const std::filesystem::path right_path = std::string(split_doc.get_file_name());
-            const bool right_is_media = UI::Editor::is_video_file(right_path) || UI::Editor::is_audio_file(right_path) || UI::Editor::is_image_file(right_path);
+            const bool right_is_media = UI::Editor::MediaPlayerView::is_media_file(right_path);
 
             if (right_is_media && m_media_preview_mode)
             {
@@ -6971,6 +7154,17 @@ void TextEditor::render_overlays(
     if (layout.editor_bounds.is_empty() || layout.editor_bounds.height <= 2.0F)
     {
         return;
+    }
+    if (is_media_fullscreen())
+    {
+        const std::filesystem::path* active_p = m_controller.get_active_path();
+        const auto* document = m_controller.get_active_document();
+        const std::filesystem::path left_path = (active_p && !active_p->empty()) ? *active_p : (document ? std::filesystem::path(std::string(document->get_file_name())) : std::filesystem::path{});
+        if (!left_path.empty())
+        {
+            draw_media_pane(surface, device_context, layout.workspace_bounds, left_path);
+            return;
+        }
     }
     draw_split_drop_overlay(surface, device_context, layout);
     draw_tab_action_menu(surface, device_context, layout);

@@ -36,6 +36,12 @@ public:
     // Video Output Configuration
     void set_target_video_format(Zenvra::Media::VideoPixelFormat format) override;
     [[nodiscard]] Zenvra::Media::VideoPixelFormat target_video_format() const noexcept override;
+    void set_target_video_size(int width, int height) override;
+    [[nodiscard]] std::pair<int, int> target_video_size() const noexcept override;
+    void set_debanding(bool enabled) override;
+    [[nodiscard]] bool is_debanding_enabled() const noexcept override;
+    void set_edge_aa(bool enabled) override;
+    [[nodiscard]] bool is_edge_aa_enabled() const noexcept override;
 
     // Frame & Audio Acquisition
     std::optional<Zenvra::Media::VideoFrame> get_next_video_frame() override;

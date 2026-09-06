@@ -29,6 +29,12 @@ struct FFmpegPlayer::Impl {
     std::optional<Zenvra::Media::VideoFrame> latest_rendered_frame;
     mutable std::mutex player_mutex;
 
+    // Asynchronous Seek Coalescing for 100% Zero-Latency UI Scrubbing
+    std::atomic<bool> seek_requested{false};
+    std::atomic<double> seek_target_seconds{0.0};
+    std::atomic<Zenvra::Media::SeekMode> seek_target_mode{Zenvra::Media::SeekMode::FastKeyframe};
+    std::condition_variable worker_cv;
+
     FFmpegPlayer* owner = nullptr;
 
     void start_worker() {
@@ -40,6 +46,7 @@ struct FFmpegPlayer::Impl {
     void stop_worker() {
         if (worker_running.load(std::memory_order_relaxed)) {
             worker_running.store(false, std::memory_order_relaxed);
+            worker_cv.notify_all();
             if (worker_thread.joinable()) {
                 worker_thread.join();
             }
@@ -48,8 +55,38 @@ struct FFmpegPlayer::Impl {
 
     void worker_loop() {
         while (worker_running.load(std::memory_order_relaxed)) {
+            // Priority 1: Handle asynchronous seek requests immediately (coalesced)
+            if (seek_requested.exchange(false, std::memory_order_acq_rel)) {
+                double target = seek_target_seconds.load(std::memory_order_acquire);
+                auto mode = seek_target_mode.load(std::memory_order_acquire);
+
+                {
+                    std::lock_guard<std::mutex> lock(player_mutex);
+                    Audio::AudioEngine::instance().device().clear_stream_samples();
+                    Audio::AudioEngine::instance().device().reset_stream_clock(target);
+                    video_frame_queue.clear();
+                    base_position = target;
+                    play_start_time = std::chrono::steady_clock::now();
+                }
+
+                if (decoder.seek(target, mode)) {
+                    bool fast = (mode == Zenvra::Media::SeekMode::FastKeyframe);
+                    auto frame = decoder.decode_next_video_frame(fast);
+                    if (frame) {
+                        std::lock_guard<std::mutex> lock(player_mutex);
+                        latest_rendered_frame = std::move(frame);
+                    }
+                }
+                continue;
+            }
+
             if (state != Zenvra::Media::PlaybackState::Playing) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                std::unique_lock<std::mutex> lock(player_mutex);
+                worker_cv.wait_for(lock, std::chrono::milliseconds(20), [this] {
+                    return !worker_running.load(std::memory_order_relaxed) ||
+                           seek_requested.load(std::memory_order_relaxed) ||
+                           state == Zenvra::Media::PlaybackState::Playing;
+                });
                 continue;
             }
 
@@ -193,6 +230,7 @@ void FFmpegPlayer::play() {
         m_impl->state = Zenvra::Media::PlaybackState::Playing;
         Audio::AudioEngine::instance().device().reset_stream_clock(m_impl->base_position);
         Audio::AudioEngine::instance().device().set_stream_paused(false);
+        m_impl->worker_cv.notify_one();
         notify_state_changed(m_impl->state);
     }
 }
@@ -204,6 +242,7 @@ void FFmpegPlayer::pause() {
         m_impl->base_position = m_impl->get_current_position_unlocked();
         m_impl->state = Zenvra::Media::PlaybackState::Paused;
         Audio::AudioEngine::instance().device().set_stream_paused(true);
+        m_impl->worker_cv.notify_one();
         notify_state_changed(m_impl->state);
     }
 }
@@ -215,13 +254,25 @@ void FFmpegPlayer::stop() {
     m_impl->state = Zenvra::Media::PlaybackState::Stopped;
     Audio::AudioEngine::instance().device().set_stream_paused(true);
     Audio::AudioEngine::instance().device().clear_stream_samples();
+    m_impl->worker_cv.notify_one();
     notify_state_changed(m_impl->state);
 }
 
 bool FFmpegPlayer::seek(double timestamp_seconds, Zenvra::Media::SeekMode mode) {
     if (!is_open()) return false;
 
+    if (mode == Zenvra::Media::SeekMode::FastKeyframe) {
+        // Fast asynchronous seek coalescing: guarantees 0ms UI blocking during aggressive scrubbing
+        m_impl->seek_target_seconds.store(timestamp_seconds, std::memory_order_release);
+        m_impl->seek_target_mode.store(mode, std::memory_order_release);
+        m_impl->seek_requested.store(true, std::memory_order_release);
+        m_impl->worker_cv.notify_one();
+        return true;
+    }
+
+    // Exact seek: synchronous precision when mouse is released or jumping to precise timestamp
     std::lock_guard<std::mutex> lock(m_impl->player_mutex);
+    m_impl->seek_requested.store(false, std::memory_order_release);
     Audio::AudioEngine::instance().device().clear_stream_samples();
     Audio::AudioEngine::instance().device().reset_stream_clock(timestamp_seconds);
     m_impl->video_frame_queue.clear();
@@ -232,7 +283,7 @@ bool FFmpegPlayer::seek(double timestamp_seconds, Zenvra::Media::SeekMode mode) 
         m_impl->play_start_time = std::chrono::steady_clock::now();
 
         // Fetch fresh preview frame after seek
-        auto fresh_frame = m_impl->decoder.decode_next_video_frame();
+        auto fresh_frame = m_impl->decoder.decode_next_video_frame(false);
         if (fresh_frame) {
             m_impl->latest_rendered_frame = std::move(fresh_frame);
         }
@@ -274,6 +325,9 @@ double FFmpegPlayer::duration() const noexcept {
 
 double FFmpegPlayer::position() const noexcept {
     if (!m_impl) return 0.0;
+    if (m_impl->seek_requested.load(std::memory_order_relaxed)) {
+        return m_impl->seek_target_seconds.load(std::memory_order_relaxed);
+    }
     std::lock_guard<std::mutex> lock(m_impl->player_mutex);
     return m_impl->get_current_position_unlocked();
 }
@@ -333,6 +387,39 @@ Zenvra::Media::VideoPixelFormat FFmpegPlayer::target_video_format() const noexce
     return m_impl ? m_impl->decoder.target_video_format() : Zenvra::Media::VideoPixelFormat::RGBA32;
 }
 
+void FFmpegPlayer::set_target_video_size(int width, int height) {
+    if (m_impl) {
+        std::lock_guard<std::mutex> lock(m_impl->player_mutex);
+        m_impl->decoder.set_target_video_size(width, height);
+    }
+}
+
+std::pair<int, int> FFmpegPlayer::target_video_size() const noexcept {
+    return m_impl ? m_impl->decoder.target_video_size() : std::pair<int, int>{0, 0};
+}
+
+void FFmpegPlayer::set_debanding(bool enabled) {
+    if (m_impl) {
+        std::lock_guard<std::mutex> lock(m_impl->player_mutex);
+        m_impl->decoder.set_deband_enabled(enabled);
+    }
+}
+
+bool FFmpegPlayer::is_debanding_enabled() const noexcept {
+    return m_impl ? m_impl->decoder.is_deband_enabled() : false;
+}
+
+void FFmpegPlayer::set_edge_aa(bool enabled) {
+    if (m_impl) {
+        std::lock_guard<std::mutex> lock(m_impl->player_mutex);
+        m_impl->decoder.set_edge_aa_enabled(enabled);
+    }
+}
+
+bool FFmpegPlayer::is_edge_aa_enabled() const noexcept {
+    return m_impl ? m_impl->decoder.is_edge_aa_enabled() : false;
+}
+
 std::optional<Zenvra::Media::VideoFrame> FFmpegPlayer::get_next_video_frame() {
     if (!is_open() || !m_impl) {
         return std::nullopt;
@@ -357,13 +444,19 @@ std::optional<Zenvra::Media::VideoFrame> FFmpegPlayer::get_next_video_frame() {
     while (!m_impl->video_frame_queue.empty()) {
         auto& front = m_impl->video_frame_queue.front();
 
-        // 1. Next frame is in the future (> current_clock + 0.020s): hold current frame until clock catches up
-        if (front.timestamp_seconds > current_clock + 0.020) {
+        // Adaptive frame pacing window: tailored to video cadence (e.g. 16.6ms for 60fps, 41.6ms for 24fps)
+        const double frame_dur = (front.duration_seconds > 0.005 && front.duration_seconds < 0.2)
+                                     ? front.duration_seconds : 0.033;
+        const double hold_threshold = std::max(0.008, frame_dur * 0.50);
+        const double drop_threshold = std::max(0.060, frame_dur * 2.50);
+
+        // 1. Next frame is in the future: hold current frame until clock catches up
+        if (front.timestamp_seconds > current_clock + hold_threshold) {
             return m_impl->latest_rendered_frame;
         }
 
-        // 2. Late frame dropping: frame is behind current clock by more than 40ms: drop it if queue has newer frames
-        if (front.timestamp_seconds < current_clock - 0.040 && m_impl->video_frame_queue.size() > 1) {
+        // 2. Late frame dropping: frame is behind current clock: drop it if queue has newer frames
+        if (front.timestamp_seconds < current_clock - drop_threshold && m_impl->video_frame_queue.size() > 1) {
             m_impl->video_frame_queue.pop_front();
             continue;
         }
