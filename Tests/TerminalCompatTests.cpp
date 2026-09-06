@@ -166,15 +166,15 @@ TEST(TerminalInputTests, PerCharacterVTDeletion)
     EXPECT_EQ(session.get_lines()[0], "hello world");
     EXPECT_EQ(session.get_cursor_column(), 11);
 
-    // Shell sends single backspace: \b \b (BS, Space, BS)
-    session.consume_output("\b \b");
+    // Step-by-step backspace: \b alone removes exactly one character
+    session.consume_output("\b");
     EXPECT_EQ(session.get_cursor_column(), 10);
-    EXPECT_EQ(session.get_lines()[0], "hello worl ");
+    EXPECT_EQ(session.get_lines()[0], "hello worl");
 
-    // Shell sends another single backspace: \b \b
+    // Shell sends traditional \b \b (BS, Space, BS) -> removes single character cleanly
     session.consume_output("\b \b");
     EXPECT_EQ(session.get_cursor_column(), 9);
-    EXPECT_EQ(session.get_lines()[0], "hello wor  ");
+    EXPECT_EQ(session.get_lines()[0], "hello wor");
 
     // Shell sends Erase in Line: \x1b[K
     session.consume_output("\x1b[K");
@@ -185,6 +185,18 @@ TEST(TerminalInputTests, PerCharacterVTDeletion)
     session.consume_output("\b\x1b[1P");
     EXPECT_EQ(session.get_cursor_column(), 8);
     EXPECT_EQ(session.get_lines()[0], "hello wo");
+
+    // Step-by-step deletion down to column 0
+    for (int i = 0; i < 10; ++i) {
+        session.consume_output("\b");
+    }
+    EXPECT_EQ(session.get_cursor_column(), 0);
+    EXPECT_EQ(session.get_lines()[0], "");
+    // Crucial: Backspace at column 0 must NEVER wrap to previous lines or delete messages above
+    EXPECT_EQ(session.get_lines().size(), 1);
+    session.consume_output("\b\b\b");
+    EXPECT_EQ(session.get_cursor_column(), 0);
+    EXPECT_EQ(session.get_lines().size(), 1);
 
     session.stop();
 }
@@ -305,6 +317,74 @@ TEST(TerminalModeTests, PowerShellSurvivesInitialLifetime)
     model.shutdown();
 }
 
+
+TEST(TerminalModeTests, PowerShellBackspaceCharacterByCharacter)
+{
+#if defined(_WIN32)
+    ::FreeConsole();
+#endif
+    TerminalPanelModel model;
+    EXPECT_TRUE(model.create_session());
+    TerminalSession* session = model.get_active_session();
+    ASSERT_NE(session, nullptr);
+    model.resize(120, 30);
+    for (int i = 0; i < 20; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        static_cast<void>(model.poll());
+        if (!session->is_running()) break;
+    }
+    EXPECT_TRUE(session->is_running());
+
+    std::cout << "\n=== Initial lines ===" << std::endl;
+    for (std::size_t i = 0; i < session->get_lines().size(); ++i) {
+        std::cout << "[" << i << "]: " << session->get_lines()[i] << std::endl;
+    }
+
+    std::cout << "\n=== Sending 'clear' ===" << std::endl;
+    EXPECT_TRUE(model.send_text("clear"));
+    for (int i = 0; i < 10; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        static_cast<void>(model.poll());
+    }
+    std::cout << "[After clear]: '" << session->get_lines()[0] << "'" << std::endl;
+
+    // Step-by-step backspace deletion using model.send_key(TerminalInputKey::Backspace)
+    EXPECT_TRUE(model.send_key(TerminalInputKey::Backspace));
+    for (int i = 0; i < 10; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        static_cast<void>(model.poll());
+    }
+    EXPECT_NE(session->get_lines()[0].find("clea"), std::string::npos);
+
+    EXPECT_TRUE(model.send_key(TerminalInputKey::Backspace));
+    for (int i = 0; i < 10; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        static_cast<void>(model.poll());
+    }
+    EXPECT_NE(session->get_lines()[0].find("cle"), std::string::npos);
+
+    EXPECT_TRUE(model.send_key(TerminalInputKey::Backspace));
+    for (int i = 0; i < 10; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        static_cast<void>(model.poll());
+    }
+    EXPECT_NE(session->get_lines()[0].find("cl"), std::string::npos);
+
+    EXPECT_TRUE(model.send_key(TerminalInputKey::Backspace));
+    for (int i = 0; i < 10; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        static_cast<void>(model.poll());
+    }
+    EXPECT_NE(session->get_lines()[0].find("c"), std::string::npos);
+
+    EXPECT_TRUE(model.send_key(TerminalInputKey::Backspace));
+    for (int i = 0; i < 10; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        static_cast<void>(model.poll());
+    }
+
+    model.shutdown();
+}
 
 TEST(TerminalModeTests, DoctorReportContainsConPTYStatus)
 {

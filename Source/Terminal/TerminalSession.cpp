@@ -1053,13 +1053,22 @@ void TerminalSession::consume_output(std::string_view output) {
       } else if (character == '\b' || character == '\x7F') {
         if (m_cursor_column > 0) {
           --m_cursor_column;
-        } else if (m_cursor_line > 0 && !m_in_alternate_screen) {
-          --m_cursor_line;
-          m_cursor_column = (m_cursor_line < m_lines.size())
-                                ? utf8_column_count(m_lines[m_cursor_line])
-                                : (m_columns > 0 ? m_columns - 1 : 0);
-          if (m_cursor_column > 0) {
-            --m_cursor_column;
+          if (m_cursor_line < m_lines.size()) {
+            std::string &line = m_lines[m_cursor_line];
+            std::vector<std::string> cps = split_utf8_codepoints(line);
+            if (m_cursor_column < cps.size()) {
+              cps.erase(cps.begin() + static_cast<std::ptrdiff_t>(m_cursor_column));
+              line.clear();
+              for (const auto &cp : cps) {
+                line.append(cp);
+              }
+            }
+          }
+          if (m_cursor_line < m_grid.size()) {
+            auto &row_cells = m_grid[m_cursor_line];
+            if (m_cursor_column < row_cells.size()) {
+              row_cells.erase(row_cells.begin() + static_cast<std::ptrdiff_t>(m_cursor_column));
+            }
           }
         }
       } else if (character == '\t') {
