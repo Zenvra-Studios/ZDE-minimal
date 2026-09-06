@@ -16,6 +16,7 @@
 
 #include <commctrl.h>
 #include <dwmapi.h>
+#include <shellapi.h>
 #include <uxtheme.h>
 #include <vssym32.h>
 #include <windowsx.h>
@@ -115,6 +116,51 @@ void fill_rectangle(HDC device_context, const UI::Rect &rectangle,
   SetDCBrushColor(device_context, to_color_ref(color));
   FillRect(device_context, &native_rectangle,
            static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
+}
+
+RECT get_maximized_work_area([[maybe_unused]] HWND hwnd, HMONITOR monitor,
+                             const MONITORINFO &monitor_info,
+                             bool is_fullscreen) {
+  if (is_fullscreen) {
+    return monitor_info.rcMonitor;
+  }
+
+  RECT target_rect = monitor_info.rcWork;
+
+  // If the taskbar on this monitor has auto-hide enabled, rcWork equals rcMonitor.
+  // Leave a 2px margin at the bottom edge so mouse hover can reveal the taskbar.
+  APPBARDATA abd{};
+  abd.cbSize = sizeof(abd);
+  abd.hWnd = FindWindowW(L"Shell_TrayWnd", nullptr);
+  if (abd.hWnd != nullptr) {
+    HMONITOR tray_monitor =
+        MonitorFromWindow(abd.hWnd, MONITOR_DEFAULTTONEAREST);
+    if (tray_monitor == monitor) {
+      const UINT state =
+          static_cast<UINT>(SHAppBarMessage(ABM_GETSTATE, &abd));
+      if ((state & ABS_AUTOHIDE) != 0) {
+        target_rect.bottom =
+            (std::max)(target_rect.bottom - 2, monitor_info.rcMonitor.bottom - 2);
+      }
+    }
+  }
+
+  HWND secondary_tray = nullptr;
+  while ((secondary_tray = FindWindowExW(nullptr, secondary_tray,
+                                         L"Shell_SecondaryTrayWnd",
+                                         nullptr)) != nullptr) {
+    if (MonitorFromWindow(secondary_tray, MONITOR_DEFAULTTONEAREST) == monitor) {
+      abd.hWnd = secondary_tray;
+      const UINT state =
+          static_cast<UINT>(SHAppBarMessage(ABM_GETSTATE, &abd));
+      if ((state & ABS_AUTOHIDE) != 0) {
+        target_rect.bottom =
+            (std::max)(target_rect.bottom - 2, monitor_info.rcMonitor.bottom - 2);
+      }
+    }
+  }
+
+  return target_rect;
 }
 
 void fill_rounded_rectangle(HDC device_context, const UI::Rect &rectangle,
@@ -525,23 +571,23 @@ void Win32Window::poll_events() {
 bool Win32Window::should_close() const { return m_should_close; }
 
 void Win32Window::minimize() {
-  ShowWindow(m_window_handle, SW_MINIMIZE);
-  SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1),
-                           static_cast<SIZE_T>(-1));
+  if (m_window_handle != nullptr) {
+    PostMessageW(m_window_handle, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+    SetProcessWorkingSetSize(GetCurrentProcess(), static_cast<SIZE_T>(-1),
+                             static_cast<SIZE_T>(-1));
+  }
 }
 
 void Win32Window::maximize() {
-  ShowWindow(m_window_handle, SW_MAXIMIZE);
-  refresh_chrome_layout();
-  InvalidateRect(m_window_handle, nullptr, TRUE);
-  UpdateWindow(m_window_handle);
+  if (m_window_handle != nullptr) {
+    PostMessageW(m_window_handle, WM_SYSCOMMAND, SC_MAXIMIZE, 0);
+  }
 }
 
 void Win32Window::restore() {
-  ShowWindow(m_window_handle, SW_RESTORE);
-  refresh_chrome_layout();
-  InvalidateRect(m_window_handle, nullptr, TRUE);
-  UpdateWindow(m_window_handle);
+  if (m_window_handle != nullptr) {
+    PostMessageW(m_window_handle, WM_SYSCOMMAND, SC_RESTORE, 0);
+  }
 }
 
 void Win32Window::minimize_to_tray() {
@@ -555,10 +601,7 @@ void Win32Window::minimize_to_tray() {
 
 void Win32Window::restore_from_tray() {
   if (m_window_handle != nullptr) {
-    ShowWindow(m_window_handle, SW_SHOW);
-    if (IsIconic(m_window_handle)) {
-      ShowWindow(m_window_handle, SW_RESTORE);
-    }
+    ShowWindow(m_window_handle, SW_RESTORE);
     refresh_chrome_layout();
     SetForegroundWindow(m_window_handle);
     SetFocus(m_window_handle);
@@ -840,8 +883,8 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         const HMONITOR monitor =
             MonitorFromWindow(window_handle, MONITOR_DEFAULTTONEAREST);
         if (GetMonitorInfoW(monitor, &monitor_info) != FALSE) {
-          parameters->rgrc[0] =
-              m_is_fullscreen ? monitor_info.rcMonitor : monitor_info.rcWork;
+          parameters->rgrc[0] = get_maximized_work_area(
+              window_handle, monitor, monitor_info, m_is_fullscreen);
         }
       }
       return 0;
@@ -2519,14 +2562,20 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         MONITORINFO monitor_info{};
         monitor_info.cbSize = sizeof(monitor_info);
         if (GetMonitorInfoW(monitor, &monitor_info) != FALSE) {
-          const RECT &target_rect =
-              m_is_fullscreen ? monitor_info.rcMonitor : monitor_info.rcWork;
-          min_max_info->ptMaxPosition.x = target_rect.left - monitor_info.rcMonitor.left;
-          min_max_info->ptMaxPosition.y = target_rect.top - monitor_info.rcMonitor.top;
+          const RECT target_rect = get_maximized_work_area(
+              window_handle, monitor, monitor_info, m_is_fullscreen);
+          min_max_info->ptMaxPosition.x =
+              target_rect.left - monitor_info.rcMonitor.left;
+          min_max_info->ptMaxPosition.y =
+              target_rect.top - monitor_info.rcMonitor.top;
           min_max_info->ptMaxSize.x = target_rect.right - target_rect.left;
           min_max_info->ptMaxSize.y = target_rect.bottom - target_rect.top;
-          min_max_info->ptMaxTrackSize.x = min_max_info->ptMaxSize.x;
-          min_max_info->ptMaxTrackSize.y = min_max_info->ptMaxSize.y;
+          min_max_info->ptMaxTrackSize.x =
+              (std::max)(min_max_info->ptMaxTrackSize.x,
+                         static_cast<LONG>(GetSystemMetrics(SM_CXVIRTUALSCREEN) + 64));
+          min_max_info->ptMaxTrackSize.y =
+              (std::max)(min_max_info->ptMaxTrackSize.y,
+                         static_cast<LONG>(GetSystemMetrics(SM_CYVIRTUALSCREEN) + 64));
         }
       }
       return 0;
@@ -2535,14 +2584,36 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
 
   case WM_DPICHANGED: {
     m_dpi = HIWORD(w_param);
-    const auto *suggested_bounds = reinterpret_cast<const RECT *>(l_param);
-    SetWindowPos(window_handle, nullptr, suggested_bounds->left,
-                 suggested_bounds->top,
-                 suggested_bounds->right - suggested_bounds->left,
-                 suggested_bounds->bottom - suggested_bounds->top,
-                 SWP_NOZORDER | SWP_NOACTIVATE);
     refresh_ui_font();
     m_workspace_renderer.update_dpi(m_dpi);
+    if (!is_maximized() && !m_is_fullscreen) {
+      const auto *suggested_bounds = reinterpret_cast<const RECT *>(l_param);
+      SetWindowPos(window_handle, nullptr, suggested_bounds->left,
+                   suggested_bounds->top,
+                   suggested_bounds->right - suggested_bounds->left,
+                   suggested_bounds->bottom - suggested_bounds->top,
+                   SWP_NOZORDER | SWP_NOACTIVATE);
+    } else if (is_maximized()) {
+      const HMONITOR monitor =
+          MonitorFromWindow(window_handle, MONITOR_DEFAULTTONEAREST);
+      if (monitor != nullptr) {
+        MONITORINFO monitor_info{};
+        monitor_info.cbSize = sizeof(monitor_info);
+        if (GetMonitorInfoW(monitor, &monitor_info) != FALSE) {
+          const RECT target_rect = get_maximized_work_area(
+              window_handle, monitor, monitor_info, m_is_fullscreen);
+          SetWindowPos(window_handle, nullptr, target_rect.left,
+                       target_rect.top,
+                       target_rect.right - target_rect.left,
+                       target_rect.bottom - target_rect.top,
+                       SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        }
+      }
+    } else {
+      SetWindowPos(window_handle, nullptr, 0, 0, 0, 0,
+                   SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
+                       SWP_FRAMECHANGED);
+    }
     refresh_chrome_layout();
     InvalidateRect(window_handle, nullptr, FALSE);
     return 0;
@@ -2817,6 +2888,8 @@ void Win32Window::paint_custom_chrome() {
     EndPaint(m_window_handle, &paint_data);
     return;
   }
+
+  refresh_chrome_layout();
 
   HDC buffer_context = CreateCompatibleDC(window_context);
   HBITMAP buffer_bitmap =
@@ -3167,12 +3240,16 @@ void Win32Window::paint_custom_chrome() {
 }
 
 void Win32Window::refresh_chrome_layout() {
-  if (m_window_handle == nullptr) {
+  if (m_window_handle == nullptr || is_minimized()) {
     return;
   }
 
   RECT client_bounds{};
   GetClientRect(m_window_handle, &client_bounds);
+  if (client_bounds.right <= client_bounds.left ||
+      client_bounds.bottom <= client_bounds.top) {
+    return;
+  }
   UI::Chrome::WindowChromeLayoutOptions options;
   options.hamburger_only = true; // All menus behind the hamburger popup
   m_chrome_layout = m_chrome_layout_engine.calculate(
@@ -3181,7 +3258,7 @@ void Win32Window::refresh_chrome_layout() {
 }
 
 void Win32Window::update_dwm_border_color(bool force) {
-  if (m_window_handle == nullptr) {
+  if (m_window_handle == nullptr || is_minimized()) {
     return;
   }
   const bool maximized = is_maximized() || m_is_fullscreen;
