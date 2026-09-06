@@ -7,6 +7,7 @@ add_executable(ZDEUnitTests
     LanguageServerTests.cpp
     TerminalCompatTests.cpp
     FFmpegTests.cpp
+    ShaderServiceTests.cpp
     # SourceControlTests.cpp
 )
 

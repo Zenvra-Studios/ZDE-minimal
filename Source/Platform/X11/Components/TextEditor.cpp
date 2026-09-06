@@ -3705,6 +3705,18 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
         if (line.find("#include") != std::string::npos) {
           return true;
         }
+        if (line.find("#define") != std::string::npos) {
+          return true;
+        }
+        if (line.find("#undef") != std::string::npos) {
+          return true;
+        }
+        if (line.find("%define") != std::string::npos) {
+          return true;
+        }
+        if (line.find("%macro") != std::string::npos) {
+          return true;
+        }
         std::size_t diag_start =
             diag.range.start.line == line_index ? diag.range.start.character : 0;
         std::size_t diag_end =

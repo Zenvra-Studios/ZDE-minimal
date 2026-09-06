@@ -65,8 +65,8 @@ void ShaderRuntimeEngine::apply_effective_resolution()
 void ShaderRuntimeEngine::resize(int viewport_width, int viewport_height)
 {
     std::lock_guard<std::mutex> lock(m_engine_mutex);
-    m_viewport_width = std::max(viewport_width, 32);
-    m_viewport_height = std::max(viewport_height, 32);
+    m_viewport_width = std::max(viewport_width, 16);
+    m_viewport_height = std::max(viewport_height, 16);
     apply_effective_resolution();
     m_is_dirty = true;
 }
@@ -87,6 +87,10 @@ void ShaderRuntimeEngine::set_source_code(std::string_view source_code)
 void ShaderRuntimeEngine::play() noexcept
 {
     m_is_playing = true;
+    if (m_status == ShaderStatus::Paused || m_status == ShaderStatus::Idle)
+    {
+        m_status = ShaderStatus::Running;
+    }
     m_last_frame_time = std::chrono::steady_clock::now();
 }
 

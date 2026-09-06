@@ -1,4 +1,9 @@
 #include <gtest/gtest.h>
+#include <chrono>
+#include <thread>
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 #include "Terminal/TerminalExitDecoder.h"
 #include "Terminal/TerminalPanelModel.h"
@@ -11,7 +16,7 @@ using namespace Zenvra::Utility;
 
 TEST(TerminalExitDecoderTests, NormalExitCodeZero)
 {
-    const auto result = decode_terminal_exit(0, "C:\\Windows\\System32\\cmd.exe", true);
+    const auto result = decode_terminal_exit(0, "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", true);
     EXPECT_TRUE(result.is_normal);
     EXPECT_FALSE(result.is_ntstatus);
     EXPECT_EQ(result.exit_code, 0U);
@@ -66,7 +71,7 @@ TEST(TerminalExitDecoderTests, StackBufferOverrunNTSTATUS)
 
 TEST(TerminalExitDecoderTests, DllNotFoundNTSTATUS)
 {
-    const auto result = decode_terminal_exit(0xC0000135, "cmd.exe", true);
+    const auto result = decode_terminal_exit(0xC0000135, "powershell.exe", true);
     EXPECT_FALSE(result.is_normal);
     EXPECT_TRUE(result.is_ntstatus);
     EXPECT_EQ(result.hex_code, "0xC0000135");
@@ -75,7 +80,7 @@ TEST(TerminalExitDecoderTests, DllNotFoundNTSTATUS)
 
 TEST(TerminalExitDecoderTests, DllInitFailedNTSTATUS)
 {
-    const auto result = decode_terminal_exit(0xC0000142, "cmd.exe", true);
+    const auto result = decode_terminal_exit(0xC0000142, "powershell.exe", true);
     EXPECT_FALSE(result.is_normal);
     EXPECT_TRUE(result.is_ntstatus);
     EXPECT_EQ(result.hex_code, "0xC0000142");
@@ -263,6 +268,43 @@ TEST(TerminalModeTests, ConPTYModeDetectionAndModel)
     EXPECT_EQ(model.is_active_session_conpty(), session->is_conpty_mode());
     model.shutdown();
 }
+
+TEST(TerminalModeTests, PowerShellSurvivesInitialLifetime)
+{
+#if defined(_WIN32)
+    ::FreeConsole();
+#endif
+    TerminalPanelModel model;
+    EXPECT_TRUE(model.create_session());
+    TerminalSession* session = model.get_active_session();
+    ASSERT_NE(session, nullptr);
+    model.resize(80, 24);
+    for (int i = 0; i < 20; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        static_cast<void>(model.poll());
+        if (!session->is_running()) break;
+    }
+    EXPECT_TRUE(session->is_running());
+
+    // Send a command to PowerShell and poll for output
+    EXPECT_TRUE(model.send_text("Write-Output \"ZDE_CONPTY_ACTIVE\"\r"));
+    bool found_output = false;
+    for (int i = 0; i < 20; ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        static_cast<void>(model.poll());
+        for (const auto& line : session->get_lines()) {
+            if (line.find("ZDE_CONPTY_ACTIVE") != std::string::npos) {
+                found_output = true;
+                break;
+            }
+        }
+        if (found_output) break;
+    }
+    EXPECT_TRUE(found_output);
+    EXPECT_TRUE(session->is_running());
+    model.shutdown();
+}
+
 
 TEST(TerminalModeTests, DoctorReportContainsConPTYStatus)
 {

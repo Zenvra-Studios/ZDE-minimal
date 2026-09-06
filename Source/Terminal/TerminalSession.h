@@ -107,7 +107,6 @@ public:
     [[nodiscard]] bool send_mouse_motion(std::size_t column, std::size_t row,
                                          bool button_pressed, MouseButton pressed_button = MouseButton::Left,
                                          bool shift = false, bool meta = false, bool ctrl = false);
-    [[nodiscard]] bool navigate_history(bool up);
     [[nodiscard]] bool is_conpty_mode() const noexcept;
     [[nodiscard]] static std::filesystem::path resolve_host_shell();
     void consume_output(std::string_view output);
@@ -136,7 +135,6 @@ private:
     void append_status(std::string message);
     void clear_screen() noexcept;
     void trim_scrollback();
-    void update_pipe_input_display();
 
     std::unique_ptr<Implementation> m_implementation;
     std::filesystem::path m_shell_path;
@@ -153,13 +151,6 @@ private:
     std::size_t m_saved_cursor_column = 0;
     std::size_t m_main_cursor_line = 0;
     std::size_t m_main_cursor_column = 0;
-    std::size_t m_input_start_line = 0;
-    std::size_t m_input_start_column = 0;
-    std::string m_pending_input;
-    std::size_t m_pending_input_cursor = 0;
-    std::vector<std::string> m_command_history;
-    std::optional<std::size_t> m_history_index;
-    std::string m_saved_pending_input;
     std::string m_utf8_sequence;
     std::size_t m_utf8_expected = 0;
     ParserState m_parser_state = ParserState::Text;

@@ -1,8 +1,11 @@
 add_library(ZDETerminal
+    ConPTYBackend.cpp
+    PosixTTYBackend.cpp
     TerminalExitDecoder.cpp
     TerminalPanelModel.cpp
     TerminalResizeModel.cpp
     TerminalSession.cpp
+    Win32PipeBackend.cpp
     WindowsSecurityProbe.cpp
 )
 add_library(Zenvra::Terminal ALIAS ZDETerminal)

@@ -70,6 +70,7 @@ struct Diagnostic
         }
         if (code == "unused-includes" || code == "unused" || code == "unused-variable" ||
             code == "unused-function" || code == "unused-parameter" || code == "dead_code" ||
+            code == "unused-macro" || code == "unused-macros" || code == "unused_macro" ||
             code.find("unused") != std::string::npos || code.find("Unused") != std::string::npos ||
             code.find("redundant") != std::string::npos)
         {
@@ -87,7 +88,12 @@ struct Diagnostic
             message.find("declared but its value is never read") != std::string::npos ||
             message.find("is not accessed") != std::string::npos ||
             message.find("defined but not used") != std::string::npos ||
-            (message.find("Included header") != std::string::npos && message.find("not used") != std::string::npos))
+            message.find("macro not used") != std::string::npos ||
+            message.find("Macro not used") != std::string::npos ||
+            message.find("statement macro") != std::string::npos ||
+            (message.find("Included header") != std::string::npos && message.find("not used") != std::string::npos) ||
+            (message.find("macro") != std::string::npos && message.find("not used") != std::string::npos) ||
+            (message.find("Macro") != std::string::npos && message.find("not used") != std::string::npos))
         {
             return true;
         }

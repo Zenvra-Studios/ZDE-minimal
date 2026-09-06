@@ -3,6 +3,8 @@ add_library(ZDEServices
     Shader/GpuShaderRasterizer.cpp
     Shader/ShaderCompiler.cpp
     Shader/ShaderRuntimeEngine.cpp
+    Shader/VirtualSurfaceBuffer.cpp
+    Shader/ShaderService.cpp
     Build/BuildService.cpp
     Execution/ExecutionService.cpp
     Output/OutputLogManager.cpp

@@ -2910,6 +2910,10 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
       for (const auto &diag : line_diags) {
         if (!diag.is_unnecessary()) continue;
         if (line.find("#include") != std::string::npos) return true;
+        if (line.find("#define") != std::string::npos) return true;
+        if (line.find("#undef") != std::string::npos) return true;
+        if (line.find("%define") != std::string::npos) return true;
+        if (line.find("%macro") != std::string::npos) return true;
         std::size_t diag_start = diag.range.start.line == line_index ? diag.range.start.character : 0;
         std::size_t diag_end = diag.range.end.line == line_index ? diag.range.end.character : line.size();
         if (diag_start >= diag_end) { diag_start = 0; diag_end = line.size(); }

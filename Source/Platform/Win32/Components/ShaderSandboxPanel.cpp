@@ -27,7 +27,7 @@ ShaderSandboxPanel::~ShaderSandboxPanel() = default;
 
 bool ShaderSandboxPanel::initialize()
 {
-    m_engine.initialize();
+    m_service.initialize();
     return true;
 }
 
@@ -97,7 +97,7 @@ bool ShaderSandboxPanel::handle_pointer_press(
         m_viewport_mouse_down = true;
         const float vx = point_x - layout.shader_panel_viewport_bounds.x;
         const float vy = point_y - layout.shader_panel_viewport_bounds.y;
-        m_engine.set_mouse(vx, vy, true);
+        m_service.set_mouse(vx, vy, true);
         return true;
     }
 
@@ -118,31 +118,31 @@ bool ShaderSandboxPanel::handle_pointer_press(
     // Controls toolbar buttons (use member bounds set during render)
     if (m_ctrl_play_bounds.contains(point_x, point_y))
     {
-        m_engine.toggle_playback();
+        m_service.toggle_playback();
         return true;
     }
 
     if (m_ctrl_reset_bounds.contains(point_x, point_y))
     {
-        m_engine.reset_time();
+        m_service.reset_time();
         return true;
     }
 
     if (m_ctrl_scale_bounds.contains(point_x, point_y))
     {
-        m_engine.cycle_resolution_scale();
+        m_service.cycle_resolution_scale();
         return true;
     }
 
     if (m_ctrl_backend_bounds.contains(point_x, point_y))
     {
-        m_engine.toggle_render_backend();
+        m_service.toggle_render_backend();
         return true;
     }
 
     if (m_ctrl_snapshot_bounds.contains(point_x, point_y))
     {
-        static_cast<void>(m_engine.export_snapshot_bmp("shader_artwork.bmp"));
+        static_cast<void>(m_service.export_snapshot_bmp("shader_artwork.bmp"));
         return true;
     }
 
@@ -185,7 +185,7 @@ bool ShaderSandboxPanel::handle_pointer_move(
     {
         const float vx = point_x - layout.shader_panel_viewport_bounds.x;
         const float vy = point_y - layout.shader_panel_viewport_bounds.y;
-        m_engine.set_mouse(vx, vy, true);
+        m_service.set_mouse(vx, vy, true);
     }
 
     return (prev_close != m_hover_close) || (prev_preset != m_hover_preset) ||
@@ -204,7 +204,7 @@ bool ShaderSandboxPanel::handle_pointer_drag(
         const float delta = m_drag_start_x - point_x;
         const float scale = layout.dpi_scale;
         m_width = std::clamp(m_drag_start_width + delta, 180.0F * scale, 800.0F * scale);
-        static_cast<void>(m_engine.update_and_render());
+        static_cast<void>(m_service.step_frame());
         return true;
     }
 
@@ -213,8 +213,8 @@ bool ShaderSandboxPanel::handle_pointer_drag(
     {
         const float vx = point_x - layout.shader_panel_viewport_bounds.x;
         const float vy = point_y - layout.shader_panel_viewport_bounds.y;
-        m_engine.set_mouse(vx, vy, true);
-        static_cast<void>(m_engine.update_and_render());
+        m_service.set_mouse(vx, vy, true);
+        static_cast<void>(m_service.step_frame());
         return true;
     }
 
@@ -229,7 +229,7 @@ bool ShaderSandboxPanel::handle_pointer_release() noexcept
     if (m_viewport_mouse_down)
     {
         m_viewport_mouse_down = false;
-        m_engine.set_mouse(0.0F, 0.0F, false);
+        m_service.set_mouse(0.0F, 0.0F, false);
     }
     return was_resizing || was_mouse_down;
 }
@@ -240,12 +240,12 @@ bool ShaderSandboxPanel::tick_animations() noexcept
     {
         return false;
     }
-    return m_engine.update_and_render();
+    return m_service.step_frame();
 }
 
 void ShaderSandboxPanel::set_source_code(std::string_view source_code)
 {
-    m_engine.set_source_code(source_code);
+    m_service.set_shader_source(source_code);
 }
 
 void ShaderSandboxPanel::next_preset()
@@ -255,8 +255,8 @@ void ShaderSandboxPanel::next_preset()
     {
         return;
     }
-    const std::size_t next_idx = (m_engine.get_active_preset_index() + 1) % presets.size();
-    m_engine.load_preset(next_idx);
+    const std::size_t next_idx = (m_service.get_active_preset_index() + 1) % presets.size();
+    m_service.load_preset(next_idx);
 }
 
 void ShaderSandboxPanel::previous_preset()
@@ -267,8 +267,8 @@ void ShaderSandboxPanel::previous_preset()
         return;
     }
     const std::size_t prev_idx =
-        (m_engine.get_active_preset_index() + presets.size() - 1) % presets.size();
-    m_engine.load_preset(prev_idx);
+        (m_service.get_active_preset_index() + presets.size() - 1) % presets.size();
+    m_service.load_preset(prev_idx);
 }
 
 void ShaderSandboxPanel::render(
@@ -338,7 +338,7 @@ void ShaderSandboxPanel::render_header(
 
     // Status Dot indicator (Green = Running, Yellow = Paused, Red = Error, Cyan = Compiling)
     UI::Theme::Color status_color = surface.m_palette.success;
-    switch (m_engine.get_status())
+    switch (m_service.get_status())
     {
     case Services::Shader::ShaderStatus::Running:
         status_color = surface.m_palette.success;
@@ -400,11 +400,11 @@ void ShaderSandboxPanel::render_header(
         close_col, surface.m_palette.tab_background);
 
     // Preset selector dropdown button (dynamic width matching text)
-    std::string preset_name = "Presets";
+    std::string preset_name = "Custom / Preset";
     const auto presets = Services::Shader::ShaderCompiler::get_starter_presets();
-    if (!presets.empty() && m_engine.get_active_preset_index() < presets.size())
+    if (!presets.empty() && m_service.get_active_preset_index() < presets.size())
     {
-        preset_name = presets[m_engine.get_active_preset_index()].name;
+        preset_name = presets[m_service.get_active_preset_index()].name;
     }
     const int text_w = surface.m_small_font ? surface.get_text_width(device_context, *surface.m_small_font, preset_name) : round_to_int(80.0F * scale);
     const float preset_w = std::clamp(static_cast<float>(text_w) + 26.0F * scale,
@@ -452,25 +452,25 @@ void ShaderSandboxPanel::render_viewport(
 {
     const UI::Rect& canvas_rect = layout.shader_panel_viewport_bounds;
 
-    // Resize engine rasterizer to canvas size if dimensions changed & immediately render
+    // Resize virtual surface if canvas dimensions changed & step frame
     const int target_w = round_to_int(canvas_rect.width);
     const int target_h = round_to_int(canvas_rect.height);
-    if (target_w > 16 && target_h > 16 &&
-        (m_engine.get_viewport_width() != target_w ||
-         m_engine.get_viewport_height() != target_h))
+    if (target_w > 16 && target_h > 16)
     {
-        const_cast<ShaderSandboxPanel*>(this)->m_engine.resize(target_w, target_h);
-        static_cast<void>(const_cast<ShaderSandboxPanel*>(this)->m_engine.update_and_render());
+        const_cast<ShaderSandboxPanel*>(this)->m_service.resize_surface(target_w, target_h);
+        static_cast<void>(const_cast<ShaderSandboxPanel*>(this)->m_service.step_frame());
     }
 
-    // Blit rasterized pixels directly
-    const auto pixels = m_engine.get_rendered_pixels();
-    const int img_w = m_engine.get_rendered_width();
-    const int img_h = m_engine.get_rendered_height();
-
-    if (!pixels.empty() && img_w > 0 && img_h > 0)
+    // Acquire mapped virtual surface (Android Emulator Surface Mapping Model)
+    auto surface_lock = m_service.acquire_mapped_surface();
+    if (surface_lock.is_valid())
     {
-        const bool is_gpu = (m_engine.get_render_backend() == Services::Shader::RenderBackend::Gpu);
+        const auto pixels = surface_lock.get_pixels();
+        const auto& desc = surface_lock.get_descriptor();
+        const int img_w = desc.width;
+        const int img_h = desc.height;
+        const bool is_gpu = (desc.backend == Services::Shader::RenderBackend::Gpu);
+
         BITMAPINFO bmi{};
         bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
         bmi.bmiHeader.biWidth = img_w;
@@ -550,7 +550,7 @@ void ShaderSandboxPanel::render_controls(
     {
         const float cx = m_ctrl_play_bounds.x + m_ctrl_play_bounds.width * 0.5F;
         const float cy = m_ctrl_play_bounds.y + m_ctrl_play_bounds.height * 0.5F;
-        if (m_engine.is_playing())
+        if (m_service.get_engine().is_playing())
         {
             // Elegant two vertical pause bars
             const float bar_w = 2.5F * scale;
@@ -607,7 +607,7 @@ void ShaderSandboxPanel::render_controls(
     surface.draw_rectangle(device_context, m_ctrl_scale_bounds, surface.m_palette.border);
 
     std::string scale_str = "1.0x";
-    switch (m_engine.get_resolution_scale())
+    switch (m_service.get_resolution_scale())
     {
     case Services::Shader::ResolutionScale::Full:
         scale_str = "1.0x";
@@ -634,7 +634,7 @@ void ShaderSandboxPanel::render_controls(
 
     // Backend toggle badge button (CPU / GPU)
     m_ctrl_backend_bounds = UI::Rect{m_ctrl_scale_bounds.right() + 4.0F * scale, btn_y, 40.0F * scale, btn_h};
-    const bool is_gpu = (m_engine.get_render_backend() == Services::Shader::RenderBackend::Gpu);
+    const bool is_gpu = (m_service.get_render_backend() == Services::Shader::RenderBackend::Gpu);
     const UI::Theme::Color backend_bg = m_hover_backend
         ? surface.m_palette.active_line_background
         : (is_gpu ? UI::Theme::Color{30, 60, 45, 255} : surface.m_palette.sidebar_background);
@@ -661,8 +661,8 @@ void ShaderSandboxPanel::render_controls(
 
     // Time elapsed & frametime display
     std::ostringstream time_ss;
-    time_ss << std::fixed << std::setprecision(1) << m_engine.get_time() << "s ("
-            << std::fixed << std::setprecision(1) << m_engine.get_frame_time_ms() << "ms)";
+    time_ss << std::fixed << std::setprecision(1) << m_service.get_time() << "s ("
+            << std::fixed << std::setprecision(1) << m_service.get_frame_time_ms() << "ms)";
     if (surface.m_small_font)
     {
         surface.draw_text(
@@ -698,9 +698,9 @@ void ShaderSandboxPanel::render_diagnostics_overlay(
     HDC device_context,
     const UI::Rect& viewport_rect) const
 {
-    const auto& diagnostics = m_engine.get_diagnostics();
+    const auto& diagnostics = m_service.get_diagnostics();
     if (diagnostics.empty() ||
-        m_engine.get_status() != Services::Shader::ShaderStatus::Error)
+        m_service.get_status() != Services::Shader::ShaderStatus::Error)
     {
         return;
     }

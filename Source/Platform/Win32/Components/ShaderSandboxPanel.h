@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Services/Shader/ShaderRuntimeEngine.h"
+#include "Services/Shader/ShaderService.h"
 #include "UI/Editor/StudioEditorModel.h"
 
 #include <windows.h>
@@ -68,8 +68,11 @@ public:
     void next_preset();
     void previous_preset();
 
-    [[nodiscard]] Services::Shader::ShaderRuntimeEngine& get_engine() noexcept { return m_engine; }
-    [[nodiscard]] const Services::Shader::ShaderRuntimeEngine& get_engine() const noexcept { return m_engine; }
+    [[nodiscard]] Services::Shader::ShaderService& get_service() noexcept { return m_service; }
+    [[nodiscard]] const Services::Shader::ShaderService& get_service() const noexcept { return m_service; }
+
+    [[nodiscard]] Services::Shader::ShaderRuntimeEngine& get_engine() noexcept { return m_service.get_engine(); }
+    [[nodiscard]] const Services::Shader::ShaderRuntimeEngine& get_engine() const noexcept { return m_service.get_engine(); }
 
     void render(
         const StudioWorkspaceRenderer& surface,
@@ -97,7 +100,7 @@ private:
         HDC device_context,
         const UI::Rect& viewport_rect) const;
 
-    Services::Shader::ShaderRuntimeEngine m_engine;
+    Services::Shader::ShaderService m_service;
     bool m_visible = false;
     float m_width = 380.0F;
     bool m_is_resizing = false;

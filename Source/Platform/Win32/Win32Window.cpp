@@ -1359,6 +1359,16 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         show_overflow_menu();
         return 0;
       }
+      if (m_chrome_layout.is_build_button(point_x, point_y)) {
+        const std::optional<bool> editor_result =
+            m_workspace_renderer.handle_editor_command(
+                Commands::CommandIds::build_build_project);
+        if (!editor_result && m_command_invoked_callback) {
+          m_command_invoked_callback(Commands::CommandIds::build_build_project);
+        }
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
       if (m_chrome_layout.is_run_button(point_x, point_y)) {
         const std::optional<bool> editor_result =
             m_workspace_renderer.handle_editor_command(

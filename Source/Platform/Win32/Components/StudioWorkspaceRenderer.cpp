@@ -237,9 +237,6 @@ StudioWorkspaceRenderer::calculate_layout(int client_width, int client_height,
 }
 
 void StudioWorkspaceRenderer::sync_shader_sandbox() const {
-  if (!m_shader_sandbox_panel.is_visible()) {
-    return;
-  }
   if (const UI::Editor::TextDocumentModel *doc =
           m_text_editor.get_document()) {
     const std::string filename = std::string(doc->get_file_name());
@@ -252,16 +249,8 @@ void StudioWorkspaceRenderer::sync_shader_sandbox() const {
       full_text += '\n';
     }
 
-    const bool is_shader_ext = (ext == ".glsl" || ext == ".frag" || ext == ".vert" || 
-                                ext == ".comp" || ext == ".shader" || ext == ".hlsl" ||
-                                ext == ".geom" || ext == ".tesc" || ext == ".tese");
-    const bool is_shader_content = (full_text.find("mainImage") != std::string::npos ||
-                                    full_text.find("gl_FragColor") != std::string::npos ||
-                                    full_text.find("gl_FragCoord") != std::string::npos ||
-                                    full_text.find("#version") != std::string::npos);
-
-    if ((is_shader_ext || is_shader_content) && !full_text.empty()) {
-      m_shader_sandbox_panel.set_source_code(full_text);
+    if (Services::Shader::ShaderService::is_shader_source_candidate(full_text, ext) && !full_text.empty()) {
+      const_cast<StudioWorkspaceRenderer*>(this)->m_shader_sandbox_panel.set_source_code(full_text);
     }
   }
 }
@@ -639,6 +628,28 @@ StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id) {
   if (command_id == Commands::CommandIds::window_reset_layout) {
     reset_layout();
     return true;
+  }
+  if (command_id == Commands::CommandIds::build_build_project ||
+      command_id == Commands::CommandIds::run_start) {
+    if (const UI::Editor::TextDocumentModel *doc = m_text_editor.get_document()) {
+      const std::string filename = std::string(doc->get_file_name());
+      const std::filesystem::path file_path(filename);
+      const std::string ext = file_path.extension().string();
+
+      std::string full_text;
+      for (const auto &line : doc->get_lines()) {
+        full_text += line;
+        full_text += '\n';
+      }
+
+      if (Services::Shader::ShaderService::is_shader_source_candidate(full_text, ext) && !full_text.empty()) {
+        m_shader_sandbox_panel.set_source_code(full_text);
+        m_shader_sandbox_panel.get_service().compile_and_render();
+        m_shader_sandbox_panel.get_service().play();
+        m_shader_sandbox_panel.set_visible(true);
+        return true;
+      }
+    }
   }
   if (command_id == Commands::CommandIds::view_toggle_right_dock ||
       command_id == "zde.view.shaderPanel" ||
