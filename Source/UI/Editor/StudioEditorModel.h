@@ -59,6 +59,9 @@ enum class EditorTokenKind
 {
     Plain,
     Keyword,
+    Directive,
+    Macro,
+    IncludeHeader,
     Number,
     Label,
     Type,
@@ -134,6 +137,9 @@ struct StudioEditorPalette
     Theme::Color hover_background;
     Theme::Color indent_guide;
     Theme::Color indent_guide_active;
+    Theme::Color directive;
+    Theme::Color macro_symbol;
+    Theme::Color include_header;
 
     [[nodiscard]] static StudioEditorPalette dark() noexcept;
     [[nodiscard]] static StudioEditorPalette jetbrains_dark() noexcept { return dark(); }

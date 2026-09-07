@@ -212,6 +212,12 @@ void EditorMinimap::render(
         {
         case UI::Editor::EditorTokenKind::Keyword:
             return text_palette.keyword;
+        case UI::Editor::EditorTokenKind::Directive:
+            return text_palette.keyword;
+        case UI::Editor::EditorTokenKind::Macro:
+            return text_palette.label;
+        case UI::Editor::EditorTokenKind::IncludeHeader:
+            return text_palette.success;
         case UI::Editor::EditorTokenKind::Number:
             return text_palette.number;
         case UI::Editor::EditorTokenKind::Label:

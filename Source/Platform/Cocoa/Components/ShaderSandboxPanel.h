@@ -57,7 +57,9 @@ public:
 
     [[nodiscard]] bool tick_animations() noexcept;
 
+    void stage_source_code(std::string_view source_code);
     void set_source_code(std::string_view source_code);
+    bool build_and_run(std::string_view source_code = "");
     void next_preset();
     void previous_preset();
 

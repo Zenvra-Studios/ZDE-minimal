@@ -54,7 +54,16 @@ TEST(ShaderServiceTests, ShaderServiceLifecycleAndOffscreenStep)
     EXPECT_EQ(service.get_surface_descriptor().width, 64);
     EXPECT_EQ(service.get_surface_descriptor().height, 48);
 
-    // Initial frame stepped during initialize
+    const std::string test_shader = R"(
+void mainImage(out vec4 fragColor, in vec2 fragCoord)
+{
+    fragColor = vec4(1.0, 0.0, 0.0, 1.0);
+}
+)";
+    service.set_shader_source(test_shader);
+    service.compile_and_render();
+
+    // Initial frame stepped during initialize / compile
     {
         auto lock = service.acquire_mapped_surface();
         EXPECT_TRUE(lock.is_valid());

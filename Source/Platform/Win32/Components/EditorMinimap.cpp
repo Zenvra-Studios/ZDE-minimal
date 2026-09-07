@@ -179,6 +179,15 @@ void EditorMinimap::render(const StudioWorkspaceRenderer &surface,
     case UI::Editor::EditorTokenKind::Keyword:
       base = surface.m_palette.keyword;
       break;
+    case UI::Editor::EditorTokenKind::Directive:
+      base = surface.m_palette.directive;
+      break;
+    case UI::Editor::EditorTokenKind::Macro:
+      base = surface.m_palette.macro_symbol;
+      break;
+    case UI::Editor::EditorTokenKind::IncludeHeader:
+      base = surface.m_palette.include_header;
+      break;
     case UI::Editor::EditorTokenKind::Number:
       base = surface.m_palette.number;
       break;
@@ -215,8 +224,10 @@ void EditorMinimap::render(const StudioWorkspaceRenderer &surface,
       continue;
     }
 
+    const bool is_line_inactive = document.is_line_inactive(line_index);
     const auto line_diags = document.get_diagnostics_for_line(line_index);
     auto is_token_unused = [&](std::size_t tok_start, std::size_t tok_len) -> bool {
+      if (is_line_inactive) return true;
       const std::size_t tok_end = tok_start + tok_len;
       for (const auto &diag : line_diags) {
         if (!diag.is_unnecessary()) continue;

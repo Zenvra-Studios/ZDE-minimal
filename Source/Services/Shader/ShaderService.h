@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -42,8 +43,10 @@ public:
     bool step_frame();
 
     // Dynamic shader code handling & compilation (Toolbar / Editor sync)
+    void stage_shader_source(std::string_view source_code);
     void set_shader_source(std::string_view source_code);
     [[nodiscard]] const std::string& get_shader_source() const noexcept;
+    bool build_and_simulate(std::string_view source_code = "");
     bool compile_and_render();
 
     [[nodiscard]] static bool is_shader_source_candidate(
@@ -67,7 +70,8 @@ public:
     void set_mouse(float x, float y, bool is_down);
 
     void load_preset(std::size_t index);
-    [[nodiscard]] std::size_t get_active_preset_index() const noexcept;
+    [[nodiscard]] std::optional<std::size_t> get_active_preset_index() const noexcept;
+    [[nodiscard]] bool has_compiled_shader() const noexcept;
 
     [[nodiscard]] ShaderStatus get_status() const noexcept;
     [[nodiscard]] float get_time() const noexcept;

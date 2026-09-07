@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -27,7 +28,9 @@ public:
     void initialize();
     void resize(int viewport_width, int viewport_height);
 
+    void stage_source_code(std::string_view source_code);
     void set_source_code(std::string_view source_code);
+    [[nodiscard]] bool build_and_simulate(std::string_view source_code = "");
     [[nodiscard]] const std::string& get_source_code() const noexcept { return m_source_code; }
 
     void play() noexcept;
@@ -74,7 +77,11 @@ public:
 
     // Preset loading
     void load_preset(std::size_t preset_index);
-    [[nodiscard]] std::size_t get_active_preset_index() const noexcept { return m_active_preset_index; }
+    [[nodiscard]] std::optional<std::size_t> get_active_preset_index() const noexcept { return m_active_preset_index; }
+    [[nodiscard]] bool has_compiled_shader() const noexcept {
+        return (m_status == ShaderStatus::Running || m_status == ShaderStatus::Paused ||
+                m_status == ShaderStatus::Error) && !m_source_code.empty();
+    }
 
 private:
     void trigger_compile_internal();
@@ -91,7 +98,7 @@ private:
     ShaderStatus m_status = ShaderStatus::Idle;
     ResolutionScale m_resolution_scale = ResolutionScale::Full;
     RenderBackend m_render_backend = RenderBackend::Cpu;
-    bool m_is_playing = true;
+    bool m_is_playing = false;
     bool m_is_dirty = true;
     float m_playback_speed = 1.0F;
 
@@ -101,7 +108,7 @@ private:
     int m_fps_frame_count = 0;
     float m_current_fps = 60.0F;
     float m_frame_time_ms = 16.6F;
-    std::size_t m_active_preset_index = 0;
+    std::optional<std::size_t> m_active_preset_index = std::nullopt;
     int m_viewport_width = 320;
     int m_viewport_height = 240;
 

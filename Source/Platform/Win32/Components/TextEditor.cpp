@@ -5340,6 +5340,9 @@ void TextEditor::draw_document(
         switch (kind)
         {
         case UI::Editor::EditorTokenKind::Keyword: return surface.m_palette.keyword;
+        case UI::Editor::EditorTokenKind::Directive: return surface.m_palette.directive;
+        case UI::Editor::EditorTokenKind::Macro: return surface.m_palette.macro_symbol;
+        case UI::Editor::EditorTokenKind::IncludeHeader: return surface.m_palette.include_header;
         case UI::Editor::EditorTokenKind::Number: return surface.m_palette.number;
         case UI::Editor::EditorTokenKind::Label: return surface.m_palette.label;
         case UI::Editor::EditorTokenKind::Type: return surface.m_palette.type;
@@ -5737,12 +5740,14 @@ void TextEditor::draw_document(
         if (current_line_width > max_line_width) max_line_width = current_line_width;
 
 
+        const bool is_line_inactive = document->is_line_inactive(line_index);
         const auto line_diags = document->get_diagnostics_for_line(line_index);
         const std::string doc_uri = get_active_document_uri();
         const auto semantic_spans = Language::LanguageServerManager::instance().get_semantic_tokens_manager().get_tokens_for_line(doc_uri, line_index);
 
         auto is_token_unused = [&](std::size_t tok_start, std::size_t tok_len) -> bool
         {
+            if (is_line_inactive) return true;
             const std::size_t tok_end = tok_start + tok_len;
             for (const auto& diag : line_diags)
             {
@@ -5863,6 +5868,27 @@ void TextEditor::draw_document(
                         token_x,
                         center_y,
                         get_effective_token_color(token.kind, rendered_bytes, token.text.size()));
+
+                    if (token.kind == UI::Editor::EditorTokenKind::IncludeHeader && !is_line_inactive && token.text.size() > 2)
+                    {
+                        const char open_c = token.text.front();
+                        const char close_c = token.text.back();
+                        if ((open_c == '<' && close_c == '>') || (open_c == '"' && close_c == '"'))
+                        {
+                            const float open_w = static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, token.text.substr(0, 1)));
+                            const float inner_w = static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, token.text.substr(1, token.text.size() - 2)));
+                            const int underline_y = round_to_int(center_y + line_height * 0.42F);
+                            surface.draw_line(
+                                device_context,
+                                round_to_int(token_x + open_w),
+                                underline_y,
+                                round_to_int(token_x + open_w + inner_w),
+                                underline_y,
+                                surface.m_palette.include_header
+                            );
+                        }
+                    }
+
                     token_x += static_cast<float>(surface.get_text_width(
                         device_context, *surface.m_editor_font, token.text));
                 }
@@ -5891,65 +5917,68 @@ void TextEditor::draw_document(
         }
 
         // Render diagnostics squiggles under erroneous tokens
-        for (const auto& diag : line_diags)
+        if (!is_line_inactive)
         {
-            std::size_t start_col = diag.range.start.line == line_index ? diag.range.start.character : 0;
-            std::size_t end_col = diag.range.end.line == line_index ? diag.range.end.character : line.size();
-            if (end_col > line.size()) end_col = line.size();
-            if (start_col > line.size()) start_col = 0;
+            for (const auto& diag : line_diags)
+            {
+                std::size_t start_col = diag.range.start.line == line_index ? diag.range.start.character : 0;
+                std::size_t end_col = diag.range.end.line == line_index ? diag.range.end.character : line.size();
+                if (end_col > line.size()) end_col = line.size();
+                if (start_col > line.size()) start_col = 0;
 
-            // Smart include range expansion for header path diagnostics
-            if (line.find("#include") != std::string::npos) {
-                const std::size_t first_quote = line.find_first_of("\"<");
-                const std::size_t last_quote = line.find_last_of("\">");
-                if (first_quote != std::string::npos && last_quote != std::string::npos && last_quote > first_quote) {
-                    if (start_col <= first_quote || (end_col - start_col) <= 2) {
-                        start_col = first_quote;
-                        end_col = last_quote + 1;
+                // Smart include range expansion for header path diagnostics
+                if (line.find("#include") != std::string::npos) {
+                    const std::size_t first_quote = line.find_first_of("\"<");
+                    const std::size_t last_quote = line.find_last_of("\">");
+                    if (first_quote != std::string::npos && last_quote != std::string::npos && last_quote > first_quote) {
+                        if (start_col <= first_quote || (end_col - start_col) <= 2) {
+                            start_col = first_quote;
+                            end_col = last_quote + 1;
+                        }
                     }
                 }
-            }
 
-            if (start_col >= end_col) {
-                start_col = 0;
-                end_col = line.size();
-            }
+                if (start_col >= end_col) {
+                    start_col = 0;
+                    end_col = line.size();
+                }
 
-            float diag_start_x = code_x;
-            if (start_col > 0 && start_col <= line.size())
-            {
-                diag_start_x += static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, line.substr(0, start_col)));
-            }
-            float diag_width = 8.0F;
-            if (end_col > start_col && start_col < line.size())
-            {
-                diag_width = static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, line.substr(start_col, end_col - start_col)));
-            }
+                float diag_start_x = code_x;
+                if (start_col > 0 && start_col <= line.size())
+                {
+                    diag_start_x += static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, line.substr(0, start_col)));
+                }
+                float diag_width = 8.0F;
+                if (end_col > start_col && start_col < line.size())
+                {
+                    diag_width = static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, line.substr(start_col, end_col - start_col)));
+                }
 
-            UI::Theme::Color squiggle_color = diag.severity == Language::Protocol::DiagnosticSeverity::Error
-                ? UI::Theme::Color{247, 84, 100, 255}
-                : (diag.severity == Language::Protocol::DiagnosticSeverity::Warning
-                    ? UI::Theme::Color{240, 167, 50, 255}
-                    : UI::Theme::Color{86, 182, 194, 255});
+                UI::Theme::Color squiggle_color = diag.severity == Language::Protocol::DiagnosticSeverity::Error
+                    ? UI::Theme::Color{247, 84, 100, 255}
+                    : (diag.severity == Language::Protocol::DiagnosticSeverity::Warning
+                        ? UI::Theme::Color{240, 167, 50, 255}
+                        : UI::Theme::Color{86, 182, 194, 255});
 
-            // Draw crisp sinusoidal wavy squiggle
-            float wave_x = diag_start_x;
-            const float wave_end_x = diag_start_x + std::max(diag_width, 6.0F);
-            const float wave_y = center_y + line_height * 0.42F;
-            const float wave_step = 3.0F * surface.m_dpi_scale;
-            const float wave_amp = 1.5F * surface.m_dpi_scale;
-            bool wave_up = true;
-            while (wave_x < wave_end_x)
-            {
-                const float next_x = std::min(wave_x + wave_step, wave_end_x);
-                const float y1 = wave_up ? (wave_y - wave_amp) : (wave_y + wave_amp);
-                const float y2 = wave_up ? (wave_y + wave_amp) : (wave_y - wave_amp);
-                surface.draw_line(device_context,
-                    round_to_int(wave_x), round_to_int(y1),
-                    round_to_int(next_x), round_to_int(y2),
-                    squiggle_color);
-                wave_x = next_x;
-                wave_up = !wave_up;
+                // Draw crisp sinusoidal wavy squiggle
+                float wave_x = diag_start_x;
+                const float wave_end_x = diag_start_x + std::max(diag_width, 6.0F);
+                const float wave_y = center_y + line_height * 0.42F;
+                const float wave_step = 3.0F * surface.m_dpi_scale;
+                const float wave_amp = 1.5F * surface.m_dpi_scale;
+                bool wave_up = true;
+                while (wave_x < wave_end_x)
+                {
+                    const float next_x = std::min(wave_x + wave_step, wave_end_x);
+                    const float y1 = wave_up ? (wave_y - wave_amp) : (wave_y + wave_amp);
+                    const float y2 = wave_up ? (wave_y + wave_amp) : (wave_y - wave_amp);
+                    surface.draw_line(device_context,
+                        round_to_int(wave_x), round_to_int(y1),
+                        round_to_int(next_x), round_to_int(y2),
+                        squiggle_color);
+                    wave_x = next_x;
+                    wave_up = !wave_up;
+                }
             }
         }
 
@@ -6428,12 +6457,14 @@ void TextEditor::draw_document(
                 const std::string_view lstr = split_doc.get_line(line_index);
                 float tok_x = right_code_x;
 
+                const bool r_is_line_inactive = split_doc.is_line_inactive(line_index);
                 const auto r_diags = split_doc.get_diagnostics_for_line(line_index);
                 const std::string r_doc_uri = make_lsp_uri(split_doc.get_file_name());
                 const auto r_semantic_spans = Language::LanguageServerManager::instance().get_semantic_tokens_manager().get_tokens_for_line(r_doc_uri, line_index);
 
                 auto is_r_token_unused = [&](std::size_t tok_start, std::size_t tok_len) -> bool
                 {
+                    if (r_is_line_inactive) return true;
                     const std::size_t tok_end = tok_start + tok_len;
                     for (const auto& diag : r_diags)
                     {
@@ -6549,6 +6580,27 @@ void TextEditor::draw_document(
                                 tok_x,
                                 cy,
                                 get_effective_r_token_color(t.kind, rbytes, t.text.size()));
+
+                            if (t.kind == UI::Editor::EditorTokenKind::IncludeHeader && !r_is_line_inactive && t.text.size() > 2)
+                            {
+                                const char open_c = t.text.front();
+                                const char close_c = t.text.back();
+                                if ((open_c == '<' && close_c == '>') || (open_c == '"' && close_c == '"'))
+                                {
+                                    const float open_w = static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, t.text.substr(0, 1)));
+                                    const float inner_w = static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, t.text.substr(1, t.text.size() - 2)));
+                                    const int underline_y = round_to_int(cy + line_height * 0.42F);
+                                    surface.draw_line(
+                                        device_context,
+                                        round_to_int(tok_x + open_w),
+                                        underline_y,
+                                        round_to_int(tok_x + open_w + inner_w),
+                                        underline_y,
+                                        surface.m_palette.include_header
+                                    );
+                                }
+                            }
+
                             tok_x += static_cast<float>(surface.get_text_width(
                                 device_context, *surface.m_editor_font, t.text));
                         }
@@ -6572,47 +6624,50 @@ void TextEditor::draw_document(
                 }
 
                 // Diagnostics squiggles for right pane
-                for (const auto& diag : r_diags)
+                if (!r_is_line_inactive)
                 {
-                    std::size_t start_col = diag.range.start.line == line_index ? diag.range.start.character : 0;
-                    std::size_t end_col = diag.range.end.line == line_index ? diag.range.end.character : lstr.size();
-                    if (end_col > lstr.size()) end_col = lstr.size();
-                    if (start_col >= end_col) end_col = std::min(start_col + 1, lstr.size());
-
-                    float diag_start_x = right_code_x;
-                    if (start_col > 0 && start_col <= lstr.size())
+                    for (const auto& diag : r_diags)
                     {
-                        diag_start_x += static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, lstr.substr(0, start_col)));
-                    }
-                    float diag_width = 8.0F;
-                    if (end_col > start_col && start_col < lstr.size())
-                    {
-                        diag_width = static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, lstr.substr(start_col, end_col - start_col)));
-                    }
+                        std::size_t start_col = diag.range.start.line == line_index ? diag.range.start.character : 0;
+                        std::size_t end_col = diag.range.end.line == line_index ? diag.range.end.character : lstr.size();
+                        if (end_col > lstr.size()) end_col = lstr.size();
+                        if (start_col >= end_col) end_col = std::min(start_col + 1, lstr.size());
 
-                    const UI::Theme::Color squiggle_color = diag.severity == Language::Protocol::DiagnosticSeverity::Error
-                        ? UI::Theme::Color{247, 84, 100, 255}
-                        : (diag.severity == Language::Protocol::DiagnosticSeverity::Warning
-                            ? UI::Theme::Color{240, 167, 50, 255}
-                            : UI::Theme::Color{86, 182, 194, 255});
+                        float diag_start_x = right_code_x;
+                        if (start_col > 0 && start_col <= lstr.size())
+                        {
+                            diag_start_x += static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, lstr.substr(0, start_col)));
+                        }
+                        float diag_width = 8.0F;
+                        if (end_col > start_col && start_col < lstr.size())
+                        {
+                            diag_width = static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, lstr.substr(start_col, end_col - start_col)));
+                        }
 
-                    float wave_x = diag_start_x;
-                    const float wave_end_x = diag_start_x + std::max(diag_width, 6.0F);
-                    const float wave_y = cy + line_height * 0.42F;
-                    const float wave_step = 3.0F * scale;
-                    const float wave_amp = 1.5F * scale;
-                    bool wave_up = true;
-                    while (wave_x < wave_end_x)
-                    {
-                        const float next_x = std::min(wave_x + wave_step, wave_end_x);
-                        const float y1 = wave_up ? (wave_y - wave_amp) : (wave_y + wave_amp);
-                        const float y2 = wave_up ? (wave_y + wave_amp) : (wave_y - wave_amp);
-                        surface.draw_line(device_context,
-                            round_to_int(wave_x), round_to_int(y1),
-                            round_to_int(next_x), round_to_int(y2),
-                            squiggle_color);
-                        wave_x = next_x;
-                        wave_up = !wave_up;
+                        const UI::Theme::Color squiggle_color = diag.severity == Language::Protocol::DiagnosticSeverity::Error
+                            ? UI::Theme::Color{247, 84, 100, 255}
+                            : (diag.severity == Language::Protocol::DiagnosticSeverity::Warning
+                                ? UI::Theme::Color{240, 167, 50, 255}
+                                : UI::Theme::Color{86, 182, 194, 255});
+
+                        float wave_x = diag_start_x;
+                        const float wave_end_x = diag_start_x + std::max(diag_width, 6.0F);
+                        const float wave_y = cy + line_height * 0.42F;
+                        const float wave_step = 3.0F * scale;
+                        const float wave_amp = 1.5F * scale;
+                        bool wave_up = true;
+                        while (wave_x < wave_end_x)
+                        {
+                            const float next_x = std::min(wave_x + wave_step, wave_end_x);
+                            const float y1 = wave_up ? (wave_y - wave_amp) : (wave_y + wave_amp);
+                            const float y2 = wave_up ? (wave_y + wave_amp) : (wave_y - wave_amp);
+                            surface.draw_line(device_context,
+                                round_to_int(wave_x), round_to_int(y1),
+                                round_to_int(next_x), round_to_int(y2),
+                                squiggle_color);
+                            wave_x = next_x;
+                            wave_up = !wave_up;
+                        }
                     }
                 }
 

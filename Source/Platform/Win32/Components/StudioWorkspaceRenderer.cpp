@@ -250,9 +250,25 @@ void StudioWorkspaceRenderer::sync_shader_sandbox() const {
     }
 
     if (Services::Shader::ShaderService::is_shader_source_candidate(full_text, ext) && !full_text.empty()) {
-      const_cast<StudioWorkspaceRenderer*>(this)->m_shader_sandbox_panel.set_source_code(full_text);
+      const_cast<StudioWorkspaceRenderer*>(this)->m_shader_sandbox_panel.stage_source_code(full_text);
     }
   }
+}
+
+bool StudioWorkspaceRenderer::build_and_simulate_current_shader() {
+  if (const UI::Editor::TextDocumentModel *doc =
+          m_text_editor.get_document()) {
+    std::string full_text;
+    for (const auto &line : doc->get_lines()) {
+      full_text += line;
+      full_text += '\n';
+    }
+    if (!full_text.empty()) {
+      m_shader_sandbox_panel.set_visible(true);
+      return m_shader_sandbox_panel.build_and_run(full_text);
+    }
+  }
+  return false;
 }
 
 bool StudioWorkspaceRenderer::open_file(const std::filesystem::path &path) {
@@ -445,6 +461,13 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
       m_terminal_panel.handle_pointer_press(layout, point_x, point_y)) {
     m_tool_sidebar.set_focused(false);
     return true;
+  }
+  if (m_shader_sandbox_panel.is_visible() &&
+      m_shader_sandbox_panel.contains(layout, point_x, point_y)) {
+    m_tool_sidebar.set_focused(false);
+    m_terminal_panel.set_focused(false);
+    sync_shader_sandbox();
+    return m_shader_sandbox_panel.handle_pointer_press(layout, point_x, point_y);
   }
   m_terminal_panel.set_focused(false);
   m_tool_sidebar.set_focused(false);

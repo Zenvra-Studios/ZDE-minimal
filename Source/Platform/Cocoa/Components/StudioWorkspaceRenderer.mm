@@ -1629,6 +1629,16 @@ std::filesystem::path StudioWorkspaceRenderer::resolve_icon_path(
     {
         return symbol_folder;
     }
+    const std::filesystem::path symbol_file_src = m_icon_asset_root / "vscode-symbols" / "src" / "icons" / "files" / filename;
+    if (std::filesystem::is_regular_file(symbol_file_src, path_error))
+    {
+        return symbol_file_src;
+    }
+    const std::filesystem::path symbol_folder_src = m_icon_asset_root / "vscode-symbols" / "src" / "icons" / "folders" / filename;
+    if (std::filesystem::is_regular_file(symbol_folder_src, path_error))
+    {
+        return symbol_folder_src;
+    }
     const std::filesystem::path symbol_file_legacy = m_icon_asset_root / "vscode-symbols" / "files" / filename;
     if (std::filesystem::is_regular_file(symbol_file_legacy, path_error))
     {

@@ -64,9 +64,13 @@ public:
 
     [[nodiscard]] bool tick_animations() noexcept;
 
+    void stage_source_code(std::string_view source_code);
     void set_source_code(std::string_view source_code);
+    bool build_and_run(std::string_view source_code = "");
     void next_preset();
     void previous_preset();
+
+    [[nodiscard]] bool has_compiled_shader() const noexcept { return m_service.has_compiled_shader(); }
 
     [[nodiscard]] Services::Shader::ShaderService& get_service() noexcept { return m_service; }
     [[nodiscard]] const Services::Shader::ShaderService& get_service() const noexcept { return m_service; }
@@ -109,7 +113,7 @@ private:
 
     // Interactive button hover states
     bool m_hover_close = false;
-    bool m_hover_preset = false;
+    bool m_hover_build = false;
     bool m_hover_play = false;
     bool m_hover_reset = false;
     bool m_hover_scale = false;
@@ -119,7 +123,7 @@ private:
     bool m_viewport_mouse_down = false;
 
     mutable UI::Rect m_header_close_bounds{};
-    mutable UI::Rect m_header_preset_bounds{};
+    mutable UI::Rect m_ctrl_build_bounds{};
     mutable UI::Rect m_ctrl_play_bounds{};
     mutable UI::Rect m_ctrl_reset_bounds{};
     mutable UI::Rect m_ctrl_scale_bounds{};

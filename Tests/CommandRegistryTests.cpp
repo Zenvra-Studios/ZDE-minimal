@@ -1323,6 +1323,102 @@ void test_graphics_driver_and_ui_modal()
     expect(!about.is_visible(), "Clicking OK button must close the About modal");
 }
 
+void test_block_comment_continuation()
+{
+    using namespace Zenvra::UI::Editor;
+
+    // 1. Enter after "/**" generates " * " and " **/"
+    {
+        TextDocumentModel doc;
+        doc.replace_contents({"/**"}, "test.cpp", {}, "LF");
+        static_cast<void>(doc.set_caret(0, 3));
+        expect(doc.execute(EditorInputCommand::InsertNewLine), "InsertNewLine after /** must succeed");
+        expect(doc.get_line_count() == 3, "must create 3 lines after /** newline");
+        expect(doc.get_line(0) == "/**", "line 0 is /**");
+        expect(doc.get_line(1) == " * ", "line 1 is ' * '");
+        expect(doc.get_line(2) == " **/", "line 2 is ' **/'");
+        expect(doc.get_caret_line() == 1 && doc.get_caret_column() == 3, "caret must be at end of line 1 (col 3)");
+
+        // 2. Pressing Enter directly on line 1 (" * ") MUST continue with another " * "
+        expect(doc.execute(EditorInputCommand::InsertNewLine), "InsertNewLine on empty ' * ' must succeed");
+        expect(doc.get_line_count() == 4, "must create 4 lines now");
+        expect(doc.get_line(0) == "/**", "line 0 is /**");
+        expect(doc.get_line(1) == " * ", "line 1 is ' * '");
+        expect(doc.get_line(2) == " * ", "line 2 is ' * '");
+        expect(doc.get_line(3) == " **/", "line 3 is ' **/'");
+        expect(doc.get_caret_line() == 2 && doc.get_caret_column() == 3, "caret must be on line 2 at col 3");
+
+        // 3. Typing text on line 2 and pressing Enter continues with " * "
+        expect(doc.insert_text("First line of comment"), "insert text on line 2");
+        expect(doc.execute(EditorInputCommand::InsertNewLine), "InsertNewLine after text must continue comment");
+        expect(doc.get_line_count() == 5, "must create 5 lines now");
+        expect(doc.get_line(1) == " * ", "line 1 is ' * '");
+        expect(doc.get_line(2) == " * First line of comment", "line 2 has text");
+        expect(doc.get_line(3) == " * ", "line 3 is continued comment");
+        expect(doc.get_line(4) == " **/", "line 4 is ' **/'");
+        expect(doc.get_caret_line() == 3 && doc.get_caret_column() == 3, "caret must be on line 3 at col 3");
+    }
+
+    // 4. Line with " *" (no trailing space) continues with " * "
+    {
+        TextDocumentModel doc;
+        doc.replace_contents({" *"}, "test.cpp", {}, "LF");
+        static_cast<void>(doc.set_caret(0, 2));
+        expect(doc.execute(EditorInputCommand::InsertNewLine), "InsertNewLine on ' *' must succeed");
+        expect(doc.get_line_count() == 2, "must have 2 lines");
+        expect(doc.get_line(0) == " *", "line 0 is ' *'");
+        expect(doc.get_line(1) == " * ", "line 1 is ' * '");
+        expect(doc.get_caret_line() == 1 && doc.get_caret_column() == 3, "caret on line 1 at col 3");
+    }
+
+    // 5. Indented block comment continuation
+    {
+        TextDocumentModel doc;
+        doc.replace_contents({"    /**"}, "test.cpp", {}, "LF");
+        static_cast<void>(doc.set_caret(0, 7));
+        expect(doc.execute(EditorInputCommand::InsertNewLine), "InsertNewLine on indented /**");
+        expect(doc.get_line(0) == "    /**", "line 0 is indented /**");
+        expect(doc.get_line(1) == "     * ", "line 1 is indented '     * '");
+        expect(doc.get_line(2) == "     **/", "line 2 is indented '     **/'");
+        expect(doc.get_caret_line() == 1 && doc.get_caret_column() == 7, "caret at col 7");
+
+        // Continuing indented comment star
+        expect(doc.execute(EditorInputCommand::InsertNewLine), "InsertNewLine on indented '     * '");
+        expect(doc.get_line(1) == "     * ", "line 1 is '     * '");
+        expect(doc.get_line(2) == "     * ", "line 2 is '     * '");
+        expect(doc.get_line(3) == "     **/", "line 3 is '     **/'");
+        expect(doc.get_caret_line() == 2 && doc.get_caret_column() == 7, "caret at col 7");
+
+        // Pressing enter after closing tag un-indents to match /** indent
+        static_cast<void>(doc.set_caret(3, doc.get_line(3).size()));
+        expect(doc.execute(EditorInputCommand::InsertNewLine), "InsertNewLine after closing tag");
+        expect(doc.get_line(4) == "    ", "line 4 should align with /** (4 spaces)");
+    }
+
+    // 6. Pointer dereference outside comment is NOT treated as block comment
+    {
+        TextDocumentModel doc;
+        doc.replace_contents({"*ptr = 10;"}, "test.cpp", {}, "LF");
+        static_cast<void>(doc.set_caret(0, 10));
+        expect(doc.execute(EditorInputCommand::InsertNewLine), "InsertNewLine after pointer deref");
+        expect(doc.get_line_count() == 2, "must have 2 lines");
+        expect(doc.get_line(0) == "*ptr = 10;", "line 0 is unchanged");
+        expect(doc.get_line(1) == "", "line 1 is empty, not a comment star");
+    }
+
+    // 7. Empty line between /** and **/ continues with " * "
+    {
+        TextDocumentModel doc;
+        doc.replace_contents({"/**", " *", "", " **/"}, "test.cpp", {}, "LF");
+        static_cast<void>(doc.set_caret(2, 0)); // on empty line 2
+        expect(doc.execute(EditorInputCommand::InsertNewLine), "InsertNewLine on empty line inside comment");
+        expect(doc.get_line(2) == "", "line 2 was empty");
+        expect(doc.get_line(3) == " * ", "new line 3 gets ' * '");
+        expect(doc.get_line(4) == " **/", "line 4 is ' **/'");
+        expect(doc.get_caret_line() == 3 && doc.get_caret_column() == 3, "caret on line 3 at col 3");
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1346,6 +1442,7 @@ int main(int argc, char** argv)
     test_editor_selection_and_file_crud();
     test_move_line_up_and_down();
     test_multi_cursor_support();
+    test_block_comment_continuation();
     test_graphics_driver_and_ui_modal();
 
     if (failure_count != 0)

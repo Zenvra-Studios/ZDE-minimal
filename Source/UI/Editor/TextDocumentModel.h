@@ -137,6 +137,7 @@ public:
     [[nodiscard]] std::vector<Language::Protocol::Diagnostic> get_diagnostics() const;
     [[nodiscard]] std::vector<Language::Protocol::Diagnostic> get_diagnostics_for_line(std::size_t line) const;
     [[nodiscard]] Language::Syntax::TokenizerState get_line_state(std::size_t line_index) const noexcept;
+    [[nodiscard]] bool is_line_inactive(std::size_t line_index) const noexcept;
 
     bool toggle_breakpoint(std::size_t line_index);
     [[nodiscard]] bool has_breakpoint(std::size_t line_index) const noexcept;
@@ -166,6 +167,9 @@ private:
     mutable std::vector<Language::Syntax::TokenizerState> m_line_states;
     mutable std::size_t m_line_states_valid_up_to = 0;
     mutable std::size_t m_line_states_revision = 0;
+    void update_inactive_lines_cache() const noexcept;
+    mutable std::vector<bool> m_inactive_lines;
+    mutable std::size_t m_inactive_lines_revision = 0;
     std::size_t m_revision = 0;
     bool m_dirty = false;
     bool m_read_only = false;

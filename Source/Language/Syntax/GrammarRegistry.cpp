@@ -632,7 +632,7 @@ void GrammarRegistry::initialize_default_grammars()
         html_rule.block_comment_end = "-->";
         html_rule.string_delimiters = {"\"", "'"};
         html_rule.keywords = {
-            "!DOCTYPE", "html", "head", "title", "base", "link", "meta", "style", "script",
+            "!DOCTYPE", "DOCTYPE", "doctype", "html", "head", "title", "base", "link", "meta", "style", "script",
             "noscript", "body", "section", "nav", "article", "aside", "h1", "h2", "h3", "h4",
             "h5", "h6", "header", "footer", "address", "main", "p", "hr", "pre", "blockquote",
             "ol", "ul", "menu", "li", "dl", "dt", "dd", "figure", "figcaption", "div", "a",
@@ -643,7 +643,23 @@ void GrammarRegistry::initialize_default_grammars()
             "table", "caption", "colgroup", "col", "tbody", "thead", "tfoot", "tr", "td",
             "th", "form", "label", "input", "button", "select", "datalist", "optgroup",
             "option", "textarea", "output", "progress", "meter", "fieldset", "legend",
-            "details", "summary", "dialog", "template", "slot", "canvas", "svg"
+            "details", "summary", "dialog", "template", "slot", "canvas", "svg",
+            // CSS keyword values & selectors in style blocks
+            "collapse", "separate", "solid", "dashed", "dotted", "double", "groove", "ridge", "inset", "outset",
+            "none", "hidden", "visible", "block", "inline", "inline-block", "flex", "inline-flex", "grid", "inline-grid",
+            "table-row", "table-cell", "relative", "absolute", "fixed", "sticky", "static",
+            "left", "right", "center", "justify", "start", "end", "top", "bottom", "middle",
+            "auto", "inherit", "initial", "unset", "revert", "revert-layer",
+            "bold", "bolder", "lighter", "normal", "italic", "oblique",
+            "pointer", "default", "crosshair", "move", "not-allowed", "grab", "grabbing", "text", "wait",
+            "uppercase", "lowercase", "capitalize", "nowrap", "wrap", "wrap-reverse",
+            "row", "row-reverse", "column", "column-reverse", "space-between", "space-around", "space-evenly", "stretch",
+            "border-box", "content-box", "contain", "cover", "fill", "scale-down",
+            "sans-serif", "serif", "monospace", "cursive", "fantasy", "system-ui",
+            "scroll", "clip", "break-word", "break-all", "transparent", "currentColor",
+            "black", "white", "red", "green", "blue", "yellow", "orange", "purple", "pink",
+            "gray", "grey", "silver", "navy", "teal", "aqua", "lime", "maroon", "fuchsia", "olive",
+            "!important", "important"
         };
         html_rule.types = {
             "class", "id", "style", "title", "lang", "dir", "accesskey", "tabindex", "hidden",
@@ -654,9 +670,102 @@ void GrammarRegistry::initialize_default_grammars()
             "method", "enctype", "autocomplete", "autofocus", "pattern", "min", "max",
             "step", "rows", "cols", "wrap", "for", "charset", "http-equiv", "content",
             "onclick", "onload", "onchange", "onsubmit", "onkeydown", "onkeyup", "onfocus",
-            "onblur", "onmouseover", "onmouseout", "onmouseenter", "onmouseleave"
+            "onblur", "onmouseover", "onmouseout", "onmouseenter", "onmouseleave",
+            // CSS properties in style blocks
+            "border", "border-collapse", "border-spacing", "border-color", "border-style", "border-width",
+            "border-top", "border-right", "border-bottom", "border-left",
+            "border-radius", "border-top-left-radius", "border-top-right-radius", "border-bottom-left-radius", "border-bottom-right-radius",
+            "min-width", "max-width", "min-height", "max-height",
+            "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+            "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+            "padding-inline", "padding-block", "margin-inline", "margin-block",
+            "color", "background", "background-color", "background-image", "background-position", "background-repeat", "background-size", "background-attachment",
+            "font", "font-family", "font-size", "font-weight", "font-style", "font-display",
+            "text-align", "text-decoration", "text-transform", "text-overflow", "text-shadow", "text-indent",
+            "line-height", "letter-spacing", "word-spacing", "word-break", "white-space",
+            "display", "position", "top", "right", "bottom", "left", "z-index",
+            "overflow", "overflow-x", "overflow-y", "float", "clear", "visibility", "opacity",
+            "flex", "flex-direction", "flex-wrap", "flex-flow", "flex-grow", "flex-shrink", "flex-basis",
+            "justify-content", "align-items", "align-content", "align-self", "gap", "row-gap", "column-gap",
+            "grid", "grid-template-columns", "grid-template-rows", "grid-template-areas", "grid-auto-columns", "grid-auto-rows", "grid-auto-flow",
+            "grid-column", "grid-row", "grid-area",
+            "box-sizing", "box-shadow", "outline", "outline-color", "outline-style", "outline-width", "outline-offset",
+            "cursor", "user-select", "pointer-events",
+            "transition", "transition-property", "transition-duration", "transition-timing-function", "transition-delay",
+            "animation", "animation-name", "animation-duration", "animation-timing-function", "animation-delay", "animation-iteration-count", "animation-direction", "animation-fill-mode", "animation-play-state",
+            "transform", "transform-origin", "filter", "backdrop-filter",
+            "aspect-ratio", "object-fit", "object-position",
+            "quotes", "counter-reset", "counter-increment",
+            "list-style", "list-style-type", "list-style-position", "list-style-image",
+            "vertical-align", "resize", "accent-color", "appearance"
         };
         register_grammar(std::move(html_rule));
+    }
+
+    // Built-in for CSS / SCSS / LESS
+    {
+        GrammarRule css_rule;
+        css_rule.name = "CSS";
+        css_rule.extensions = {".css", ".scss", ".less", ".pcss", ".wxss"};
+        css_rule.line_comment = "//";
+        css_rule.block_comment_start = "/*";
+        css_rule.block_comment_end = "*/";
+        css_rule.string_delimiters = {"\"", "'"};
+        css_rule.keywords = {
+            // HTML tag selectors
+            "html", "body", "div", "span", "p", "a", "table", "thead", "tbody", "tfoot", "tr", "th", "td",
+            "ul", "ol", "li", "dl", "dt", "dd", "form", "input", "button", "select", "textarea", "label",
+            "h1", "h2", "h3", "h4", "h5", "h6", "header", "footer", "nav", "section", "article", "aside",
+            "main", "figure", "figcaption", "img", "svg", "canvas", "video", "audio", "iframe", "pre", "code",
+            "hr", "br",
+            // At-rules
+            "@media", "@keyframes", "@import", "@font-face", "@supports", "@charset", "@namespace", "@page", "@layer", "@container",
+            // CSS keyword values
+            "collapse", "separate", "solid", "dashed", "dotted", "double", "groove", "ridge", "inset", "outset",
+            "none", "hidden", "visible", "block", "inline", "inline-block", "flex", "inline-flex", "grid", "inline-grid",
+            "table-row", "table-cell", "relative", "absolute", "fixed", "sticky", "static",
+            "left", "right", "center", "justify", "start", "end", "top", "bottom", "middle",
+            "auto", "inherit", "initial", "unset", "revert", "revert-layer",
+            "bold", "bolder", "lighter", "normal", "italic", "oblique",
+            "pointer", "default", "crosshair", "move", "not-allowed", "grab", "grabbing", "text", "wait",
+            "uppercase", "lowercase", "capitalize", "nowrap", "wrap", "wrap-reverse",
+            "row", "row-reverse", "column", "column-reverse", "space-between", "space-around", "space-evenly", "stretch",
+            "border-box", "content-box", "contain", "cover", "fill", "scale-down",
+            "sans-serif", "serif", "monospace", "cursive", "fantasy", "system-ui",
+            "scroll", "clip", "break-word", "break-all", "transparent", "currentColor",
+            "black", "white", "red", "green", "blue", "yellow", "orange", "purple", "pink",
+            "gray", "grey", "silver", "navy", "teal", "aqua", "lime", "maroon", "fuchsia", "olive",
+            "!important", "important"
+        };
+        css_rule.types = {
+            "border", "border-collapse", "border-spacing", "border-color", "border-style", "border-width",
+            "border-top", "border-right", "border-bottom", "border-left",
+            "border-radius", "border-top-left-radius", "border-top-right-radius", "border-bottom-left-radius", "border-bottom-right-radius",
+            "width", "min-width", "max-width", "height", "min-height", "max-height",
+            "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+            "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+            "padding-inline", "padding-block", "margin-inline", "margin-block",
+            "color", "background", "background-color", "background-image", "background-position", "background-repeat", "background-size", "background-attachment",
+            "font", "font-family", "font-size", "font-weight", "font-style", "font-display",
+            "text-align", "text-decoration", "text-transform", "text-overflow", "text-shadow", "text-indent",
+            "line-height", "letter-spacing", "word-spacing", "word-break", "white-space",
+            "display", "position", "top", "right", "bottom", "left", "z-index",
+            "overflow", "overflow-x", "overflow-y", "float", "clear", "visibility", "opacity",
+            "flex", "flex-direction", "flex-wrap", "flex-flow", "flex-grow", "flex-shrink", "flex-basis",
+            "justify-content", "align-items", "align-content", "align-self", "gap", "row-gap", "column-gap",
+            "grid", "grid-template-columns", "grid-template-rows", "grid-template-areas", "grid-auto-columns", "grid-auto-rows", "grid-auto-flow",
+            "grid-column", "grid-row", "grid-area",
+            "box-sizing", "box-shadow", "outline", "outline-color", "outline-style", "outline-width", "outline-offset",
+            "cursor", "user-select", "pointer-events",
+            "transition", "transition-property", "transition-duration", "transition-timing-function", "transition-delay",
+            "animation", "animation-name", "animation-duration", "animation-timing-function", "animation-delay", "animation-iteration-count", "animation-direction", "animation-fill-mode", "animation-play-state",
+            "transform", "transform-origin", "filter", "backdrop-filter",
+            "aspect-ratio", "object-fit", "object-position",
+            "content", "quotes", "counter-reset", "counter-increment",
+            "list-style", "list-style-type", "list-style-position", "list-style-image",
+            "vertical-align", "resize", "accent-color", "appearance"
+        };
+        register_grammar(std::move(css_rule));
     }
 
     // Built-in for C#
@@ -912,6 +1021,106 @@ void GrammarRegistry::initialize_default_grammars()
             "ptr", "rel", "abs", "near", "far", "short", "offset", "wrt"
         };
         register_grammar(std::move(asm_rule));
+    }
+
+    // Built-in for PHP (PHP 7/8, Laravel Blade, Symfony, WordPress)
+    {
+        GrammarRule php_rule;
+        php_rule.name = "PHP";
+        php_rule.extensions = {".php", ".phtml", ".php4", ".php5", ".php7", ".php8", ".phps", ".blade.php", ".blade"};
+        php_rule.line_comment = "//";
+        php_rule.block_comment_start = "/*";
+        php_rule.block_comment_end = "*/";
+        php_rule.string_delimiters = {"\"", "'"};
+        php_rule.keywords = {
+            "abstract", "and", "as", "break", "callable", "case", "catch", "class", "clone",
+            "const", "continue", "declare", "default", "die", "do", "echo", "else", "elseif",
+            "empty", "enddeclare", "endfor", "endforeach", "endif", "endswitch", "endwhile",
+            "eval", "exit", "extends", "final", "finally", "fn", "for", "foreach", "function",
+            "global", "goto", "if", "implements", "include", "include_once", "instanceof",
+            "insteadof", "interface", "isset", "list", "match", "namespace", "new", "or",
+            "print", "private", "protected", "public", "readonly", "require", "require_once",
+            "return", "static", "switch", "throw", "trait", "try", "unset", "use", "var",
+            "while", "xor", "yield", "yield from", "parent", "self", "true", "false", "null",
+            // Standard HTML5 semantic elements & DOCTYPE for harmonious template highlighting
+            "!DOCTYPE", "DOCTYPE", "doctype", "html", "head", "title", "base", "link", "meta", "style", "script",
+            "noscript", "body", "section", "nav", "article", "aside", "h1", "h2", "h3", "h4",
+            "h5", "h6", "header", "footer", "address", "main", "p", "hr", "pre", "blockquote",
+            "ol", "ul", "menu", "li", "dl", "dt", "dd", "figure", "figcaption", "div", "a",
+            "em", "strong", "small", "s", "cite", "q", "dfn", "abbr", "ruby", "rt", "rp",
+            "data", "time", "code", "samp", "kbd", "sub", "sup", "i", "b", "u",
+            "mark", "bdi", "bdo", "span", "br", "wbr", "ins", "del", "picture", "source",
+            "img", "iframe", "embed", "object", "video", "audio", "track", "map", "area",
+            "table", "caption", "colgroup", "col", "tbody", "thead", "tfoot", "tr", "td",
+            "th", "form", "label", "input", "button", "select", "datalist", "optgroup",
+            "option", "textarea", "output", "progress", "meter", "fieldset", "legend",
+            "details", "summary", "dialog", "template", "slot", "canvas", "svg",
+            // CSS keyword values & selectors in template style blocks
+            "collapse", "separate", "solid", "dashed", "dotted", "double", "groove", "ridge", "inset", "outset",
+            "none", "hidden", "visible", "block", "inline", "inline-block", "flex", "inline-flex", "grid", "inline-grid",
+            "table-row", "table-cell", "relative", "absolute", "fixed", "sticky", "static",
+            "left", "right", "center", "justify", "start", "end", "top", "bottom", "middle",
+            "auto", "inherit", "initial", "unset", "revert", "revert-layer",
+            "bold", "bolder", "lighter", "normal", "italic", "oblique",
+            "pointer", "default", "crosshair", "move", "not-allowed", "grab", "grabbing", "text", "wait",
+            "uppercase", "lowercase", "capitalize", "nowrap", "wrap", "wrap-reverse",
+            "row", "row-reverse", "column", "column-reverse", "space-between", "space-around", "space-evenly", "stretch",
+            "border-box", "content-box", "contain", "cover", "fill", "scale-down",
+            "sans-serif", "serif", "monospace", "cursive", "fantasy", "system-ui",
+            "scroll", "clip", "break-word", "break-all", "transparent", "currentColor",
+            "black", "white", "red", "green", "blue", "yellow", "orange", "purple", "pink",
+            "gray", "grey", "silver", "navy", "teal", "aqua", "lime", "maroon", "fuchsia", "olive",
+            "!important", "important"
+        };
+        php_rule.types = {
+            "int", "integer", "float", "double", "string", "bool", "boolean", "array", "object",
+            "iterable", "mixed", "void", "never", "null", "false", "true", "resource",
+            "stdClass", "Closure", "Generator", "Throwable", "Exception", "ErrorException",
+            "Error", "CompileError", "ParseError", "TypeError", "ArgumentCountError",
+            "ArithmeticError", "DivisionByZeroError", "UnhandledMatchError", "Fiber",
+            "DateTime", "DateTimeImmutable", "DateTimeZone", "DateInterval", "DatePeriod",
+            "Stringable", "Countable", "Iterator", "IteratorAggregate", "ArrayAccess", "Serializable",
+            "JsonSerializable", "Traversable", "WeakReference", "WeakMap", "PDO", "PDOStatement",
+            "mysqli", "mysqli_result", "SimpleXMLElement", "DOMDocument", "DOMElement", "DOMNode",
+            // HTML attributes for template markup
+            "class", "id", "style", "title", "lang", "dir", "accesskey", "tabindex", "hidden",
+            "draggable", "spellcheck", "contenteditable", "role", "aria-label", "aria-hidden",
+            "aria-expanded", "aria-checked", "aria-controls", "href", "src", "alt",
+            "width", "height", "target", "rel", "type", "value", "name", "placeholder",
+            "disabled", "readonly", "required", "checked", "selected", "multiple", "action",
+            "method", "enctype", "autocomplete", "autofocus", "pattern", "min", "max",
+            "step", "rows", "cols", "wrap", "for", "charset", "http-equiv", "content",
+            "onclick", "onload", "onchange", "onsubmit", "onkeydown", "onkeyup", "onfocus",
+            "onblur", "onmouseover", "onmouseout", "onmouseenter", "onmouseleave",
+            // CSS properties in template style blocks
+            "border", "border-collapse", "border-spacing", "border-color", "border-style", "border-width",
+            "border-top", "border-right", "border-bottom", "border-left",
+            "border-radius", "border-top-left-radius", "border-top-right-radius", "border-bottom-left-radius", "border-bottom-right-radius",
+            "min-width", "max-width", "min-height", "max-height",
+            "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+            "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+            "padding-inline", "padding-block", "margin-inline", "margin-block",
+            "color", "background", "background-color", "background-image", "background-position", "background-repeat", "background-size", "background-attachment",
+            "font", "font-family", "font-size", "font-weight", "font-style", "font-display",
+            "text-align", "text-decoration", "text-transform", "text-overflow", "text-shadow", "text-indent",
+            "line-height", "letter-spacing", "word-spacing", "word-break", "white-space",
+            "display", "position", "top", "right", "bottom", "left", "z-index",
+            "overflow", "overflow-x", "overflow-y", "float", "clear", "visibility", "opacity",
+            "flex", "flex-direction", "flex-wrap", "flex-flow", "flex-grow", "flex-shrink", "flex-basis",
+            "justify-content", "align-items", "align-content", "align-self", "gap", "row-gap", "column-gap",
+            "grid", "grid-template-columns", "grid-template-rows", "grid-template-areas", "grid-auto-columns", "grid-auto-rows", "grid-auto-flow",
+            "grid-column", "grid-row", "grid-area",
+            "box-sizing", "box-shadow", "outline", "outline-color", "outline-style", "outline-width", "outline-offset",
+            "cursor", "user-select", "pointer-events",
+            "transition", "transition-property", "transition-duration", "transition-timing-function", "transition-delay",
+            "animation", "animation-name", "animation-duration", "animation-timing-function", "animation-delay", "animation-iteration-count", "animation-direction", "animation-fill-mode", "animation-play-state",
+            "transform", "transform-origin", "filter", "backdrop-filter",
+            "aspect-ratio", "object-fit", "object-position",
+            "quotes", "counter-reset", "counter-increment",
+            "list-style", "list-style-type", "list-style-position", "list-style-image",
+            "vertical-align", "resize", "accent-color", "appearance"
+        };
+        register_grammar(std::move(php_rule));
     }
 }
 

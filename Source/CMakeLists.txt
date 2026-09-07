@@ -132,7 +132,10 @@ if(WIN32)
     endif()
 
     # Deploy clangd binary strictly inside plugins/lsp/ folder only (no root duplicates)
-    set(CLANGD_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/clangd-windows-22.1.6/clangd.exe")
+    set(CLANGD_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/lsp/clangd-windows-22.1.6/clangd.exe")
+    if(NOT EXISTS "${CLANGD_SRC}")
+        set(CLANGD_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/clangd-windows-22.1.6/clangd.exe")
+    endif()
     if(EXISTS "${CLANGD_SRC}")
         add_custom_command(TARGET ZDE POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ZDE>/plugins/lsp"
@@ -144,7 +147,10 @@ if(WIN32)
     endif()
 
     # Deploy cmake-ls binary strictly inside plugins/lsp/ folder (cmakels.exe only)
-    set(CMAKELS_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/cmake-ls/cmakels-win64.exe")
+    set(CMAKELS_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/lsp/cmake-ls/cmakels-win64.exe")
+    if(NOT EXISTS "${CMAKELS_SRC}")
+        set(CMAKELS_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/cmake-ls/cmakels-win64.exe")
+    endif()
     if(EXISTS "${CMAKELS_SRC}")
         add_custom_command(TARGET ZDE POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ZDE>/plugins/lsp"
@@ -156,7 +162,10 @@ if(WIN32)
     endif()
 
     # Deploy rust-analyzer binary strictly inside plugins/lsp/ folder
-    set(RUST_ANALYZER_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/rust-analyzer-x86_64-pc-windows-msvc/rust-analyzer.exe")
+    set(RUST_ANALYZER_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/lsp/rust-analyzer-x86_64-pc-windows-msvc/rust-analyzer.exe")
+    if(NOT EXISTS "${RUST_ANALYZER_SRC}")
+        set(RUST_ANALYZER_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/rust-analyzer-x86_64-pc-windows-msvc/rust-analyzer.exe")
+    endif()
     if(EXISTS "${RUST_ANALYZER_SRC}")
         add_custom_command(TARGET ZDE POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ZDE>/plugins/lsp"
@@ -166,7 +175,10 @@ if(WIN32)
     endif()
 
     # Deploy typescript-language-server binary strictly inside plugins/lsp/ folder
-    set(TLS_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/tls/typescript-language-server.exe")
+    set(TLS_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/lsp/tls/typescript-language-server.exe")
+    if(NOT EXISTS "${TLS_SRC}")
+        set(TLS_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/tls/typescript-language-server.exe")
+    endif()
     if(EXISTS "${TLS_SRC}")
         add_custom_command(TARGET ZDE POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ZDE>/plugins/lsp"
@@ -174,6 +186,45 @@ if(WIN32)
             COMMAND ${CMAKE_COMMAND} -E remove -f "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/tls.exe"
             COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/tls"
             COMMENT "Deploying typescript-language-server binary cleanly into plugins/lsp/..."
+        )
+    endif()
+
+    # Deploy gopls binary strictly inside plugins/lsp/ folder
+    set(GOPLS_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/lsp/gopls/gopls-v0.23.0.exe")
+    if(NOT EXISTS "${GOPLS_SRC}")
+        set(GOPLS_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/gopls/gopls-v0.23.0.exe")
+    endif()
+    if(EXISTS "${GOPLS_SRC}")
+        add_custom_command(TARGET ZDE POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ZDE>/plugins/lsp"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${GOPLS_SRC}" "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/gopls.exe"
+            COMMENT "Deploying gopls binary cleanly into plugins/lsp/..."
+        )
+    endif()
+
+    # Deploy emmet-ls binary strictly inside plugins/lsp/ folder
+    set(EMMET_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/lsp/emmet-ls/emmet-ls.exe")
+    if(NOT EXISTS "${EMMET_SRC}")
+        set(EMMET_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/emmet-ls/emmet-ls.exe")
+    endif()
+    if(EXISTS "${EMMET_SRC}")
+        add_custom_command(TARGET ZDE POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ZDE>/plugins/lsp"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${EMMET_SRC}" "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/emmet-ls.exe"
+            COMMENT "Deploying emmet-ls binary cleanly into plugins/lsp/..."
+        )
+    endif()
+
+    # Deploy phpantom_lsp binary strictly inside plugins/lsp/ folder
+    set(PHP_LS_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/lsp/php-ls/phpantom_lsp.exe")
+    if(NOT EXISTS "${PHP_LS_SRC}")
+        set(PHP_LS_SRC "${CMAKE_SOURCE_DIR}/ThirdParty/php-ls/phpantom_lsp.exe")
+    endif()
+    if(EXISTS "${PHP_LS_SRC}")
+        add_custom_command(TARGET ZDE POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ZDE>/plugins/lsp"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${PHP_LS_SRC}" "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/phpantom_lsp.exe"
+            COMMENT "Deploying phpantom_lsp binary cleanly into plugins/lsp/..."
         )
     endif()
 

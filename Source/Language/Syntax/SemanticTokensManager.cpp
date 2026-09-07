@@ -133,8 +133,10 @@ UI::Theme::Color SemanticTokensManager::get_token_color(
 
         case SemanticTokenType::Function:
         case SemanticTokenType::Method:
-        case SemanticTokenType::Macro:
             return palette.label;
+
+        case SemanticTokenType::Macro:
+            return palette.macro_symbol;
 
         case SemanticTokenType::Parameter:
         case SemanticTokenType::Variable:

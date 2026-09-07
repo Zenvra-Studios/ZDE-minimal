@@ -656,7 +656,7 @@ TEST(LanguageServerTests, SemanticTokensColorMapping) {
             palette.label);
   EXPECT_EQ(Language::Syntax::SemanticTokensManager::get_token_color(
                 Language::Syntax::SemanticTokenType::Macro, palette),
-            palette.label);
+            palette.macro_symbol);
 
   // Types map to palette.type (Cyan)
   EXPECT_EQ(Language::Syntax::SemanticTokensManager::get_token_color(
@@ -1227,10 +1227,12 @@ TEST(LanguageServerTests, SyntaxHighlightingDistinguishesClassesVariablesAndDefi
 
     for (std::size_t i = 0; i < count; ++i) {
       if (tokens[i].text == "#define" &&
-          tokens[i].kind == UI::Editor::EditorTokenKind::Keyword)
+          (tokens[i].kind == UI::Editor::EditorTokenKind::Directive ||
+           tokens[i].kind == UI::Editor::EditorTokenKind::Keyword))
         found_define_kw = true;
       if (tokens[i].text == "MAX_BUFFER_SIZE" &&
-          tokens[i].kind == UI::Editor::EditorTokenKind::Label)
+          (tokens[i].kind == UI::Editor::EditorTokenKind::Macro ||
+           tokens[i].kind == UI::Editor::EditorTokenKind::Label))
         found_macro_label = true;
       if (tokens[i].text == "4096" &&
           tokens[i].kind == UI::Editor::EditorTokenKind::Number)
@@ -1255,16 +1257,63 @@ TEST(LanguageServerTests, SyntaxHighlightingDistinguishesClassesVariablesAndDefi
 
     for (std::size_t i = 0; i < count; ++i) {
       if (tokens[i].text == "#include" &&
-          tokens[i].kind == UI::Editor::EditorTokenKind::Keyword)
+          (tokens[i].kind == UI::Editor::EditorTokenKind::Directive ||
+           tokens[i].kind == UI::Editor::EditorTokenKind::Keyword))
         found_include_kw = true;
       if (tokens[i].text == "<filesystem>" &&
-          tokens[i].kind == UI::Editor::EditorTokenKind::String)
+          (tokens[i].kind == UI::Editor::EditorTokenKind::IncludeHeader ||
+           tokens[i].kind == UI::Editor::EditorTokenKind::String))
         found_header_str = true;
     }
 
     EXPECT_TRUE(found_include_kw);
     EXPECT_TRUE(found_header_str);
   }
+
+  // 5. Check #if defined(_WIN32) directive and macro tokenization
+  {
+    std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        "#if defined(_WIN32)",
+        *grammar, tokens);
+    ASSERT_GT(count, 0u);
+
+    bool found_if = false;
+    bool found_defined = false;
+    bool found_macro = false;
+
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "#if" && tokens[i].kind == UI::Editor::EditorTokenKind::Directive)
+        found_if = true;
+      if (tokens[i].text == "defined" && tokens[i].kind == UI::Editor::EditorTokenKind::Directive)
+        found_defined = true;
+      if (tokens[i].text == "_WIN32" && tokens[i].kind == UI::Editor::EditorTokenKind::Macro)
+        found_macro = true;
+    }
+
+    EXPECT_TRUE(found_if);
+    EXPECT_TRUE(found_defined);
+    EXPECT_TRUE(found_macro);
+  }
+}
+
+TEST(LanguageServerTests, PreprocessorInactiveBranchEvaluation) {
+  UI::Editor::TextDocumentModel doc;
+  doc.replace_contents({
+      "#if defined(_WIN32)",
+      "#define ACTIVE_MACRO 1",
+      "#else",
+      "#include <unistd.h>",
+      "#endif"
+  }, "main.cpp", {}, "LF");
+
+#if defined(_WIN32)
+  EXPECT_FALSE(doc.is_line_inactive(0)); // #if defined(_WIN32)
+  EXPECT_FALSE(doc.is_line_inactive(1)); // #define ACTIVE_MACRO 1
+  EXPECT_FALSE(doc.is_line_inactive(2)); // #else (directive itself is not dimmed)
+  EXPECT_TRUE(doc.is_line_inactive(3));  // #include <unistd.h> (inactive block statement is dimmed)
+  EXPECT_FALSE(doc.is_line_inactive(4)); // #endif (directive itself is not dimmed)
+#endif
 }
 
 TEST(LanguageServerTests, BreakpointManagementInTextDocumentModel) {
@@ -1568,5 +1617,405 @@ TEST(LanguageServerTests, ShellAndMakefileIndentationFolding) {
   EXPECT_EQ(all_range->indent_level, 0u);
 }
 
+TEST(LanguageServerTests, PHPSyntaxAndIntelliSense) {
+  // 1. Verify PHP Grammar Registration
+  const auto* php_grammar =
+      Language::Syntax::GrammarRegistry::instance().get_grammar_for_extension(".php");
+  ASSERT_NE(php_grammar, nullptr);
+  EXPECT_EQ(php_grammar->name, "PHP");
+  EXPECT_TRUE(php_grammar->is_keyword("function"));
+  EXPECT_TRUE(php_grammar->is_keyword("echo"));
+  EXPECT_TRUE(php_grammar->is_keyword("class"));
+  EXPECT_TRUE(php_grammar->is_keyword("match"));
+  EXPECT_TRUE(php_grammar->is_keyword("readonly"));
+  EXPECT_TRUE(php_grammar->is_type("int"));
+  EXPECT_TRUE(php_grammar->is_type("string"));
+  EXPECT_TRUE(php_grammar->is_type("Exception"));
+  EXPECT_TRUE(php_grammar->is_type("PDO"));
 
+  // Also verify other PHP extensions (.phtml, .php8)
+  EXPECT_NE(Language::Syntax::GrammarRegistry::instance().get_grammar_for_extension(".phtml"), nullptr);
+  EXPECT_NE(Language::Syntax::GrammarRegistry::instance().get_grammar_for_extension(".php8"), nullptr);
 
+  // 2. Verify PHP Syntax Tokenization with GenericGrammarEngine
+  std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+  Language::Syntax::TokenizerState state{};
+
+  // 2a. <?php open tag is Directive
+  {
+    const std::string_view tag_line = "<?php";
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        tag_line, *php_grammar, tokens, state);
+    ASSERT_GT(count, 0u);
+    EXPECT_EQ(tokens[0].text, "<?php");
+    EXPECT_EQ(tokens[0].kind, UI::Editor::EditorTokenKind::Directive);
+  }
+
+  // 2b. $this is Keyword, $user is Macro, comments are Comment
+  {
+    const std::string_view code_line = "    $this->user = $name; // set user";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        code_line, *php_grammar, tokens, state);
+    ASSERT_GT(count, 0u);
+
+    bool found_this = false;
+    bool found_name = false;
+    bool found_comment = false;
+
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "$this") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Keyword);
+        found_this = true;
+      } else if (tokens[i].text == "$name") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Macro);
+        found_name = true;
+      } else if (tokens[i].kind == UI::Editor::EditorTokenKind::Comment) {
+        found_comment = true;
+      }
+    }
+    EXPECT_TRUE(found_this);
+    EXPECT_TRUE(found_name);
+    EXPECT_TRUE(found_comment);
+  }
+
+  // 2c. # single-line comment in PHP
+  {
+    const std::string_view hash_line = "# This is a shell/perl style PHP comment";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        hash_line, *php_grammar, tokens, state);
+    ASSERT_GT(count, 0u);
+    EXPECT_EQ(tokens[0].kind, UI::Editor::EditorTokenKind::Comment);
+  }
+
+  // 2d. ?> close tag is Directive
+  {
+    const std::string_view close_tag_line = "?>";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        close_tag_line, *php_grammar, tokens, state);
+    ASSERT_GT(count, 0u);
+    EXPECT_EQ(tokens[0].text, "?>");
+    EXPECT_EQ(tokens[0].kind, UI::Editor::EditorTokenKind::Directive);
+  }
+
+  // 2e. HTML markup & DOCTYPE harmonization in PHP/Blade templates
+  {
+    const std::string_view doctype_line = "<!DOCTYPE html>";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        doctype_line, *php_grammar, tokens, state);
+    ASSERT_GT(count, 0u);
+
+    bool found_doctype = false;
+    bool found_html = false;
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "DOCTYPE") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Keyword);
+        found_doctype = true;
+      } else if (tokens[i].text == "html") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Keyword);
+        found_html = true;
+      }
+    }
+    EXPECT_TRUE(found_doctype);
+    EXPECT_TRUE(found_html);
+  }
+
+  // 2f. HTML tags and attributes (<html lang="en" class="h-full">)
+  {
+    const std::string_view html_tag_line = "<html lang=\"en\" class=\"h-full\">";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        html_tag_line, *php_grammar, tokens, state);
+    ASSERT_GT(count, 0u);
+
+    bool found_html_tag = false;
+    bool found_lang_attr = false;
+    bool found_class_attr = false;
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "html") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Keyword);
+        found_html_tag = true;
+      } else if (tokens[i].text == "lang") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Label);
+        found_lang_attr = true;
+      } else if (tokens[i].text == "class") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Label);
+        found_class_attr = true;
+      }
+    }
+    EXPECT_TRUE(found_html_tag);
+    EXPECT_TRUE(found_lang_attr);
+    EXPECT_TRUE(found_class_attr);
+  }
+
+  // 2g. HTML comment in PHP template (<!-- Font Awesome CDN -->)
+  {
+    const std::string_view comment_line = "<!-- Font Awesome CDN -->";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        comment_line, *php_grammar, tokens, state);
+    ASSERT_GT(count, 0u);
+    EXPECT_EQ(tokens[0].kind, UI::Editor::EditorTokenKind::Comment);
+  }
+
+  // 2h. Blade directive (@extends, @section, @yield, @csrf)
+  {
+    const std::string_view blade_dir_line = "@extends('layouts.app')";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        blade_dir_line, *php_grammar, tokens, state);
+    ASSERT_GT(count, 0u);
+    EXPECT_EQ(tokens[0].text, "@extends");
+    EXPECT_EQ(tokens[0].kind, UI::Editor::EditorTokenKind::Keyword);
+  }
+
+  // 2i. Plain text rendering inside title and elements is Plain (white)
+  {
+    const std::string_view title_line = "<title>404 - Halaman Tidak Ditemukan</title>";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        title_line, *php_grammar, tokens, state);
+    ASSERT_GT(count, 0u);
+
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "Halaman" || tokens[i].text == "Tidak" || tokens[i].text == "Ditemukan") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Plain);
+      }
+    }
+
+    const std::string_view button_text = "Kembali ke Beranda";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t btn_count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        button_text, *php_grammar, tokens, state);
+    ASSERT_GT(btn_count, 0u);
+
+    for (std::size_t i = 0; i < btn_count; ++i) {
+      if (tokens[i].text == "Kembali" || tokens[i].text == "ke" || tokens[i].text == "Beranda") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Plain);
+      }
+    }
+  }
+
+  // 3. Verify Server Registry Profile for PHP
+  const auto* php_profile =
+      Language::Registry::ServerRegistry::instance().find_profile_for_filename("app.php");
+  ASSERT_NE(php_profile, nullptr);
+  EXPECT_EQ(php_profile->language_id, "php");
+  EXPECT_EQ(php_profile->executable_name, "phpantom_lsp");
+
+  // Verify finding phpantom_lsp binary in ThirdParty/php-ls
+  const auto php_exe_path =
+      Language::Registry::ServerRegistry::instance().find_executable_in_system("phpantom_lsp");
+  EXPECT_FALSE(php_exe_path.empty());
+  EXPECT_TRUE(std::filesystem::exists(php_exe_path));
+
+  // 4. Verify Built-in Templates & Completions for PHP
+  const auto templates =
+      Language::LanguageServerManager::get_templates_for_filename("index.php");
+  EXPECT_FALSE(templates.empty());
+  EXPECT_GE(templates.size(), 30u);
+
+  bool has_class = false;
+  bool has_construct = false;
+  bool has_strlen = false;
+  bool has_get_superglobal = false;
+  bool has_json_encode = false;
+
+  for (const auto& item : templates) {
+    if (item.label == "class") has_class = true;
+    if (item.label == "__construct") has_construct = true;
+    if (item.label == "strlen") has_strlen = true;
+    if (item.label == "$_GET") has_get_superglobal = true;
+    if (item.label == "json_encode") has_json_encode = true;
+  }
+
+  EXPECT_TRUE(has_class);
+  EXPECT_TRUE(has_construct);
+  EXPECT_TRUE(has_strlen);
+  EXPECT_TRUE(has_get_superglobal);
+  EXPECT_TRUE(has_json_encode);
+
+  // 5. Verify FileIconModel icon mapping for PHP and Laravel Blade templates
+  EXPECT_EQ(UI::Editor::file_icon_asset_for_path(std::filesystem::path("index.php")),
+            "vscode-symbols/files/php.svg");
+  EXPECT_EQ(UI::Editor::file_icon_asset_for_path(std::filesystem::path("welcome.blade.php")),
+            "vscode-symbols/files/laravel.svg");
+  EXPECT_EQ(UI::Editor::file_icon_asset_for_path(std::filesystem::path("404.blade.php")),
+            "vscode-symbols/files/laravel.svg");
+  EXPECT_EQ(UI::Editor::file_icon_asset_for_path(std::filesystem::path("artisan")),
+            "vscode-symbols/files/laravel.svg");
+}
+
+TEST(LanguageServerTests, CSSPropertiesValuesAndUnitsHighlighting) {
+  // 1. Verify CSS Grammar Registration
+  const auto* css_grammar =
+      Language::Syntax::GrammarRegistry::instance().get_grammar_for_extension(".css");
+  ASSERT_NE(css_grammar, nullptr);
+  EXPECT_TRUE(css_grammar->name == "CSS" || css_grammar->name == "HTML/CSS");
+  EXPECT_TRUE(css_grammar->is_type("border-collapse"));
+  EXPECT_TRUE(css_grammar->is_type("text-align"));
+  EXPECT_TRUE(css_grammar->is_type("padding"));
+  EXPECT_TRUE(css_grammar->is_type("width"));
+  EXPECT_TRUE(css_grammar->is_keyword("collapse"));
+  EXPECT_TRUE(css_grammar->is_keyword("solid"));
+  EXPECT_TRUE(css_grammar->is_keyword("black"));
+  EXPECT_TRUE(css_grammar->is_keyword("left"));
+
+  // Also verify other CSS extensions (.scss, .less)
+  EXPECT_NE(Language::Syntax::GrammarRegistry::instance().get_grammar_for_extension(".scss"), nullptr);
+  EXPECT_NE(Language::Syntax::GrammarRegistry::instance().get_grammar_for_extension(".less"), nullptr);
+
+  // 2. Verify Tokenization of the exact user snippet across CSS & HTML grammar
+  const auto* html_grammar =
+      Language::Syntax::GrammarRegistry::instance().get_grammar_for_extension(".html");
+  ASSERT_NE(html_grammar, nullptr);
+
+  std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+  Language::Syntax::TokenizerState state{};
+
+  // 2a. border-collapse: collapse; (property is Label, value is Keyword)
+  {
+    const std::string_view line = "    border-collapse: collapse;";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        line, *html_grammar, tokens, state);
+    ASSERT_GT(count, 0u);
+
+    bool found_property = false;
+    bool found_value = false;
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "border-collapse") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Label);
+        found_property = true;
+      } else if (tokens[i].text == "collapse") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Keyword);
+        found_value = true;
+      }
+    }
+    EXPECT_TRUE(found_property);
+    EXPECT_TRUE(found_value);
+  }
+
+  // 2b. width: 50%; (width is Label, 50% is Number)
+  {
+    const std::string_view line = "    width: 50%;";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        line, *html_grammar, tokens, state);
+    ASSERT_GT(count, 0u);
+
+    bool found_width = false;
+    bool found_percent = false;
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "width") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Label);
+        found_width = true;
+      } else if (tokens[i].text == "50%") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Number);
+        found_percent = true;
+      }
+    }
+    EXPECT_TRUE(found_width);
+    EXPECT_TRUE(found_percent);
+  }
+
+  // 2c. border: 1px solid black; (border is Label, 1px is Number, solid & black are Keyword)
+  {
+    const std::string_view line = "    border: 1px solid black;";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        line, *html_grammar, tokens, state);
+    ASSERT_GT(count, 0u);
+
+    bool found_border = false;
+    bool found_px = false;
+    bool found_solid = false;
+    bool found_black = false;
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "border") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Label);
+        found_border = true;
+      } else if (tokens[i].text == "1px") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Number);
+        found_px = true;
+      } else if (tokens[i].text == "solid") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Keyword);
+        found_solid = true;
+      } else if (tokens[i].text == "black") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Keyword);
+        found_black = true;
+      }
+    }
+    EXPECT_TRUE(found_border);
+    EXPECT_TRUE(found_px);
+    EXPECT_TRUE(found_solid);
+    EXPECT_TRUE(found_black);
+  }
+
+  // 2d. text-align: left; (text-align is Label, left is Keyword)
+  {
+    const std::string_view line = "    text-align: left;";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        line, *html_grammar, tokens, state);
+    ASSERT_GT(count, 0u);
+
+    bool found_align = false;
+    bool found_left = false;
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "text-align") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Label);
+        found_align = true;
+      } else if (tokens[i].text == "left") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Keyword);
+        found_left = true;
+      }
+    }
+    EXPECT_TRUE(found_align);
+    EXPECT_TRUE(found_left);
+  }
+
+  // 2e. padding: 16px; (padding is Label, 16px is Number)
+  {
+    const std::string_view line = "    padding: 16px;";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        line, *html_grammar, tokens, state);
+    ASSERT_GT(count, 0u);
+
+    bool found_padding = false;
+    bool found_16px = false;
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "padding") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Label);
+        found_padding = true;
+      } else if (tokens[i].text == "16px") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Number);
+        found_16px = true;
+      }
+    }
+    EXPECT_TRUE(found_padding);
+    EXPECT_TRUE(found_16px);
+  }
+
+  // 2f. .logo{ (class selector logo is Type)
+  {
+    const std::string_view line = "  .logo{";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        line, *html_grammar, tokens, state);
+    ASSERT_GT(count, 0u);
+
+    bool found_logo = false;
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "logo") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Type);
+        found_logo = true;
+      }
+    }
+    EXPECT_TRUE(found_logo);
+  }
+}

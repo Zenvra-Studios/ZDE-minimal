@@ -6,6 +6,7 @@
 #include "Language/LanguageConfiguration.h"
 #include <algorithm>
 #include <filesystem>
+#include <functional>
 
 namespace Zenvra::UI::Editor
 {
@@ -1271,7 +1272,12 @@ void TextDocumentModel::insert_new_line()
         {
             is_block_comment_start = true;
         }
-        else if (trimmed_prev.starts_with("* "))
+        else if (!trimmed_prev.ends_with("*/") && !trimmed_prev.starts_with("/*") &&
+                 (trimmed_prev == "*" || trimmed_prev == "**" ||
+                  trimmed_prev.starts_with("* ") || trimmed_prev.starts_with("*\t") ||
+                  trimmed_prev.starts_with("** ") || trimmed_prev.starts_with("**\t") ||
+                  trimmed_prev.starts_with("***") ||
+                  trimmed_prev.starts_with("*@") || trimmed_prev.starts_with("*\\")))
         {
             is_block_comment_middle = true;
         }
@@ -1291,6 +1297,65 @@ void TextDocumentModel::insert_new_line()
         {
             is_open_brace = true;
             open_delim = ':';
+        }
+    }
+    else
+    {
+        // Current line is empty/whitespace only. Check if inside an open block comment
+        std::size_t prev_non_ws_idx = std::string::npos;
+        for (std::ptrdiff_t i = static_cast<std::ptrdiff_t>(m_caret_line) - 1; i >= 0; --i)
+        {
+            const std::string& l = m_lines[static_cast<std::size_t>(i)];
+            if (l.find_first_not_of(" \t") != std::string::npos)
+            {
+                prev_non_ws_idx = static_cast<std::size_t>(i);
+                break;
+            }
+        }
+
+        std::size_t next_non_ws_idx = std::string::npos;
+        for (std::size_t i = m_caret_line + 1; i < m_lines.size(); ++i)
+        {
+            const std::string& l = m_lines[i];
+            if (l.find_first_not_of(" \t") != std::string::npos)
+            {
+                next_non_ws_idx = i;
+                break;
+            }
+        }
+
+        if (prev_non_ws_idx != std::string::npos && next_non_ws_idx != std::string::npos)
+        {
+            const std::string& prev_line = m_lines[prev_non_ws_idx];
+            const std::string& next_line = m_lines[next_non_ws_idx];
+            const std::size_t p_first = prev_line.find_first_not_of(" \t");
+            const std::size_t n_first = next_line.find_first_not_of(" \t");
+
+            if (p_first != std::string::npos && n_first != std::string::npos)
+            {
+                std::string p_trimmed = prev_line.substr(p_first);
+                while (!p_trimmed.empty() && (p_trimmed.back() == ' ' || p_trimmed.back() == '\t'))
+                {
+                    p_trimmed.pop_back();
+                }
+                std::string n_trimmed = next_line.substr(n_first);
+                while (!n_trimmed.empty() && (n_trimmed.back() == ' ' || n_trimmed.back() == '\t'))
+                {
+                    n_trimmed.pop_back();
+                }
+
+                const bool prev_is_comment = (p_trimmed.ends_with("/**") || p_trimmed == "/**" ||
+                                              p_trimmed.ends_with("/***") || p_trimmed == "/***" ||
+                                              p_trimmed.starts_with("*")) &&
+                                             !p_trimmed.ends_with("*/");
+                const bool next_is_comment_close = n_trimmed.ends_with("*/") || n_trimmed.starts_with("*");
+
+                if (prev_is_comment && next_is_comment_close)
+                {
+                    is_block_comment_middle = true;
+                    auto_indent = prev_line.substr(0, p_first);
+                }
+            }
         }
     }
 
@@ -1327,9 +1392,19 @@ void TextDocumentModel::insert_new_line()
     }
     else if (is_block_comment_middle)
     {
-        m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 1), auto_indent + "* " + remainder);
+        std::string comment_remainder = remainder;
+        if (!comment_remainder.empty() && comment_remainder.front() == ' ')
+        {
+            comment_remainder.erase(0, 1);
+        }
+        std::string prefix = "* ";
+        if (first_non_ws != std::string::npos && previous_line_content.substr(first_non_ws).starts_with("**"))
+        {
+            prefix = "** ";
+        }
+        m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 1), auto_indent + prefix + comment_remainder);
         ++m_caret_line;
-        m_caret_column = auto_indent.size() + 2;
+        m_caret_column = auto_indent.size() + prefix.size();
     }
     else if (is_open_brace)
     {
@@ -1386,6 +1461,14 @@ void TextDocumentModel::insert_new_line()
     }
     else
     {
+        if (first_non_ws != std::string::npos && !auto_indent.empty() && auto_indent.back() == ' ')
+        {
+            const std::string trimmed_prev = previous_line_content.substr(first_non_ws);
+            if (trimmed_prev.ends_with("*/"))
+            {
+                auto_indent.pop_back();
+            }
+        }
         m_lines.insert(m_lines.begin() + static_cast<std::ptrdiff_t>(m_caret_line + 1), auto_indent + remainder);
         ++m_caret_line;
         m_caret_column = auto_indent.size();
@@ -1611,6 +1694,419 @@ const std::unordered_set<std::size_t>& TextDocumentModel::get_breakpoints() cons
 void TextDocumentModel::clear_all_breakpoints() noexcept
 {
     m_breakpoints.clear();
+}
+
+namespace {
+
+struct PreprocessorBranchState
+{
+    bool condition_met = false;
+    bool is_active_branch = false;
+    bool parent_active = true;
+};
+
+// Evaluates boolean condition expressions for preprocessor statements:
+// supports defined(X), defined X, !defined(X), symbol, !symbol, 1, 0, &&, ||, ()
+bool evaluate_preprocessor_condition(
+    std::string_view expr,
+    const std::unordered_set<std::string>& defined_symbols) noexcept
+{
+    std::size_t cursor = 0;
+    const auto skip_whitespace = [&]() {
+        while (cursor < expr.size() && std::isspace(static_cast<unsigned char>(expr[cursor])) != 0) {
+            ++cursor;
+        }
+    };
+
+    std::function<bool()> parse_or;
+    std::function<bool()> parse_and;
+    std::function<bool()> parse_unary;
+
+    parse_unary = [&]() -> bool {
+        skip_whitespace();
+        if (cursor >= expr.size()) return false;
+
+        if (expr[cursor] == '!')
+        {
+            ++cursor;
+            return !parse_unary();
+        }
+
+        if (expr[cursor] == '(')
+        {
+            ++cursor;
+            bool result = parse_or();
+            skip_whitespace();
+            if (cursor < expr.size() && expr[cursor] == ')')
+            {
+                ++cursor;
+            }
+            return result;
+        }
+
+        if (std::isalpha(static_cast<unsigned char>(expr[cursor])) != 0 || expr[cursor] == '_')
+        {
+            std::size_t start = cursor;
+            while (cursor < expr.size() && (std::isalnum(static_cast<unsigned char>(expr[cursor])) != 0 || expr[cursor] == '_'))
+            {
+                ++cursor;
+            }
+            std::string_view word = expr.substr(start, cursor - start);
+
+            if (word == "defined")
+            {
+                skip_whitespace();
+                bool has_paren = false;
+                if (cursor < expr.size() && expr[cursor] == '(')
+                {
+                    has_paren = true;
+                    ++cursor;
+                    skip_whitespace();
+                }
+
+                std::size_t sym_start = cursor;
+                while (cursor < expr.size() && (std::isalnum(static_cast<unsigned char>(expr[cursor])) != 0 || expr[cursor] == '_'))
+                {
+                    ++cursor;
+                }
+                std::string sym = std::string(expr.substr(sym_start, cursor - sym_start));
+
+                if (has_paren)
+                {
+                    skip_whitespace();
+                    if (cursor < expr.size() && expr[cursor] == ')')
+                    {
+                        ++cursor;
+                    }
+                }
+                return defined_symbols.contains(sym);
+            }
+
+            if (word == "true" || word == "TRUE") return true;
+            if (word == "false" || word == "FALSE") return false;
+
+            return defined_symbols.contains(std::string(word));
+        }
+
+        if (std::isdigit(static_cast<unsigned char>(expr[cursor])) != 0)
+        {
+            std::size_t start = cursor;
+            while (cursor < expr.size() && (std::isalnum(static_cast<unsigned char>(expr[cursor])) != 0 || expr[cursor] == '.'))
+            {
+                ++cursor;
+            }
+            std::string_view num_str = expr.substr(start, cursor - start);
+            return (num_str != "0");
+        }
+
+        ++cursor;
+        return false;
+    };
+
+    parse_and = [&]() -> bool {
+        bool left = parse_unary();
+        while (true)
+        {
+            skip_whitespace();
+            if (cursor + 1 < expr.size() && expr[cursor] == '&' && expr[cursor + 1] == '&')
+            {
+                cursor += 2;
+                bool right = parse_unary();
+                left = left && right;
+            }
+            else
+            {
+                break;
+            }
+        }
+        return left;
+    };
+
+    parse_or = [&]() -> bool {
+        bool left = parse_and();
+        while (true)
+        {
+            skip_whitespace();
+            if (cursor + 1 < expr.size() && expr[cursor] == '|' && expr[cursor + 1] == '|')
+            {
+                cursor += 2;
+                bool right = parse_and();
+                left = left || right;
+            }
+            else
+            {
+                break;
+            }
+        }
+        return left;
+    };
+
+    return parse_or();
+}
+
+} // namespace
+
+void TextDocumentModel::update_inactive_lines_cache() const noexcept
+{
+    m_inactive_lines.assign(m_lines.size(), false);
+    m_inactive_lines_revision = m_revision;
+
+    if (m_lines.empty())
+    {
+        return;
+    }
+
+    std::unordered_set<std::string> defined_symbols = {
+#if defined(_WIN32)
+        "_WIN32", "WIN32",
+#if defined(_WIN64)
+        "_WIN64",
+#endif
+#if defined(_MSC_VER)
+        "_MSC_VER",
+#endif
+#endif
+#if defined(__linux__)
+        "__linux__", "__linux", "linux", "__unix__", "__unix",
+#endif
+#if defined(__APPLE__)
+        "__APPLE__", "__MACH__",
+#endif
+#if defined(__clang__)
+        "__clang__",
+#endif
+#if defined(__GNUC__)
+        "__GNUC__",
+#endif
+        "__cplusplus", "TRUE", "true", "1"
+    };
+
+    std::vector<PreprocessorBranchState> branch_stack;
+
+    for (std::size_t i = 0; i < m_lines.size(); ++i)
+    {
+        std::string_view line = m_lines[i];
+        std::size_t scan = 0;
+        while (scan < line.size() && std::isspace(static_cast<unsigned char>(line[scan])) != 0)
+        {
+            ++scan;
+        }
+
+        if (scan >= line.size())
+        {
+            const bool parent_active = branch_stack.empty() || branch_stack.back().is_active_branch;
+            m_inactive_lines[i] = !parent_active;
+            continue;
+        }
+
+        const char start_char = line[scan];
+        if (start_char == '#' || start_char == '%')
+        {
+            ++scan;
+            while (scan < line.size() && std::isspace(static_cast<unsigned char>(line[scan])) != 0)
+            {
+                ++scan;
+            }
+            std::size_t dir_start = scan;
+            while (scan < line.size() && (std::isalnum(static_cast<unsigned char>(line[scan])) != 0 || line[scan] == '_'))
+            {
+                ++scan;
+            }
+            std::string_view dir = line.substr(dir_start, scan - dir_start);
+            while (scan < line.size() && std::isspace(static_cast<unsigned char>(line[scan])) != 0)
+            {
+                ++scan;
+            }
+            std::string_view rest = line.substr(scan);
+
+            if (dir == "if")
+            {
+                const bool parent_active = branch_stack.empty() || branch_stack.back().is_active_branch;
+                if (!parent_active)
+                {
+                    branch_stack.push_back(PreprocessorBranchState{
+                        .condition_met = true,
+                        .is_active_branch = false,
+                        .parent_active = false
+                    });
+                }
+                else
+                {
+                    const bool cond = evaluate_preprocessor_condition(rest, defined_symbols);
+                    branch_stack.push_back(PreprocessorBranchState{
+                        .condition_met = cond,
+                        .is_active_branch = cond,
+                        .parent_active = true
+                    });
+                }
+                m_inactive_lines[i] = false;
+                continue;
+            }
+            if (dir == "ifdef")
+            {
+                const bool parent_active = branch_stack.empty() || branch_stack.back().is_active_branch;
+                if (!parent_active)
+                {
+                    branch_stack.push_back(PreprocessorBranchState{
+                        .condition_met = true,
+                        .is_active_branch = false,
+                        .parent_active = false
+                    });
+                }
+                else
+                {
+                    std::size_t sym_end = 0;
+                    while (sym_end < rest.size() && (std::isalnum(static_cast<unsigned char>(rest[sym_end])) != 0 || rest[sym_end] == '_'))
+                    {
+                        ++sym_end;
+                    }
+                    const std::string sym = std::string(rest.substr(0, sym_end));
+                    const bool cond = defined_symbols.contains(sym);
+                    branch_stack.push_back(PreprocessorBranchState{
+                        .condition_met = cond,
+                        .is_active_branch = cond,
+                        .parent_active = true
+                    });
+                }
+                m_inactive_lines[i] = false;
+                continue;
+            }
+            if (dir == "ifndef")
+            {
+                const bool parent_active = branch_stack.empty() || branch_stack.back().is_active_branch;
+                if (!parent_active)
+                {
+                    branch_stack.push_back(PreprocessorBranchState{
+                        .condition_met = true,
+                        .is_active_branch = false,
+                        .parent_active = false
+                    });
+                }
+                else
+                {
+                    std::size_t sym_end = 0;
+                    while (sym_end < rest.size() && (std::isalnum(static_cast<unsigned char>(rest[sym_end])) != 0 || rest[sym_end] == '_'))
+                    {
+                        ++sym_end;
+                    }
+                    const std::string sym = std::string(rest.substr(0, sym_end));
+                    const bool cond = !defined_symbols.contains(sym);
+                    branch_stack.push_back(PreprocessorBranchState{
+                        .condition_met = cond,
+                        .is_active_branch = cond,
+                        .parent_active = true
+                    });
+                }
+                m_inactive_lines[i] = false;
+                continue;
+            }
+            if (dir == "elif")
+            {
+                if (!branch_stack.empty())
+                {
+                    auto& top = branch_stack.back();
+                    if (!top.parent_active || top.condition_met)
+                    {
+                        top.is_active_branch = false;
+                    }
+                    else
+                    {
+                        const bool cond = evaluate_preprocessor_condition(rest, defined_symbols);
+                        if (cond)
+                        {
+                            top.condition_met = true;
+                            top.is_active_branch = true;
+                        }
+                        else
+                        {
+                            top.is_active_branch = false;
+                        }
+                    }
+                }
+                m_inactive_lines[i] = false;
+                continue;
+            }
+            if (dir == "else")
+            {
+                if (!branch_stack.empty())
+                {
+                    auto& top = branch_stack.back();
+                    if (!top.parent_active || top.condition_met)
+                    {
+                        top.is_active_branch = false;
+                    }
+                    else
+                    {
+                        top.condition_met = true;
+                        top.is_active_branch = true;
+                    }
+                }
+                m_inactive_lines[i] = false;
+                continue;
+            }
+            if (dir == "endif")
+            {
+                if (!branch_stack.empty())
+                {
+                    branch_stack.pop_back();
+                }
+                m_inactive_lines[i] = false;
+                continue;
+            }
+            if (dir == "define")
+            {
+                const bool current_active = branch_stack.empty() || branch_stack.back().is_active_branch;
+                m_inactive_lines[i] = !current_active;
+                if (current_active)
+                {
+                    std::size_t sym_end = 0;
+                    while (sym_end < rest.size() && (std::isalnum(static_cast<unsigned char>(rest[sym_end])) != 0 || rest[sym_end] == '_'))
+                    {
+                        ++sym_end;
+                    }
+                    if (sym_end > 0)
+                    {
+                        defined_symbols.insert(std::string(rest.substr(0, sym_end)));
+                    }
+                }
+                continue;
+            }
+            if (dir == "undef")
+            {
+                const bool current_active = branch_stack.empty() || branch_stack.back().is_active_branch;
+                m_inactive_lines[i] = !current_active;
+                if (current_active)
+                {
+                    std::size_t sym_end = 0;
+                    while (sym_end < rest.size() && (std::isalnum(static_cast<unsigned char>(rest[sym_end])) != 0 || rest[sym_end] == '_'))
+                    {
+                        ++sym_end;
+                    }
+                    if (sym_end > 0)
+                    {
+                        defined_symbols.erase(std::string(rest.substr(0, sym_end)));
+                    }
+                }
+                continue;
+            }
+        }
+
+        const bool current_active = branch_stack.empty() || branch_stack.back().is_active_branch;
+        m_inactive_lines[i] = !current_active;
+    }
+}
+
+bool TextDocumentModel::is_line_inactive(std::size_t line_index) const noexcept
+{
+    if (line_index >= m_lines.size() || m_lines.empty())
+    {
+        return false;
+    }
+    if (m_inactive_lines_revision != m_revision || m_inactive_lines.size() != m_lines.size())
+    {
+        update_inactive_lines_cache();
+    }
+    return line_index < m_inactive_lines.size() ? m_inactive_lines[line_index] : false;
 }
 
 } // namespace Zenvra::UI::Editor

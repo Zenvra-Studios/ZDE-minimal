@@ -185,7 +185,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
 
     if (exe_str == "cmake-language-server" || exe_str == "cmake-ls" || exe_str == "cmakels" || exe_str == "cmakels-win64" || exe_str == "neocmakelsp")
     {
-        candidate_names = { "cmake-language-server", "neocmakelsp", "cmakels", "cmake-ls", "cmakels-win64" };
+        candidate_names = { "cmakels", "cmake-language-server", "neocmakelsp", "cmake-ls", "cmakels-win64" };
     }
     else if (exe_str == "clangd")
     {
@@ -221,11 +221,17 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
     }
     else if (exe_str == "gopls" || exe_str == "gopls-v0.23.0" || exe_str == "golang" || exe_str == "go")
     {
-        candidate_names = { "gopls", "gopls-v0.23.0", "gopls-v0.23.0.exe", "gopls.exe" };
+        candidate_names = { "gopls", "gopls-v0.23.0", "gopls.exe", "gopls-v0.23.0.exe" };
     }
     else if (exe_str == "asm-lsp" || exe_str == "asm_lsp" || exe_str == "nasm")
     {
-        candidate_names = { "asm-lsp", "asm_lsp", "nasm", "clangd" };
+        candidate_names = { "asm-lsp", "asm_lsp", "nasm" };
+    }
+    else if (exe_str == "phpantom_lsp" || exe_str == "phpantom" || exe_str == "phpatom" ||
+             exe_str == "php-ls" || exe_str == "intelephense" || exe_str == "phpactor" ||
+             exe_str == "php-language-server")
+    {
+        candidate_names = { "phpantom_lsp", "phpantom", "phpatom", "php-ls", "phpactor", "intelephense", "php-language-server" };
     }
 
     for (const auto& cur_name : candidate_names)
@@ -246,32 +252,10 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
         {
             const std::filesystem::path app_dir = std::filesystem::path(exe_buffer.data()).parent_path();
             const std::filesystem::path app_candidates[] = {
-                app_dir / "ThirdParty" / "gopls" / "gopls-v0.23.0.exe",
-                app_dir / "ThirdParty" / "gopls" / exe_with_ext,
-                app_dir / "ThirdParty" / "emmet-ls" / exe_with_ext,
-                app_dir / "ThirdParty" / exe_with_ext,
-                app_dir / "plugins" / "lsp" / "gopls" / "gopls-v0.23.0.exe",
-                app_dir / "plugins" / "lsp" / "gopls" / exe_with_ext,
-                app_dir / "plugins" / "lsp" / "emmet-ls" / exe_with_ext,
-                app_dir / "plugins" / "lsp" / "tls" / exe_with_ext,
-                app_dir / "plugins" / "lsp" / "html" / exe_with_ext,
-                app_dir / "plugins" / "lsp" / "typescript-language-server" / exe_with_ext,
-                app_dir / "plugins" / "lsp" / "vscode-html-language-server" / exe_with_ext,
                 app_dir / "plugins" / "lsp" / exe_with_ext,
-                app_dir / "plugins" / "html" / exe_with_ext,
-                app_dir / "plugins" / "tls" / exe_with_ext,
-                app_dir / "plugins" / "emmet-ls" / exe_with_ext,
-                app_dir / "plugins" / "gopls" / exe_with_ext,
+                app_dir / "plugins" / "lsp" / cur_name / exe_with_ext,
+                app_dir / "plugins" / "lsp" / cur_name / "bin" / exe_with_ext,
                 app_dir / "plugins" / exe_with_ext,
-                app_dir / "lsp" / "gopls" / exe_with_ext,
-                app_dir / "lsp" / "emmet-ls" / exe_with_ext,
-                app_dir / "lsp" / "html" / exe_with_ext,
-                app_dir / "lsp" / "tls" / exe_with_ext,
-                app_dir / "lsp" / exe_with_ext,
-                app_dir / "gopls" / exe_with_ext,
-                app_dir / "emmet-ls" / exe_with_ext,
-                app_dir / "html" / exe_with_ext,
-                app_dir / "tls" / exe_with_ext,
                 app_dir / "bin" / exe_with_ext,
                 app_dir / exe_with_ext,
             };
@@ -290,23 +274,16 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
             for (int i = 0; i < 6; ++i)
             {
                 const std::filesystem::path direct_candidates[] = {
-                    check_dir / "ThirdParty" / "gopls" / "gopls-v0.23.0.exe",
-                    check_dir / "ThirdParty" / "gopls" / exe_with_ext,
-                    check_dir / "ThirdParty" / "emmet-ls" / exe_with_ext,
-                    check_dir / "ThirdParty" / "tls" / exe_with_ext,
-                    check_dir / "ThirdParty" / "clangd" / exe_with_ext,
-                    check_dir / "ThirdParty" / exe_with_ext,
-                    check_dir / "ThirdParty" / "bin" / exe_with_ext,
-                    check_dir / "plugins" / "lsp" / "gopls" / exe_with_ext,
-                    check_dir / "plugins" / "lsp" / "emmet-ls" / exe_with_ext,
                     check_dir / "plugins" / "lsp" / exe_with_ext,
-                    check_dir / "plugins" / "lsp" / "tls" / exe_with_ext,
-                    check_dir / "plugins" / "lsp" / "html" / exe_with_ext,
-                    check_dir / "plugins" / "lsp" / "clangd" / exe_with_ext,
-                    check_dir / "plugins" / "lsp" / "clangd" / "bin" / exe_with_ext,
                     check_dir / "plugins" / "lsp" / cur_name / exe_with_ext,
                     check_dir / "plugins" / "lsp" / cur_name / "bin" / exe_with_ext,
                     check_dir / "plugins" / exe_with_ext,
+                    check_dir / "ThirdParty" / "lsp" / cur_name / exe_with_ext,
+                    check_dir / "ThirdParty" / "lsp" / cur_name / "bin" / exe_with_ext,
+                    check_dir / "ThirdParty" / cur_name / exe_with_ext,
+                    check_dir / "ThirdParty" / cur_name / "bin" / exe_with_ext,
+                    check_dir / "ThirdParty" / exe_with_ext,
+                    check_dir / "ThirdParty" / "bin" / exe_with_ext,
                     check_dir / "bin" / exe_with_ext,
                 };
                 for (const auto& candidate : direct_candidates)
@@ -318,19 +295,38 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                     }
                 }
 
-                const std::filesystem::path tp = check_dir / "ThirdParty";
-                std::error_code ec;
-                if (std::filesystem::exists(tp, ec) && std::filesystem::is_directory(tp, ec))
+                const std::filesystem::path tp_dirs[] = {
+                    check_dir / "ThirdParty" / "lsp",
+                    check_dir / "ThirdParty",
+                };
+                for (const auto& tp : tp_dirs)
                 {
-                    for (const auto& entry : std::filesystem::recursive_directory_iterator(tp, ec))
+                    std::error_code ec;
+                    if (std::filesystem::exists(tp, ec) && std::filesystem::is_directory(tp, ec))
                     {
-                        if (entry.is_regular_file())
+                        for (const auto& entry : std::filesystem::recursive_directory_iterator(tp, ec))
                         {
-                            const std::string filename = entry.path().filename().string();
-                            if (filename == exe_with_ext || filename == cur_name ||
-                                (cur_name.starts_with("gopls") && filename.starts_with("gopls") && filename.ends_with(".exe")))
+                            if (entry.is_regular_file())
                             {
-                                return cache_and_return(entry.path());
+                                const std::string filename = entry.path().filename().string();
+                                if (filename == exe_with_ext || filename == cur_name)
+                                {
+                                    return cache_and_return(entry.path());
+                                }
+                                if (cur_name.starts_with("gopls") && filename.starts_with("gopls") && filename.ends_with(".exe"))
+                                {
+                                    return cache_and_return(entry.path());
+                                }
+                                if ((cur_name.starts_with("phpantom") || cur_name.starts_with("phpatom") || cur_name.starts_with("php")) &&
+                                    (filename == "phpantom_lsp.exe" || filename == "php-ls.exe"))
+                                {
+                                    return cache_and_return(entry.path());
+                                }
+                                if ((cur_name.starts_with("cmake") || cur_name == "cmakels") &&
+                                    (filename == "cmakels-win64.exe" || filename == "cmakels.exe" || filename == "cmake-language-server.exe"))
+                                {
+                                    return cache_and_return(entry.path());
+                                }
                             }
                         }
                     }
@@ -400,10 +396,16 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
         {
             const std::filesystem::path direct_candidates[] = {
                 base / "plugins" / "lsp" / exe_with_ext,
+                base / "plugins" / "lsp" / cur_name / exe_with_ext,
+                base / "plugins" / "lsp" / cur_name / "bin" / exe_with_ext,
                 base / "plugins" / exe_with_ext,
-                base / exe_with_ext,
+                base / "ThirdParty" / "lsp" / cur_name / exe_with_ext,
+                base / "ThirdParty" / "lsp" / cur_name / "bin" / exe_with_ext,
+                base / "ThirdParty" / cur_name / exe_with_ext,
+                base / "ThirdParty" / cur_name / "bin" / exe_with_ext,
                 base / "ThirdParty" / exe_with_ext,
                 base / "ThirdParty" / "bin" / exe_with_ext,
+                base / exe_with_ext,
             };
 
             for (const auto& candidate : direct_candidates)
@@ -417,6 +419,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
 
             // Check ThirdParty and plugins subdirectories
             const std::filesystem::path container_dirs[] = {
+                base / "ThirdParty" / "lsp",
                 base / "ThirdParty",
                 base / "plugins" / "lsp",
                 base / "plugins",
@@ -446,8 +449,21 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                                 if (sub_file.is_regular_file(ec))
                                 {
                                     const std::string fn = sub_file.path().filename().string();
-                                    if (fn == exe_with_ext ||
-                                        (cur_name.starts_with("gopls") && fn.starts_with("gopls") && fn.ends_with(".exe")))
+                                    if (fn == exe_with_ext || fn == cur_name)
+                                    {
+                                        return cache_and_return(sub_file.path());
+                                    }
+                                    if (cur_name.starts_with("gopls") && fn.starts_with("gopls") && fn.ends_with(".exe"))
+                                    {
+                                        return cache_and_return(sub_file.path());
+                                    }
+                                    if ((cur_name.starts_with("cmake") || cur_name == "cmakels") &&
+                                        (fn == "cmakels-win64.exe" || fn == "cmakels.exe" || fn == "cmake-language-server.exe"))
+                                    {
+                                        return cache_and_return(sub_file.path());
+                                    }
+                                    if ((cur_name.starts_with("phpantom") || cur_name.starts_with("phpatom") || cur_name.starts_with("php")) &&
+                                        (fn == "phpantom_lsp.exe" || fn == "php-ls.exe"))
                                     {
                                         return cache_and_return(sub_file.path());
                                     }
@@ -482,10 +498,8 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
             const std::filesystem::path user_candidates[] = {
                 // Scoop LLVM / clangd / cmake-ls
                 up / "scoop" / "apps" / "llvm" / "current" / "bin" / exe_with_ext,
-                up / "scoop" / "apps" / "llvm" / "current" / "bin" / "clangd.exe",
                 up / "scoop" / "apps" / cur_name / "current" / "bin" / exe_with_ext,
                 up / "scoop" / "shims" / exe_with_ext,
-                up / "scoop" / "shims" / "clangd.exe",
                 // WinGet Links / Packages
                 up / "AppData" / "Local" / "Microsoft" / "WinGet" / "Links" / exe_with_ext,
                 // NuGet package fallbacks
@@ -925,6 +939,15 @@ void ServerRegistry::initialize_default_profiles()
     asm_profile.default_args = {};
     asm_profile.root_markers = {"Makefile", "CMakeLists.txt", ".git"};
     register_profile(std::move(asm_profile));
+
+    // PHP (phpantom_lsp in ThirdParty/php-ls / phpactor / intelephense)
+    ServerProfile php_profile;
+    php_profile.language_id = "php";
+    php_profile.extensions = {".php", ".phtml", ".php4", ".php5", ".php7", ".php8", ".phps"};
+    php_profile.executable_name = "phpantom_lsp";
+    php_profile.default_args = {"--stdio"};
+    php_profile.root_markers = {"composer.json", ".phpantom.toml", "artisan", ".git"};
+    register_profile(std::move(php_profile));
 }
 
 } // namespace Zenvra::Language::Registry

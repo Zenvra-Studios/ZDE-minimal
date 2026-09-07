@@ -221,8 +221,16 @@ bool ShaderSandboxPanel::tick_animations() noexcept {
   return m_engine.update_and_render();
 }
 
+void ShaderSandboxPanel::stage_source_code(std::string_view source_code) {
+  m_engine.stage_source_code(source_code);
+}
+
 void ShaderSandboxPanel::set_source_code(std::string_view source_code) {
-  m_engine.set_source_code(source_code);
+  stage_source_code(source_code);
+}
+
+bool ShaderSandboxPanel::build_and_run(std::string_view source_code) {
+  return m_engine.build_and_simulate(source_code);
 }
 
 void ShaderSandboxPanel::next_preset() {
@@ -230,8 +238,8 @@ void ShaderSandboxPanel::next_preset() {
   if (presets.empty()) {
     return;
   }
-  const std::size_t next_idx =
-      (m_engine.get_active_preset_index() + 1) % presets.size();
+  const auto active = m_engine.get_active_preset_index();
+  const std::size_t next_idx = active.has_value() ? ((*active + 1) % presets.size()) : 0;
   m_engine.load_preset(next_idx);
 }
 
@@ -240,9 +248,10 @@ void ShaderSandboxPanel::previous_preset() {
   if (presets.empty()) {
     return;
   }
-  const std::size_t prev_idx =
-      (m_engine.get_active_preset_index() + presets.size() - 1) %
-      presets.size();
+  const auto active = m_engine.get_active_preset_index();
+  const std::size_t prev_idx = active.has_value()
+      ? ((*active + presets.size() - 1) % presets.size())
+      : (presets.size() - 1);
   m_engine.load_preset(prev_idx);
 }
 
@@ -339,9 +348,10 @@ void ShaderSandboxPanel::render_header(
 
   // Preset selector button
   const auto presets = Services::Shader::ShaderCompiler::get_starter_presets();
-  std::string preset_name = "Presets";
-  if (m_engine.get_active_preset_index() < presets.size()) {
-    preset_name = presets[m_engine.get_active_preset_index()].name;
+  std::string preset_name = "";
+  const auto active_idx = m_engine.get_active_preset_index();
+  if (active_idx.has_value() && *active_idx < presets.size()) {
+    preset_name = presets[*active_idx].name;
   }
 
   // Close button (top right)

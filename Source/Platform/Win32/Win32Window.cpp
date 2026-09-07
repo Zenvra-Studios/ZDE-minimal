@@ -899,6 +899,15 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     }
     break;
 
+  case WM_SYSCOMMAND:
+    if (m_custom_chrome_enabled && (w_param & 0xFFF0) == SC_KEYMENU) {
+      if (l_param == ' ' || l_param == 0) {
+        show_system_menu_at_icon();
+        return 0;
+      }
+    }
+    break;
+
   case WM_NCHITTEST:
     if (m_workspace_renderer.get_text_editor().is_media_fullscreen()) {
       return HTCLIENT;
@@ -910,8 +919,8 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
 
   case WM_NCRBUTTONUP:
     if (m_custom_chrome_enabled) {
-      if (w_param == HTCAPTION || w_param == HTSYSMENU) {
-        show_system_menu(GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param));
+      if (w_param == HTSYSMENU) {
+        show_system_menu_at_icon();
         return 0;
       }
     }
@@ -920,11 +929,7 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
   case WM_NCLBUTTONDOWN:
     if (m_custom_chrome_enabled) {
       if (w_param == HTSYSMENU) {
-        POINT screen_pt{
-            static_cast<int>(m_chrome_layout.logo_bounds.x),
-            static_cast<int>(m_chrome_layout.titlebar_bounds.bottom())};
-        ClientToScreen(window_handle, &screen_pt);
-        show_system_menu(screen_pt.x, screen_pt.y);
+        show_system_menu_at_icon();
         return 0;
       }
       if (w_param == HTMINBUTTON) {
@@ -942,6 +947,13 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         InvalidateRect(window_handle, nullptr, FALSE);
         return 0;
       }
+    }
+    break;
+
+  case WM_NCLBUTTONDBLCLK:
+    if (m_custom_chrome_enabled && w_param == HTSYSMENU) {
+      request_close();
+      return 0;
     }
     break;
 
@@ -1814,12 +1826,14 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       const int client_height = client_bounds.bottom - client_bounds.top;
       const float content_top = m_chrome_layout.titlebar_bounds.bottom();
 
-      if (m_chrome_layout.titlebar_bounds.contains(point_x, point_y)) {
+      if (m_chrome_layout.logo_bounds.contains(point_x, point_y)) {
         if (message == WM_RBUTTONUP) {
-          POINT screen_pt{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
-          ClientToScreen(window_handle, &screen_pt);
-          show_system_menu(screen_pt.x, screen_pt.y);
+          show_system_menu_at_icon();
         }
+        return 0;
+      }
+
+      if (m_chrome_layout.titlebar_bounds.contains(point_x, point_y)) {
         return 0;
       }
 
@@ -1859,22 +1873,15 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     if (m_custom_chrome_enabled) {
       POINT screen_pt{GET_X_LPARAM(l_param), GET_Y_LPARAM(l_param)};
       if (screen_pt.x == -1 && screen_pt.y == -1) {
-        RECT window_rect{};
-        GetWindowRect(window_handle, &window_rect);
-        screen_pt.x =
-            window_rect.left + static_cast<int>(m_chrome_layout.logo_bounds.x);
-        screen_pt.y =
-            window_rect.top +
-            static_cast<int>(m_chrome_layout.titlebar_bounds.bottom());
-        show_system_menu(screen_pt.x, screen_pt.y);
+        show_system_menu_at_icon();
         return 0;
       }
       POINT client_pt = screen_pt;
       ScreenToClient(window_handle, &client_pt);
-      if (m_chrome_layout.titlebar_bounds.contains(
+      if (m_chrome_layout.logo_bounds.contains(
               static_cast<float>(client_pt.x),
               static_cast<float>(client_pt.y))) {
-        show_system_menu(screen_pt.x, screen_pt.y);
+        show_system_menu_at_icon();
         return 0;
       }
     }
@@ -2468,6 +2475,16 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         }
         return 0;
       }
+
+      if (w_param == VK_F5 || (control_pressed && w_param == 'B')) {
+        if (m_workspace_renderer.build_and_simulate_current_shader()) {
+          const int ct = round_to_int(m_chrome_layout.titlebar_bounds.bottom());
+          RECT cr{0, ct, 32767, 32767};
+          InvalidateRect(window_handle, &cr, FALSE);
+          return 0;
+        }
+      }
+
       std::optional<UI::Editor::EditorAction> action;
       if (control_pressed && shift_pressed && w_param == VK_DELETE) {
         action = UI::Editor::EditorAction::RemoveDocument;
@@ -5057,6 +5074,17 @@ void Win32Window::show_system_menu(int screen_x, int screen_y) {
   if (command > 0) {
     PostMessageW(m_window_handle, WM_SYSCOMMAND, command, 0);
   }
+}
+
+void Win32Window::show_system_menu_at_icon() {
+  if (m_window_handle == nullptr) {
+    return;
+  }
+  POINT screen_pt{
+      static_cast<int>(m_chrome_layout.logo_bounds.x),
+      static_cast<int>(m_chrome_layout.titlebar_bounds.bottom())};
+  ClientToScreen(m_window_handle, &screen_pt);
+  show_system_menu(screen_pt.x, screen_pt.y);
 }
 
 } // namespace Zenvra::Platform::Win32

@@ -1267,6 +1267,8 @@ void StudioWorkspaceRenderer::draw_svg_icon(
     const std::filesystem::path direct_path = m_icon_asset_root / rel_str;
     const std::filesystem::path symbol_file_1 = m_icon_asset_root / "vscode-symbols" / "icons" / "files" / filename;
     const std::filesystem::path symbol_folder_1 = m_icon_asset_root / "vscode-symbols" / "icons" / "folders" / filename;
+    const std::filesystem::path symbol_file_src = m_icon_asset_root / "vscode-symbols" / "src" / "icons" / "files" / filename;
+    const std::filesystem::path symbol_folder_src = m_icon_asset_root / "vscode-symbols" / "src" / "icons" / "folders" / filename;
     const std::filesystem::path symbol_file_2 = m_icon_asset_root / "vscode-symbols" / "files" / filename;
     const std::filesystem::path symbol_folder_2 = m_icon_asset_root / "vscode-symbols" / "folders" / filename;
     const std::filesystem::path codicon_direct = m_icon_asset_root / "vscode-codicons" / "icons" / rel_str;
@@ -1280,6 +1282,10 @@ void StudioWorkspaceRenderer::draw_svg_icon(
       resolved_path = symbol_file_1;
     } else if (std::filesystem::is_regular_file(symbol_folder_1, path_error)) {
       resolved_path = symbol_folder_1;
+    } else if (std::filesystem::is_regular_file(symbol_file_src, path_error)) {
+      resolved_path = symbol_file_src;
+    } else if (std::filesystem::is_regular_file(symbol_folder_src, path_error)) {
+      resolved_path = symbol_folder_src;
     } else if (std::filesystem::is_regular_file(symbol_file_2, path_error)) {
       resolved_path = symbol_file_2;
     } else if (std::filesystem::is_regular_file(symbol_folder_2, path_error)) {

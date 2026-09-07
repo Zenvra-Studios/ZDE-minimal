@@ -39,6 +39,10 @@ file_icon_asset_for_path(const std::filesystem::path &path) {
       Detail::lowercase_ascii(path.extension().string());
 
   // Well-known project and config files
+  if (filename.ends_with(".blade.php") || filename.ends_with(".blade.phtml") ||
+      extension == ".blade" || filename == "artisan") {
+    return Detail::symbol_icon("laravel");
+  }
   if (filename == "cmakelists.txt") {
     return Detail::symbol_icon("cmake");
   }
@@ -264,7 +268,9 @@ file_icon_asset_for_path(const std::filesystem::path &path) {
   if (extension == ".rb") {
     return Detail::symbol_icon("ruby");
   }
-  if (extension == ".php") {
+  if (extension == ".php" || extension == ".phtml" || extension == ".php4" ||
+      extension == ".php5" || extension == ".php7" || extension == ".php8" ||
+      extension == ".phps") {
     return Detail::symbol_icon("php");
   }
   if (extension == ".dart") {

@@ -27,13 +27,6 @@ void ShaderRuntimeEngine::initialize()
     // Setup default noise channels
     set_channel_texture(0, ChannelTextureKind::PerlinNoise);
     set_channel_texture(1, ChannelTextureKind::VoronoiCells);
-
-    // Load initial starter preset
-    const auto presets = ShaderCompiler::get_starter_presets();
-    if (!presets.empty())
-    {
-        load_preset(0);
-    }
 }
 
 void ShaderRuntimeEngine::apply_effective_resolution()
@@ -71,17 +64,29 @@ void ShaderRuntimeEngine::resize(int viewport_width, int viewport_height)
     m_is_dirty = true;
 }
 
+void ShaderRuntimeEngine::stage_source_code(std::string_view source_code)
+{
+    std::lock_guard<std::mutex> lock(m_engine_mutex);
+    m_source_code = std::string(source_code);
+}
+
 void ShaderRuntimeEngine::set_source_code(std::string_view source_code)
+{
+    stage_source_code(source_code);
+}
+
+bool ShaderRuntimeEngine::build_and_simulate(std::string_view source_code)
 {
     {
         std::lock_guard<std::mutex> lock(m_engine_mutex);
-        if (m_source_code == source_code)
+        if (!source_code.empty())
         {
-            return;
+            m_source_code = std::string(source_code);
         }
-        m_source_code = std::string(source_code);
+        m_is_playing = true;
     }
     trigger_compile_internal();
+    return m_status == ShaderStatus::Running;
 }
 
 void ShaderRuntimeEngine::play() noexcept
@@ -426,6 +431,7 @@ void ShaderRuntimeEngine::load_preset(std::size_t preset_index)
         return;
     }
     m_active_preset_index = preset_index;
+    m_is_playing = true;
     set_source_code(presets[preset_index].source_code);
 }
 

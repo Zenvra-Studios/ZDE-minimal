@@ -108,10 +108,10 @@ bool ShaderSandboxPanel::handle_pointer_press(
         return true;
     }
 
-    // Preset selector button in header
-    if (m_header_preset_bounds.contains(point_x, point_y))
+    // Build & Run button in header
+    if (m_ctrl_build_bounds.contains(point_x, point_y))
     {
-        next_preset();
+        build_and_run();
         return true;
     }
 
@@ -142,7 +142,9 @@ bool ShaderSandboxPanel::handle_pointer_press(
 
     if (m_ctrl_snapshot_bounds.contains(point_x, point_y))
     {
-        static_cast<void>(m_service.export_snapshot_bmp("shader_artwork.bmp"));
+        char snap_path[64]{};
+        std::snprintf(snap_path, sizeof(snap_path), "shader_artwork.bmp");
+        static_cast<void>(m_service.export_snapshot_bmp(snap_path));
         return true;
     }
 
@@ -160,7 +162,7 @@ bool ShaderSandboxPanel::handle_pointer_move(
     }
 
     const bool prev_close = m_hover_close;
-    const bool prev_preset = m_hover_preset;
+    const bool prev_build = m_hover_build;
     const bool prev_play = m_hover_play;
     const bool prev_reset = m_hover_reset;
     const bool prev_scale = m_hover_scale;
@@ -171,7 +173,7 @@ bool ShaderSandboxPanel::handle_pointer_move(
     m_hover_splitter = is_resize_handle_point(layout, point_x, point_y);
 
     m_hover_close = m_header_close_bounds.contains(point_x, point_y);
-    m_hover_preset = m_header_preset_bounds.contains(point_x, point_y);
+    m_hover_build = m_ctrl_build_bounds.contains(point_x, point_y);
 
     // Use member bounds set during render for perfect sync
     m_hover_play = m_ctrl_play_bounds.contains(point_x, point_y);
@@ -188,7 +190,7 @@ bool ShaderSandboxPanel::handle_pointer_move(
         m_service.set_mouse(vx, vy, true);
     }
 
-    return (prev_close != m_hover_close) || (prev_preset != m_hover_preset) ||
+    return (prev_close != m_hover_close) || (prev_build != m_hover_build) ||
            (prev_play != m_hover_play) || (prev_reset != m_hover_reset) ||
            (prev_scale != m_hover_scale) || (prev_backend != m_hover_backend) ||
            (prev_snapshot != m_hover_snapshot) || (prev_splitter != m_hover_splitter);
@@ -202,10 +204,13 @@ bool ShaderSandboxPanel::handle_pointer_drag(
     if (m_is_resizing)
     {
         const float delta = m_drag_start_x - point_x;
-        const float scale = layout.dpi_scale;
-        m_width = std::clamp(m_drag_start_width + delta, 180.0F * scale, 800.0F * scale);
-        static_cast<void>(m_service.step_frame());
-        return true;
+        if (std::abs(static_cast<int>(delta)) >= 0 && std::fabs(delta) > 0.001F)
+        {
+            const float scale = layout.dpi_scale;
+            m_width = std::clamp(m_drag_start_width + delta, 180.0F * scale, 800.0F * scale);
+            static_cast<void>(m_service.step_frame());
+            return true;
+        }
     }
 
     if (m_viewport_mouse_down &&
@@ -243,9 +248,19 @@ bool ShaderSandboxPanel::tick_animations() noexcept
     return m_service.step_frame();
 }
 
+void ShaderSandboxPanel::stage_source_code(std::string_view source_code)
+{
+    m_service.stage_shader_source(source_code);
+}
+
 void ShaderSandboxPanel::set_source_code(std::string_view source_code)
 {
-    m_service.set_shader_source(source_code);
+    stage_source_code(source_code);
+}
+
+bool ShaderSandboxPanel::build_and_run(std::string_view source_code)
+{
+    return m_service.build_and_simulate(source_code);
 }
 
 void ShaderSandboxPanel::next_preset()
@@ -255,7 +270,8 @@ void ShaderSandboxPanel::next_preset()
     {
         return;
     }
-    const std::size_t next_idx = (m_service.get_active_preset_index() + 1) % presets.size();
+    const auto active = m_service.get_active_preset_index();
+    const std::size_t next_idx = active.has_value() ? ((*active + 1) % presets.size()) : 0;
     m_service.load_preset(next_idx);
 }
 
@@ -266,8 +282,10 @@ void ShaderSandboxPanel::previous_preset()
     {
         return;
     }
-    const std::size_t prev_idx =
-        (m_service.get_active_preset_index() + presets.size() - 1) % presets.size();
+    const auto active = m_service.get_active_preset_index();
+    const std::size_t prev_idx = active.has_value()
+        ? ((*active + presets.size() - 1) % presets.size())
+        : (presets.size() - 1);
     m_service.load_preset(prev_idx);
 }
 
@@ -358,14 +376,19 @@ void ShaderSandboxPanel::render_header(
     }
 
     const float dot_y = header.y + header.height * 0.5F;
-    const float dot_r = 3.5F * scale;
+    float dot_r = 3.5F * scale;
+    if (m_service.get_status() == Services::Shader::ShaderStatus::Compiling)
+    {
+        const float pulse = 0.75F + 0.25F * std::sin(static_cast<float>(m_service.get_time()) * 6.0F);
+        dot_r = std::max(2.0F, dot_r * pulse);
+    }
     surface.fill_rounded_rectangle(
         device_context,
         UI::Rect{header.x + 12.0F * scale, dot_y - dot_r, dot_r * 2.0F, dot_r * 2.0F},
         status_color,
         dot_r);
 
-    // Panel Title
+    // Panel Title & Status Badge
     if (surface.m_ui_font)
     {
         surface.draw_text(
@@ -399,50 +422,49 @@ void ShaderSandboxPanel::render_header(
         device_context, "Assets/icons/close-minimal.svg", close_cx, close_cy, close_icon_sz,
         close_col, surface.m_palette.tab_background);
 
-    // Preset selector dropdown button (dynamic width matching text)
-    std::string preset_name = "Custom / Preset";
-    const auto presets = Services::Shader::ShaderCompiler::get_starter_presets();
-    if (!presets.empty() && m_service.get_active_preset_index() < presets.size())
-    {
-        preset_name = presets[m_service.get_active_preset_index()].name;
-    }
-    const int text_w = surface.m_small_font ? surface.get_text_width(device_context, *surface.m_small_font, preset_name) : round_to_int(80.0F * scale);
-    const float preset_w = std::clamp(static_cast<float>(text_w) + 26.0F * scale,
-                                      90.0F * scale, 160.0F * scale);
-    const float preset_x = m_header_close_bounds.x - preset_w - 6.0F * scale;
-    m_header_preset_bounds = UI::Rect{
-        preset_x,
+    // Build & Run simulation button (left of close button)
+    constexpr std::string_view build_label = "Build & Run";
+    const int build_lbl_w = surface.m_small_font
+        ? surface.get_text_width(device_context, *surface.m_small_font, build_label)
+        : 0;
+    const float build_w = static_cast<float>(build_lbl_w) + 26.0F * scale;
+    const float build_x = m_header_close_bounds.x - build_w - 6.0F * scale;
+    m_ctrl_build_bounds = UI::Rect{
+        build_x,
         header.y + (header.height - 22.0F * scale) * 0.5F,
-        preset_w,
+        build_w,
         22.0F * scale};
 
     surface.fill_rounded_rectangle(
         device_context,
-        m_header_preset_bounds,
-        m_hover_preset ? surface.m_palette.active_line_background : surface.m_palette.sidebar_background,
+        m_ctrl_build_bounds,
+        m_hover_build ? surface.m_palette.active_line_background : surface.m_palette.sidebar_background,
         4.0F * scale);
-    surface.draw_rectangle(device_context, m_header_preset_bounds, surface.m_palette.border);
+    surface.draw_rectangle(
+        device_context,
+        m_ctrl_build_bounds,
+        m_hover_build ? surface.m_palette.accent : surface.m_palette.border);
+
+    surface.draw_svg_icon(
+        device_context,
+        "Assets/icons/build.svg",
+        round_to_int(m_ctrl_build_bounds.x + 9.0F * scale),
+        round_to_int(dot_y),
+        std::max(round_to_int(10.0F * scale), 8),
+        m_hover_build ? surface.m_palette.accent : surface.m_palette.success,
+        surface.m_palette.sidebar_background,
+        false);
 
     if (surface.m_small_font)
     {
         surface.draw_text(
             device_context,
             *surface.m_small_font,
-            preset_name,
-            m_header_preset_bounds.x + 8.0F * scale,
+            build_label,
+            m_ctrl_build_bounds.x + 18.0F * scale,
             dot_y,
-            m_hover_preset ? surface.m_palette.text_primary : surface.m_palette.text_muted);
+            m_hover_build ? surface.m_palette.text_primary : surface.m_palette.text_muted);
     }
-    // Chevron indicator on preset button
-    surface.draw_svg_icon(
-        device_context,
-        "Assets/icons/chevron-down.svg",
-        round_to_int(m_header_preset_bounds.right() - 10.0F * scale),
-        round_to_int(dot_y),
-        std::max(round_to_int(8.0F * scale), 6),
-        surface.m_palette.text_muted,
-        surface.m_palette.sidebar_background,
-        false);
 }
 
 void ShaderSandboxPanel::render_viewport(
@@ -451,6 +473,61 @@ void ShaderSandboxPanel::render_viewport(
     const UI::Editor::StudioEditorLayoutResult& layout) const
 {
     const UI::Rect& canvas_rect = layout.shader_panel_viewport_bounds;
+
+    // Dark canvas frame & subtle inner background
+    surface.fill_rectangle(
+        device_context, canvas_rect, UI::Theme::Color{18, 18, 24, 255});
+
+    if (!m_service.has_compiled_shader())
+    {
+        // Context placeholder when no shader has been compiled yet
+        const float scale = surface.m_dpi_scale;
+        const float center_x = canvas_rect.x + canvas_rect.width * 0.5F;
+        const float center_y = canvas_rect.y + canvas_rect.height * 0.5F;
+
+        constexpr std::string_view title_text = "Shader Simulator Ready";
+        constexpr std::string_view subtitle_text = "Press 'Build & Run' or F5 to compile and simulate";
+        constexpr std::string_view hint_text = "Inputs: iResolution, iTime, iMouse, iChannel0..3";
+
+        if (surface.m_ui_font)
+        {
+            const int title_w = surface.get_text_width(device_context, *surface.m_ui_font, title_text);
+            const float title_x = center_x - static_cast<float>(title_w) * 0.5F;
+            surface.draw_text(
+                device_context,
+                *surface.m_ui_font,
+                title_text,
+                title_x,
+                center_y - 14.0F * scale,
+                UI::Theme::Color{210, 215, 230, 255});
+        }
+
+        if (surface.m_small_font)
+        {
+            const int sub_w = surface.get_text_width(device_context, *surface.m_small_font, subtitle_text);
+            const float sub_x = center_x - static_cast<float>(sub_w) * 0.5F;
+            surface.draw_text(
+                device_context,
+                *surface.m_small_font,
+                subtitle_text,
+                sub_x,
+                center_y + 8.0F * scale,
+                surface.m_palette.text_muted);
+
+            const int hint_w = surface.get_text_width(device_context, *surface.m_small_font, hint_text);
+            const float hint_x = center_x - static_cast<float>(hint_w) * 0.5F;
+            surface.draw_text(
+                device_context,
+                *surface.m_small_font,
+                hint_text,
+                hint_x,
+                center_y + 26.0F * scale,
+                surface.m_palette.text_muted);
+        }
+
+        surface.draw_rectangle(device_context, canvas_rect, surface.m_palette.border);
+        return;
+    }
 
     // Resize virtual surface if canvas dimensions changed & step frame
     const int target_w = round_to_int(canvas_rect.width);
@@ -472,6 +549,7 @@ void ShaderSandboxPanel::render_viewport(
         const bool is_gpu = (desc.backend == Services::Shader::RenderBackend::Gpu);
 
         BITMAPINFO bmi{};
+        std::memset(&bmi, 0, sizeof(BITMAPINFO));
         bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
         bmi.bmiHeader.biWidth = img_w;
         bmi.bmiHeader.biHeight = is_gpu ? img_h : -img_h; // GPU glReadPixels is bottom-up, CPU is top-down
@@ -503,11 +581,6 @@ void ShaderSandboxPanel::render_viewport(
             SRCCOPY);
 
         RestoreDC(device_context, -1);
-    }
-    else
-    {
-        surface.fill_rectangle(
-            device_context, canvas_rect, UI::Theme::Color{18, 18, 24, 255});
     }
 
     surface.draw_rectangle(device_context, canvas_rect, surface.m_palette.border);
@@ -716,22 +789,31 @@ void ShaderSandboxPanel::render_diagnostics_overlay(
     surface.fill_rectangle(
         device_context, banner_rect, UI::Theme::Color{180, 40, 40, 220});
 
-    std::string err_msg = "Error: ";
+    char err_buf[512]{};
     if (!diagnostics.empty())
     {
-        err_msg += diagnostics.front().message;
         if (diagnostics.front().line > 0)
         {
-            err_msg += " (line " + std::to_string(diagnostics.front().line) + ")";
+            std::snprintf(err_buf, sizeof(err_buf), "Error (line %d): %s",
+                diagnostics.front().line, diagnostics.front().message.c_str());
+        }
+        else
+        {
+            std::snprintf(err_buf, sizeof(err_buf), "Error: %s",
+                diagnostics.front().message.c_str());
         }
     }
+    else
+    {
+        std::strncpy(err_buf, "Error: Shader compilation failed", sizeof(err_buf) - 1);
+    }
 
-    if (surface.m_small_font)
+    if (surface.m_small_font && std::strlen(err_buf) > 0)
     {
         surface.draw_text(
             device_context,
             *surface.m_small_font,
-            err_msg,
+            err_buf,
             banner_rect.x + 8.0F * scale,
             banner_rect.y + banner_height * 0.5F,
             UI::Theme::Color{255, 255, 255, 255});

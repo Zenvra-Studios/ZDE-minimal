@@ -59,6 +59,9 @@ StudioEditorPalette StudioEditorPalette::dark() noexcept {
       .hover_background = {58, 62, 72, 255},
       .indent_guide = {48, 50, 56, 255},
       .indent_guide_active = {95, 100, 112, 255},
+      .directive = {197, 134, 192, 255},
+      .macro_symbol = {156, 220, 254, 255},
+      .include_header = {206, 145, 120, 255},
   };
 }
 

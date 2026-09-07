@@ -251,6 +251,7 @@ public:
     [[nodiscard]] bool toggle_shader_sandbox() noexcept;
     [[nodiscard]] bool is_shader_sandbox_visible() const noexcept;
     void sync_shader_sandbox() const;
+    bool build_and_simulate_current_shader();
     [[nodiscard]] bool toggle_terminal() noexcept;
     [[nodiscard]] bool is_terminal_visible() const noexcept;
     void reset_layout() noexcept;

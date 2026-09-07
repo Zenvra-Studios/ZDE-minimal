@@ -142,10 +142,15 @@ void ShaderService::publish_surface_frame()
     }
 }
 
-void ShaderService::set_shader_source(std::string_view source_code)
+void ShaderService::stage_shader_source(std::string_view source_code)
 {
     std::lock_guard<std::mutex> lock(m_service_mutex);
-    m_engine.set_source_code(source_code);
+    m_engine.stage_source_code(source_code);
+}
+
+void ShaderService::set_shader_source(std::string_view source_code)
+{
+    stage_shader_source(source_code);
 }
 
 const std::string& ShaderService::get_shader_source() const noexcept
@@ -153,12 +158,18 @@ const std::string& ShaderService::get_shader_source() const noexcept
     return m_engine.get_source_code();
 }
 
-bool ShaderService::compile_and_render()
+bool ShaderService::build_and_simulate(std::string_view source_code)
 {
     std::lock_guard<std::mutex> lock(m_service_mutex);
-    const bool ok = m_engine.update_and_render();
+    const bool ok = m_engine.build_and_simulate(source_code);
+    m_engine.update_and_render();
     publish_surface_frame();
     return ok;
+}
+
+bool ShaderService::compile_and_render()
+{
+    return build_and_simulate();
 }
 
 bool ShaderService::is_shader_source_candidate(
@@ -257,9 +268,14 @@ void ShaderService::load_preset(std::size_t index)
     m_engine.load_preset(index);
 }
 
-std::size_t ShaderService::get_active_preset_index() const noexcept
+std::optional<std::size_t> ShaderService::get_active_preset_index() const noexcept
 {
     return m_engine.get_active_preset_index();
+}
+
+bool ShaderService::has_compiled_shader() const noexcept
+{
+    return m_engine.has_compiled_shader();
 }
 
 ShaderStatus ShaderService::get_status() const noexcept
