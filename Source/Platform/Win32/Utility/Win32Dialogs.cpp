@@ -1,4 +1,5 @@
 #include "Platform/PlatformDialogs.h"
+#include "Platform/HostSystem.h"
 
 #include <objbase.h>
 #include <shlobj.h>
@@ -39,6 +40,17 @@ std::optional<std::filesystem::path> show_modern_dialog(HWND parent) {
     static_cast<void>(dialog->SetOptions(options));
   }
   dialog->SetTitle(L"Select Folder");
+
+  const std::filesystem::path home = HostSystem::get_user_home_directory();
+  if (!home.empty()) {
+    IShellItem *default_folder = nullptr;
+    if (SUCCEEDED(SHCreateItemFromParsingName(home.wstring().c_str(), nullptr,
+                                             IID_PPV_ARGS(&default_folder))) &&
+        default_folder != nullptr) {
+      static_cast<void>(dialog->SetDefaultFolder(default_folder));
+      default_folder->Release();
+    }
+  }
 
   const HRESULT shown = dialog->Show(parent);
   if (FAILED(shown)) {

@@ -399,6 +399,20 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
         directory_str = user_profile.data();
       }
     }
+    if (directory_str.empty()) {
+      std::array<wchar_t, 512> username{};
+      DWORD u_len = static_cast<DWORD>(username.size());
+      if (GetUserNameW(username.data(), &u_len) && u_len > 0) {
+        std::array<wchar_t, 64> sys_drive{};
+        const DWORD sd_len = GetEnvironmentVariableW(
+            L"SystemDrive", sys_drive.data(), static_cast<DWORD>(sys_drive.size()));
+        const std::wstring drive_prefix = (sd_len > 0) ? sys_drive.data() : L"C:";
+        std::filesystem::path candidate = std::filesystem::path(drive_prefix) / L"Users" / username.data();
+        if (std::filesystem::is_directory(candidate, dir_ec)) {
+          directory_str = candidate.wstring();
+        }
+      }
+    }
   }
 
   bool started = false;
@@ -447,7 +461,14 @@ bool TerminalSession::start(const std::filesystem::path &working_directory,
   // ═══ Unix (Linux/macOS): PosixTTYBackend ───────────────────────────
   m_shell_path = shell_candidates.front();
   auto posix_backend = std::make_unique<PosixTTYBackend>();
-  if (!posix_backend->start(m_shell_path, L"", working_directory, m_columns, m_rows)) {
+  std::filesystem::path effective_dir = working_directory;
+  if (effective_dir.empty()) {
+    const char* home = std::getenv("HOME");
+    if (home != nullptr && *home != '\0') {
+      effective_dir = home;
+    }
+  }
+  if (!posix_backend->start(m_shell_path, L"", effective_dir, m_columns, m_rows)) {
     append_status("[Unable to create the local terminal PTY]");
     return true;
   }

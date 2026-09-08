@@ -1,12 +1,29 @@
 #include "UI/Editor/EditorFileSystem.h"
+#include "UI/Editor/MediaPlayerView.h"
 
 #include "Utility/TextEncoding.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <string_view>
+
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <shlobj.h>
+#elif defined(__APPLE__) || defined(__linux__) || defined(__unix__)
+#include <pwd.h>
+#include <unistd.h>
+#endif
 
 namespace Zenvra::UI::Editor
 {
@@ -41,30 +58,17 @@ std::string format_file_size(std::uintmax_t bytes)
 
 bool is_video_file(const std::filesystem::path& path)
 {
-    std::string ext = path.extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return ext == ".mp4" || ext == ".mkv" || ext == ".webm" || ext == ".mov" ||
-           ext == ".avi" || ext == ".flv" || ext == ".wmv" || ext == ".ts" ||
-           ext == ".m4v" || ext == ".ogv" || ext == ".3gp" || ext == ".vob" ||
-           ext == ".rmvb" || ext == ".mjpg";
+    return MediaPlayerView::is_video_file(path);
 }
 
 bool is_audio_file(const std::filesystem::path& path)
 {
-    std::string ext = path.extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return ext == ".mp3" || ext == ".wav" || ext == ".flac" || ext == ".ogg" ||
-           ext == ".aac" || ext == ".m4a" || ext == ".opus" || ext == ".aiff" ||
-           ext == ".wma" || ext == ".ac3" || ext == ".mid" || ext == ".midi";
+    return MediaPlayerView::is_audio_file(path);
 }
 
 bool is_image_file(const std::filesystem::path& path)
 {
-    std::string ext = path.extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" ||
-           ext == ".webp" || ext == ".bmp" || ext == ".ico" || ext == ".tiff" ||
-           ext == ".svg" || ext == ".psd" || ext == ".tga";
+    return MediaPlayerView::is_image_file(path);
 }
 
 std::vector<std::string> build_decompiled_binary_preview(
@@ -232,6 +236,111 @@ bool looks_like_project_root(const std::filesystem::path& directory)
 }
 
 } // namespace
+
+std::filesystem::path EditorFileSystem::get_user_home_directory()
+{
+#if defined(_WIN32)
+    std::array<wchar_t, 32768> user_profile{};
+    const DWORD len = GetEnvironmentVariableW(
+        L"USERPROFILE", user_profile.data(),
+        static_cast<DWORD>(user_profile.size()));
+    if (len > 0 && len < user_profile.size())
+    {
+        std::error_code ec;
+        std::filesystem::path p{user_profile.data()};
+        if (std::filesystem::is_directory(p, ec))
+        {
+            return p;
+        }
+    }
+
+    // 2. Windows Shell Known Folder API (FOLDERID_Profile)
+    PWSTR known_path = nullptr;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Profile, 0, nullptr, &known_path)) && known_path != nullptr)
+    {
+        std::filesystem::path p{known_path};
+        CoTaskMemFree(known_path);
+        std::error_code ec;
+        if (std::filesystem::is_directory(p, ec))
+        {
+            return p;
+        }
+    }
+
+    // 3. Check HOMEDRIVE + HOMEPATH
+    std::array<wchar_t, 512> drive{};
+    std::array<wchar_t, 32768> path{};
+    const DWORD d_len = GetEnvironmentVariableW(
+        L"HOMEDRIVE", drive.data(), static_cast<DWORD>(drive.size()));
+    const DWORD p_len = GetEnvironmentVariableW(
+        L"HOMEPATH", path.data(), static_cast<DWORD>(path.size()));
+    if (d_len > 0 && p_len > 0)
+    {
+        std::wstring combined = std::wstring(drive.data()) + path.data();
+        std::error_code ec;
+        std::filesystem::path p{combined};
+        if (std::filesystem::is_directory(p, ec))
+        {
+            return p;
+        }
+    }
+
+    // 4. Resolve username dynamically via OS GetUserNameW API
+    std::array<wchar_t, 512> username{};
+    DWORD u_len = static_cast<DWORD>(username.size());
+    if (GetUserNameW(username.data(), &u_len) && u_len > 0)
+    {
+        std::array<wchar_t, 64> sys_drive{};
+        const DWORD sd_len = GetEnvironmentVariableW(
+            L"SystemDrive", sys_drive.data(), static_cast<DWORD>(sys_drive.size()));
+        const std::wstring drive_prefix = (sd_len > 0) ? sys_drive.data() : L"C:";
+        std::filesystem::path candidate = std::filesystem::path(drive_prefix) / L"Users" / username.data();
+        std::error_code ec;
+        if (std::filesystem::is_directory(candidate, ec))
+        {
+            return candidate;
+        }
+    }
+
+    // 5. General fallback: SystemDrive\Users or root drive
+    std::array<wchar_t, 64> sys_drive{};
+    const DWORD sd_len = GetEnvironmentVariableW(
+        L"SystemDrive", sys_drive.data(), static_cast<DWORD>(sys_drive.size()));
+    const std::wstring drive_prefix = (sd_len > 0) ? sys_drive.data() : L"C:";
+    std::filesystem::path users_dir = std::filesystem::path(drive_prefix) / L"Users";
+    std::error_code ec;
+    if (std::filesystem::is_directory(users_dir, ec))
+    {
+        return users_dir;
+    }
+
+    return std::filesystem::path{drive_prefix + L"\\"};
+#else
+    const char* home = std::getenv("HOME");
+    if (home != nullptr && *home != '\0')
+    {
+        std::error_code ec;
+        std::filesystem::path p{home};
+        if (std::filesystem::is_directory(p, ec))
+        {
+            return p;
+        }
+    }
+
+    struct passwd* pw = getpwuid(getuid());
+    if (pw != nullptr && pw->pw_dir != nullptr && pw->pw_dir[0] != '\0')
+    {
+        std::error_code ec;
+        std::filesystem::path p{pw->pw_dir};
+        if (std::filesystem::is_directory(p, ec))
+        {
+            return p;
+        }
+    }
+
+    return std::filesystem::path{"/"};
+#endif
+}
 
 std::optional<std::filesystem::path> EditorFileSystem::find_project_root(
     const std::filesystem::path& start)

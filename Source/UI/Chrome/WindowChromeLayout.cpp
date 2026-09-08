@@ -80,6 +80,11 @@ bool WindowChromeLayoutResult::is_build_button(float point_x,
   return build_bounds.contains(point_x, point_y);
 }
 
+bool WindowChromeLayoutResult::is_mode_button(float point_x,
+                                              float point_y) const noexcept {
+  return mode_bounds.contains(point_x, point_y);
+}
+
 bool WindowChromeLayoutResult::is_gear_button(float point_x,
                                               float point_y) const noexcept {
   return gear_bounds.contains(point_x, point_y);

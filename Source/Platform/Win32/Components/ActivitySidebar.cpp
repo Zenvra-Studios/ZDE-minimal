@@ -137,7 +137,7 @@ void ActivitySidebar::draw_icon(
     switch (icon)
     {
     case UI::Editor::SidebarIcon::Project:
-        asset_name = "vscode-codicons/icons/folder.svg";
+        asset_name = "folder.svg";
         break;
     case UI::Editor::SidebarIcon::VersionControl:
         asset_name = "vscode-codicons/icons/source-control.svg";

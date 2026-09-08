@@ -47,10 +47,23 @@ bool is_all_caps_constant(std::string_view word) noexcept
 
 bool is_pascal_case_type(std::string_view word) noexcept
 {
-    if (word.empty()) return false;
+    if (word.size() < 2) return false;
     if (std::isupper(static_cast<unsigned char>(word[0])) == 0) return false;
-    if (word.size() == 1) return true;
-    return !is_all_caps_constant(word);
+
+    // True PascalCase types never contain underscores (e.g. Assets_icons_... is snake_case)
+    if (word.find('_') != std::string_view::npos) return false;
+
+    // Must contain at least one lowercase letter to avoid all-caps constants
+    bool has_lower = false;
+    for (std::size_t i = 1; i < word.size(); ++i)
+    {
+        if (std::islower(static_cast<unsigned char>(word[i])) != 0)
+        {
+            has_lower = true;
+            break;
+        }
+    }
+    return has_lower;
 }
 
 } // namespace
@@ -184,6 +197,86 @@ std::size_t GenericGrammarEngine::tokenize_line(
             return token_count;
         }
     }
+    else if (state.kind == TokenizerState::StateKind::CppAttribute)
+    {
+        bool closed = false;
+        while (cursor < line.size() && token_count < output.size())
+        {
+            if (line[cursor] == ']' && cursor + 1 < line.size() && line[cursor + 1] == ']')
+            {
+                append(line.substr(cursor, 2), UI::Editor::EditorTokenKind::Directive);
+                cursor += 2;
+                closed = true;
+                state = TokenizerState{};
+                break;
+            }
+            if (std::isspace(static_cast<unsigned char>(line[cursor])) != 0)
+            {
+                std::size_t space_start = cursor;
+                while (cursor < line.size() && std::isspace(static_cast<unsigned char>(line[cursor])) != 0)
+                {
+                    ++cursor;
+                }
+                append(line.substr(space_start, cursor - space_start), UI::Editor::EditorTokenKind::Plain);
+                continue;
+            }
+            if (line[cursor] == '"')
+            {
+                std::size_t str_start = cursor;
+                ++cursor;
+                while (cursor < line.size() && line[cursor] != '"')
+                {
+                    if (line[cursor] == '\\' && cursor + 1 < line.size())
+                    {
+                        cursor += 2;
+                    }
+                    else
+                    {
+                        ++cursor;
+                    }
+                }
+                if (cursor < line.size() && line[cursor] == '"')
+                {
+                    ++cursor;
+                }
+                append(line.substr(str_start, cursor - str_start), UI::Editor::EditorTokenKind::String);
+                continue;
+            }
+            if (std::isdigit(static_cast<unsigned char>(line[cursor])) != 0)
+            {
+                std::size_t num_start = cursor;
+                while (cursor < line.size() && std::isalnum(static_cast<unsigned char>(line[cursor])) != 0)
+                {
+                    ++cursor;
+                }
+                append(line.substr(num_start, cursor - num_start), UI::Editor::EditorTokenKind::Number);
+                continue;
+            }
+            if (std::isalpha(static_cast<unsigned char>(line[cursor])) != 0 || line[cursor] == '_')
+            {
+                std::size_t id_start = cursor;
+                while (cursor < line.size() &&
+                       (std::isalnum(static_cast<unsigned char>(line[cursor])) != 0 || line[cursor] == '_'))
+                {
+                    ++cursor;
+                }
+                append(line.substr(id_start, cursor - id_start), UI::Editor::EditorTokenKind::Directive);
+                continue;
+            }
+            if (line[cursor] == ':' && cursor + 1 < line.size() && line[cursor + 1] == ':')
+            {
+                append(line.substr(cursor, 2), UI::Editor::EditorTokenKind::Plain);
+                cursor += 2;
+                continue;
+            }
+            append(line.substr(cursor, 1), UI::Editor::EditorTokenKind::Plain);
+            ++cursor;
+        }
+        if (!closed)
+        {
+            return token_count;
+        }
+    }
 
     enum class DeclContext
     {
@@ -298,6 +391,92 @@ std::size_t GenericGrammarEngine::tokenize_line(
             }
             append(line.substr(cursor, var_end - cursor), UI::Editor::EditorTokenKind::Macro);
             cursor = var_end;
+            continue;
+        }
+
+        // 0c. C++ Attributes ([[nodiscard]], [[maybe_unused]], [[deprecated]], [[fallthrough]], etc.)
+        if ((grammar.name == "C/C++" || grammar.supports_preprocessor) &&
+            character == '[' && cursor + 1 < line.size() && line[cursor + 1] == '[')
+        {
+            append(line.substr(cursor, 2), UI::Editor::EditorTokenKind::Directive);
+            cursor += 2;
+            bool closed = false;
+            while (cursor < line.size() && token_count < output.size())
+            {
+                if (line[cursor] == ']' && cursor + 1 < line.size() && line[cursor + 1] == ']')
+                {
+                    append(line.substr(cursor, 2), UI::Editor::EditorTokenKind::Directive);
+                    cursor += 2;
+                    closed = true;
+                    break;
+                }
+                if (std::isspace(static_cast<unsigned char>(line[cursor])) != 0)
+                {
+                    std::size_t space_start = cursor;
+                    while (cursor < line.size() && std::isspace(static_cast<unsigned char>(line[cursor])) != 0)
+                    {
+                        ++cursor;
+                    }
+                    append(line.substr(space_start, cursor - space_start), UI::Editor::EditorTokenKind::Plain);
+                    continue;
+                }
+                if (line[cursor] == '"')
+                {
+                    std::size_t str_start = cursor;
+                    ++cursor;
+                    while (cursor < line.size() && line[cursor] != '"')
+                    {
+                        if (line[cursor] == '\\' && cursor + 1 < line.size())
+                        {
+                            cursor += 2;
+                        }
+                        else
+                        {
+                            ++cursor;
+                        }
+                    }
+                    if (cursor < line.size() && line[cursor] == '"')
+                    {
+                        ++cursor;
+                    }
+                    append(line.substr(str_start, cursor - str_start), UI::Editor::EditorTokenKind::String);
+                    continue;
+                }
+                if (std::isdigit(static_cast<unsigned char>(line[cursor])) != 0)
+                {
+                    std::size_t num_start = cursor;
+                    while (cursor < line.size() && std::isalnum(static_cast<unsigned char>(line[cursor])) != 0)
+                    {
+                        ++cursor;
+                    }
+                    append(line.substr(num_start, cursor - num_start), UI::Editor::EditorTokenKind::Number);
+                    continue;
+                }
+                if (std::isalpha(static_cast<unsigned char>(line[cursor])) != 0 || line[cursor] == '_')
+                {
+                    std::size_t id_start = cursor;
+                    while (cursor < line.size() &&
+                           (std::isalnum(static_cast<unsigned char>(line[cursor])) != 0 || line[cursor] == '_'))
+                    {
+                        ++cursor;
+                    }
+                    append(line.substr(id_start, cursor - id_start), UI::Editor::EditorTokenKind::Directive);
+                    continue;
+                }
+                if (line[cursor] == ':' && cursor + 1 < line.size() && line[cursor + 1] == ':')
+                {
+                    append(line.substr(cursor, 2), UI::Editor::EditorTokenKind::Plain);
+                    cursor += 2;
+                    continue;
+                }
+                append(line.substr(cursor, 1), UI::Editor::EditorTokenKind::Plain);
+                ++cursor;
+            }
+            if (!closed)
+            {
+                state.kind = TokenizerState::StateKind::CppAttribute;
+                return token_count;
+            }
             continue;
         }
 
@@ -824,11 +1003,23 @@ std::size_t GenericGrammarEngine::tokenize_line(
             {
                 ++cursor;
             }
-            while (cursor < line.size() &&
-                   (std::isxdigit(static_cast<unsigned char>(line[cursor])) != 0 ||
-                    line[cursor] == '.' || line[cursor] == '_' || line[cursor] == 'f' || line[cursor] == 'u' || line[cursor] == 'l'))
+            while (cursor < line.size())
             {
-                ++cursor;
+                const char c = line[cursor];
+                if (std::isxdigit(static_cast<unsigned char>(c)) != 0 ||
+                    c == '.' || c == '_' || c == 'f' || c == 'u' || c == 'l' || c == 'F' || c == 'U' || c == 'L')
+                {
+                    ++cursor;
+                }
+                else if (c == '\'' && cursor + 1 < line.size() &&
+                         std::isxdigit(static_cast<unsigned char>(line[cursor + 1])) != 0)
+                {
+                    cursor += 2;
+                }
+                else
+                {
+                    break;
+                }
             }
             // If immediately followed by a CSS unit (% or px, rem, em, vh, vw, pt, deg, s, ms, etc.) in CSS / HTML / PHP
             if (grammar.name == "CSS" || grammar.name == "HTML" || grammar.name == "HTML/CSS" || grammar.name == "PHP" ||
@@ -910,10 +1101,38 @@ std::size_t GenericGrammarEngine::tokenize_line(
             const bool preceded_by_tag_close = (prev_idx >= 2 && line[prev_idx - 2] == '<' && line[prev_idx - 1] == '/');
             const bool preceded_by_doctype = (prev_idx >= 2 && line[prev_idx - 2] == '<' && line[prev_idx - 1] == '!');
             const bool preceded_by_dot = (prev_idx > 0 && line[prev_idx - 1] == '.');
+            const bool preceded_by_arrow = (prev_idx >= 2 && line[prev_idx - 2] == '-' && line[prev_idx - 1] == '>');
             const bool is_jsx_or_html = (grammar.name == "HTML" || grammar.name == "HTML/CSS" ||
                                          grammar.name == "JavaScript/TypeScript" ||
                                          grammar.name == "Vue" || grammar.name == "Svelte" ||
                                          grammar.name == "PHP" || grammar.name == "CSS");
+
+            // Lookbehind to previous non-whitespace token emitted on this line
+            UI::Editor::EditorTokenKind prev_token_kind = UI::Editor::EditorTokenKind::Plain;
+            std::string_view prev_token_text;
+            if (token_count > 0)
+            {
+                std::size_t p = token_count;
+                while (p > 0)
+                {
+                    --p;
+                    bool all_space = true;
+                    for (char ch : output[p].text)
+                    {
+                        if (std::isspace(static_cast<unsigned char>(ch)) == 0)
+                        {
+                            all_space = false;
+                            break;
+                        }
+                    }
+                    if (!all_space)
+                    {
+                        prev_token_kind = output[p].kind;
+                        prev_token_text = output[p].text;
+                        break;
+                    }
+                }
+            }
 
             if (is_jsx_or_html && (preceded_by_tag_open || preceded_by_tag_close))
             {
@@ -1025,6 +1244,14 @@ std::size_t GenericGrammarEngine::tokenize_line(
                 // CSS Class selector (e.g. .logo {, .btn,)
                 append(identifier, UI::Editor::EditorTokenKind::Type);
             }
+            else if (identifier == "__attribute__" || identifier == "__attribute" || identifier == "__declspec" ||
+                     identifier == "UPROPERTY" || identifier == "UFUNCTION" || identifier == "UCLASS" ||
+                     identifier == "USTRUCT" || identifier == "UENUM" || identifier == "UDELEGATE" ||
+                     identifier == "GENERATED_BODY" || identifier == "GENERATED_UCLASS_BODY")
+            {
+                // Compiler and engine attribute specifiers
+                append(identifier, UI::Editor::EditorTokenKind::Directive);
+            }
             else if (grammar.is_keyword(identifier))
             {
                 append(identifier, UI::Editor::EditorTokenKind::Keyword);
@@ -1052,6 +1279,18 @@ std::size_t GenericGrammarEngine::tokenize_line(
                     decl_context = DeclContext::None;
                 }
             }
+            else if ((preceded_by_dot || preceded_by_arrow) && !is_jsx_or_html)
+            {
+                // Object member variable or method access (e.g. player.Health, mesh->Location, this->m_value)
+                if (followed_by_paren)
+                {
+                    append(identifier, UI::Editor::EditorTokenKind::Label);
+                }
+                else
+                {
+                    append(identifier, UI::Editor::EditorTokenKind::Plain);
+                }
+            }
             else if (decl_context == DeclContext::Namespace || decl_context == DeclContext::Class)
             {
                 append(identifier, UI::Editor::EditorTokenKind::Label);
@@ -1064,6 +1303,21 @@ std::size_t GenericGrammarEngine::tokenize_line(
             {
                 // Part of scope resolution A::B::C (e.g. EditorScrollbar::reset, Zenvra::Platform)
                 append(identifier, UI::Editor::EditorTokenKind::Label);
+            }
+            else if ((prev_token_kind == UI::Editor::EditorTokenKind::Type ||
+                      prev_token_text == "*" || prev_token_text == "&" || prev_token_text == ">") &&
+                     grammar.supports_preprocessor)
+            {
+                // Variable or function name being declared immediately after a type/ptr/ref
+                // e.g. unsigned char Assets_..., int TotalCount, FVector PlayerLocation
+                if (followed_by_paren)
+                {
+                    append(identifier, UI::Editor::EditorTokenKind::Label);
+                }
+                else
+                {
+                    append(identifier, UI::Editor::EditorTokenKind::Plain);
+                }
             }
             else if (is_pascal_case_type(identifier) && grammar.name != "HTML" && grammar.name != "HTML/CSS" && grammar.name != "PHP" && grammar.name != "CSS")
             {

@@ -1,7 +1,9 @@
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
 #include "Commands/CommandIds.h"
 #include "Language/LanguageServerManager.h"
+#include "Platform/HostSystem.h"
 #include "Platform/PlatformDialogs.h"
+#include "Settings/SettingsService.h"
 #include "Utility/Antialiasing.h"
 #include "Utility/stb_image.h"
 
@@ -22,6 +24,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -30,6 +33,30 @@
 namespace Zenvra::Platform::Win32::Components {
 
 namespace {
+
+static int CALLBACK EnumFontFamExProc(
+    const LOGFONTW * /*lpelfe*/,
+    const TEXTMETRICW * /*lpntme*/,
+    DWORD /*FontType*/,
+    LPARAM lParam)
+{
+  *reinterpret_cast<bool*>(lParam) = true;
+  return 0; // stop enumeration on first match
+}
+
+static bool is_font_available(const std::string &font_name) {
+  if (font_name.empty()) return false;
+  HDC dc = GetDC(nullptr);
+  if (!dc) return false;
+  LOGFONTW lf{};
+  int wlen = MultiByteToWideChar(CP_UTF8, 0, font_name.c_str(), static_cast<int>(font_name.length()), lf.lfFaceName, 31);
+  lf.lfFaceName[wlen] = L'\0';
+  lf.lfCharSet = DEFAULT_CHARSET;
+  bool found = false;
+  EnumFontFamiliesExW(dc, &lf, EnumFontFamExProc, reinterpret_cast<LPARAM>(&found), 0);
+  ReleaseDC(nullptr, dc);
+  return found;
+}
 
 using Zenvra::Utility::round_to_int;
 
@@ -168,24 +195,74 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
   m_editor_font_name = hack_loaded ? "Hack" : "Consolas";
   m_ui_font_name = opensans_loaded ? "Open Sans" : "Segoe UI";
 
+  auto& settings_service = Settings::SettingsService::instance();
+  settings_service.initialize();
+
+  const auto existing_workspace = m_tool_sidebar.get_model().get_workspace_root();
+  if (!existing_workspace.empty()) {
+    settings_service.set_workspace_path(existing_workspace);
+  }
+
+  const int configured_size = settings_service.get<int>("editor.fontSize");
+  const int effective_size = (configured_size >= 8 && configured_size <= 72) ? configured_size : 14;
+  const std::string configured_font = settings_service.get<std::string>("editor.fontFamily");
+  if (!configured_font.empty()) {
+    m_editor_font_name = resolve_font_family_name(configured_font);
+  }
+
+  const int term_size = settings_service.get<int>("terminal.fontSize");
+  const int eff_term_size = (term_size >= 8 && term_size <= 72) ? term_size : 14;
+  const std::string term_font = settings_service.get<std::string>("terminal.fontFamily");
+  m_terminal_font_name = !term_font.empty() ? resolve_font_family_name(term_font) : m_editor_font_name;
+
   m_ui_font = std::make_unique<AntialiasedFont>(
       m_ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
   m_small_font = std::make_unique<AntialiasedFont>(
       m_ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
   m_editor_font = std::make_unique<AntialiasedFont>(
-      m_editor_font_name, std::max(round_to_int(14.0F * m_dpi_scale), 10));
+      m_editor_font_name, std::max(round_to_int(static_cast<float>(effective_size) * m_dpi_scale), 10));
   m_editor_font->setLigaturesEnabled(true);
+  m_terminal_font = std::make_unique<AntialiasedFont>(
+      m_terminal_font_name, std::max(round_to_int(static_cast<float>(eff_term_size) * m_dpi_scale), 10));
+  m_terminal_font->setLigaturesEnabled(true);
   m_minimap_font = std::make_unique<AntialiasedFont>(
       m_editor_font_name, std::max(round_to_int(3.0F * m_dpi_scale), 3));
   m_large_font = std::make_unique<AntialiasedFont>(
       m_ui_font_name, std::max(round_to_int(24.0F * m_dpi_scale), 18), FW_BOLD);
   if (!m_ui_font->isValid() || !m_small_font->isValid() ||
-      !m_editor_font->isValid() || !m_minimap_font->isValid() ||
-      !m_large_font->isValid()) {
+      !m_editor_font->isValid() || !m_terminal_font->isValid() ||
+      !m_minimap_font->isValid() || !m_large_font->isValid()) {
     shutdown();
     return false;
   }
-  const auto existing_workspace = m_tool_sidebar.get_model().get_workspace_root();
+
+  // Synchronize TextEditor settings on startup
+  m_text_editor.set_tab_size(static_cast<std::size_t>(std::max(1, settings_service.get<int>("editor.tabSize"))));
+  m_text_editor.set_cursor_style(settings_service.get<std::string>("editor.cursorStyle"));
+  m_text_editor.set_render_whitespace(settings_service.get<std::string>("editor.renderWhitespace"));
+
+  static_cast<void>(settings_service.subscribe([this, &settings_service](const Settings::SettingsChangedEvent& event) {
+    if (event.id == "editor.fontSize" || event.id == "editor.fontFamily" || event.id == "editor.lineHeight") {
+      reload_editor_font();
+    } else if (event.id == "terminal.fontSize" || event.id == "terminal.fontFamily") {
+      reload_terminal_font();
+    } else if (event.id == "editor.tabSize") {
+      const int ts = settings_service.get<int>("editor.tabSize");
+      m_text_editor.set_tab_size(static_cast<std::size_t>(std::max(1, ts)));
+      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+    } else if (event.id == "editor.cursorStyle") {
+      m_text_editor.set_cursor_style(settings_service.get<std::string>("editor.cursorStyle"));
+      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+    } else if (event.id == "editor.renderWhitespace") {
+      m_text_editor.set_render_whitespace(settings_service.get<std::string>("editor.renderWhitespace"));
+      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+    } else if (event.id == "editor.minimap.enabled" || event.id == "workbench.activityBar.visible" || event.id == "theme.current" || event.id == "workbench.mascot.image") {
+      if (m_window_handle) {
+        InvalidateRect(m_window_handle, nullptr, FALSE);
+      }
+    }
+  }));
+
   if (existing_workspace.empty()) {
     static_cast<void>(m_tool_sidebar.initialize());
   } else {
@@ -194,8 +271,9 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
   const auto active_workspace = m_tool_sidebar.get_model().get_workspace_root();
   if (!active_workspace.empty()) {
     m_terminal_panel.set_working_directory(active_workspace);
+  } else {
+    m_terminal_panel.set_working_directory(Platform::HostSystem::get_user_home_directory());
   }
-  static_cast<void>(m_terminal_panel.toggle());
   m_terminal_panel.set_focused(false);
   static_cast<void>(m_shader_sandbox_panel.initialize());
 
@@ -212,13 +290,11 @@ void StudioWorkspaceRenderer::update_dpi(UINT dpi) {
       m_ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
   m_small_font = std::make_unique<AntialiasedFont>(
       m_ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
-  m_editor_font = std::make_unique<AntialiasedFont>(
-      m_editor_font_name, std::max(round_to_int(14.0F * m_dpi_scale), 10));
-  m_editor_font->setLigaturesEnabled(true);
-  m_minimap_font = std::make_unique<AntialiasedFont>(
-      m_editor_font_name, std::max(round_to_int(3.0F * m_dpi_scale), 3));
   m_large_font = std::make_unique<AntialiasedFont>(
       m_ui_font_name, std::max(round_to_int(24.0F * m_dpi_scale), 18), FW_BOLD);
+
+  reload_editor_font();
+  reload_terminal_font();
 
   m_svg_cache.clear();
 }
@@ -306,15 +382,19 @@ bool StudioWorkspaceRenderer::set_workspace_root(
   }
   m_terminal_panel.set_working_directory(root);
   Language::LanguageServerManager::instance().set_workspace_root(root);
+  Settings::SettingsService::instance().set_workspace_path(root);
   return true;
 }
 
 bool StudioWorkspaceRenderer::close_project() {
   m_text_editor.close_all_files();
   m_tool_sidebar.clear_workspace();
-  m_terminal_panel.set_working_directory({});
+  m_terminal_panel.shutdown();
+  m_terminal_panel.set_working_directory(Platform::HostSystem::get_user_home_directory());
+  m_shader_sandbox_panel.set_visible(false);
   Language::LanguageServerManager::instance().shutdown_all();
   Language::LanguageServerManager::instance().set_workspace_root({});
+  Settings::SettingsService::instance().close_workspace();
   return true;
 }
 
@@ -339,6 +419,8 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     HDC device_context, float point_x, float point_y, int client_width,
     int client_height, float content_top, bool extend_selection,
     std::string &command_out) {
+
+
   if (m_prompt_modal.is_visible()) {
     const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(client_width),
                             static_cast<float>(client_height)};
@@ -493,6 +575,8 @@ bool StudioWorkspaceRenderer::handle_pointer_move(float point_x, float point_y,
                                                   int client_width,
                                                   int client_height,
                                                   float content_top) noexcept {
+
+
   if (m_prompt_modal.is_visible()) {
     const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(client_width),
                             static_cast<float>(client_height)};
@@ -621,6 +705,8 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(HDC device_context,
 }
 
 bool StudioWorkspaceRenderer::handle_pointer_release() noexcept {
+
+
   const bool was_corner_resizing = (m_active_corner_resizing != SplitterCornerKind::None);
   m_active_corner_resizing = SplitterCornerKind::None;
   const bool terminal_changed = m_terminal_panel.handle_pointer_release();
@@ -634,6 +720,8 @@ bool StudioWorkspaceRenderer::handle_pointer_release() noexcept {
 bool StudioWorkspaceRenderer::handle_scroll(const Event::ScrollEvent &event,
                                             int client_width, int client_height,
                                             float content_top) noexcept {
+
+
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
   return m_text_editor.handle_scroll(*this, layout, event);
@@ -765,8 +853,12 @@ StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id) {
     static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::Services));
     return true;
   }
-  if (command_id == Commands::CommandIds::open_settings ||
-      command_id == Commands::CommandIds::open_themes ||
+  if (command_id == Commands::CommandIds::open_settings) {
+    m_settings_window.set_theme(UI::Theme::StudioTheme::zenvra_dark());
+    m_settings_window.toggle(m_window_handle);
+    return true;
+  }
+  if (command_id == Commands::CommandIds::open_themes ||
       command_id == Commands::CommandIds::more_tools) {
     m_tool_sidebar.get_model().set_visible(true);
     static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::More));
@@ -934,6 +1026,17 @@ bool StudioWorkspaceRenderer::is_media_interactive_point(
 bool StudioWorkspaceRenderer::is_editor_interactive_point(
     float point_x, float point_y) const noexcept {
   return m_text_editor.is_empty_state_interactive_point(point_x, point_y);
+}
+
+bool StudioWorkspaceRenderer::is_empty_state_button_hovered() const noexcept {
+  return m_text_editor.is_empty_state_button_hovered() ||
+         m_tool_sidebar.is_empty_state_button_hovered();
+}
+
+bool StudioWorkspaceRenderer::is_shader_sandbox_interactive_point(
+    float point_x, float point_y) const noexcept {
+  return m_shader_sandbox_panel.is_visible() &&
+         m_shader_sandbox_panel.is_interactive_point(point_x, point_y);
 }
 
 bool StudioWorkspaceRenderer::is_scrollbar_point(
@@ -1880,6 +1983,98 @@ void StudioWorkspaceRenderer::render_add_item_dialog(
     HDC /*device_context*/, int /*client_width*/, int /*client_height*/,
     const UI::Theme::StudioTheme &/*theme*/) const {
   // AddNewItemDialog renders as a standalone native Win32 window (HWND)
+}
+
+bool StudioWorkspaceRenderer::is_settings_window_visible() const noexcept {
+  return m_settings_window.is_visible();
+}
+
+void StudioWorkspaceRenderer::render_settings_window(
+    HDC /*device_context*/, int /*client_width*/, int /*client_height*/,
+    const UI::Theme::StudioTheme &theme) const {
+  const_cast<UI::Settings::SettingsWindow &>(m_settings_window).set_theme(theme);
+}
+
+std::string StudioWorkspaceRenderer::resolve_font_family_name(const std::string& font_spec) noexcept {
+  if (font_spec.empty()) return "Hack";
+
+  std::stringstream ss(font_spec);
+  std::string item;
+  while (std::getline(ss, item, ',')) {
+    const size_t start = item.find_first_not_of(" \t\r\n'\"");
+    const size_t end = item.find_last_not_of(" \t\r\n'\"");
+    if (start == std::string::npos) continue;
+    std::string name = item.substr(start, end - start + 1);
+    if (name == "monospace" || name == "sans-serif" || name == "serif") continue;
+
+    if (name == "JetBrains Mono" || name == "JetBrainsMono") {
+      if (is_font_available("JetBrainsMonoNL Nerd Font")) return "JetBrainsMonoNL Nerd Font";
+      if (is_font_available("JetBrainsMono Nerd Font")) return "JetBrainsMono Nerd Font";
+      if (is_font_available("JetBrains Mono")) return "JetBrains Mono";
+    }
+    if (is_font_available(name)) {
+      return name;
+    }
+  }
+  if (is_font_available("Hack")) return "Hack";
+  if (is_font_available("Consolas")) return "Consolas";
+  return "Consolas";
+}
+
+float StudioWorkspaceRenderer::get_editor_line_height(HDC device_context) const noexcept {
+  auto& settings = Settings::SettingsService::instance();
+  const int custom_lh = settings.get<int>("editor.lineHeight");
+  if (custom_lh >= 10 && custom_lh <= 60) {
+    return static_cast<float>(custom_lh) * m_dpi_scale;
+  }
+  if (m_editor_font) {
+    return std::max(static_cast<float>(m_editor_font->getHeight(device_context)) + 4.0F * m_dpi_scale, 16.0F * m_dpi_scale);
+  }
+  const int font_sz = settings.get<int>("editor.fontSize");
+  const int eff_sz = (font_sz >= 8 && font_sz <= 72) ? font_sz : 14;
+  return std::max(static_cast<float>(eff_sz) * 1.4F * m_dpi_scale, 16.0F * m_dpi_scale);
+}
+
+void StudioWorkspaceRenderer::reload_editor_font() {
+  auto& settings = Settings::SettingsService::instance();
+  const int configured_size = settings.get<int>("editor.fontSize");
+  const int effective_size = (configured_size >= 8 && configured_size <= 72) ? configured_size : 14;
+
+  const std::string configured_font = settings.get<std::string>("editor.fontFamily");
+  if (!configured_font.empty()) {
+    m_editor_font_name = resolve_font_family_name(configured_font);
+  }
+
+  m_editor_font = std::make_unique<AntialiasedFont>(
+      m_editor_font_name, std::max(round_to_int(static_cast<float>(effective_size) * m_dpi_scale), 10));
+  m_editor_font->setLigaturesEnabled(true);
+  m_minimap_font = std::make_unique<AntialiasedFont>(
+      m_editor_font_name, std::max(round_to_int(3.0F * m_dpi_scale), 3));
+
+  if (m_window_handle) {
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+  }
+}
+
+void StudioWorkspaceRenderer::reload_terminal_font() {
+  auto& settings = Settings::SettingsService::instance();
+  const int configured_size = settings.get<int>("terminal.fontSize");
+  const int effective_size = (configured_size >= 8 && configured_size <= 72) ? configured_size : 14;
+
+  const std::string configured_font = settings.get<std::string>("terminal.fontFamily");
+  if (!configured_font.empty()) {
+    m_terminal_font_name = resolve_font_family_name(configured_font);
+  } else {
+    m_terminal_font_name = m_editor_font_name;
+  }
+
+  m_terminal_font = std::make_unique<AntialiasedFont>(
+      m_terminal_font_name, std::max(round_to_int(static_cast<float>(effective_size) * m_dpi_scale), 10));
+  m_terminal_font->setLigaturesEnabled(true);
+
+  if (m_window_handle) {
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+  }
 }
 
 } // namespace Zenvra::Platform::Win32::Components

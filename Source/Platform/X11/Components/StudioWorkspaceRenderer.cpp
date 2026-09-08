@@ -1,6 +1,7 @@
 #include "Platform/X11/Components/StudioWorkspaceRenderer.h"
 #include "Commands/CommandIds.h"
 #include "Language/LanguageServerManager.h"
+#include "Platform/HostSystem.h"
 #include "Utility/Antialiasing.h"
 #include "Utility/IcoDecoder.h"
 #include "Utility/stb_image.h"
@@ -230,6 +231,12 @@ bool StudioWorkspaceRenderer::initialize(Display *display, int screen,
   m_text_dimmed.warning = to_xft_color(UI::Theme::dim_color(m_palette.warning, m_palette.editor_background));
   m_text_dimmed.success = to_xft_color(UI::Theme::dim_color(m_palette.success, m_palette.editor_background));
   static_cast<void>(m_tool_sidebar.initialize());
+  const auto active_workspace = m_tool_sidebar.get_model().get_workspace_root();
+  if (!active_workspace.empty()) {
+    m_terminal_panel.set_working_directory(active_workspace);
+  } else {
+    m_terminal_panel.set_working_directory(Platform::HostSystem::get_user_home_directory());
+  }
   static_cast<void>(m_shader_sandbox_panel.initialize());
   return true;
 }
@@ -307,7 +314,9 @@ bool StudioWorkspaceRenderer::set_workspace_root(
 bool StudioWorkspaceRenderer::close_project() {
   static_cast<void>(m_text_editor.close_all_files());
   m_tool_sidebar.clear_workspace();
-  m_terminal_panel.set_working_directory({});
+  m_terminal_panel.shutdown();
+  m_terminal_panel.set_working_directory(Platform::HostSystem::get_user_home_directory());
+  m_shader_sandbox_panel.set_visible(false);
   Language::LanguageServerManager::instance().shutdown_all();
   Language::LanguageServerManager::instance().set_workspace_root({});
   return true;
@@ -842,7 +851,8 @@ bool StudioWorkspaceRenderer::toggle_terminal() noexcept {
 }
 
 bool StudioWorkspaceRenderer::is_empty_state_button_hovered() const noexcept {
-  return m_text_editor.is_empty_state_button_hovered();
+  return m_text_editor.is_empty_state_button_hovered() ||
+         m_tool_sidebar.is_empty_state_button_hovered();
 }
 
 bool StudioWorkspaceRenderer::tick_animations() noexcept {

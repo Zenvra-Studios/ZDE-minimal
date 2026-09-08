@@ -755,6 +755,17 @@ bool ToolSidebar::handle_pointer_move(
         const bool show_actions = !m_model.get_project_items().empty();
         header_changed = m_explorer_header.handle_pointer_move(layout, point_x, point_y, show_actions);
         if (m_model.get_project_items().empty()) {
+            const float scale = layout.dpi_scale;
+            const UI::Rect panel = layout.tool_sidebar_bounds;
+            const float msg_y = panel.y + (header_height + 22.0F) * scale;
+            float btn_y = msg_y + 36.0F * scale;
+            const float btn_w = std::max(panel.width - 28.0F * scale, 0.0F);
+            const float btn_h = 28.0F * scale;
+            const float btn_x = panel.x + 14.0F * scale;
+            m_empty_state_open_btn.set_bounds(UI::Rect{btn_x, btn_y, btn_w, btn_h});
+            btn_y += btn_h + 20.0F * scale + 14.0F * scale;
+            m_empty_state_clone_btn.set_bounds(UI::Rect{btn_x, btn_y, btn_w, btn_h});
+
             btn_changed = m_empty_state_open_btn.handle_pointer_move(point_x, point_y) ||
                           m_empty_state_clone_btn.handle_pointer_move(point_x, point_y);
         }
@@ -810,8 +821,23 @@ bool ToolSidebar::is_interactive_point(
   const UI::Rect panel = layout.tool_sidebar_bounds;
 
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
-    if (m_explorer_header.is_interactive_point(layout, point_x, point_y)) {
+    const bool show_actions = !m_model.get_project_items().empty();
+    if (m_explorer_header.is_interactive_point(layout, point_x, point_y, show_actions)) {
       return true;
+    }
+    if (m_model.get_project_items().empty()) {
+      const float msg_y = panel.y + (header_height + 22.0F) * scale;
+      float btn_y = msg_y + 36.0F * scale;
+      const float btn_w = std::max(panel.width - 28.0F * scale, 0.0F);
+      const float btn_h = 28.0F * scale;
+      const float btn_x = panel.x + 14.0F * scale;
+      const UI::Rect open_btn{btn_x, btn_y, btn_w, btn_h};
+      btn_y += btn_h + 20.0F * scale + 14.0F * scale;
+      const UI::Rect clone_btn{btn_x, btn_y, btn_w, btn_h};
+      return open_btn.contains(point_x, point_y) ||
+             clone_btn.contains(point_x, point_y) ||
+             m_empty_state_open_btn.get_bounds().contains(point_x, point_y) ||
+             m_empty_state_clone_btn.get_bounds().contains(point_x, point_y);
     }
     const float tree_top = panel.y + header_height * scale;
     const auto sticky = get_sticky_items();
@@ -874,6 +900,14 @@ bool ToolSidebar::is_interactive_point(
     if (search_row_from_point(layout, point_y).has_value()) {
       return true;
     }
+    return false;
+  }
+
+  // Other sidebars (Source Control, Run/Debug, Extensions, Settings)
+  const float header_center_y = panel.y + header_height * 0.5F * scale;
+  const float btn_size = 20.0F * scale;
+  if (UI::Rect{panel.right() - 24.0F * scale, header_center_y - btn_size * 0.5F, btn_size, btn_size}.contains(point_x, point_y)) {
+    return true;
   }
 
   return false;
@@ -1759,8 +1793,6 @@ void ToolSidebar::render(
             : (is_hovered ? surface.m_palette.hover_background : surface.m_palette.sidebar_background);
 
         const float indent_x = panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
-        const int guide_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
-
         const UI::Theme::Color guide_color{85, 92, 105, 190};
 
         for (std::size_t level = 0; level < item.depth; ++level) {
@@ -1775,23 +1807,11 @@ void ToolSidebar::render(
             }
           }
 
-          if (level == item.depth - 1) {
-            surface.draw_line(
-                device_context, guide_x, round_to_int(row_bounds.y), guide_x,
-                line_active ? round_to_int(row_bounds.bottom()) : guide_y,
-                guide_color);
-          } else if (line_active) {
+          if (level == item.depth - 1 || line_active) {
             surface.draw_line(device_context, guide_x, round_to_int(row_bounds.y),
                               guide_x, round_to_int(row_bounds.bottom()),
                               guide_color);
           }
-        }
-        if (item.depth > 0) {
-          const int parent_x = round_to_int(
-              panel.x + (17.0F + static_cast<float>(item.depth - 1) * 16.0F) * scale);
-          const int child_x = round_to_int(indent_x + 3.0F * scale);
-          surface.draw_line(device_context, parent_x, guide_y, child_x, guide_y,
-                            guide_color);
         }
 
         const bool is_cut = m_model.is_cut_path(item.path);
@@ -1814,15 +1834,15 @@ void ToolSidebar::render(
           }
           const int folder_x = round_to_int(indent_x + 19.0F * scale);
           if (folder_x + 16.0F * scale < panel.right()) {
-            const std::string folder_path = item.expanded
-                                                ? "folder-open.svg"
-                                                : "folder.svg";
+            const std::string folder_path =
+                UI::Editor::folder_icon_asset_for_path(item.path, item.expanded);
             const int folder_size = std::max(round_to_int(14.0F * scale), 11);
             surface.draw_svg_icon(
                 device_context, folder_path, folder_x, arrow_y,
                 folder_size,
                 icon_color,
-                current_row_bg);
+                current_row_bg,
+                !is_cut);
           }
         } else {
           const int icon_x = round_to_int(indent_x + 19.0F * scale);
@@ -1896,13 +1916,16 @@ void ToolSidebar::render(
               sticky_bg);
 
           const int folder_x = round_to_int(indent_x + 19.0F * scale);
+          const std::string folder_path =
+              UI::Editor::folder_icon_asset_for_path(item.path, true);
           surface.draw_svg_icon(
-              device_context, "folder-open.svg",
+              device_context, folder_path,
               folder_x,
               arrow_y,
               std::max(round_to_int(14.0F * scale), 11),
               UI::Theme::Color{235, 240, 250, 255},
-              sticky_bg);
+              sticky_bg,
+              true);
 
           const float label_x = indent_x + 30.0F * scale;
           const std::string label = ellipsize(
@@ -1943,9 +1966,12 @@ void ToolSidebar::render(
       const int badge_icon_x = round_to_int(badge_rect.x + 12.0F * scale);
       const int badge_icon_y = round_to_int(badge_rect.y + badge_h * 0.5F);
       if (dragged.directory) {
-        surface.draw_svg_icon(device_context, "folder.svg", badge_icon_x, badge_icon_y,
+        const std::string folder_path =
+            UI::Editor::folder_icon_asset_for_path(dragged.path, false);
+        surface.draw_svg_icon(device_context, folder_path, badge_icon_x, badge_icon_y,
                               std::max(round_to_int(12.0F * scale), 10),
-                              UI::Theme::Color{255, 255, 255, 255}, UI::Theme::Color{24, 28, 38, 255});
+                              UI::Theme::Color{255, 255, 255, 255}, UI::Theme::Color{24, 28, 38, 255},
+                              true);
       } else {
         const std::string icon_asset = UI::Editor::file_icon_asset_for_path(dragged.path);
         surface.draw_svg_icon(device_context, icon_asset, badge_icon_x, badge_icon_y,

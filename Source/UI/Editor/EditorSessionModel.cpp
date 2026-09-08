@@ -141,12 +141,7 @@ bool EditorSessionModel::create_file()
     }
     else
     {
-        const std::filesystem::path current = std::filesystem::current_path(error);
-        if (error)
-        {
-            return false;
-        }
-        directory = EditorFileSystem::find_project_root(current).value_or(current);
+        directory = EditorFileSystem::get_user_home_directory();
     }
 
     const std::filesystem::path new_path = m_crud.next_available_path(directory, extension);
@@ -325,12 +320,7 @@ bool EditorSessionModel::save_file(std::size_t index)
         }
         else
         {
-            const std::filesystem::path current = std::filesystem::current_path(error);
-            if (error)
-            {
-                return false;
-            }
-            directory = EditorFileSystem::find_project_root(current).value_or(current);
+            directory = EditorFileSystem::get_user_home_directory();
         }
 
         const std::filesystem::path new_path = m_crud.next_available_path(directory, ".txt");

@@ -432,4 +432,119 @@ file_icon_asset_for_path(const std::filesystem::path &path) {
   return Detail::symbol_icon("document");
 }
 
+[[nodiscard]] inline std::string
+folder_icon_asset_for_path(const std::filesystem::path &path,
+                           bool expanded = false,
+                           bool use_material_icons = false) {
+  if (use_material_icons) {
+    const std::string folder_name = Detail::lowercase_ascii(path.filename().string());
+
+    if (folder_name == ".git") {
+      return "material-icon-theme/folder-git.svg";
+    }
+    if (folder_name == ".github") {
+      return "material-icon-theme/folder-github.svg";
+    }
+    if (folder_name == ".vscode") {
+      return "material-icon-theme/folder-vscode.svg";
+    }
+    if (folder_name == "node_modules") {
+      return "material-icon-theme/folder-node.svg";
+    }
+    if (folder_name == "assets" || folder_name == "asset" || folder_name == "resources" || folder_name == "resource") {
+      return "material-icon-theme/folder-resource.svg";
+    }
+    if (folder_name == "build" || folder_name == "builds" || folder_name == "bin" || folder_name == "out" || folder_name == "target" || folder_name == "dist") {
+      return "material-icon-theme/folder-dist.svg";
+    }
+    if (folder_name == "cmake") {
+      return "material-icon-theme/folder-config.svg";
+    }
+    if (folder_name == "config" || folder_name == "configs" || folder_name == "configuration" || folder_name == "conf" || folder_name == "settings" || folder_name == "manifest" || folder_name == "manifests") {
+      return "material-icon-theme/folder-config.svg";
+    }
+    if (folder_name == "docs" || folder_name == "doc" || folder_name == "documentation") {
+      return "material-icon-theme/folder-docs.svg";
+    }
+    if (folder_name == "drivers" || folder_name == "driver") {
+      return "material-icon-theme/folder-tools.svg";
+    }
+    if (folder_name == "example" || folder_name == "examples" || folder_name == "sample" || folder_name == "samples") {
+      return "material-icon-theme/folder-examples.svg";
+    }
+    if (folder_name == "lib" || folder_name == "libs" || folder_name == "library" || folder_name == "libraries") {
+      return "material-icon-theme/folder-lib.svg";
+    }
+    if (folder_name == "scripts" || folder_name == "script") {
+      return "material-icon-theme/folder-scripts.svg";
+    }
+    if (folder_name == "source" || folder_name == "sources" || folder_name == "src") {
+      return "material-icon-theme/folder-src.svg";
+    }
+    if (folder_name == "test" || folder_name == "tests" || folder_name == "testing" || folder_name == "spec" || folder_name == "specs") {
+      return "material-icon-theme/folder-test.svg";
+    }
+    if (folder_name == "include" || folder_name == "includes") {
+      return "material-icon-theme/folder-include.svg";
+    }
+    if (folder_name == "images" || folder_name == "image" || folder_name == "img" || folder_name == "icons" || folder_name == "icon" || folder_name == "textures") {
+      return "material-icon-theme/folder-images.svg";
+    }
+    if (folder_name == "fonts" || folder_name == "font") {
+      return "material-icon-theme/folder-font.svg";
+    }
+    if (folder_name == "app" || folder_name == "apps") {
+      return "material-icon-theme/folder-app.svg";
+    }
+    if (folder_name == "core") {
+      return "material-icon-theme/folder-core.svg";
+    }
+    if (folder_name == "database" || folder_name == "db" || folder_name == "data") {
+      return "material-icon-theme/folder-database.svg";
+    }
+    if (folder_name == "models" || folder_name == "model" || folder_name == "entities" || folder_name == "entity") {
+      return "vscode-symbols/icons/folders/folder-models.svg";
+    }
+    if (folder_name == "modules" || folder_name == "module" || folder_name == "packages" || folder_name == "package") {
+      return "material-icon-theme/folder-packages.svg";
+    }
+    if (folder_name == "components" || folder_name == "component" || folder_name == "widgets" || folder_name == "widget") {
+      return "material-icon-theme/folder-components.svg";
+    }
+    if (folder_name == "views" || folder_name == "view" || folder_name == "pages" || folder_name == "page") {
+      return "material-icon-theme/folder-views.svg";
+    }
+    if (folder_name == "utils" || folder_name == "util" || folder_name == "utility" || folder_name == "utilities" || folder_name == "helpers" || folder_name == "helper") {
+      return "material-icon-theme/folder-utils.svg";
+    }
+    if (folder_name == "routes" || folder_name == "route" || folder_name == "router") {
+      return "material-icon-theme/folder-routes.svg";
+    }
+    if (folder_name == "ui" || folder_name == "gui") {
+      return "material-icon-theme/folder-ui.svg";
+    }
+    if (folder_name == "tools" || folder_name == "tool") {
+      return "material-icon-theme/folder-tools.svg";
+    }
+    if (folder_name == "temp" || folder_name == "tmp" || folder_name == "cache") {
+      return "material-icon-theme/folder-temp.svg";
+    }
+    if (folder_name == "logs" || folder_name == "log") {
+      return "material-icon-theme/folder-log.svg";
+    }
+    if (folder_name == "docker" || folder_name == ".docker") {
+      return "material-icon-theme/folder-docker.svg";
+    }
+    if (folder_name == "rules" || folder_name == ".agents" || folder_name == "skills") {
+      return "material-icon-theme/folder-rules.svg";
+    }
+  }
+
+  // VS Code standard outline folder icons by default
+  if (expanded) {
+    return "folder-open.svg";
+  }
+  return "folder.svg";
+}
+
 } // namespace Zenvra::UI::Editor

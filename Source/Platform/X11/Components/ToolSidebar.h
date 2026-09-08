@@ -86,6 +86,10 @@ public:
     [[nodiscard]] bool is_dragging_item() const noexcept { return m_is_dragging_item; }
     [[nodiscard]] bool is_dragging_scrollbar() const noexcept { return m_project_scrollbar.is_dragging(); }
     [[nodiscard]] bool tick_animations() noexcept;
+    [[nodiscard]] bool is_empty_state_button_hovered() const noexcept {
+        return m_empty_state_open_btn.get_state().hovered ||
+               m_empty_state_clone_btn.get_state().hovered;
+    }
 
     void render(
         const StudioWorkspaceRenderer& surface,

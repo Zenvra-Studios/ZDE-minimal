@@ -59,6 +59,10 @@ public:
         float point_x, float point_y) noexcept;
     [[nodiscard]] bool handle_pointer_release() noexcept;
     [[nodiscard]] bool tick_animations() noexcept;
+    [[nodiscard]] bool is_empty_state_button_hovered() const noexcept {
+        return m_empty_state_open_btn.get_state().hovered ||
+               m_empty_state_clone_btn.get_state().hovered;
+    }
 
     [[nodiscard]] bool is_search_focused() const noexcept;
     [[nodiscard]] bool handle_search_text(std::string_view text);

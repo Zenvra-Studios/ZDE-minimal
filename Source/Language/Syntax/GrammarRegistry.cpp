@@ -437,7 +437,16 @@ void GrammarRegistry::initialize_default_grammars()
             "sizeof", "static", "static_assert", "static_cast", "struct",
             "switch", "template", "this", "thread_local", "throw", "true", "try",
             "typedef", "typeid", "typename", "union", "using", "virtual",
-            "volatile", "while", "xor", "xor_eq"
+            "volatile", "while", "xor", "xor_eq",
+            // Attributes & compiler specifiers
+            "__attribute__", "__attribute", "__declspec",
+            "__forceinline", "__inline", "__cdecl", "__stdcall", "__fastcall", "__thiscall", "__vectorcall",
+            "__restrict", "__restrict__",
+            "nodiscard", "maybe_unused", "deprecated", "fallthrough", "likely", "unlikely",
+            "no_unique_address", "carries_dependency", "noreturn", "assume",
+            // Engine Specifier Macros
+            "UPROPERTY", "UFUNCTION", "UCLASS", "USTRUCT", "UENUM", "UDELEGATE",
+            "GENERATED_BODY", "GENERATED_UCLASS_BODY"
         };
         cpp_rule.types = {
             // Standard Namespace
@@ -458,6 +467,12 @@ void GrammarRegistry::initialize_default_grammars()
             "int_fast8_t", "int_fast16_t", "int_fast32_t", "int_fast64_t",
             "uint_fast8_t", "uint_fast16_t", "uint_fast32_t", "uint_fast64_t",
             "time_t", "clock_t", "off_t",
+
+            // Common Shorthand Integer & Float Types
+            "int8", "int16", "int32", "int64",
+            "uint8", "uint16", "uint32", "uint64",
+            "uchar", "ushort", "uint", "ulong",
+            "float32", "float64",
 
             // C++ Standard Library Strings
             "string", "string_view", "wstring", "wstring_view",
@@ -481,8 +496,7 @@ void GrammarRegistry::initialize_default_grammars()
             // Streams, I/O & Formatting
             "iostream", "istream", "ostream", "ifstream", "ofstream", "fstream",
             "stringstream", "istringstream", "ostringstream",
-            "streambuf", "stringbuf", "filebuf",
-            "cin", "cout", "cerr", "clog", "endl", "flush", "format",
+            "streambuf", "stringbuf", "filebuf", "format",
 
             // Threading & Concurrency
             "thread", "jthread", "mutex", "timed_mutex", "recursive_mutex", "recursive_timed_mutex",
@@ -506,7 +520,19 @@ void GrammarRegistry::initialize_default_grammars()
             "SHORT", "USHORT", "WCHAR", "LPSTR", "LPCSTR", "LPWSTR", "LPCWSTR",
             "HINSTANCE", "HWND", "HDC", "HICON", "HCURSOR", "HBRUSH", "HBITMAP",
             "HFONT", "HANDLE", "LPARAM", "WPARAM", "LRESULT", "HRESULT",
-            "DWORD_PTR", "ULONG_PTR", "INT_PTR", "UINT_PTR", "SIZE_T", "SSIZE_T"
+            "DWORD_PTR", "ULONG_PTR", "INT_PTR", "UINT_PTR", "SIZE_T", "SSIZE_T",
+            "BOOLEAN", "LONGLONG", "ULONGLONG",
+
+            // Unreal Engine Core Types
+            "FString", "FName", "FText", "FVector", "FVector2D", "FVector4",
+            "FRotator", "FTransform", "FQuat", "FColor", "FLinearColor",
+            "FBox", "FBox2D", "FSphere", "FMatrix", "FGuid", "FDateTime", "FTimespan",
+            "FIntPoint", "FIntVector",
+            "TArray", "TMap", "TSet", "TSubclassOf", "TObjectPtr",
+            "TSharedPtr", "TSharedRef", "TWeakPtr", "TUniquePtr", "TFunction", "TPair",
+            "UObject", "AActor", "APawn", "ACharacter", "UActorComponent",
+            "USceneComponent", "UPrimitiveComponent", "UStaticMeshComponent",
+            "USkeletalMeshComponent", "UClass", "UWorld", "ULevel"
         };
         register_grammar(std::move(cpp_rule));
     }

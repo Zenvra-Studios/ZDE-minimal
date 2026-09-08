@@ -5,6 +5,7 @@
 #include "Platform/HostSystem.h"
 #include "Platform/PlatformDialogs.h"
 #include "Platform/Win32/Components/FileDropTarget.h"
+#include "Settings/SettingsService.h"
 #include "Platform/Win32/Event/ScrollEvent.h"
 #include "Platform/Win32/WinRT/WinRTContext.h"
 #include "UI/Components/MenuModel.h"
@@ -825,7 +826,9 @@ bool Win32Window::close_project() {
   m_window_title = utf8_to_wide(m_specification.title);
   if (m_window_handle != nullptr) {
     SetWindowTextW(m_window_handle, m_window_title.c_str());
+    refresh_chrome_layout();
     InvalidateRect(m_window_handle, nullptr, FALSE);
+    UpdateWindow(m_window_handle);
   }
   return true;
 }
@@ -875,6 +878,19 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
     const HDROP drop = reinterpret_cast<HDROP>(w_param);
     const std::vector<std::filesystem::path> dropped_paths =
         Components::FileDropTarget::collect_paths(drop);
+    if (!dropped_paths.empty() && m_workspace_renderer.get_text_editor().get_document() == nullptr) {
+      const auto &first_path = dropped_paths.front();
+      const std::string ext = first_path.extension().string();
+      std::string lower_ext;
+      for (char c : ext) lower_ext += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      if (lower_ext == ".png" || lower_ext == ".jpg" || lower_ext == ".jpeg" || lower_ext == ".bmp") {
+        auto &service = Settings::SettingsService::instance();
+        service.set("workbench.mascot.image", first_path.string(), Settings::SettingsScope::User);
+        SetFocus(window_handle);
+        InvalidateRect(window_handle, nullptr, FALSE);
+        return 0;
+      }
+    }
     if (m_workspace_renderer.open_dropped_paths(dropped_paths) > 0) {
       SetFocus(window_handle);
       InvalidateRect(window_handle, nullptr, FALSE);
@@ -1945,6 +1961,30 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         return TRUE;
       }
 
+
+      if (m_workspace_renderer.get_prompt_modal().is_visible()) {
+        const float scale = static_cast<float>(m_dpi) / 96.0F;
+        const UI::Rect viewport{
+            0.0F, 0.0F,
+            static_cast<float>(client_bounds.right - client_bounds.left),
+            static_cast<float>(client_bounds.bottom - client_bounds.top)};
+        const auto layout =
+            m_workspace_renderer.get_prompt_modal().calculate_layout(viewport,
+                                                                     scale);
+        if (layout.is_ok_button(cur_x, cur_y) ||
+            layout.is_cancel_button(cur_x, cur_y) ||
+            layout.is_close_button(cur_x, cur_y)) {
+          SetCursor(LoadCursorW(nullptr, IDC_HAND));
+          return TRUE;
+        }
+        if (layout.is_input(cur_x, cur_y)) {
+          SetCursor(LoadCursorW(nullptr, IDC_IBEAM));
+          return TRUE;
+        }
+        SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+        return TRUE;
+      }
+
       if (m_explorer_context_menu.visible) {
         if (m_explorer_context_menu.bounds.contains(cur_x, cur_y)) {
           bool over_item = false;
@@ -2003,6 +2043,30 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           m_chrome_layout.is_debug_button(
               static_cast<float>(cursor_position.x),
               static_cast<float>(cursor_position.y)) ||
+          m_chrome_layout.is_build_button(
+              static_cast<float>(cursor_position.x),
+              static_cast<float>(cursor_position.y)) ||
+          m_chrome_layout.is_gear_button(
+              static_cast<float>(cursor_position.x),
+              static_cast<float>(cursor_position.y)) ||
+          m_chrome_layout.is_ellipsis_button(
+              static_cast<float>(cursor_position.x),
+              static_cast<float>(cursor_position.y)) ||
+          m_chrome_layout.is_compiler_button(
+              static_cast<float>(cursor_position.x),
+              static_cast<float>(cursor_position.y)) ||
+          m_chrome_layout.is_platform_button(
+              static_cast<float>(cursor_position.x),
+              static_cast<float>(cursor_position.y)) ||
+          m_chrome_layout.is_binary_button(
+              static_cast<float>(cursor_position.x),
+              static_cast<float>(cursor_position.y)) ||
+          m_chrome_layout.is_mode_button(
+              static_cast<float>(cursor_position.x),
+              static_cast<float>(cursor_position.y)) ||
+          m_chrome_layout.command_center_bounds.contains(
+              static_cast<float>(cursor_position.x),
+              static_cast<float>(cursor_position.y)) ||
           m_workspace_renderer.is_tab_bar_point(
               static_cast<float>(cursor_position.x),
               static_cast<float>(cursor_position.y),
@@ -2035,7 +2099,11 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
               static_cast<float>(cursor_position.y),
               client_bounds.right - client_bounds.left,
               client_bounds.bottom - client_bounds.top,
-              m_chrome_layout.titlebar_bounds.bottom());
+              m_chrome_layout.titlebar_bounds.bottom()) ||
+          m_workspace_renderer.is_shader_sandbox_interactive_point(
+              static_cast<float>(cursor_position.x),
+              static_cast<float>(cursor_position.y)) ||
+          m_workspace_renderer.is_empty_state_button_hovered();
       if (interactive) {
         SetCursor(LoadCursorW(nullptr, IDC_HAND));
         return TRUE;
@@ -3444,6 +3512,8 @@ void Win32Window::paint_custom_chrome() {
   m_workspace_renderer.render_prompt_modal(buffer_context, client_width,
                                            client_height);
   m_workspace_renderer.render_add_item_dialog(buffer_context, client_width,
+                                              client_height, m_theme);
+  m_workspace_renderer.render_settings_window(buffer_context, client_width,
                                               client_height, m_theme);
 
   // Draw subtle 1px border around the window frame when windowed on older OS (Win10 and below),

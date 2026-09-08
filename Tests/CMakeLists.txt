@@ -8,6 +8,7 @@ add_executable(ZDEUnitTests
     TerminalCompatTests.cpp
     FFmpegTests.cpp
     ShaderServiceTests.cpp
+    SettingsTests.cpp
     # SourceControlTests.cpp
 )
 
@@ -16,6 +17,7 @@ target_link_libraries(ZDEUnitTests PRIVATE
     GTest::gtest
     Zenvra::Application
     Zenvra::UI
+    Zenvra::Settings
     Zenvra::Language
     Zenvra::Terminal
     Zenvra::Utility

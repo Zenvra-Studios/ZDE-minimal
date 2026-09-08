@@ -67,7 +67,7 @@ std::optional<std::filesystem::path> open_folder_dialog()
     if (command_exists("zenity"))
     {
         const std::string selected = run_dialog_command(
-            "zenity --file-selection --directory --title=\"Open Folder\" 2>/dev/null");
+            "zenity --file-selection --directory --filename=\"$HOME/\" --title=\"Open Folder\" 2>/dev/null");
         if (selected.empty())
         {
             return std::nullopt;
@@ -78,7 +78,7 @@ std::optional<std::filesystem::path> open_folder_dialog()
     if (command_exists("yad"))
     {
         const std::string selected = run_dialog_command(
-            "yad --file-selection --directory --title=\"Open Folder\" 2>/dev/null");
+            "yad --file-selection --directory --filename=\"$HOME/\" --title=\"Open Folder\" 2>/dev/null");
         if (selected.empty())
         {
             return std::nullopt;

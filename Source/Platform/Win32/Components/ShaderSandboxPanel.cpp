@@ -73,6 +73,23 @@ bool ShaderSandboxPanel::contains(
            is_resize_handle_point(layout, point_x, point_y);
 }
 
+bool ShaderSandboxPanel::is_interactive_point(
+    float point_x,
+    float point_y) const noexcept
+{
+    if (!m_visible)
+    {
+        return false;
+    }
+    return m_header_close_bounds.contains(point_x, point_y) ||
+           m_ctrl_build_bounds.contains(point_x, point_y) ||
+           m_ctrl_play_bounds.contains(point_x, point_y) ||
+           m_ctrl_reset_bounds.contains(point_x, point_y) ||
+           m_ctrl_scale_bounds.contains(point_x, point_y) ||
+           m_ctrl_backend_bounds.contains(point_x, point_y) ||
+           m_ctrl_snapshot_bounds.contains(point_x, point_y);
+}
+
 bool ShaderSandboxPanel::handle_pointer_press(
     const UI::Editor::StudioEditorLayoutResult& layout,
     float point_x,

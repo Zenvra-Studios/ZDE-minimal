@@ -4,6 +4,7 @@
 // #include "Workspace/Workspace.h"
 #include "Commands/CommandIds.h"
 #include "Language/LanguageServerManager.h"
+#include "Platform/HostSystem.h"
 #include "Platform/PlatformDialogs.h"
 #include "Platform/X11/Components/StudioWorkspaceRenderer.h"
 #include "Platform/X11/Components/TextEditor.h"
@@ -3223,7 +3224,7 @@ void X11Window::execute_explorer_command(std::string_view command) {
                           .get_model()
                           .get_workspace_root();
     if (target_path.empty()) {
-      target_path = root.empty() ? std::filesystem::current_path() : root;
+      target_path = root.empty() ? HostSystem::get_user_home_directory() : root;
     } else {
       std::error_code ec;
       if (!std::filesystem::is_directory(target_path, ec)) {
@@ -3349,7 +3350,15 @@ void X11Window::execute_explorer_command(std::string_view command) {
 }
 
 bool X11Window::close_project() {
-  return m_chrome_renderer.close_workspace_project();
+  const bool res = m_chrome_renderer.close_workspace_project();
+  Language::LanguageServerManager::instance().set_workspace_root({});
+  if (auto ctx = Utility::MultiContextManager::instance().get_context_by_window(this)) {
+    Utility::MultiContextManager::instance().set_workspace_root(ctx->context_id, {});
+  }
+  m_window_title = m_specification.title;
+  update_net_wm_name(m_window_title);
+  render();
+  return res;
 }
 
 void X11Window::toggle_terminal() {

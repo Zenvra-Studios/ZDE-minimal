@@ -10,6 +10,7 @@
 #include "Drivers/Audio/AudioEngine.h"
 #include "UI/Editor/MediaPlayerView.h"
 #include <filesystem>
+#include <fstream>
 #include <thread>
 #include <chrono>
 
@@ -537,6 +538,21 @@ TEST(MediaTests, MediaPlayerViewClassEncapsulation) {
     EXPECT_FALSE(MediaPlayerView::is_media_file("source.cpp"));
     EXPECT_FALSE(MediaPlayerView::is_media_file("document.txt"));
     EXPECT_FALSE(MediaPlayerView::is_media_file("config.json"));
+    EXPECT_FALSE(MediaPlayerView::is_media_file("app.ts"));
+    EXPECT_FALSE(MediaPlayerView::is_media_file("server.ts"));
+    EXPECT_FALSE(MediaPlayerView::is_media_file("Component.tsx"));
+    EXPECT_FALSE(MediaPlayerView::is_media_file("types.d.ts"));
+
+    // Verify text TypeScript file on disk is recognized as source code, not video
+    const auto temp_ts = std::filesystem::temp_directory_path() / "test_app.ts";
+    {
+        std::ofstream out(temp_ts);
+        out << "import express from 'express';\nconst app = express();\nexport default app;\n";
+    }
+    EXPECT_FALSE(MediaPlayerView::is_media_file(temp_ts));
+    EXPECT_FALSE(MediaPlayerView::is_video_file(temp_ts));
+    std::error_code rm_ec;
+    std::filesystem::remove(temp_ts, rm_ec);
 
     // 2. Class instance state inspectors
     MediaPlayerView view;

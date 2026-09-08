@@ -11,6 +11,8 @@
 #include "UI/Components/PromptModal.h"
 #include "UI/Components/AddNewItemDialog.h"
 #include "UI/Editor/StudioEditorModel.h"
+#include "UI/Settings/SettingsWindow.h"
+#include "Settings/SettingsService.h"
 
 #include <windows.h>
 
@@ -181,6 +183,10 @@ public:
     [[nodiscard]] bool is_editor_interactive_point(
         float point_x,
         float point_y) const noexcept;
+    [[nodiscard]] bool is_empty_state_button_hovered() const noexcept;
+    [[nodiscard]] bool is_shader_sandbox_interactive_point(
+        float point_x,
+        float point_y) const noexcept;
     [[nodiscard]] bool is_terminal_interactive_point(
         float point_x,
         float point_y,
@@ -289,6 +295,10 @@ public:
     [[nodiscard]] const ToolSidebar& get_tool_sidebar() const noexcept { return m_tool_sidebar; }
     [[nodiscard]] TerminalPanel& get_terminal_panel() noexcept { return m_terminal_panel; }
     [[nodiscard]] const TerminalPanel& get_terminal_panel() const noexcept { return m_terminal_panel; }
+    void reload_editor_font();
+    void reload_terminal_font();
+    [[nodiscard]] float get_editor_line_height(HDC device_context = nullptr) const noexcept;
+    static std::string resolve_font_family_name(const std::string& font_spec) noexcept;
 
 private:
     friend class ActivitySidebar;
@@ -350,15 +360,21 @@ private:
     [[nodiscard]] UI::Components::AddNewItemDialog& get_add_item_dialog() const noexcept { return m_add_item_dialog; }
     void render_add_item_dialog(HDC device_context, int client_width, int client_height, const UI::Theme::StudioTheme& theme) const;
 
+    [[nodiscard]] bool is_settings_window_visible() const noexcept;
+    [[nodiscard]] UI::Settings::SettingsWindow& get_settings_window() const noexcept { return m_settings_window; }
+    void render_settings_window(HDC device_context, int client_width, int client_height, const UI::Theme::StudioTheme& theme) const;
+
     HWND m_window_handle = nullptr;
 
     UINT m_dpi = 96;
     float m_dpi_scale = 1.0F;
     std::string m_editor_font_name = "Hack";
+    std::string m_terminal_font_name = "Hack";
     std::string m_ui_font_name = "Open Sans";
     std::unique_ptr<AntialiasedFont> m_ui_font;
     std::unique_ptr<AntialiasedFont> m_small_font;
     std::unique_ptr<AntialiasedFont> m_editor_font;
+    std::unique_ptr<AntialiasedFont> m_terminal_font;
     std::unique_ptr<AntialiasedFont> m_minimap_font;
     std::unique_ptr<AntialiasedFont> m_large_font;
     std::filesystem::path m_icon_asset_root;
@@ -373,6 +389,7 @@ private:
     mutable UI::Components::PromptModal m_prompt_modal;
     mutable Win32PromptDialog m_prompt_dialog;
     mutable UI::Components::AddNewItemDialog m_add_item_dialog;
+    mutable UI::Settings::SettingsWindow m_settings_window;
     mutable std::unordered_map<std::string, std::vector<std::uint32_t>> m_svg_cache;
     SplitterCornerKind m_active_corner_resizing = SplitterCornerKind::None;
 };

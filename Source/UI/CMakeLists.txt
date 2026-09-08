@@ -39,6 +39,8 @@ add_library(ZDEUI
     Toolbar/Widgets/ActionButtonGroup.cpp
     Toolbar/Widgets/ProjectBranchWidget.cpp
     Toolbar/Widgets/QuickSearchWidget.cpp
+    Settings/SettingsControl.cpp
+    Settings/SettingsWindow.cpp
 )
 add_library(Zenvra::UI ALIAS ZDEUI)
 
@@ -46,12 +48,15 @@ target_include_directories(ZDEUI PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/.."
     "${PROJECT_SOURCE_DIR}"
 )
-target_link_libraries(ZDEUI PUBLIC Zenvra::Core Zenvra::Graphics Zenvra::Language Zenvra::Terminal Zenvra::Media Zenvra::Drivers::Media lunasvg PRIVATE Zenvra::Commands)
+target_link_libraries(ZDEUI PUBLIC 
+    Zenvra::Core Zenvra::Graphics Zenvra::Language 
+    Zenvra::Terminal Zenvra::Media Zenvra::Drivers::Media 
+    Zenvra::Settings lunasvg ZDEUtility PRIVATE Zenvra::Commands)
 find_library(ZDE_GIT2_LIBRARY git2)
 if(ZDE_GIT2_LIBRARY)
     target_link_libraries(ZDEUI PUBLIC "${ZDE_GIT2_LIBRARY}")
 endif()
 if(WIN32)
-    target_link_libraries(ZDEUI PRIVATE gdi32 msimg32 user32 dwmapi)
+    target_link_libraries(ZDEUI PRIVATE gdi32 msimg32 user32 dwmapi shell32)
 endif()
 zde_enable_warnings(ZDEUI)

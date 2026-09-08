@@ -5,6 +5,7 @@
 #include "Language/LanguageServerManager.h"
 #include "Language/Protocol/LspProtocolSerializer.h"
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
+#include "Settings/SettingsService.h"
 #include "UI/Editor/FileIconModel.h"
 #include "Utility/Flex.h"
 #include "Utility/Fonts.h"
@@ -148,7 +149,8 @@ fold_start_line_at_point(const UI::Components::EditorFoldingModel &folding,
                          const UI::Editor::StudioEditorLayoutResult &layout,
                          float point_x, float point_y, float dpi_scale,
                          std::size_t first_visual_row,
-                         std::size_t total_lines) {
+                         std::size_t total_lines,
+                         float line_height = 0.0F) {
   const float fold_margin =
       UI::Editor::StudioEditorMetrics::fold_margin_width * dpi_scale;
   const float fold_margin_left = layout.gutter_bounds.right() - fold_margin;
@@ -156,9 +158,9 @@ fold_start_line_at_point(const UI::Components::EditorFoldingModel &folding,
       point_x < fold_margin_left) {
     return std::nullopt;
   }
-  const float line_height = 20.0F * dpi_scale;
+  const float actual_line_height = line_height > 0.0F ? line_height : (20.0F * dpi_scale);
   const std::size_t clicked_row = static_cast<std::size_t>(std::max(
-      static_cast<int>((point_y - layout.editor_bounds.y) / line_height), 0));
+      static_cast<int>((point_y - layout.editor_bounds.y) / actual_line_height), 0));
   const std::size_t line_index = visual_row_to_physical_line(
       folding, first_visual_row + clicked_row, total_lines);
   if (!folding.is_fold_start(line_index)) {
@@ -517,6 +519,19 @@ bool TextEditor::select_all_occurrences()
         return false;
     }
     return doc->select_word_at(doc->get_caret_line(), doc->get_caret_column());
+}
+
+void TextEditor::set_tab_size(std::size_t size) noexcept
+{
+    m_tab_size = std::max<std::size_t>(1, size);
+    m_last_folded_doc = nullptr;
+}
+
+float TextEditor::get_line_height(const StudioWorkspaceRenderer &surface, HDC device_context) const noexcept
+{
+    const float lh = surface.get_editor_line_height(device_context);
+    m_cached_line_height = lh;
+    return lh;
 }
 
 bool TextEditor::close_file(const std::filesystem::path& path)
@@ -1822,7 +1837,7 @@ bool TextEditor::handle_pointer_press(
         auto* left_doc = m_controller.get_active_document();
         auto* right_doc = m_controller.get_document(*m_split_document_index);
 
-        const float line_height = 20.0F * scale;
+        const float line_height = get_line_height(surface, device_context);
         const std::size_t visible_count = static_cast<std::size_t>(std::max(
             static_cast<int>(layout.editor_bounds.height / line_height), 1));
 
@@ -1908,7 +1923,7 @@ bool TextEditor::handle_pointer_press(
             const float right_gutter_w = layout.gutter_bounds.width;
             const float fold_margin = UI::Editor::StudioEditorMetrics::fold_margin_width * scale;
             const float fold_margin_left = splitter_x + 2.0F * scale + right_gutter_w - fold_margin;
-            const float line_height = 20.0F * scale;
+            const float line_height = get_line_height(surface, device_context);
             const std::size_t visible_count = static_cast<std::size_t>(std::max(
                 static_cast<int>(layout.editor_bounds.height / line_height), 1));
             const std::size_t split_total_lines = right_doc->get_line_count();
@@ -1958,7 +1973,7 @@ bool TextEditor::handle_pointer_press(
 
             const float fold_margin = UI::Editor::StudioEditorMetrics::fold_margin_width * scale;
             const float fold_margin_left = layout.gutter_bounds.right() - fold_margin;
-            const float line_height = 20.0F * scale;
+            const float line_height = get_line_height(surface, device_context);
             const std::size_t visible_count = static_cast<std::size_t>(std::max(
                 static_cast<int>(layout.editor_bounds.height / line_height), 1));
             const std::size_t total_lines = left_doc->get_line_count();
@@ -2002,7 +2017,7 @@ bool TextEditor::handle_pointer_press(
     document = m_controller.get_active_document();
     if (document != nullptr && m_minimap.is_point(layout, point_x, point_y))
     {
-        const float line_height = 20.0F * surface.m_dpi_scale;
+        const float line_height = get_line_height(surface, device_context);
         const std::size_t visible_count = static_cast<std::size_t>(std::max(
             static_cast<int>(layout.editor_bounds.height / line_height), 1));
         m_scrollbar.synchronize(document->get_line_count(), visible_count);
@@ -2025,7 +2040,7 @@ bool TextEditor::handle_pointer_press(
     }
     if (document != nullptr && m_scrollbar.is_point(layout, point_x, point_y))
     {
-        const float line_height = 20.0F * surface.m_dpi_scale;
+        const float line_height = get_line_height(surface, device_context);
         const std::size_t visible_count = static_cast<std::size_t>(std::max(
             static_cast<int>(layout.editor_bounds.height / line_height), 1));
         m_scrollbar.synchronize(document->get_line_count(), visible_count);
@@ -2105,7 +2120,7 @@ bool TextEditor::handle_pointer_press(
         return false;
     }
 
-    const float line_height = 20.0F * surface.m_dpi_scale;
+    const float line_height = get_line_height(surface, device_context);
     const std::size_t visible_count = static_cast<std::size_t>(std::max(
         static_cast<int>(layout.editor_bounds.height / line_height), 1));
     const std::size_t total_lines = document->get_line_count();
@@ -2113,7 +2128,7 @@ bool TextEditor::handle_pointer_press(
 
     if (const std::optional<std::size_t> fold_line = fold_start_line_at_point(
             m_folding, layout, point_x, point_y, surface.m_dpi_scale,
-            m_scrollbar.get_first_visible_line(), total_lines))
+            m_scrollbar.get_first_visible_line(), total_lines, line_height))
     {
         m_folding.toggle_fold(*fold_line);
         m_scrollbar.synchronize(count_visible_lines(m_folding, total_lines), visible_count);
@@ -2229,13 +2244,13 @@ bool TextEditor::handle_pointer_move(
     if (document != nullptr)
     {
         const std::size_t total_lines = document->get_line_count();
-        const float line_height = 20.0F * layout.dpi_scale;
+        const float line_height = (m_cached_line_height > 0.0F) ? m_cached_line_height : (20.0F * layout.dpi_scale);
         const std::size_t visible_count = static_cast<std::size_t>(std::max(
             static_cast<int>(layout.editor_bounds.height / line_height), 1));
         m_scrollbar.synchronize(count_visible_lines(m_folding, total_lines), visible_count);
         hovered_fold_line = fold_start_line_at_point(
             m_folding, layout, point_x, point_y, layout.dpi_scale,
-            m_scrollbar.get_first_visible_line(), total_lines);
+            m_scrollbar.get_first_visible_line(), total_lines, line_height);
     }
     
     if (hovered_fold_line != m_hovered_fold_line)
@@ -2386,7 +2401,7 @@ bool TextEditor::handle_pointer_move(
     if (document != nullptr && !layout.editor_bounds.is_empty() && layout.editor_bounds.height > 2.0F && layout.editor_bounds.contains(point_x, point_y))
     {
         const float scale = layout.dpi_scale;
-        const float line_height = 20.0F * scale;
+        const float line_height = (m_cached_line_height > 0.0F) ? m_cached_line_height : (20.0F * scale);
         const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
         const float splitter_x = layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) * m_split_ratio;
 
@@ -2462,7 +2477,7 @@ bool TextEditor::handle_pointer_move(
     if (!hovered_diag.has_value() && document != nullptr && !layout.editor_bounds.is_empty() && layout.editor_bounds.height > 2.0F && layout.editor_bounds.contains(point_x, point_y))
     {
         const float scale = layout.dpi_scale;
-        const float line_height = 20.0F * scale;
+        const float line_height = (m_cached_line_height > 0.0F) ? m_cached_line_height : (20.0F * scale);
         const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
         const float splitter_x = layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) * m_split_ratio;
         const bool is_right_pane = is_split_active && (point_x > splitter_x);
@@ -2564,7 +2579,7 @@ bool TextEditor::handle_pointer_move(
     if (is_ctrl_pressed && document != nullptr && !layout.editor_bounds.is_empty() && layout.editor_bounds.contains(point_x, point_y))
     {
         const float scale = layout.dpi_scale;
-        const float line_height = 20.0F * scale;
+        const float line_height = (m_cached_line_height > 0.0F) ? m_cached_line_height : (20.0F * scale);
         const bool is_split_active = m_is_split && m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size();
         const float splitter_x = layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) * m_split_ratio;
         const bool is_right_pane = is_split_active && (point_x > splitter_x);
@@ -2800,7 +2815,7 @@ bool TextEditor::handle_pointer_drag(
         const UI::Rect right_scrollbar{right_bounds.right() - scrollbar_w, scroll_top_y, scrollbar_w, scroll_total_h};
         const UI::Rect right_minimap{right_scrollbar.x - right_minimap_w, scroll_top_y, right_minimap_w, scroll_total_h};
 
-        const float line_height = 20.0F * scale;
+        const float line_height = get_line_height(surface, device_context);
         const std::size_t visible_count = static_cast<std::size_t>(std::max(
             static_cast<int>(layout.editor_bounds.height / line_height), 1));
 
@@ -2893,7 +2908,7 @@ bool TextEditor::handle_pointer_drag(
     UI::Editor::TextDocumentModel* document = m_controller.get_active_document();
     if (document != nullptr && m_minimap.is_dragging())
     {
-        const float line_height = 20.0F * surface.m_dpi_scale;
+        const float line_height = get_line_height(surface, device_context);
         const std::size_t visible_count = static_cast<std::size_t>(std::max(
             static_cast<int>(layout.editor_bounds.height / line_height), 1));
         const std::optional<std::size_t> target = m_minimap.handle_pointer_drag(
@@ -3161,7 +3176,7 @@ bool TextEditor::handle_scroll(
         {
             if (const UI::Editor::TextDocumentModel* split_doc = m_controller.get_document(*m_split_document_index))
             {
-                const float line_height = 20.0F * scale;
+                const float line_height = get_line_height(surface);
                 const std::size_t visible_count = static_cast<std::size_t>(std::max(
                     static_cast<int>(layout.editor_bounds.height / line_height), 1));
                 m_split_scrollbar.synchronize(split_doc->get_line_count(), visible_count);
@@ -3172,7 +3187,7 @@ bool TextEditor::handle_scroll(
         {
             if (const UI::Editor::TextDocumentModel* document = m_controller.get_active_document())
             {
-                const float line_height = 20.0F * scale;
+                const float line_height = get_line_height(surface);
                 const std::size_t visible_count = static_cast<std::size_t>(std::max(
                     static_cast<int>(layout.editor_bounds.height / line_height), 1));
                 m_scrollbar.synchronize(document->get_line_count(), visible_count);
@@ -4510,7 +4525,7 @@ void TextEditor::render(
                     }
                 }
 
-                const float line_height = 20.0F * surface.m_dpi_scale;
+                const float line_height = get_line_height(surface, device_context);
                 const std::size_t visible_count = static_cast<std::size_t>(std::max(
                     static_cast<int>(layout.editor_bounds.height / line_height), 1));
                 m_minimap.render(
@@ -4526,7 +4541,7 @@ void TextEditor::render(
     else if (m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size())
     {
         const float scale = surface.m_dpi_scale;
-        const float line_height = 20.0F * scale;
+        const float line_height = get_line_height(surface, device_context);
         const std::size_t visible_count = static_cast<std::size_t>(std::max(
             static_cast<int>(layout.editor_bounds.height / line_height), 1));
         const float splitter_x = layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) * m_split_ratio;
@@ -5274,8 +5289,16 @@ void TextEditor::draw_document(
         const float start_y = layout.editor_bounds.y + layout.editor_bounds.height * 0.32F;
 
         // 1. Extra Large Iconic Logo on the left
+        std::string mascot_asset = "zenvra_logo.png";
+        auto &settings_service = Zenvra::Settings::SettingsService::instance();
+        if (settings_service.get_schema().has_setting("workbench.mascot.image")) {
+            const std::string custom_img = settings_service.get<std::string>("workbench.mascot.image");
+            if (!custom_img.empty()) {
+                mascot_asset = custom_img;
+            }
+        }
         surface.draw_png_icon(
-            device_context, "zenvra_logo.png",
+            device_context, mascot_asset,
             round_to_int(start_x + logo_size * 0.5F),
             round_to_int(start_y + logo_size * 0.5F),
             round_to_int(logo_size), surface.m_palette.editor_background);
@@ -5329,7 +5352,7 @@ void TextEditor::draw_document(
     }
 
     const float scale = surface.m_dpi_scale;
-    const float line_height = 20.0F * scale;
+    const float line_height = get_line_height(surface, device_context);
     const float first_center_y = layout.editor_bounds.y + line_height * 0.5F;
     const float code_x = layout.editor_bounds.x + 14.0F * scale - m_text_scroll_offset;
     const std::size_t visible_count = static_cast<std::size_t>(std::max(
@@ -5394,7 +5417,7 @@ void TextEditor::draw_document(
 
     const std::size_t tab_size = document->get_status().indent_width > 0
         ? document->get_status().indent_width
-        : 4;
+        : m_tab_size;
 
     m_scrollbar.synchronize(count_visible_lines(m_folding, total_lines), visible_count);
     const bool is_this_pane_focused =
@@ -5739,6 +5762,87 @@ void TextEditor::draw_document(
             device_context, *surface.m_editor_font, line));
         if (current_line_width > max_line_width) max_line_width = current_line_width;
 
+        // Render whitespace characters (VS Code style)
+        if (m_render_whitespace != "none" && !line.empty())
+        {
+            const bool is_all = (m_render_whitespace == "all");
+            const bool is_boundary = (m_render_whitespace == "boundary");
+            const bool is_sel_only = (m_render_whitespace == "selection");
+
+            bool line_has_sel = false;
+            std::size_t sel_start_col = 0;
+            std::size_t sel_end_col = 0;
+            if (is_sel_only && document->has_selection())
+            {
+                for (const auto& cursor : document->get_all_cursors())
+                {
+                    if (cursor.has_selection())
+                    {
+                        const auto sel = cursor.get_selection();
+                        if (line_index >= sel.start.line && line_index <= sel.end.line)
+                        {
+                            line_has_sel = true;
+                            sel_start_col = (line_index == sel.start.line) ? sel.start.column : 0;
+                            sel_end_col = (line_index == sel.end.line) ? sel.end.column : line.size();
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (is_all || is_boundary || (is_sel_only && line_has_sel))
+            {
+                const std::size_t first_non_ws = line.find_first_not_of(" \t");
+                const std::size_t last_non_ws = line.find_last_not_of(" \t");
+                const float dot_r = std::max(1.0F * surface.m_dpi_scale, 1.0F);
+
+                for (std::size_t col = 0; col < line.size(); ++col)
+                {
+                    const char ch = line[col];
+                    if (ch != ' ' && ch != '\t') continue;
+
+                    if (is_sel_only)
+                    {
+                        if (col < sel_start_col || col >= sel_end_col) continue;
+                    }
+                    else if (is_boundary)
+                    {
+                        const bool is_leading = (first_non_ws == std::string_view::npos || col < first_non_ws);
+                        const bool is_trailing = (last_non_ws != std::string_view::npos && col > last_non_ws);
+                        const bool is_multi = (col + 1 < line.size() && line[col + 1] == ' ') ||
+                                              (col > 0 && line[col - 1] == ' ');
+                        if (!is_leading && !is_trailing && !is_multi) continue;
+                    }
+
+                    const float char_x = code_x + static_cast<float>(surface.get_text_width(
+                        device_context, *surface.m_editor_font, line.substr(0, col)));
+                    if (char_x < layout.editor_bounds.x || char_x > left_right_limit) continue;
+
+                    if (ch == ' ')
+                    {
+                        const float sp_w = (m_cached_char_width > 0.0F) ? m_cached_char_width : (8.0F * surface.m_dpi_scale);
+                        const float dot_x = char_x + sp_w * 0.5F;
+                        surface.fill_rectangle(
+                            device_context,
+                            UI::Rect{dot_x - dot_r, center_y - dot_r, dot_r * 2.0F, dot_r * 2.0F},
+                            surface.m_palette.indent_guide);
+                    }
+                    else if (ch == '\t')
+                    {
+                        const float next_x = code_x + static_cast<float>(surface.get_text_width(
+                            device_context, *surface.m_editor_font, line.substr(0, col + 1)));
+                        const float arrow_len = std::max(4.0F * surface.m_dpi_scale, (next_x - char_x) - 4.0F * surface.m_dpi_scale);
+                        surface.draw_line(
+                            device_context,
+                            round_to_int(char_x + 2.0F * surface.m_dpi_scale),
+                            round_to_int(center_y),
+                            round_to_int(char_x + 2.0F * surface.m_dpi_scale + arrow_len),
+                            round_to_int(center_y),
+                            surface.m_palette.indent_guide);
+                    }
+                }
+            }
+        }
 
         const bool is_line_inactive = document->is_line_inactive(line_index);
         const auto line_diags = document->get_diagnostics_for_line(line_index);
@@ -6105,13 +6209,43 @@ void TextEditor::draw_document(
                     const int caret_x = round_to_int(
                         code_x + static_cast<float>(surface.get_text_width(
                             device_context, *surface.m_editor_font, prefix)));
-                    surface.draw_line(
-                        device_context,
-                        caret_x,
-                        round_to_int(center_y - 8.0F * surface.m_dpi_scale),
-                        caret_x,
-                        round_to_int(center_y + 8.0F * surface.m_dpi_scale),
-                        surface.m_palette.text_primary);
+                    const float half_h = std::max(6.0F * surface.m_dpi_scale, (line_height - 4.0F * surface.m_dpi_scale) * 0.5F);
+
+                    if (m_cursor_style == "Block")
+                    {
+                        const float char_w = (cur.column < line.size())
+                            ? static_cast<float>(std::max(surface.get_text_width(
+                                device_context, *surface.m_editor_font, line.substr(cur.column, 1)), 1))
+                            : (m_cached_char_width > 0.0F ? m_cached_char_width : 8.0F * surface.m_dpi_scale);
+                        const UI::Rect block_rect{static_cast<float>(caret_x), center_y - half_h, std::max(char_w, 6.0F * surface.m_dpi_scale), half_h * 2.0F};
+                        surface.fill_rectangle(device_context, block_rect, surface.m_palette.text_primary);
+                        if (cur.column < line.size())
+                        {
+                            surface.draw_text(device_context, *surface.m_editor_font, line.substr(cur.column, 1),
+                                              static_cast<float>(caret_x), center_y, surface.m_palette.editor_background);
+                        }
+                    }
+                    else if (m_cursor_style == "Underline")
+                    {
+                        const float char_w = (cur.column < line.size())
+                            ? static_cast<float>(std::max(surface.get_text_width(
+                                device_context, *surface.m_editor_font, line.substr(cur.column, 1)), 1))
+                            : (m_cached_char_width > 0.0F ? m_cached_char_width : 8.0F * surface.m_dpi_scale);
+                        const int u_y = round_to_int(center_y + half_h);
+                        const int u_w = round_to_int(std::max(char_w, 6.0F * surface.m_dpi_scale));
+                        surface.draw_line(device_context, caret_x, u_y, caret_x + u_w, u_y, surface.m_palette.text_primary);
+                        surface.draw_line(device_context, caret_x, u_y - 1, caret_x + u_w, u_y - 1, surface.m_palette.text_primary);
+                    }
+                    else
+                    {
+                        surface.draw_line(
+                            device_context,
+                            caret_x,
+                            round_to_int(center_y - half_h),
+                            caret_x,
+                            round_to_int(center_y + half_h),
+                            surface.m_palette.text_primary);
+                    }
                 }
             }
         }
@@ -6776,13 +6910,43 @@ void TextEditor::draw_document(
                             const int caret_x = round_to_int(
                                 right_code_x + static_cast<float>(surface.get_text_width(
                                     device_context, *surface.m_editor_font, prefix)));
-                            surface.draw_line(
-                                device_context,
-                                caret_x,
-                                round_to_int(cy - 8.0F * scale),
-                                caret_x,
-                                round_to_int(cy + 8.0F * scale),
-                                surface.m_palette.text_primary);
+                            const float half_h = std::max(6.0F * scale, (line_height - 4.0F * scale) * 0.5F);
+
+                            if (m_cursor_style == "Block")
+                            {
+                                const float char_w = (cur.column < lstr.size())
+                                    ? static_cast<float>(std::max(surface.get_text_width(
+                                        device_context, *surface.m_editor_font, lstr.substr(cur.column, 1)), 1))
+                                    : (m_cached_char_width > 0.0F ? m_cached_char_width : 8.0F * scale);
+                                const UI::Rect block_rect{static_cast<float>(caret_x), cy - half_h, std::max(char_w, 6.0F * scale), half_h * 2.0F};
+                                surface.fill_rectangle(device_context, block_rect, surface.m_palette.text_primary);
+                                if (cur.column < lstr.size())
+                                {
+                                    surface.draw_text(device_context, *surface.m_editor_font, lstr.substr(cur.column, 1),
+                                                      static_cast<float>(caret_x), cy, surface.m_palette.editor_background);
+                                }
+                            }
+                            else if (m_cursor_style == "Underline")
+                            {
+                                const float char_w = (cur.column < lstr.size())
+                                    ? static_cast<float>(std::max(surface.get_text_width(
+                                        device_context, *surface.m_editor_font, lstr.substr(cur.column, 1)), 1))
+                                    : (m_cached_char_width > 0.0F ? m_cached_char_width : 8.0F * scale);
+                                const int u_y = round_to_int(cy + half_h);
+                                const int u_w = round_to_int(std::max(char_w, 6.0F * scale));
+                                surface.draw_line(device_context, caret_x, u_y, caret_x + u_w, u_y, surface.m_palette.text_primary);
+                                surface.draw_line(device_context, caret_x, u_y - 1, caret_x + u_w, u_y - 1, surface.m_palette.text_primary);
+                            }
+                            else
+                            {
+                                surface.draw_line(
+                                    device_context,
+                                    caret_x,
+                                    round_to_int(cy - half_h),
+                                    caret_x,
+                                    round_to_int(cy + half_h),
+                                    surface.m_palette.text_primary);
+                            }
                         }
                     }
                 }
@@ -6802,9 +6966,9 @@ void TextEditor::draw_document(
         const float caret_screen_x = code_x + static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, prefix));
         const std::ptrdiff_t vis_row = static_cast<std::ptrdiff_t>(physical_line_to_visual_row(m_folding, document->get_caret_line(), document->get_line_count()));
         const std::ptrdiff_t first_vis = static_cast<std::ptrdiff_t>(m_scrollbar.get_first_visible_line());
-        const float caret_line_y = layout.editor_bounds.y + static_cast<float>(vis_row - first_vis + 1) * (20.0F * surface.m_dpi_scale);
+        const float caret_line_y = layout.editor_bounds.y + static_cast<float>(vis_row - first_vis + 1) * line_height;
 
-        const float item_h = 20.0F * surface.m_dpi_scale;
+        const float item_h = line_height;
         const std::size_t count = m_completion_popup.get_item_count();
         const std::size_t scroll_offset = m_completion_popup.get_scroll_offset();
         const std::size_t max_visible = m_completion_popup.get_max_visible_items();
@@ -7144,7 +7308,7 @@ void TextEditor::draw_document(
         else
         {
             const auto& sig = m_signature_help.get_help().signatures[0];
-            const float line_h = 20.0F * surface.m_dpi_scale;
+            const float line_h = get_line_height(surface, device_context);
             const float caret_screen_x = code_x + static_cast<float>(surface.get_text_width(device_context, *surface.m_editor_font, prefix));
             const float line_top_y = layout.editor_bounds.y + static_cast<float>(physical_line_to_visual_row(m_folding, document->get_caret_line(), document->get_line_count()) - m_scrollbar.get_first_visible_line()) * line_h;
 
@@ -7243,7 +7407,7 @@ UI::Editor::TextPosition TextEditor::position_from_point(
         const UI::Editor::TextDocumentModel* split_doc = m_controller.get_document(*m_split_document_index);
         if (split_doc == nullptr) return {};
 
-        const float line_height = 20.0F * scale;
+        const float line_height = get_line_height(surface, device_context);
         const std::size_t visible_count = static_cast<std::size_t>(std::max(
             static_cast<int>(layout.editor_bounds.height / line_height), 1));
         const std::size_t total_lines = split_doc->get_line_count();
@@ -7285,7 +7449,7 @@ UI::Editor::TextPosition TextEditor::position_from_point(
     {
         return {};
     }
-    const float line_height = 20.0F * surface.m_dpi_scale;
+    const float line_height = get_line_height(surface, device_context);
     const std::size_t visible_count = static_cast<std::size_t>(std::max(
         static_cast<int>(layout.editor_bounds.height / line_height), 1));
     const std::size_t total_lines = document->get_line_count();

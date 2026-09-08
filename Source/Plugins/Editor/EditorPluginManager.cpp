@@ -1,4 +1,5 @@
 #include "Editor/EditorPluginManager.h"
+#include "Settings/SettingsService.h"
 
 namespace Zenvra::Plugins::Editor
 {
@@ -19,6 +20,11 @@ bool EditorPluginManager::load_plugin(const std::string& path)
 void EditorPluginManager::unload_all()
 {
     // Stub: Unload all
+}
+
+void EditorPluginManager::register_setting(Settings::SettingDefinition definition)
+{
+    Settings::SettingsService::instance().register_setting(std::move(definition));
 }
 
 } // namespace Zenvra::Plugins::Editor

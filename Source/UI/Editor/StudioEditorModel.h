@@ -22,7 +22,8 @@ struct TokenizerState
         RawString,
         TripleQuoteString,
         MultilineString,
-        BackslashString
+        BackslashString,
+        CppAttribute
     };
 
     StateKind kind = StateKind::Normal;

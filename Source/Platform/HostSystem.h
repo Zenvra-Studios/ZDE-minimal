@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <string>
 #include <string_view>
 
@@ -38,5 +39,7 @@ struct SystemInfo
 
 [[nodiscard]] std::string_view to_string(Architecture arch) noexcept;
 [[nodiscard]] std::string_view to_string(OperatingSystem os) noexcept;
+
+[[nodiscard]] std::filesystem::path get_user_home_directory();
 
 } // namespace Zenvra::Platform::HostSystem

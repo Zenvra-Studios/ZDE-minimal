@@ -46,6 +46,11 @@ bool PosixTTYBackend::start(
         // Child process
         if (!working_directory.empty()) {
             static_cast<void>(::chdir(working_directory.c_str()));
+        } else {
+            const char* home = std::getenv("HOME");
+            if (home != nullptr && *home != '\0') {
+                static_cast<void>(::chdir(home));
+            }
         }
         const std::string exe_str = executable.string();
         ::setenv("SHELL", exe_str.c_str(), 1);

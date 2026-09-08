@@ -2,6 +2,7 @@
 
 #include "Platform/Cocoa/Components/StudioWorkspaceRenderer.h"
 #include "Language/LanguageServerManager.h"
+#include "Platform/HostSystem.h"
 #include "Utility/Fonts.h"
 #include "UI/Editor/EditorFileSystem.h"
 #include "Commands/CommandIds.h"
@@ -228,7 +229,15 @@ bool StudioWorkspaceRenderer::initialize(float dpi_scale)
     m_text_dimmed.warning = color_to_hex(UI::Theme::dim_color(m_palette.warning, m_palette.editor_background));
     m_text_dimmed.success = color_to_hex(UI::Theme::dim_color(m_palette.success, m_palette.editor_background));
     static_cast<void>(m_tool_sidebar.initialize());
-    static_cast<void>(m_terminal_panel.toggle());
+    const auto active_workspace = m_tool_sidebar.get_model().get_workspace_root();
+    if (!active_workspace.empty())
+    {
+        m_terminal_panel.set_working_directory(active_workspace);
+    }
+    else
+    {
+        m_terminal_panel.set_working_directory(Platform::HostSystem::get_user_home_directory());
+    }
     m_terminal_panel.set_focused(false);
     static_cast<void>(m_shader_sandbox_panel.initialize());
     m_animated_titlebar_left_offset = m_is_fullscreen
@@ -345,6 +354,7 @@ bool StudioWorkspaceRenderer::close_project()
     m_text_editor.close_all_documents();
     m_text_editor.reset_split();
     m_terminal_panel.shutdown();
+    m_terminal_panel.set_working_directory(Platform::HostSystem::get_user_home_directory());
     m_shader_sandbox_panel.set_visible(false);
     Language::LanguageServerManager::instance().shutdown_all();
     Language::LanguageServerManager::instance().set_workspace_root({});
@@ -1050,7 +1060,8 @@ bool StudioWorkspaceRenderer::is_sidebar_resizing() const noexcept
 
 bool StudioWorkspaceRenderer::is_empty_state_button_hovered() const noexcept
 {
-    return m_text_editor.is_empty_state_button_hovered();
+    return m_text_editor.is_empty_state_button_hovered() ||
+           m_tool_sidebar.is_empty_state_button_hovered();
 }
 
 bool StudioWorkspaceRenderer::tick_animations() noexcept

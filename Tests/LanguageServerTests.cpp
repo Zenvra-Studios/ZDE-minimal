@@ -1295,6 +1295,156 @@ TEST(LanguageServerTests, SyntaxHighlightingDistinguishesClassesVariablesAndDefi
     EXPECT_TRUE(found_defined);
     EXPECT_TRUE(found_macro);
   }
+
+  // 6. Check C++ compound types and Logo.h
+  {
+    std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        "unsigned char Assets_icons_zenvra_logo_build_ico[] = {",
+        *grammar, tokens);
+    ASSERT_GT(count, 0u);
+
+    bool found_unsigned = false;
+    bool found_char = false;
+    bool found_array_var = false;
+
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "unsigned" && tokens[i].kind == UI::Editor::EditorTokenKind::Type)
+        found_unsigned = true;
+      if (tokens[i].text == "char" && tokens[i].kind == UI::Editor::EditorTokenKind::Type)
+        found_char = true;
+      if (tokens[i].text == "Assets_icons_zenvra_logo_build_ico" && tokens[i].kind == UI::Editor::EditorTokenKind::Plain)
+        found_array_var = true;
+    }
+
+    EXPECT_TRUE(found_unsigned);
+    EXPECT_TRUE(found_char);
+    EXPECT_TRUE(found_array_var);
+  }
+
+  // 7. Check C++ standard attributes [[nodiscard]] and [[deprecated("reason")]]
+  {
+    std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        "[[nodiscard]] int calculate();",
+        *grammar, tokens);
+    ASSERT_GT(count, 0u);
+
+    bool found_open_attr = false;
+    bool found_nodiscard = false;
+    bool found_close_attr = false;
+    bool found_int_type = false;
+    bool found_calc_label = false;
+
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "[[" && tokens[i].kind == UI::Editor::EditorTokenKind::Directive)
+        found_open_attr = true;
+      if (tokens[i].text == "nodiscard" && tokens[i].kind == UI::Editor::EditorTokenKind::Directive)
+        found_nodiscard = true;
+      if (tokens[i].text == "]]" && tokens[i].kind == UI::Editor::EditorTokenKind::Directive)
+        found_close_attr = true;
+      if (tokens[i].text == "int" && tokens[i].kind == UI::Editor::EditorTokenKind::Type)
+        found_int_type = true;
+      if (tokens[i].text == "calculate" && tokens[i].kind == UI::Editor::EditorTokenKind::Label)
+        found_calc_label = true;
+    }
+
+    EXPECT_TRUE(found_open_attr);
+    EXPECT_TRUE(found_nodiscard);
+    EXPECT_TRUE(found_close_attr);
+    EXPECT_TRUE(found_int_type);
+    EXPECT_TRUE(found_calc_label);
+  }
+
+  // 8. Check C++ attribute with argument string: [[deprecated("use new_calc")]]
+  {
+    std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        "[[deprecated(\"use new_calc\")]] void old_func();",
+        *grammar, tokens);
+    ASSERT_GT(count, 0u);
+
+    bool found_dep = false;
+    bool found_msg = false;
+    bool found_void = false;
+
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "deprecated" && tokens[i].kind == UI::Editor::EditorTokenKind::Directive)
+        found_dep = true;
+      if (tokens[i].text == "\"use new_calc\"" && tokens[i].kind == UI::Editor::EditorTokenKind::String)
+        found_msg = true;
+      if (tokens[i].text == "void" && tokens[i].kind == UI::Editor::EditorTokenKind::Type)
+        found_void = true;
+    }
+
+    EXPECT_TRUE(found_dep);
+    EXPECT_TRUE(found_msg);
+    EXPECT_TRUE(found_void);
+  }
+
+  // 9. Check member variable access: player.Health and player->Location are Plain, not Type
+  {
+    std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        "player.Health = 100; mesh->Location = loc;",
+        *grammar, tokens);
+    ASSERT_GT(count, 0u);
+
+    bool found_health_var = false;
+    bool found_location_var = false;
+
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "Health" && tokens[i].kind == UI::Editor::EditorTokenKind::Plain)
+        found_health_var = true;
+      if (tokens[i].text == "Location" && tokens[i].kind == UI::Editor::EditorTokenKind::Plain)
+        found_location_var = true;
+    }
+
+    EXPECT_TRUE(found_health_var);
+    EXPECT_TRUE(found_location_var);
+  }
+
+  // 10. Check C++14 digit separator: 1'000'000 is single Number token
+  {
+    std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        "int count = 1'000'000;",
+        *grammar, tokens);
+    ASSERT_GT(count, 0u);
+
+    bool found_num = false;
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "1'000'000" && tokens[i].kind == UI::Editor::EditorTokenKind::Number)
+        found_num = true;
+    }
+    EXPECT_TRUE(found_num);
+  }
+
+  // 11. Check compiler attribute and Unreal Engine macro specifier
+  {
+    std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+    const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        "UPROPERTY(EditAnywhere) FVector PlayerLocation;",
+        *grammar, tokens);
+    ASSERT_GT(count, 0u);
+
+    bool found_uprop = false;
+    bool found_fvector = false;
+    bool found_location = false;
+
+    for (std::size_t i = 0; i < count; ++i) {
+      if (tokens[i].text == "UPROPERTY" && tokens[i].kind == UI::Editor::EditorTokenKind::Directive)
+        found_uprop = true;
+      if (tokens[i].text == "FVector" && tokens[i].kind == UI::Editor::EditorTokenKind::Type)
+        found_fvector = true;
+      if (tokens[i].text == "PlayerLocation" && tokens[i].kind == UI::Editor::EditorTokenKind::Plain)
+        found_location = true;
+    }
+
+    EXPECT_TRUE(found_uprop);
+    EXPECT_TRUE(found_fvector);
+    EXPECT_TRUE(found_location);
+  }
 }
 
 TEST(LanguageServerTests, PreprocessorInactiveBranchEvaluation) {
@@ -2019,3 +2169,25 @@ TEST(LanguageServerTests, CSSPropertiesValuesAndUnitsHighlighting) {
     EXPECT_TRUE(found_logo);
   }
 }
+
+TEST(LanguageServerTests, FolderIconModelDefaultsToVSCodeOutlineIcons) {
+  // 1. Verify default closed folder icons use standard VS Code outline icon
+  EXPECT_EQ(UI::Editor::folder_icon_asset_for_path(std::filesystem::path(".git"), false), "folder.svg");
+  EXPECT_EQ(UI::Editor::folder_icon_asset_for_path(std::filesystem::path(".github"), false), "folder.svg");
+  EXPECT_EQ(UI::Editor::folder_icon_asset_for_path(std::filesystem::path("Source"), false), "folder.svg");
+  EXPECT_EQ(UI::Editor::folder_icon_asset_for_path(std::filesystem::path("Assets"), false), "folder.svg");
+  EXPECT_EQ(UI::Editor::folder_icon_asset_for_path(std::filesystem::path("Tests"), false), "folder.svg");
+  EXPECT_EQ(UI::Editor::folder_icon_asset_for_path(std::filesystem::path("build"), false), "folder.svg");
+  EXPECT_EQ(UI::Editor::folder_icon_asset_for_path(std::filesystem::path("ThirdParty"), false), "folder.svg");
+
+  // 2. Verify default opened folder icons use standard VS Code open outline icon
+  EXPECT_EQ(UI::Editor::folder_icon_asset_for_path(std::filesystem::path(".git"), true), "folder-open.svg");
+  EXPECT_EQ(UI::Editor::folder_icon_asset_for_path(std::filesystem::path("Source"), true), "folder-open.svg");
+  EXPECT_EQ(UI::Editor::folder_icon_asset_for_path(std::filesystem::path("ThirdParty"), true), "folder-open.svg");
+
+  // 3. Optional material icon override when explicitly enabled
+  EXPECT_EQ(UI::Editor::folder_icon_asset_for_path(std::filesystem::path(".git"), false, true), "material-icon-theme/folder-git.svg");
+  EXPECT_EQ(UI::Editor::folder_icon_asset_for_path(std::filesystem::path("Source"), false, true), "material-icon-theme/folder-src.svg");
+  EXPECT_EQ(UI::Editor::folder_icon_asset_for_path(std::filesystem::path("ThirdParty"), false, true), "folder.svg");
+}
+

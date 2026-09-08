@@ -1,4 +1,5 @@
 #include "Platform/Win32/Components/TerminalPanel.h"
+#include "Platform/HostSystem.h"
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
 #include "Services/Output/OutputLogManager.h"
 #include "Utility/Fonts.h"
@@ -17,11 +18,12 @@ using Zenvra::Utility::round_to_int;
 std::filesystem::path
 current_terminal_directory(const std::filesystem::path &workspace_root) {
   if (!workspace_root.empty()) {
-    return workspace_root;
+    std::error_code error;
+    if (std::filesystem::is_directory(workspace_root, error)) {
+      return workspace_root;
+    }
   }
-  std::error_code error;
-  const std::filesystem::path current = std::filesystem::current_path(error);
-  return error ? std::filesystem::path{} : current;
+  return Platform::HostSystem::get_user_home_directory();
 }
 
 std::size_t utf8_column_count(std::string_view s) {
@@ -546,7 +548,8 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
       if (cur_y > layout.terminal_content_bounds.bottom() + line_h)
         break;
       const std::string &l = output_lines[i];
-      surface.draw_text(device_context, *surface.m_editor_font, l,
+      AntialiasedFont &out_font = surface.m_terminal_font ? *surface.m_terminal_font : *surface.m_editor_font;
+      surface.draw_text(device_context, out_font, l,
                         layout.terminal_content_bounds.x + 14.0F * scale, cur_y,
                         surface.m_palette.text_primary);
       cur_y += line_h;
@@ -645,9 +648,11 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   }
 
   const Terminal::TerminalSession *session = m_model.get_active_session();
-  if (session == nullptr || surface.m_editor_font == nullptr) {
+  AntialiasedFont *term_font_ptr = surface.m_terminal_font ? surface.m_terminal_font.get() : surface.m_editor_font.get();
+  if (session == nullptr || term_font_ptr == nullptr) {
     return;
   }
+  AntialiasedFont &term_font = *term_font_ptr;
   const float right_space_start = add.right() + 16.0F * scale;
   const float available_shell_width =
       layout.terminal_header_bounds.right() - right_space_start - 16.0F * scale;
@@ -667,7 +672,7 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   }
   const float padding_x = 14.0F * surface.m_dpi_scale;
   const float line_height = std::max(
-      static_cast<float>(surface.m_editor_font->getHeight(device_context)) +
+      static_cast<float>(term_font.getHeight(device_context)) +
           2.0F * surface.m_dpi_scale,
       12.0F * surface.m_dpi_scale);
   const float content_top_padding = 8.0F * surface.m_dpi_scale;
@@ -681,7 +686,7 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
                                   1)
           : 0;
   const int glyph_width = std::max(
-      surface.get_text_width(device_context, *surface.m_editor_font, "M"), 1);
+      surface.get_text_width(device_context, term_font, "M"), 1);
   m_cached_line_height = line_height;
   m_cached_char_width = static_cast<float>(glyph_width);
 
@@ -728,7 +733,7 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
     float cur_x = layout.terminal_content_bounds.x + padding_x;
 
     if (spans.empty()) {
-      surface.draw_text(device_context, *surface.m_editor_font, line,
+      surface.draw_text(device_context, term_font, line,
                         cur_x, center_y,
                         surface.m_palette.text_primary);
     } else {
@@ -737,7 +742,7 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
           continue;
         }
         const int span_w = surface.get_text_width(
-            device_context, *surface.m_editor_font, span.text);
+            device_context, term_font, span.text);
 
         // Draw background if specified
         if (!span.attributes.background.is_default) {
@@ -787,7 +792,7 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
         }
 
         if (!span.attributes.hidden) {
-          surface.draw_text(device_context, *surface.m_editor_font, span.text,
+          surface.draw_text(device_context, term_font, span.text,
                             cur_x, center_y, fg_color);
         }
 
@@ -815,13 +820,13 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
         const int pre_w =
             pre_sel.empty()
                 ? 0
-                : surface.get_text_width(device_context, *surface.m_editor_font,
+                : surface.get_text_width(device_context, term_font,
                                          pre_sel);
         const int sel_x =
             round_to_int(layout.terminal_content_bounds.x + padding_x) + pre_w;
         const int sel_w =
             std::max(surface.get_text_width(device_context,
-                                            *surface.m_editor_font, sel_str),
+                                            term_font, sel_str),
                      4);
 
         UI::Theme::Color sel_color = surface.m_palette.accent;
@@ -888,7 +893,7 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
 
       const int cursor_x =
           round_to_int(layout.terminal_content_bounds.x + padding_x) +
-          surface.get_text_width(device_context, *surface.m_editor_font,
+          surface.get_text_width(device_context, term_font,
                                  cursor_prefix);
       const float cursor_y = line_center_y - caret_height * 0.5F;
       surface.fill_rectangle(device_context,

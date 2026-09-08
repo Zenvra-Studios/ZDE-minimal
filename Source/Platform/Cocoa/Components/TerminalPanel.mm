@@ -1,6 +1,7 @@
 #import <Cocoa/Cocoa.h>
 
 #include "Platform/Cocoa/Components/TerminalPanel.h"
+#include "Platform/HostSystem.h"
 #include "Platform/Cocoa/Components/StudioWorkspaceRenderer.h"
 #include "Services/Output/OutputLogManager.h"
 #include "Utility/Fonts.h"
@@ -22,17 +23,7 @@ static std::filesystem::path current_terminal_directory(const std::filesystem::p
     {
         return working_directory;
     }
-    const std::filesystem::path current = std::filesystem::current_path(ec);
-    if (!ec && !current.empty())
-    {
-        return current;
-    }
-    const char* home = std::getenv("HOME");
-    if (home != nullptr && *home != '\0')
-    {
-        return std::filesystem::path{home};
-    }
-    return std::filesystem::path{};
+    return Platform::HostSystem::get_user_home_directory();
 }
 
 static std::string utf8_substr_columns(std::string_view s, std::size_t start_col, std::size_t count_col)

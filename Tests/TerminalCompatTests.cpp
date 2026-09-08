@@ -5,10 +5,14 @@
 #include <windows.h>
 #endif
 
+#include "Platform/HostSystem.h"
 #include "Terminal/TerminalExitDecoder.h"
 #include "Terminal/TerminalPanelModel.h"
 #include "Terminal/TerminalSession.h"
 #include "Terminal/WindowsSecurityProbe.h"
+#include "UI/Chrome/WindowChromeLayout.h"
+#include "UI/Components/Button.h"
+#include "UI/Editor/EditorFileSystem.h"
 #include "Utility/Doctor.h"
 
 using namespace Zenvra::Terminal;
@@ -396,3 +400,66 @@ TEST(TerminalModeTests, DoctorReportContainsConPTYStatus)
     EXPECT_NE(report.find("PTY Backend:"), std::string::npos);
 #endif
 }
+
+TEST(TerminalDirectoryTests, UserHomeDirectoryIsValid)
+{
+    const auto home = Zenvra::Platform::HostSystem::get_user_home_directory();
+    EXPECT_FALSE(home.empty());
+    std::error_code ec;
+    EXPECT_TRUE(std::filesystem::is_directory(home, ec));
+
+    const auto editor_home = Zenvra::UI::Editor::EditorFileSystem::get_user_home_directory();
+    EXPECT_FALSE(editor_home.empty());
+    EXPECT_EQ(home, editor_home);
+
+#if defined(_WIN32)
+    const std::string home_str = home.string();
+    EXPECT_TRUE(home_str.find("Users") != std::string::npos || home_str.find(":\\") != std::string::npos);
+#endif
+}
+
+TEST(TerminalDirectoryTests, TerminalPanelShutdownClosesSessions)
+{
+    TerminalPanelModel model;
+    EXPECT_FALSE(model.is_visible());
+    EXPECT_EQ(model.get_sessions().size(), 0U);
+
+    const auto home = Zenvra::Platform::HostSystem::get_user_home_directory();
+    static_cast<void>(model.toggle(home));
+    EXPECT_TRUE(model.is_visible());
+
+    // When closed/shut down, terminal must completely close and clear sessions
+    model.shutdown();
+    EXPECT_FALSE(model.is_visible());
+    EXPECT_EQ(model.get_sessions().size(), 0U);
+    EXPECT_FALSE(model.is_focused());
+}
+
+TEST(InteractiveControlsTests, ChromeLayoutButtonsAndModeButtonHitTest)
+{
+    Zenvra::UI::Chrome::WindowChromeLayout layout_engine;
+    const auto chrome = layout_engine.calculate(1200.0F, 1.0F);
+
+    if (!chrome.run_bounds.is_empty()) {
+        EXPECT_TRUE(chrome.is_run_button(chrome.run_bounds.x + 2.0F, chrome.run_bounds.y + 2.0F));
+    }
+    if (!chrome.debug_bounds.is_empty()) {
+        EXPECT_TRUE(chrome.is_debug_button(chrome.debug_bounds.x + 2.0F, chrome.debug_bounds.y + 2.0F));
+    }
+    if (!chrome.build_bounds.is_empty()) {
+        EXPECT_TRUE(chrome.is_build_button(chrome.build_bounds.x + 2.0F, chrome.build_bounds.y + 2.0F));
+    }
+    if (!chrome.mode_bounds.is_empty()) {
+        EXPECT_TRUE(chrome.is_mode_button(chrome.mode_bounds.x + 2.0F, chrome.mode_bounds.y + 2.0F));
+    }
+
+    Zenvra::UI::Components::Button test_btn("Open Folder", Zenvra::UI::Rect{10.0F, 20.0F, 100.0F, 30.0F});
+    EXPECT_FALSE(test_btn.get_state().hovered);
+    EXPECT_TRUE(test_btn.handle_pointer_move(15.0F, 25.0F));
+    EXPECT_TRUE(test_btn.get_state().hovered);
+    EXPECT_TRUE(test_btn.get_bounds().contains(15.0F, 25.0F));
+    EXPECT_FALSE(test_btn.get_bounds().contains(200.0F, 200.0F));
+    EXPECT_TRUE(test_btn.handle_pointer_move(200.0F, 200.0F));
+    EXPECT_FALSE(test_btn.get_state().hovered);
+}
+

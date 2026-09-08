@@ -32,7 +32,7 @@ target_compile_definitions(ZDEPlatformWin32 PRIVATE
     WINVER=0x0A00
 )
 target_link_libraries(ZDEPlatformWin32
-    PUBLIC Zenvra::Core Zenvra::PlatformHost
+    PUBLIC Zenvra::Core Zenvra::PlatformHost Zenvra::Settings
     PRIVATE Zenvra::Commands Zenvra::UI Zenvra::Language Zenvra::Terminal Zenvra::Services lunasvg ZDEUtility
             user32 gdi32 msimg32 shell32 dwmapi uxtheme usp10 ole32 uuid runtimeobject comctl32
 )

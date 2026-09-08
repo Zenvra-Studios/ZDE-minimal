@@ -16,8 +16,11 @@ public:
     MediaPlayerView();
     ~MediaPlayerView();
 
-    // Unified media file check for external callers
+    // Unified media file checks for external callers
     [[nodiscard]] static bool is_media_file(const std::filesystem::path& path);
+    [[nodiscard]] static bool is_video_file(const std::filesystem::path& path);
+    [[nodiscard]] static bool is_audio_file(const std::filesystem::path& path);
+    [[nodiscard]] static bool is_image_file(const std::filesystem::path& path);
 
     bool open(const std::filesystem::path& file_path);
     void close();
@@ -104,10 +107,6 @@ public:
     [[nodiscard]] float hover_scrub_ratio() const noexcept { return m_hover_scrub_ratio; }
 
 private:
-    [[nodiscard]] static bool is_video_file(const std::filesystem::path& path);
-    [[nodiscard]] static bool is_audio_file(const std::filesystem::path& path);
-    [[nodiscard]] static bool is_image_file(const std::filesystem::path& path);
-
     std::filesystem::path m_current_path;
     std::shared_ptr<Zenvra::Media::IMediaPlayer> m_player;
     std::optional<Zenvra::Media::VideoFrame> m_current_frame;

@@ -25,6 +25,7 @@ struct TextFileSnapshot
 class EditorFileSystem
 {
 public:
+    [[nodiscard]] static std::filesystem::path get_user_home_directory();
     [[nodiscard]] static std::optional<std::filesystem::path> find_project_root(
         const std::filesystem::path& start);
     [[nodiscard]] static std::optional<TextFileSnapshot> read_text_file(

@@ -38,18 +38,6 @@ bool ActivityPanelModel::initialize(const std::filesystem::path& workspace_root)
         {
             resolved_root = m_workspace_root;
         }
-        else
-        {
-            const std::filesystem::path current = std::filesystem::current_path(error);
-            if (!error)
-            {
-                const auto proj_root = EditorFileSystem::find_project_root(current);
-                if (proj_root && std::filesystem::is_directory(*proj_root, error))
-                {
-                    resolved_root = *proj_root;
-                }
-            }
-        }
     }
 
     if (resolved_root.empty())

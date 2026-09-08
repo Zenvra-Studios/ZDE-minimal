@@ -1641,6 +1641,48 @@ LRESULT AddNewItemDialog::handle_message(HWND hwnd, UINT message,
     return 0;
   }
 
+  case WM_SETCURSOR: {
+    if (LOWORD(l_param) == HTCLIENT) {
+      POINT cursor_position{};
+      GetCursorPos(&cursor_position);
+      ScreenToClient(hwnd, &cursor_position);
+      RECT rc{};
+      GetClientRect(hwnd, &rc);
+      const float dpi_scale = static_cast<float>(m_dpi) / 96.0F;
+      const auto layout = calculate_layout(
+          static_cast<float>(rc.right - rc.left),
+          static_cast<float>(rc.bottom - rc.top), dpi_scale);
+      const float cur_x = static_cast<float>(cursor_position.x);
+      const float cur_y = static_cast<float>(cursor_position.y);
+
+      if (layout.name_input_bounds.contains(cur_x, cur_y)) {
+        SetCursor(LoadCursor(nullptr, IDC_IBEAM));
+        return TRUE;
+      }
+      if (layout.close_button_bounds.contains(cur_x, cur_y) ||
+          layout.add_button_bounds.contains(cur_x, cur_y) ||
+          layout.cancel_button_bounds.contains(cur_x, cur_y)) {
+        SetCursor(LoadCursor(nullptr, IDC_HAND));
+        return TRUE;
+      }
+      for (const auto &b : layout.category_item_bounds) {
+        if (b.contains(cur_x, cur_y)) {
+          SetCursor(LoadCursor(nullptr, IDC_HAND));
+          return TRUE;
+        }
+      }
+      for (const auto &b : layout.template_item_bounds) {
+        if (b.contains(cur_x, cur_y)) {
+          SetCursor(LoadCursor(nullptr, IDC_HAND));
+          return TRUE;
+        }
+      }
+      SetCursor(LoadCursor(nullptr, IDC_ARROW));
+      return TRUE;
+    }
+    break;
+  }
+
   case WM_LBUTTONUP: {
     if (m_is_dragging_text) {
       m_is_dragging_text = false;

@@ -59,6 +59,11 @@ public:
   [[nodiscard]] bool
   is_empty_state_interactive_point(float point_x, float point_y) const noexcept;
   [[nodiscard]] bool
+  is_empty_state_button_hovered() const noexcept {
+    return m_empty_state_open_btn.get_state().hovered ||
+           m_empty_state_clone_btn.get_state().hovered;
+  }
+  [[nodiscard]] bool
   handle_pointer_move(const UI::Editor::StudioEditorLayoutResult &layout,
                       float point_x, float point_y) noexcept;
   [[nodiscard]] bool
@@ -134,6 +139,17 @@ public:
 
   [[nodiscard]] bool go_to_definition();
   [[nodiscard]] bool select_all_occurrences();
+
+  void set_cursor_style(std::string_view style) noexcept { m_cursor_style = style; }
+  [[nodiscard]] const std::string& get_cursor_style() const noexcept { return m_cursor_style; }
+
+  void set_render_whitespace(std::string_view mode) noexcept { m_render_whitespace = mode; }
+  [[nodiscard]] const std::string& get_render_whitespace() const noexcept { return m_render_whitespace; }
+
+  void set_tab_size(std::size_t size) noexcept;
+  [[nodiscard]] std::size_t get_tab_size() const noexcept { return m_tab_size; }
+
+  [[nodiscard]] float get_line_height(const StudioWorkspaceRenderer &surface, HDC device_context = nullptr) const noexcept;
 
   void render(const StudioWorkspaceRenderer &surface, HDC device_context,
               const UI::Editor::StudioEditorLayoutResult &layout) const;
@@ -310,7 +326,11 @@ private:
   };
   mutable std::optional<CtrlHoverTokenInfo> m_ctrl_hovered_token;
   mutable float m_cached_char_width = 0.0F;
+  mutable float m_cached_line_height = 0.0F;
   mutable UI::Editor::MediaPlayerView m_media_player_view;
+  std::string m_cursor_style = "Line";
+  std::string m_render_whitespace = "selection";
+  std::size_t m_tab_size = 4;
   using FullscreenHandler = std::function<void(bool)>;
   FullscreenHandler m_fullscreen_handler;
 

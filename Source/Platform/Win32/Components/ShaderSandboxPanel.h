@@ -45,6 +45,10 @@ public:
         float point_x,
         float point_y) const noexcept;
 
+    [[nodiscard]] bool is_interactive_point(
+        float point_x,
+        float point_y) const noexcept;
+
     [[nodiscard]] bool handle_pointer_press(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,

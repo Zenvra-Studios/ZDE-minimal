@@ -83,6 +83,10 @@ public:
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,
         float point_y) const noexcept;
+    [[nodiscard]] bool is_empty_state_button_hovered() const noexcept {
+        return m_empty_state_open_btn.get_state().hovered ||
+               m_empty_state_clone_btn.get_state().hovered;
+    }
     [[nodiscard]] bool is_text_input_point(
         const UI::Editor::StudioEditorLayoutResult& layout,
         float point_x,

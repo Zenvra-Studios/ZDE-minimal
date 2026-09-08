@@ -1,4 +1,5 @@
 #include "Platform/X11/Components/TerminalPanel.h"
+#include "Platform/HostSystem.h"
 #include "Platform/X11/Components/StudioWorkspaceRenderer.h"
 #include "Services/Output/OutputLogManager.h"
 #include "Utility/Fonts.h"
@@ -22,11 +23,13 @@ std::filesystem::path current_terminal_directory(
 {
     if (!workspace_root.empty())
     {
-        return workspace_root;
+        std::error_code error;
+        if (std::filesystem::is_directory(workspace_root, error))
+        {
+            return workspace_root;
+        }
     }
-    std::error_code error;
-    const std::filesystem::path current = std::filesystem::current_path(error);
-    return error ? std::filesystem::path{} : current;
+    return Platform::HostSystem::get_user_home_directory();
 }
 
 std::string utf8_substr_columns(std::string_view s, std::size_t start_col, std::size_t count_col)

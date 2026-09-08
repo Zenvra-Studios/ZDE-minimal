@@ -4,16 +4,73 @@
 #include "Drivers/Media/FFmpegPlayer.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
+#include <fstream>
 
 namespace Zenvra::UI::Editor {
+
+namespace {
+
+bool is_mpeg_ts_binary_stream(const std::filesystem::path& path) {
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(path, ec)) {
+        return false;
+    }
+    const auto file_size = std::filesystem::file_size(path, ec);
+    if (ec || file_size < 188 * 3) {
+        // TypeScript source files or small text files are not MPEG-TS video streams
+        return false;
+    }
+    std::ifstream file(path, std::ios::binary);
+    if (!file.is_open()) {
+        return false;
+    }
+    std::array<uint8_t, 1024> buffer{};
+    file.read(reinterpret_cast<char*>(buffer.data()), buffer.size());
+    const auto bytes_read = file.gcount();
+    if (bytes_read < 188 * 3) {
+        return false;
+    }
+
+    // Check if the file contains null bytes. A TypeScript source code file is valid UTF-8/ASCII text without nulls.
+    // An MPEG-TS stream contains raw binary payload with null bytes.
+    bool has_null_byte = false;
+    for (std::streamsize i = 0; i < bytes_read; ++i) {
+        if (buffer[i] == 0) {
+            has_null_byte = true;
+            break;
+        }
+    }
+    if (!has_null_byte) {
+        return false; // Plain text without nulls is definitely TypeScript code
+    }
+
+    // MPEG-TS packet size is 188 bytes (standard), 192 (M2TS), or 204 (ATSC/DVB).
+    // Every packet begins with the synchronization byte 0x47.
+    constexpr std::array<size_t, 3> packet_sizes = {188, 192, 204};
+    for (size_t pkt_sz : packet_sizes) {
+        if (buffer[0] == 0x47 && buffer[pkt_sz] == 0x47 && buffer[pkt_sz * 2] == 0x47) {
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace
 
 bool MediaPlayerView::is_video_file(const std::filesystem::path& path) {
     std::string ext = path.extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (ext == ".ts") {
+        // In a software development IDE, .ts is by default a TypeScript programming language file (e.g. app.ts).
+        // Only treat it as an MPEG Transport Stream video container if the file actually exists, is binary,
+        // and contains valid repeating MPEG-TS sync bytes (0x47) at 188/192/204 byte packet intervals.
+        return is_mpeg_ts_binary_stream(path);
+    }
     return ext == ".mp4" || ext == ".mkv" || ext == ".webm" || ext == ".mov" ||
-           ext == ".avi" || ext == ".flv" || ext == ".wmv" || ext == ".ts" ||
+           ext == ".avi" || ext == ".flv" || ext == ".wmv" || ext == ".m2ts" ||
            ext == ".m4v" || ext == ".ogv" || ext == ".3gp" || ext == ".vob" ||
            ext == ".rmvb" || ext == ".mjpg";
 }
