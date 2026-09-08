@@ -1279,6 +1279,17 @@ std::size_t GenericGrammarEngine::tokenize_line(
                     decl_context = DeclContext::None;
                 }
             }
+            else if (grammar.is_variable(identifier))
+            {
+                if (followed_by_paren)
+                {
+                    append(identifier, UI::Editor::EditorTokenKind::Label);
+                }
+                else
+                {
+                    append(identifier, UI::Editor::EditorTokenKind::Macro);
+                }
+            }
             else if ((preceded_by_dot || preceded_by_arrow) && !is_jsx_or_html)
             {
                 // Object member variable or method access (e.g. player.Health, mesh->Location, this->m_value)

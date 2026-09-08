@@ -51,9 +51,11 @@ bool ShaderSandboxPanel::is_resize_handle_point(
     {
         return false;
     }
-    const float scale = layout.dpi_scale;
-    const float grab_margin = 6.0F * scale;
-    const float splitter_x = layout.shader_panel_bounds.x;
+    const float scale = layout.dpi_scale > 0.1F ? layout.dpi_scale : 1.0F;
+    const float grab_margin = 3.0F * scale;
+    const float splitter_x = !layout.shader_splitter_bounds.is_empty()
+        ? (layout.shader_splitter_bounds.x + layout.shader_splitter_bounds.width * 0.5F)
+        : layout.shader_panel_bounds.x;
     return point_x >= (splitter_x - grab_margin) &&
            point_x <= (splitter_x + grab_margin) &&
            point_y >= layout.shader_panel_bounds.y &&
@@ -104,7 +106,9 @@ bool ShaderSandboxPanel::handle_pointer_press(
     {
         m_is_resizing = true;
         m_drag_start_x = point_x;
-        m_drag_start_width = m_width;
+        const float scale = layout.dpi_scale > 0.1F ? layout.dpi_scale : 1.0F;
+        m_drag_start_width = layout.shader_panel_bounds.width / scale;
+        m_width = m_drag_start_width;
         return true;
     }
 
@@ -220,11 +224,12 @@ bool ShaderSandboxPanel::handle_pointer_drag(
 {
     if (m_is_resizing)
     {
-        const float delta = m_drag_start_x - point_x;
-        if (std::abs(static_cast<int>(delta)) >= 0 && std::fabs(delta) > 0.001F)
+        const float delta_px = m_drag_start_x - point_x;
+        if (std::fabs(delta_px) > 0.001F)
         {
-            const float scale = layout.dpi_scale;
-            m_width = std::clamp(m_drag_start_width + delta, 180.0F * scale, 800.0F * scale);
+            const float scale = layout.dpi_scale > 0.1F ? layout.dpi_scale : 1.0F;
+            const float new_logical_width = m_drag_start_width + delta_px / scale;
+            m_width = std::clamp(new_logical_width, 180.0F, 850.0F);
             static_cast<void>(m_service.step_frame());
             return true;
         }
@@ -326,18 +331,31 @@ void ShaderSandboxPanel::render(
 
     // Draw Splitter border on the left edge with blue accent highlight when hovered or resizing
     const bool show_accent = m_hover_splitter || m_is_resizing;
-    const UI::Theme::Color& splitter_color = show_accent
+    const float scale = surface.m_dpi_scale;
+    const UI::Rect splitter_rect = !layout.shader_splitter_bounds.is_empty()
+        ? layout.shader_splitter_bounds
+        : UI::Rect{layout.shader_panel_bounds.x - 4.0F * scale,
+                   layout.shader_panel_bounds.y,
+                   4.0F * scale,
+                   layout.shader_panel_bounds.height};
+
+    surface.fill_rectangle(
+        device_context, splitter_rect, surface.m_palette.editor_background);
+
+    const float splitter_x = !layout.shader_splitter_bounds.is_empty()
+        ? (layout.shader_splitter_bounds.x + layout.shader_splitter_bounds.width * 0.5F)
+        : layout.shader_panel_bounds.x;
+
+    const UI::Theme::Color splitter_color = show_accent
         ? surface.m_palette.accent
         : surface.m_palette.border;
 
-    const float scale = surface.m_dpi_scale;
-    const float splitter_x = layout.shader_panel_bounds.x;
     surface.draw_line(
         device_context,
         round_to_int(splitter_x),
-        round_to_int(layout.shader_panel_bounds.y),
+        round_to_int(splitter_rect.y),
         round_to_int(splitter_x),
-        round_to_int(layout.shader_panel_bounds.bottom()),
+        round_to_int(splitter_rect.bottom()),
         splitter_color);
 
     if (show_accent)
@@ -345,10 +363,10 @@ void ShaderSandboxPanel::render(
         surface.fill_rectangle(
             device_context,
             UI::Rect{
-                splitter_x - 1.5F * scale,
-                layout.shader_panel_bounds.y,
-                std::max(3.5F * scale, 3.0F),
-                layout.shader_panel_bounds.height},
+                splitter_x - 1.0F * scale,
+                splitter_rect.y,
+                std::max(2.0F * scale, 2.0F),
+                splitter_rect.height},
             surface.m_palette.accent);
     }
 }
@@ -563,13 +581,12 @@ void ShaderSandboxPanel::render_viewport(
         const auto& desc = surface_lock.get_descriptor();
         const int img_w = desc.width;
         const int img_h = desc.height;
-        const bool is_gpu = (desc.backend == Services::Shader::RenderBackend::Gpu);
 
         BITMAPINFO bmi{};
         std::memset(&bmi, 0, sizeof(BITMAPINFO));
         bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
         bmi.bmiHeader.biWidth = img_w;
-        bmi.bmiHeader.biHeight = is_gpu ? img_h : -img_h; // GPU glReadPixels is bottom-up, CPU is top-down
+        bmi.bmiHeader.biHeight = -img_h; // Top-down DIB layout for both CPU and GPU buffers
         bmi.bmiHeader.biPlanes = 1;
         bmi.bmiHeader.biBitCount = 32;
         bmi.bmiHeader.biCompression = BI_RGB;

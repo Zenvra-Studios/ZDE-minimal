@@ -1,4 +1,5 @@
 #include "UI/Settings/SettingsControl.h"
+#include "Utility/Ascii/AsciiMascotRenderer.h"
 
 namespace Zenvra::UI::Settings
 {
@@ -36,6 +37,12 @@ bool SettingRowLayout::is_interactive_point(float x, float y) const noexcept
         return true;
     }
     if (!browse_btn_bounds.is_empty() && browse_btn_bounds.contains(x, y)) {
+        return true;
+    }
+    if (!switch_default_btn_bounds.is_empty() && switch_default_btn_bounds.contains(x, y)) {
+        return true;
+    }
+    if (!switch_ascii_btn_bounds.is_empty() && switch_ascii_btn_bounds.contains(x, y)) {
         return true;
     }
     return false;
@@ -105,6 +112,18 @@ bool SettingRowLayout::handle_pointer_move(float x, float y) noexcept
         changed = true;
     }
 
+    const bool new_sw_def = !switch_default_btn_bounds.is_empty() && switch_default_btn_bounds.contains(x, y);
+    if (is_switch_default_hovered != new_sw_def) {
+        is_switch_default_hovered = new_sw_def;
+        changed = true;
+    }
+
+    const bool new_sw_asc = !switch_ascii_btn_bounds.is_empty() && switch_ascii_btn_bounds.contains(x, y);
+    if (is_switch_ascii_hovered != new_sw_asc) {
+        is_switch_ascii_hovered = new_sw_asc;
+        changed = true;
+    }
+
     return changed;
 }
 
@@ -119,6 +138,22 @@ bool SettingRowLayout::handle_pointer_press(
     if ((is_modified && reset_btn_bounds.contains(x, y)) || (!gear_btn_bounds.is_empty() && gear_btn_bounds.contains(x, y))) {
         service.reset(def.id, scope);
         return true;
+    }
+
+    // 2. Mascot mode switch (Default vs ASCII)
+    if (def.id == "workbench.mascot.renderMode" || def.id == "workbench.mascot.image") {
+        if (!switch_default_btn_bounds.is_empty() && switch_default_btn_bounds.contains(x, y)) {
+            Utility::Ascii::AsciiMascotRenderer::clear_bitmap_cache();
+            Utility::Ascii::AsciiArtConverter::clear_cache();
+            service.set("workbench.mascot.renderMode", std::string("default"), scope);
+            return true;
+        }
+        if (!switch_ascii_btn_bounds.is_empty() && switch_ascii_btn_bounds.contains(x, y)) {
+            Utility::Ascii::AsciiMascotRenderer::clear_bitmap_cache();
+            Utility::Ascii::AsciiArtConverter::clear_cache();
+            service.set("workbench.mascot.renderMode", std::string("ascii"), scope);
+            return true;
+        }
     }
 
     // 2. Input box clicked

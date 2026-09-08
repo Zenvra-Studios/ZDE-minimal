@@ -233,6 +233,10 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
     {
         candidate_names = { "phpantom_lsp", "phpantom", "phpatom", "php-ls", "phpactor", "intelephense", "php-language-server" };
     }
+    else if (exe_str == "shader-language-server" || exe_str == "shader-ls" || exe_str == "shaderserver")
+    {
+        candidate_names = { "shader-language-server", "shader-ls", "shaderserver" };
+    }
 
     for (const auto& cur_name : candidate_names)
     {
@@ -277,9 +281,13 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                     check_dir / "plugins" / "lsp" / exe_with_ext,
                     check_dir / "plugins" / "lsp" / cur_name / exe_with_ext,
                     check_dir / "plugins" / "lsp" / cur_name / "bin" / exe_with_ext,
+                    check_dir / "plugins" / "lsp" / "shader-ls" / "win" / exe_with_ext,
+                    check_dir / "plugins" / "lsp" / "shader-ls" / exe_with_ext,
                     check_dir / "plugins" / exe_with_ext,
                     check_dir / "ThirdParty" / "lsp" / cur_name / exe_with_ext,
                     check_dir / "ThirdParty" / "lsp" / cur_name / "bin" / exe_with_ext,
+                    check_dir / "ThirdParty" / "lsp" / "shader-ls" / "win" / exe_with_ext,
+                    check_dir / "ThirdParty" / "lsp" / "shader-ls" / exe_with_ext,
                     check_dir / "ThirdParty" / cur_name / exe_with_ext,
                     check_dir / "ThirdParty" / cur_name / "bin" / exe_with_ext,
                     check_dir / "ThirdParty" / exe_with_ext,
@@ -324,6 +332,11 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                                 }
                                 if ((cur_name.starts_with("cmake") || cur_name == "cmakels") &&
                                     (filename == "cmakels-win64.exe" || filename == "cmakels.exe" || filename == "cmake-language-server.exe"))
+                                {
+                                    return cache_and_return(entry.path());
+                                }
+                                if ((cur_name.starts_with("shader") || cur_name == "shader-language-server" || cur_name == "shader-ls") &&
+                                    (filename == "shader-language-server.exe" || filename == "shader-language-server"))
                                 {
                                     return cache_and_return(entry.path());
                                 }
@@ -948,6 +961,37 @@ void ServerRegistry::initialize_default_profiles()
     php_profile.default_args = {"--stdio"};
     php_profile.root_markers = {"composer.json", ".phpantom.toml", "artisan", ".git"};
     register_profile(std::move(php_profile));
+
+    // Shaders - GLSL / OpenGL / Vulkan / ShaderSandbox (shader-language-server)
+    ServerProfile glsl_profile;
+    glsl_profile.language_id = "glsl";
+    glsl_profile.extensions = {
+        ".glsl", ".frag", ".vert", ".comp", ".geom", ".tesc", ".tese",
+        ".mesh", ".task", ".rgen", ".rint", ".rahit", ".rchit", ".rmiss", ".rcall",
+        ".fs", ".vs", ".shader"
+    };
+    glsl_profile.executable_name = "shader-language-server";
+    glsl_profile.default_args = {"--stdio"};
+    glsl_profile.root_markers = {"compile_commands.json", "CMakeLists.txt", ".git"};
+    register_profile(std::move(glsl_profile));
+
+    // Shaders - HLSL / DirectX (shader-language-server via DXC/dxcompiler.dll)
+    ServerProfile hlsl_profile;
+    hlsl_profile.language_id = "hlsl";
+    hlsl_profile.extensions = {".hlsl", ".hlsli", ".fx", ".fxh"};
+    hlsl_profile.executable_name = "shader-language-server";
+    hlsl_profile.default_args = {"--stdio"};
+    hlsl_profile.root_markers = {"compile_commands.json", "CMakeLists.txt", ".git"};
+    register_profile(std::move(hlsl_profile));
+
+    // Shaders - WGSL / WebGPU (shader-language-server)
+    ServerProfile wgsl_profile;
+    wgsl_profile.language_id = "wgsl";
+    wgsl_profile.extensions = {".wgsl"};
+    wgsl_profile.executable_name = "shader-language-server";
+    wgsl_profile.default_args = {"--stdio"};
+    wgsl_profile.root_markers = {"package.json", "Cargo.toml", ".git"};
+    register_profile(std::move(wgsl_profile));
 }
 
 } // namespace Zenvra::Language::Registry

@@ -9,6 +9,7 @@
 #include "UI/Editor/FileIconModel.h"
 #include "Utility/Flex.h"
 #include "Utility/Fonts.h"
+#include "Utility/Ascii/AsciiMascotRenderer.h"
 #include "Utility/MathUtil.h"
 
 #include <algorithm>
@@ -4269,6 +4270,7 @@ bool TextEditor::is_scrollbar_point(
         const float scroll_top_y = layout.editor_bounds.y;
         const float scroll_total_h = layout.editor_bounds.height;
         const float scrollbar_w = FIXED_SCROLLBAR_WIDTH * scale;
+
         const UI::Rect left_bounds{layout.editor_bounds.x, scroll_top_y, splitter_x - layout.editor_bounds.x, scroll_total_h};
         const UI::Rect left_scrollbar{left_bounds.right() - scrollbar_w, scroll_top_y, scrollbar_w, scroll_total_h};
 
@@ -4486,14 +4488,12 @@ void TextEditor::render(
 
     if (!is_split_active)
     {
-        if (!(left_is_media && m_media_preview_mode))
+        if (left_doc != nullptr && !(left_is_media && m_media_preview_mode))
         {
             m_scrollbar.render(surface, device_context, layout);
 
             // Render Scrollbar Error / Warning Stripes (Overview Ruler)
-            if (left_doc)
-            {
-                const std::size_t total_lines = left_doc->get_line_count();
+            const std::size_t total_lines = left_doc->get_line_count();
                 if (total_lines > 0)
                 {
                     const float track_x = layout.scrollbar_bounds.x;
@@ -4535,7 +4535,6 @@ void TextEditor::render(
                     *left_doc,
                     m_scrollbar.get_first_visible_line(),
                     visible_count);
-            }
         }
     }
     else if (m_split_document_index.has_value() && *m_split_document_index < m_controller.get_documents().size())
@@ -5273,22 +5272,19 @@ void TextEditor::draw_document(
         m_empty_state_open_btn.set_bounds(UI::Rect{});
         m_empty_state_clone_btn.set_bounds(UI::Rect{});
 
+        const int saved_dc = SaveDC(device_context);
+        const RECT clip_rc = {
+            static_cast<LONG>(layout.editor_bounds.x),
+            static_cast<LONG>(layout.editor_bounds.y),
+            static_cast<LONG>(layout.editor_bounds.right()),
+            static_cast<LONG>(layout.editor_bounds.bottom())
+        };
+        IntersectClipRect(device_context, clip_rc.left, clip_rc.top, clip_rc.right, clip_rc.bottom);
+
         const float dpi = surface.m_dpi_scale;
-        const float logo_size = 180.0F * dpi;
-        const float logo_gap = 32.0F * dpi;
+        const float avail_w = layout.editor_bounds.width;
+        const float avail_h = layout.editor_bounds.height;
 
-        const std::string title = "Zenvra Development Studio";
-        const int title_w = surface.m_large_font
-            ? surface.m_large_font->getTextWidth(device_context, title)
-            : (surface.m_ui_font ? surface.m_ui_font->getTextWidth(device_context, title) : static_cast<int>(240.0F * dpi));
-        const float text_block_w = std::max(static_cast<float>(title_w), 260.0F * dpi);
-        const float total_w = logo_size + logo_gap + text_block_w;
-
-        const float start_x = std::max(layout.editor_bounds.x + 30.0F * dpi,
-                                       layout.editor_bounds.x + (layout.editor_bounds.width - total_w) * 0.5F);
-        const float start_y = layout.editor_bounds.y + layout.editor_bounds.height * 0.32F;
-
-        // 1. Extra Large Iconic Logo on the left
         std::string mascot_asset = "zenvra_logo.png";
         auto &settings_service = Zenvra::Settings::SettingsService::instance();
         if (settings_service.get_schema().has_setting("workbench.mascot.image")) {
@@ -5297,11 +5293,56 @@ void TextEditor::draw_document(
                 mascot_asset = custom_img;
             }
         }
-        surface.draw_png_icon(
-            device_context, mascot_asset,
-            round_to_int(start_x + logo_size * 0.5F),
-            round_to_int(start_y + logo_size * 0.5F),
-            round_to_int(logo_size), surface.m_palette.editor_background);
+
+        std::string mascot_mode = "default";
+        if (settings_service.get_schema().has_setting("workbench.mascot.renderMode")) {
+            mascot_mode = settings_service.get<std::string>("workbench.mascot.renderMode");
+        }
+
+        const float logo_size = 220.0F * dpi;
+        const float logo_gap = 32.0F * dpi;
+
+        std::string title = "Zenvra Development Studio";
+        if (settings_service.get_schema().has_setting("workbench.app.title")) {
+            const std::string custom_title = settings_service.get<std::string>("workbench.app.title");
+            if (!custom_title.empty()) {
+                title = custom_title;
+            }
+        }
+        const int title_w =
+            surface.m_large_font
+                ? surface.m_large_font->getTextWidth(device_context, title)
+                : static_cast<int>(240.0F * dpi);
+        const float text_block_w =
+            std::max(static_cast<float>(title_w), 260.0F * dpi);
+        const float total_w = logo_size + logo_gap + text_block_w;
+
+        const float start_x = std::max(
+            layout.editor_bounds.x + 30.0F * dpi,
+            layout.editor_bounds.x + (layout.editor_bounds.width - total_w) * 0.5F);
+        const float start_y =
+            layout.editor_bounds.y + layout.editor_bounds.height * 0.32F;
+
+        // Resolve mascot asset once for both ASCII and PNG modes (supports Inno Setup installed layout & dev paths)
+        const auto resolved_mascot_path = Utility::Ascii::AsciiArtConverter::resolve_image_path(mascot_asset);
+        const std::string effective_mascot = (!resolved_mascot_path.empty()) ? resolved_mascot_path.string() : mascot_asset;
+
+        // 1. Extra Large Iconic Logo on the left (Solid or ASCII)
+        bool rendered_ascii = false;
+        if (mascot_mode == "ascii") {
+            rendered_ascii = Utility::Ascii::AsciiMascotRenderer::render_mascot_ascii(
+                device_context, effective_mascot,
+                UI::Rect{start_x, start_y, logo_size, logo_size},
+                to_color_ref(surface.m_palette.editor_background),
+                dpi);
+        }
+        if (!rendered_ascii) {
+            surface.draw_png_icon(
+                device_context, effective_mascot,
+                round_to_int(start_x + logo_size * 0.5F),
+                round_to_int(start_y + logo_size * 0.5F),
+                round_to_int(logo_size), surface.m_palette.editor_background);
+        }
 
         const float text_x = start_x + logo_size + logo_gap;
 
@@ -5309,17 +5350,17 @@ void TextEditor::draw_document(
         if (surface.m_large_font)
         {
             surface.draw_text(
-                device_context, *surface.m_large_font, title, text_x, start_y + 36.0F * dpi,
-                surface.m_palette.text_primary);
+                device_context, *surface.m_large_font, title, text_x,
+                start_y + 36.0F * dpi, surface.m_palette.text_primary);
         }
         else if (surface.m_ui_font)
         {
             surface.draw_text(
-                device_context, *surface.m_ui_font, title, text_x, start_y + 36.0F * dpi,
-                surface.m_palette.text_primary);
+                device_context, *surface.m_ui_font, title, text_x,
+                start_y + 36.0F * dpi, surface.m_palette.text_primary);
         }
 
-        // 3. Shortcuts list aligned directly under the heading (uniform neutral tones, no blue)
+        // 3. Shortcuts list aligned directly under the heading
         if (surface.m_small_font || surface.m_ui_font)
         {
             auto& font = surface.m_small_font ? *surface.m_small_font : *surface.m_ui_font;
@@ -5348,6 +5389,7 @@ void TextEditor::draw_document(
             }
         }
 
+        RestoreDC(device_context, saved_dc);
         return;
     }
 

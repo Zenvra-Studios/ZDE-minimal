@@ -1148,6 +1148,252 @@ void GrammarRegistry::initialize_default_grammars()
         };
         register_grammar(std::move(php_rule));
     }
+
+    // Built-in for GLSL / Shader (OpenGL, Vulkan, ShaderToy, ShaderSandbox)
+    {
+        GrammarRule glsl_rule;
+        glsl_rule.name = "GLSL";
+        glsl_rule.extensions = {
+            ".glsl", ".frag", ".vert", ".comp", ".geom", ".tesc", ".tese",
+            ".mesh", ".task", ".rgen", ".rint", ".rahit", ".rchit", ".rmiss", ".rcall",
+            ".fs", ".vs", ".shader"
+        };
+        glsl_rule.line_comment = "//";
+        glsl_rule.block_comment_start = "/*";
+        glsl_rule.block_comment_end = "*/";
+        glsl_rule.supports_preprocessor = true;
+        glsl_rule.string_delimiters = {"\"", "'"};
+        glsl_rule.keywords = {
+            "attribute", "const", "uniform", "varying", "buffer", "shared",
+            "coherent", "volatile", "restrict", "readonly", "writeonly", "atomic_uint",
+            "layout", "centroid", "flat", "smooth", "noperspective", "patch", "sample",
+            "subroutine", "in", "out", "inout", "invariant", "precise",
+            "break", "continue", "do", "for", "while", "if", "else",
+            "switch", "case", "default", "return", "discard",
+            "lowp", "mediump", "highp", "precision",
+            "true", "false",
+            // Preprocessor tokens & directives
+            "version", "extension", "core", "compatibility", "es", "all", "enable", "require", "warn", "disable"
+        };
+        glsl_rule.types = {
+            "void", "bool", "int", "uint", "float", "double",
+            // Vector types
+            "vec2", "vec3", "vec4",
+            "bvec2", "bvec3", "bvec4",
+            "ivec2", "ivec3", "ivec4",
+            "uvec2", "uvec3", "uvec4",
+            "dvec2", "dvec3", "dvec4",
+            // Matrix types
+            "mat2", "mat3", "mat4",
+            "mat2x2", "mat2x3", "mat2x4",
+            "mat3x2", "mat3x3", "mat3x4",
+            "mat4x2", "mat4x3", "mat4x4",
+            "dmat2", "dmat3", "dmat4",
+            "dmat2x2", "dmat2x3", "dmat2x4",
+            "dmat3x2", "dmat3x3", "dmat3x4",
+            "dmat4x2", "dmat4x3", "dmat4x4",
+            // Samplers & Textures
+            "sampler1D", "sampler2D", "sampler3D", "samplerCube", "sampler1DShadow", "sampler2DShadow",
+            "samplerCubeShadow", "sampler1DArray", "sampler2DArray", "sampler1DArrayShadow", "sampler2DArrayShadow",
+            "sampler2DMS", "sampler2DMSArray", "samplerCubeArray", "samplerCubeArrayShadow", "samplerBuffer",
+            "sampler2DRect", "sampler2DRectShadow",
+            "isampler1D", "isampler2D", "isampler3D", "isamplerCube", "isampler1DArray", "isampler2DArray",
+            "isampler2DMS", "isampler2DMSArray", "isamplerCubeArray", "isamplerBuffer", "isampler2DRect",
+            "usampler1D", "usampler2D", "usampler3D", "usamplerCube", "usampler1DArray", "usampler2DArray",
+            "usampler2DMS", "usampler2DMSArray", "usamplerCubeArray", "usamplerBuffer", "usampler2DRect",
+            // Images
+            "image1D", "image2D", "image3D", "imageCube", "image2DRect", "image1DArray", "image2DArray",
+            "imageCubeArray", "imageBuffer", "image2DMS", "image2DMSArray",
+            "iimage1D", "iimage2D", "iimage3D", "iimageCube", "iimage2DRect", "iimage1DArray", "iimage2DArray",
+            "iimageCubeArray", "iimageBuffer", "iimage2DMS", "iimage2DMSArray",
+            "uimage1D", "uimage2D", "uimage3D", "uimageCube", "uimage2DRect", "uimage1DArray", "uimage2DArray",
+            "uimageCubeArray", "uimageBuffer", "uimage2DMS", "uimage2DMSArray",
+            // Subpass & Struct
+            "subpassInput", "subpassInputMS", "isubpassInput", "isubpassInputMS", "usubpassInput", "usubpassInputMS",
+            "struct"
+        };
+        glsl_rule.variables = {
+            // ShaderToy / ShaderSandbox globals
+            "iResolution", "iTime", "iTimeDelta", "iFrame", "iFrameRate",
+            "iChannelTime", "iChannelResolution", "iMouse", "iDate", "iSampleRate",
+            "iChannel0", "iChannel1", "iChannel2", "iChannel3",
+            "mainImage", "fragCoord", "fragColor",
+            // GLSL Built-in inputs and outputs
+            "gl_Position", "gl_PointSize", "gl_ClipDistance", "gl_CullDistance",
+            "gl_VertexID", "gl_InstanceID", "gl_PrimitiveID", "gl_InvocationID",
+            "gl_Layer", "gl_ViewportIndex", "gl_FragCoord", "gl_FrontFacing",
+            "gl_PointCoord", "gl_SampleID", "gl_SamplePosition", "gl_SampleMaskIn",
+            "gl_FragColor", "gl_FragData", "gl_FragDepth", "gl_SampleMask",
+            "gl_NumWorkGroups", "gl_WorkGroupSize", "gl_WorkGroupID",
+            "gl_LocalInvocationID", "gl_GlobalInvocationID", "gl_LocalInvocationIndex",
+            "gl_BaseVertex", "gl_BaseInstance", "gl_DrawID",
+            // Intrinsics / Built-in functions
+            "radians", "degrees", "sin", "cos", "tan", "asin", "acos", "atan",
+            "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
+            "pow", "exp", "log", "exp2", "log2", "sqrt", "inversesqrt",
+            "abs", "sign", "floor", "trunc", "round", "roundEven", "ceil", "fract", "mod", "modf",
+            "min", "max", "clamp", "mix", "step", "smoothstep", "isnan", "isinf",
+            "floatBitsToInt", "floatBitsToUint", "intBitsToFloat", "uintBitsToFloat",
+            "length", "distance", "dot", "cross", "normalize", "faceforward", "reflect", "refract",
+            "matrixCompMult", "outerProduct", "transpose", "determinant", "inverse",
+            "lessThan", "lessThanEqual", "greaterThan", "greaterThanEqual", "equal", "notEqual",
+            "any", "all", "not",
+            "texture", "textureProj", "textureLod", "textureOffset", "texelFetch", "texelFetchOffset",
+            "textureProjOffset", "textureLodOffset", "textureGrad", "textureGradOffset",
+            "textureProjLod", "textureProjLodOffset", "textureProjGrad", "textureProjGradOffset",
+            "textureSize", "textureQueryLod", "textureQueryLevels", "textureSamples",
+            "textureGather", "textureGatherOffset", "textureGatherOffsets",
+            "atomicAdd", "atomicMin", "atomicMax", "atomicAnd", "atomicOr", "atomicXor",
+            "atomicExchange", "atomicCompSwap",
+            "dFdx", "dFdy", "fwidth", "dFdxFine", "dFdyFine", "dFdxCoarse", "dFdyCoarse", "fwidthFine", "fwidthCoarse",
+            "barrier", "memoryBarrier", "memoryBarrierAtomicCounter", "memoryBarrierBuffer",
+            "memoryBarrierShared", "memoryBarrierImage", "groupMemoryBarrier"
+        };
+        register_grammar(std::move(glsl_rule));
+    }
+
+    // Built-in for HLSL (DirectX High-Level Shading Language)
+    {
+        GrammarRule hlsl_rule;
+        hlsl_rule.name = "HLSL";
+        hlsl_rule.extensions = {".hlsl", ".hlsli", ".fx", ".fxh"};
+        hlsl_rule.line_comment = "//";
+        hlsl_rule.block_comment_start = "/*";
+        hlsl_rule.block_comment_end = "*/";
+        hlsl_rule.supports_preprocessor = true;
+        hlsl_rule.string_delimiters = {"\"", "'"};
+        hlsl_rule.keywords = {
+            "cbuffer", "tbuffer", "register", "packoffset", "sampler", "sampler_state",
+            "technique", "technique10", "technique11", "pass", "compile",
+            "row_major", "column_major", "static", "const", "uniform", "groupshared",
+            "volatile", "precise", "in", "out", "inout",
+            "point", "line", "triangle", "lineadj", "triangleadj",
+            "linear", "centroid", "nointerpolation", "noperspective", "sample",
+            "globallycoherent", "inline", "export",
+            "if", "else", "for", "while", "do", "switch", "case", "default",
+            "break", "continue", "return", "discard",
+            "true", "false",
+            // Standard HLSL Semantics
+            "SV_Position", "SV_Target", "SV_Target0", "SV_Target1", "SV_Target2", "SV_Target3",
+            "SV_Target4", "SV_Target5", "SV_Target6", "SV_Target7",
+            "SV_Depth", "SV_DepthGreaterEqual", "SV_DepthLessEqual",
+            "SV_VertexID", "SV_InstanceID", "SV_PrimitiveID", "SV_DispatchThreadID",
+            "SV_GroupID", "SV_GroupIndex", "SV_GroupThreadID", "SV_IsFrontFace",
+            "SV_SampleIndex", "SV_Coverage", "SV_InnerCoverage", "SV_StencilRef",
+            "POSITION", "NORMAL", "TANGENT", "BINORMAL", "BLENDWEIGHT", "BLENDINDICES",
+            "TEXCOORD", "TEXCOORD0", "TEXCOORD1", "TEXCOORD2", "TEXCOORD3",
+            "COLOR", "COLOR0", "COLOR1", "PSIZE"
+        };
+        hlsl_rule.types = {
+            "void", "bool", "int", "uint", "dword", "half", "float", "double",
+            "min16float", "min10float", "min16int", "min12int", "min16uint",
+            // Vector types
+            "float2", "float3", "float4",
+            "half2", "half3", "half4",
+            "int2", "int3", "int4",
+            "uint2", "uint3", "uint4",
+            "bool2", "bool3", "bool4",
+            "double2", "double3", "double4",
+            "vector", "matrix",
+            // Matrix types
+            "float1x1", "float1x2", "float1x3", "float1x4",
+            "float2x1", "float2x2", "float2x3", "float2x4",
+            "float3x1", "float3x2", "float3x3", "float3x4",
+            "float4x1", "float4x2", "float4x3", "float4x4",
+            "half2x2", "half3x3", "half4x4",
+            // Sampler & Texture Objects
+            "SamplerState", "SamplerComparisonState",
+            "Texture1D", "Texture1DArray", "Texture2D", "Texture2DArray", "Texture2DMS", "Texture2DMSArray",
+            "Texture3D", "TextureCube", "TextureCubeArray",
+            "RWTexture1D", "RWTexture1DArray", "RWTexture2D", "RWTexture2DArray", "RWTexture3D",
+            "Buffer", "RWBuffer", "ByteAddressBuffer", "RWByteAddressBuffer",
+            "StructuredBuffer", "RWStructuredBuffer", "AppendStructuredBuffer", "ConsumeStructuredBuffer",
+            "RaytracingAccelerationStructure", "RayDesc", "struct"
+        };
+        hlsl_rule.variables = {
+            "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sincos",
+            "sinh", "cosh", "tanh", "exp", "exp2", "log", "log2", "log10",
+            "pow", "sqrt", "rsqrt", "abs", "sign", "floor", "ceil", "round", "trunc", "frac", "fmod",
+            "min", "max", "clamp", "saturate", "lerp", "step", "smoothstep",
+            "dot", "cross", "mul", "length", "distance", "normalize", "reflect", "refract", "faceforward",
+            "transpose", "determinant", "clip",
+            "ddx", "ddy", "ddx_fine", "ddy_fine", "ddx_coarse", "ddy_coarse", "fwidth",
+            "all", "any", "asfloat", "asint", "asuint", "asdouble", "isfinite", "isinf", "isnan",
+            "InterlockedAdd", "InterlockedMin", "InterlockedMax", "InterlockedAnd", "InterlockedOr",
+            "InterlockedXor", "InterlockedExchange", "InterlockedCompareExchange",
+            "GroupMemoryBarrier", "GroupMemoryBarrierWithGroupSync",
+            "DeviceMemoryBarrier", "DeviceMemoryBarrierWithGroupSync",
+            "AllMemoryBarrier", "AllMemoryBarrierWithGroupSync"
+        };
+        register_grammar(std::move(hlsl_rule));
+    }
+
+    // Built-in for WGSL (WebGPU Shading Language)
+    {
+        GrammarRule wgsl_rule;
+        wgsl_rule.name = "WGSL";
+        wgsl_rule.extensions = {".wgsl"};
+        wgsl_rule.line_comment = "//";
+        wgsl_rule.block_comment_start = "/*";
+        wgsl_rule.block_comment_end = "*/";
+        wgsl_rule.supports_preprocessor = false;
+        wgsl_rule.string_delimiters = {"\"", "'"};
+        wgsl_rule.keywords = {
+            "fn", "let", "var", "const", "override", "struct", "type", "alias",
+            "if", "else", "switch", "case", "default", "for", "while", "loop", "continuing",
+            "break", "continue", "return", "discard",
+            "read", "write", "read_write", "function", "private", "workgroup", "uniform", "storage",
+            "true", "false",
+            // WGSL Attributes
+            "vertex", "fragment", "compute", "location", "builtin", "binding", "group",
+            "workgroup_size", "align", "size", "id", "must_use", "interpolate", "invariant",
+            // WGSL Builtin value names
+            "position", "vertex_index", "instance_index", "front_facing", "frag_depth",
+            "sample_index", "sample_mask", "local_invocation_id", "local_invocation_index",
+            "global_invocation_id", "workgroup_id", "num_workgroups"
+        };
+        wgsl_rule.types = {
+            "bool", "i32", "u32", "f32", "f16",
+            // Vectors
+            "vec2", "vec3", "vec4",
+            "vec2f", "vec3f", "vec4f",
+            "vec2i", "vec3i", "vec4i",
+            "vec2u", "vec3u", "vec4u",
+            "vec2h", "vec3h", "vec4h",
+            // Matrices
+            "mat2x2", "mat2x3", "mat2x4",
+            "mat3x2", "mat3x3", "mat3x4",
+            "mat4x2", "mat4x3", "mat4x4",
+            "mat2x2f", "mat3x3f", "mat4x4f",
+            // Complex types
+            "array", "ptr", "atomic",
+            "sampler", "sampler_comparison",
+            "texture_1d", "texture_2d", "texture_2d_array", "texture_3d", "texture_cube", "texture_cube_array",
+            "texture_multisampled_2d", "texture_storage_1d", "texture_storage_2d", "texture_storage_2d_array", "texture_storage_3d",
+            "texture_depth_2d", "texture_depth_2d_array", "texture_depth_cube", "texture_depth_cube_array", "texture_depth_multisampled_2d"
+        };
+        wgsl_rule.variables = {
+            "abs", "acos", "acosh", "asin", "asinh", "atan", "atanh", "atan2",
+            "ceil", "clamp", "cos", "cosh", "cross", "degrees", "distance", "dot",
+            "exp", "exp2", "floor", "fma", "fract", "inverseSqrt", "ldexp", "length",
+            "log", "log2", "max", "min", "mix", "modf", "normalize", "pow", "radians",
+            "reflect", "refract", "round", "saturate", "sign", "sin", "sinh", "smoothstep",
+            "sqrt", "step", "tan", "tanh", "trunc",
+            "textureSample", "textureSampleBias", "textureSampleCompare", "textureSampleCompareLevel",
+            "textureSampleGrad", "textureSampleLevel", "textureSampleBaseClampToEdge",
+            "textureStore", "textureLoad", "textureDimensions", "textureNumLayers", "textureNumLevels", "textureNumSamples",
+            "workgroupBarrier", "storageBarrier", "workgroupUniformLoad",
+            "dpdx", "dpdy", "fwidth", "dpdxFine", "dpdyFine", "fwidthFine", "dpdxCoarse", "dpdyCoarse", "fwidthCoarse",
+            "countLeadingZeros", "countOneBits", "countTrailingZeros", "firstLeadingBit", "firstTrailingBit",
+            "reverseBits", "extractBits", "insertBits",
+            "pack4x8snorm", "pack4x8unorm", "pack2x16snorm", "pack2x16unorm", "pack2x16float",
+            "unpack4x8snorm", "unpack4x8unorm", "unpack2x16snorm", "unpack2x16unorm", "unpack2x16float",
+            "atomicLoad", "atomicStore", "atomicAdd", "atomicSub", "atomicMax", "atomicMin",
+            "atomicAnd", "atomicOr", "atomicXor", "atomicExchange", "atomicCompareExchangeWeak",
+            "all", "any", "select"
+        };
+        register_grammar(std::move(wgsl_rule));
+    }
 }
 
 } // namespace Zenvra::Language::Syntax

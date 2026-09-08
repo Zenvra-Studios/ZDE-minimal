@@ -10,6 +10,8 @@
 #include "Platform/Win32/WinRT/WinRTContext.h"
 #include "UI/Components/MenuModel.h"
 #include "Utility/Antialiasing.h"
+#include "Utility/Ascii/AsciiArtConverter.h"
+#include "Utility/Ascii/AsciiMascotRenderer.h"
 #include "Utility/MathUtil.h"
 #include "Utility/MultiContext.h"
 #include "Utility/Shadows.h"
@@ -884,10 +886,13 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       std::string lower_ext;
       for (char c : ext) lower_ext += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
       if (lower_ext == ".png" || lower_ext == ".jpg" || lower_ext == ".jpeg" || lower_ext == ".bmp") {
+        Utility::Ascii::AsciiMascotRenderer::clear_bitmap_cache();
+        Utility::Ascii::AsciiArtConverter::clear_cache();
         auto &service = Settings::SettingsService::instance();
         service.set("workbench.mascot.image", first_path.string(), Settings::SettingsScope::User);
         SetFocus(window_handle);
         InvalidateRect(window_handle, nullptr, FALSE);
+        UpdateWindow(window_handle);
         return 0;
       }
     }
@@ -1106,7 +1111,11 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         }
         if (changed) {
           InvalidateRect(window_handle, nullptr, FALSE);
-          if (m_workspace_renderer.get_text_editor().is_media_dragging()) {
+          if (m_workspace_renderer.get_text_editor().is_media_dragging() ||
+              m_workspace_renderer.is_shader_sandbox_resizing() ||
+              m_workspace_renderer.is_editor_split_resizing() ||
+              m_workspace_renderer.is_sidebar_resizing() ||
+              m_workspace_renderer.is_terminal_resizing()) {
             UpdateWindow(window_handle);
           }
         }

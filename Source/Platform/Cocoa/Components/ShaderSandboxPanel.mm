@@ -58,8 +58,8 @@ bool ShaderSandboxPanel::is_resize_handle_point(
     {
         return false;
     }
-    const float scale = layout.dpi_scale;
-    const float grab_margin = 6.0F * scale;
+    const float scale = layout.dpi_scale > 0.1F ? layout.dpi_scale : 1.0F;
+    const float grab_margin = 3.0F * scale;
     const float splitter_x = layout.shader_panel_bounds.x;
     return point_x >= (splitter_x - grab_margin) &&
            point_x <= (splitter_x + grab_margin) &&
@@ -94,7 +94,9 @@ bool ShaderSandboxPanel::handle_pointer_press(
     {
         m_is_resizing = true;
         m_drag_start_x = point_x;
-        m_drag_start_width = m_width;
+        const float scale = layout.dpi_scale > 0.1F ? layout.dpi_scale : 1.0F;
+        m_drag_start_width = layout.shader_panel_bounds.width / scale;
+        m_width = m_drag_start_width;
         m_prev_scale = m_engine.get_resolution_scale();
         m_engine.set_resolution_scale(Services::Shader::ResolutionScale::Half);
         return true;
@@ -211,8 +213,8 @@ bool ShaderSandboxPanel::handle_pointer_drag(
     if (m_is_resizing)
     {
         const float delta = m_drag_start_x - point_x;
-        const float scale = layout.dpi_scale;
-        m_width = std::clamp(m_drag_start_width + delta, 180.0F * scale, 800.0F * scale);
+        const float scale = layout.dpi_scale > 0.1F ? layout.dpi_scale : 1.0F;
+        m_width = std::clamp(m_drag_start_width + delta / scale, 180.0F, 850.0F);
         static_cast<void>(m_engine.update_and_render());
         return true;
     }

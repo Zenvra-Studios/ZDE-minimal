@@ -110,7 +110,17 @@ static std::filesystem::path resolve_asset_path(const std::string &rel_path) {
   else if (clean.starts_with("icons/"))
     clean = clean.substr(6);
 
-  // Handle "vscode-symbols/icons/files/" -> "vscode-symbols/files/"
+  // Ensure "vscode-symbols/files/" maps to the real disk folder "vscode-symbols/icons/files/"
+  std::string clean_with_icons_folder = clean;
+  if (size_t p = clean_with_icons_folder.find("vscode-symbols/files/");
+      p != std::string::npos) {
+    clean_with_icons_folder.replace(p, 21, "vscode-symbols/icons/files/");
+  } else if (size_t p =
+                 clean_with_icons_folder.find("vscode-symbols/folders/");
+             p != std::string::npos) {
+    clean_with_icons_folder.replace(p, 23, "vscode-symbols/icons/folders/");
+  }
+
   std::string clean_no_extra_icons = clean;
   if (size_t p = clean_no_extra_icons.find("vscode-symbols/icons/files/");
       p != std::string::npos) {
@@ -122,23 +132,41 @@ static std::filesystem::path resolve_asset_path(const std::string &rel_path) {
   }
 
   auto add_variants = [&](const std::string &sub) {
+    if (sub.empty())
+      return;
     path_variants.push_back("Assets/icons/" + sub);
     path_variants.push_back("Resources/icons/" + sub);
     path_variants.push_back("Resources/" + sub);
     path_variants.push_back("icons/" + sub);
+    path_variants.push_back("Assets/" + sub);
     path_variants.push_back(sub);
   };
 
-  add_variants(clean);
-  if (clean_no_extra_icons != clean) {
+  add_variants(clean_with_icons_folder);
+  if (clean != clean_with_icons_folder) {
+    add_variants(clean);
+  }
+  if (clean_no_extra_icons != clean &&
+      clean_no_extra_icons != clean_with_icons_folder) {
     add_variants(clean_no_extra_icons);
   }
 
   std::filesystem::path fn = std::filesystem::path(rel_path).filename();
-  add_variants("vscode-symbols/files/" + fn.string());
-  add_variants("vscode-symbols/folders/" + fn.string());
-  add_variants("vscode-icons/icons/" + fn.string());
-  add_variants("material-icon-theme/" + fn.string());
+  const std::string fn_str = fn.string();
+  if (clean.find("material-icon-theme/") != std::string::npos) {
+    add_variants("material-icon-theme/" + fn_str);
+    add_variants("vscode-symbols/icons/files/" + fn_str);
+    add_variants("vscode-symbols/files/" + fn_str);
+  } else {
+    add_variants("vscode-symbols/icons/files/" + fn_str);
+    add_variants("vscode-symbols/icons/folders/" + fn_str);
+    add_variants("vscode-symbols/src/icons/files/" + fn_str);
+    add_variants("vscode-symbols/src/icons/folders/" + fn_str);
+    add_variants("vscode-symbols/files/" + fn_str);
+    add_variants("vscode-symbols/folders/" + fn_str);
+    add_variants("vscode-icons/icons/" + fn_str);
+    add_variants("material-icon-theme/" + fn_str);
+  }
 
   // 1. Try executable directory first (crucial for installed app / Start Menu)
   std::array<wchar_t, 4096> exe_buf{};
@@ -274,30 +302,35 @@ void AddNewItemDialog::init_default_templates() {
   TemplateCategory cpp_cat{
       "cpp",
       "C/C++",
-      "Assets/icons/vscode-symbols/files/cplus.svg",
+      "Assets/icons/vscode-symbols/icons/files/cplus.svg",
       {{"cpp_file", "C++ File (.cpp)", "Source.cpp", ".cpp", "C/C++",
         "Creates a file containing C++ source code.",
-        "Assets/icons/vscode-symbols/files/cplus.svg",
+        "Assets/icons/vscode-symbols/icons/files/cplus.svg",
         "#include <iostream>\n\nint main()\n{\n    std::cout << \"Hello from "
         "ZDE!\" << std::endl;\n    return 0;\n}\n"},
+       {"c_file", "C Source File (.c)", "Source.c", ".c", "C/C++",
+        "Creates a standard C source file.",
+        "Assets/icons/vscode-symbols/icons/files/c.svg",
+        "#include <stdio.h>\n\nint main(void)\n{\n    printf(\"Hello from C in "
+        "ZDE!\\n\");\n    return 0;\n}\n"},
        {"h_file", "Header File (.h)", "Header.h", ".h", "C/C++",
         "Creates a C/C++ header file with include guards.",
-        "Assets/icons/vscode-symbols/files/h.svg",
+        "Assets/icons/vscode-symbols/icons/files/h.svg",
         "#pragma once\n\nnamespace Name\n{\n\n}\n"},
        {"cpp_class", "C++ Class", "MyClass.h", ".h", "C/C++",
         "Creates a C++ class declaration with constructor and destructor.",
-        "Assets/icons/vscode-symbols/files/cplus.svg",
+        "Assets/icons/vscode-symbols/icons/files/cplus.svg",
         "#pragma once\n\nnamespace Name\n{\n\nclass MyClass\n{\npublic:\n    "
         "MyClass() = default;\n    ~MyClass() = "
         "default;\n\nprivate:\n};\n\n}\n"},
        {"ixx_file", "C++ Module Interface (.ixx)", "Module.ixx", ".ixx",
         "C/C++", "Creates a modern C++20 module interface unit.",
-        "Assets/icons/vscode-symbols/files/cplus.svg",
+        "Assets/icons/vscode-symbols/icons/files/cplus.svg",
         "export module MyModule;\n\nexport namespace MyModule\n{\n    void "
         "hello();\n}\n"},
        {"hpp_file", "Header File (.hpp)", "Header.hpp", ".hpp", "C/C++",
         "Creates a C++ template header file.",
-        "Assets/icons/vscode-symbols/files/cplus.svg",
+        "Assets/icons/vscode-symbols/icons/files/cplus.svg",
         "#pragma once\n\ntemplate <typename T>\nclass Buffer\n{\npublic:\n    "
         "Buffer() = default;\n};\n"}}};
 
@@ -305,23 +338,23 @@ void AddNewItemDialog::init_default_templates() {
   TemplateCategory rust_cat{
       "rust",
       "Rust",
-      "Assets/icons/vscode-symbols/files/rust.svg",
+      "Assets/icons/vscode-symbols/icons/files/rust.svg",
       {{"rs_main", "Rust Binary (main.rs)", "main.rs", ".rs", "Rust",
         "Creates a Rust binary application entry point.",
-        "Assets/icons/vscode-symbols/files/rust.svg",
+        "Assets/icons/vscode-symbols/icons/files/rust.svg",
         "fn main() {\n    println!(\"Hello from Rust!\");\n}\n"},
        {"rs_mod", "Rust Module (mod.rs)", "mod.rs", ".rs", "Rust",
         "Creates a Rust module file.",
-        "Assets/icons/vscode-symbols/files/rust.svg",
+        "Assets/icons/vscode-symbols/icons/files/rust.svg",
         "pub fn hello() -> &'static str {\n    \"Hello from module\"\n}\n"},
        {"rs_lib", "Rust Library (lib.rs)", "lib.rs", ".rs", "Rust",
         "Creates a Rust library root with unit tests.",
-        "Assets/icons/vscode-symbols/files/rust.svg",
+        "Assets/icons/vscode-symbols/icons/files/rust.svg",
         "pub fn add(left: usize, right: usize) -> usize {\n    left + "
         "right\n}\n"},
        {"cargo_toml", "Cargo Manifest (Cargo.toml)", "Cargo.toml", ".toml",
         "Rust", "Creates a Cargo package configuration manifest.",
-        "Assets/icons/vscode-symbols/files/rust.svg",
+        "Assets/icons/vscode-symbols/icons/files/rust.svg",
         "[package]\nname = \"my_project\"\nversion = \"0.1.0\"\nedition = "
         "\"2021\"\n\n[dependencies]\n"}}};
 
@@ -329,37 +362,37 @@ void AddNewItemDialog::init_default_templates() {
   TemplateCategory go_cat{
       "go",
       "Go",
-      "Assets/icons/vscode-symbols/files/go.svg",
+      "Assets/icons/vscode-symbols/icons/files/go.svg",
       {{"go_main", "Go Executable (main.go)", "main.go", ".go", "Go",
         "Creates a Go main application entry point with standard main package.",
-        "Assets/icons/vscode-symbols/files/go.svg",
+        "Assets/icons/vscode-symbols/icons/files/go.svg",
         "package main\n\nimport (\n\t\"fmt\"\n)\n\nfunc main() "
         "{\n\tfmt.Println(\"Hello from ZDE!\")\n}\n"},
        {"go_file", "Go Package File (.go)", "server.go", ".go", "Go",
         "Creates a Go package source file.",
-        "Assets/icons/vscode-symbols/files/go.svg",
+        "Assets/icons/vscode-symbols/icons/files/go.svg",
         "package mypackage\n\nimport (\n\t\"context\"\n)\n\ntype Service "
         "struct {\n\tname string\n}\n\nfunc NewService(name string) *Service "
         "{\n\treturn &Service{name: name}\n}\n\nfunc (s *Service) Start(ctx "
         "context.Context) error {\n\treturn nil\n}\n"},
        {"go_test", "Go Unit Test (_test.go)", "main_test.go", ".go", "Go",
         "Creates a Go unit test file with standard testing package.",
-        "Assets/icons/vscode-symbols/files/go.svg",
+        "Assets/icons/vscode-symbols/icons/files/go.svg",
         "package main\n\nimport (\n\t\"testing\"\n)\n\nfunc TestMain(t "
         "*testing.T) {\n\t// TODO: Add unit test assertions\n}\n"},
        {"go_mod", "Go Module (go.mod)", "go.mod", ".mod", "Go",
         "Creates a Go module definition and dependencies manifest.",
-        "Assets/icons/vscode-symbols/files/go.svg",
+        "Assets/icons/vscode-symbols/icons/files/go.svg",
         "module my_project\n\ngo 1.23\n"}}};
 
   // 4. TypeScript & JavaScript Category
   TemplateCategory ts_cat{
       "typescript",
       "TypeScript / JavaScript",
-      "Assets/icons/vscode-symbols/files/ts.svg",
+      "Assets/icons/vscode-symbols/icons/files/ts.svg",
       {{"ts_file", "TypeScript File (.ts)", "index.ts", ".ts", "TypeScript",
         "Creates a modern TypeScript source file.",
-        "Assets/icons/vscode-symbols/files/ts.svg",
+        "Assets/icons/vscode-symbols/icons/files/ts.svg",
         "export interface AppConfig {\n    title: string;\n    version: "
         "string;\n}\n\nexport const config: AppConfig = {\n    title: \"ZDE "
         "Application\",\n    version: \"1.0.0\",\n};\n\nexport function "
@@ -367,19 +400,19 @@ void AddNewItemDialog::init_default_templates() {
         "v${config.version}...`);\n}\n\nbootstrap();\n"},
        {"js_file", "JavaScript File (.js)", "index.js", ".js", "JavaScript",
         "Creates a standard JavaScript source file.",
-        "Assets/icons/vscode-symbols/files/js.svg",
+        "Assets/icons/vscode-symbols/icons/files/js.svg",
         "// @ts-check\n\nexport function bootstrap() {\n    console.log('Hello "
         "from JavaScript in ZDE!');\n}\n\nbootstrap();\n"},
        {"mjs_file", "ES Module File (.mjs)", "index.mjs", ".mjs", "JavaScript",
         "Creates a modern ECMAScript module file.",
-        "Assets/icons/vscode-symbols/files/js.svg",
+        "Assets/icons/vscode-symbols/icons/files/js.svg",
         "import { promises as fs } from 'node:fs';\n\nexport async function "
         "bootstrap() {\n    console.log('Running ES Module in "
         "ZDE...');\n}\n\nawait bootstrap();\n"},
        {"tsx_file", "React Component (.tsx)", "Component.tsx", ".tsx",
         "TypeScript",
         "Creates a React functional component with TypeScript props.",
-        "Assets/icons/vscode-symbols/files/react-ts.svg",
+        "Assets/icons/vscode-symbols/icons/files/react-ts.svg",
         "import React, { useState } from 'react';\n\nexport interface "
         "ComponentProps {\n    title?: string;\n}\n\nexport const Component: "
         "React.FC<ComponentProps> = ({\n    title = \"ZDE Component\",\n}) => "
@@ -390,7 +423,7 @@ void AddNewItemDialog::init_default_templates() {
         "default Component;\n"},
        {"jsx_file", "React Component (.jsx)", "Component.jsx", ".jsx",
         "JavaScript", "Creates a React functional component with JSX syntax.",
-        "Assets/icons/vscode-symbols/files/react.svg",
+        "Assets/icons/vscode-symbols/icons/files/react.svg",
         "import React, { useState } from 'react';\n\nexport const Component = "
         "({ title = 'ZDE Component' }) => {\n    const [count, setCount] = "
         "useState(0);\n\n    return (\n        <div className=\"container\">\n "
@@ -400,14 +433,14 @@ void AddNewItemDialog::init_default_templates() {
        {"dts_file", "TypeScript Declaration (.d.ts)", "types.d.ts", ".d.ts",
         "TypeScript",
         "Creates a TypeScript ambient declaration type definitions file.",
-        "Assets/icons/vscode-symbols/files/dts.svg",
+        "Assets/icons/vscode-symbols/icons/files/dts.svg",
         "declare namespace ZDE {\n    interface UserSession {\n        id: "
         "string;\n        username: string;\n        createdAt: Date;\n    "
         "}\n}\n"},
        {"tsconfig", "TSConfig (tsconfig.json)", "tsconfig.json", ".json",
         "TypeScript",
         "Creates a standard TypeScript compiler configuration file.",
-        "Assets/icons/vscode-symbols/files/tsconfig.svg",
+        "Assets/icons/vscode-symbols/icons/files/tsconfig.svg",
         "{\n  \"compilerOptions\": {\n    \"target\": \"ESNext\",\n    "
         "\"module\": \"ESNext\",\n    \"moduleResolution\": \"bundler\",\n    "
         "\"strict\": true,\n    \"jsx\": \"react-jsx\",\n    "
@@ -445,30 +478,30 @@ void AddNewItemDialog::init_default_templates() {
   TemplateCategory build_cat{
       "build",
       "Build & Config",
-      "Assets/icons/vscode-symbols/files/cmake.svg",
+      "Assets/icons/vscode-symbols/icons/files/cmake.svg",
       {{"cmakelists", "CMakeLists (CMakeLists.txt)", "CMakeLists.txt", ".txt",
         "Build & Config", "Creates a CMake project build configuration script.",
-        "Assets/icons/vscode-symbols/files/cmake.svg",
+        "Assets/icons/vscode-symbols/icons/files/cmake.svg",
         "cmake_minimum_required(VERSION 3.25)\nproject(MyProject LANGUAGES "
         "CXX)\n\nset(CMAKE_CXX_STANDARD 20)\nadd_executable(MyProject "
         "Source.cpp)\n"},
        {"json_file", "JSON Configuration (.json)", "config.json", ".json",
         "Build & Config", "Creates a JSON configuration file.",
-        "Assets/icons/vscode-symbols/files/brackets-yellow.svg",
+        "Assets/icons/vscode-symbols/icons/files/brackets-yellow.svg",
         "{\n    \"name\": \"ZDE-Project\",\n    \"version\": \"1.0.0\"\n}\n"},
        {"toml_file", "TOML Document (.toml)", "settings.toml", ".toml",
         "Build & Config", "Creates a TOML document.",
-        "Assets/icons/vscode-symbols/files/gear.svg",
+        "Assets/icons/vscode-symbols/icons/files/gear.svg",
         "[settings]\ntheme = \"zenvra_dark\"\n"}}};
 
   // 6. HTML & Web Category
   TemplateCategory web_cat{
       "web",
       "HTML & Web",
-      "Assets/icons/vscode-symbols/files/code-orange.svg",
+      "Assets/icons/vscode-symbols/icons/files/code-orange.svg",
       {{"html5_page", "HTML5 Page (.html)", "index.html", ".html", "HTML & Web",
         "Creates a modern HTML5 document structure with viewport and styling.",
-        "Assets/icons/vscode-symbols/files/code-orange.svg",
+        "Assets/icons/vscode-symbols/icons/files/code-orange.svg",
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta "
         "charset=\"UTF-8\">\n    <meta name=\"viewport\" "
         "content=\"width=device-width, initial-scale=1.0\">\n    <title>ZDE "
@@ -479,14 +512,14 @@ void AddNewItemDialog::init_default_templates() {
         "src=\"main.js\"></script>\n</body>\n</html>\n"},
        {"css_style", "CSS Stylesheet (.css)", "style.css", ".css", "HTML & Web",
         "Creates a CSS stylesheet for HTML layouts.",
-        "Assets/icons/vscode-symbols/files/code-sky.svg",
+        "Assets/icons/vscode-symbols/icons/files/code-sky.svg",
         "* {\n    box-sizing: border-box;\n    margin: 0;\n    padding: "
         "0;\n}\n\nbody {\n    font-family: system-ui, -apple-system, "
         "sans-serif;\n    background-color: #1e1e1e;\n    color: #ffffff;\n    "
         "padding: 2rem;\n}\n"},
        {"svg_graphic", "SVG Vector Graphic (.svg)", "graphic.svg", ".svg",
         "HTML & Web", "Creates an SVG scalable vector graphics XML file.",
-        "Assets/icons/vscode-symbols/files/svg.svg",
+        "Assets/icons/vscode-symbols/icons/files/svg.svg",
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" "
         "viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" "
         "stroke-width=\"2\" stroke-linecap=\"round\" "
@@ -497,17 +530,17 @@ void AddNewItemDialog::init_default_templates() {
   TemplateCategory gen_cat{
       "general",
       "General",
-      "Assets/icons/vscode-symbols/files/document.svg",
+      "Assets/icons/vscode-symbols/icons/files/document.svg",
       {{"txt_file", "Text Document (.txt)", "Document.txt", ".txt", "General",
         "Creates an empty plain text document.",
-        "Assets/icons/vscode-symbols/files/document.svg", ""},
+        "Assets/icons/vscode-symbols/icons/files/document.svg", ""},
        {"md_file", "Markdown Document (.md)", "README.md", ".md", "General",
         "Creates a Markdown documentation file.",
-        "Assets/icons/vscode-symbols/files/markdown.svg",
+        "Assets/icons/vscode-symbols/icons/files/markdown.svg",
         "# Project Documentation\n"},
        {"gitignore", "Git Ignore (.gitignore)", ".gitignore", "", "General",
         "Creates standard gitignore rules.",
-        "Assets/icons/vscode-symbols/files/git.svg",
+        "Assets/icons/vscode-symbols/icons/files/git.svg",
         "build/\nbin/\n*.obj\n*.exe\n.cache/\n"}}};
 
   // 8. Assembly Category (x86 16/32/64-bit and ARM 32/64-bit)

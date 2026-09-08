@@ -1710,7 +1710,7 @@ std::vector<Protocol::CompletionItem> get_php_templates() {
           .documentation = "Returns a string formatted according to the given format string using integer timestamp.",
           .insert_text = "date('Y-m-d H:i:s')",
           .filter_text = "date"},
-      Protocol::CompletionItem{
+       Protocol::CompletionItem{
           .label = "time",
           .kind = Protocol::CompletionItemKind::Function,
           .detail = "time(): int",
@@ -1718,6 +1718,106 @@ std::vector<Protocol::CompletionItem> get_php_templates() {
           .insert_text = "time()",
           .filter_text = "time"},
   };
+}
+
+std::vector<Protocol::CompletionItem> get_shader_templates(std::string_view ext) {
+  std::vector<Protocol::CompletionItem> items;
+
+  if (ext == ".hlsl" || ext == ".hlsli" || ext == ".fx" || ext == ".fxh") {
+    items.push_back(Protocol::CompletionItem{
+        .label = "cbuffer",
+        .kind = Protocol::CompletionItemKind::Class,
+        .detail = "(HLSL) cbuffer Name : register(b0) { ... };",
+        .documentation = "Defines a constant buffer block.",
+        .insert_text = "cbuffer ${1:Constants} : register(b${2:0})\n{\n    float4x4 ${3:u_view_proj};\n    float4 ${4:u_color};\n};",
+        .filter_text = "cbuffer"});
+    items.push_back(Protocol::CompletionItem{
+        .label = "ps_main",
+        .kind = Protocol::CompletionItemKind::Function,
+        .detail = "(HLSL) float4 PSMain(...) : SV_Target",
+        .documentation = "Standard HLSL Pixel/Fragment Shader entry point.",
+        .insert_text = "struct PSInput\n{\n    float4 pos : SV_Position;\n    float2 uv : TEXCOORD0;\n};\n\nfloat4 main(PSInput input) : SV_Target\n{\n    return float4(input.uv, 0.0f, 1.0f);\n}",
+        .filter_text = "ps_main"});
+    items.push_back(Protocol::CompletionItem{
+        .label = "vs_main",
+        .kind = Protocol::CompletionItemKind::Function,
+        .detail = "(HLSL) PSInput VSMain(...) : SV_Position",
+        .documentation = "Standard HLSL Vertex Shader entry point.",
+        .insert_text = "struct VSInput\n{\n    float3 pos : POSITION;\n    float2 uv : TEXCOORD0;\n};\n\nstruct PSInput\n{\n    float4 pos : SV_Position;\n    float2 uv : TEXCOORD0;\n};\n\nPSInput main(VSInput input)\n{\n    PSInput output;\n    output.pos = float4(input.pos, 1.0f);\n    output.uv = input.uv;\n    return output;\n}",
+        .filter_text = "vs_main"});
+    return items;
+  }
+
+  if (ext == ".wgsl") {
+    items.push_back(Protocol::CompletionItem{
+        .label = "frag_main",
+        .kind = Protocol::CompletionItemKind::Function,
+        .detail = "(WGSL) @fragment fn fs_main(...) -> @location(0) vec4f",
+        .documentation = "Standard WebGPU Fragment Shader entry point.",
+        .insert_text = "@fragment\nfn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {\n    return vec4f(uv, 0.5f, 1.0f);\n}",
+        .filter_text = "frag_main"});
+    items.push_back(Protocol::CompletionItem{
+        .label = "vert_main",
+        .kind = Protocol::CompletionItemKind::Function,
+        .detail = "(WGSL) @vertex fn vs_main(...) -> VertexOutput",
+        .documentation = "Standard WebGPU Vertex Shader entry point.",
+        .insert_text = "struct VertexOutput {\n    @builtin(position) pos: vec4f,\n    @location(0) uv: vec2f,\n};\n\n@vertex\nfn vs_main(@builtin(vertex_index) vi: u32) -> VertexOutput {\n    var out: VertexOutput;\n    var pos = array<vec2f, 3>(\n        vec2f(-1.0, -1.0),\n        vec2f(3.0, -1.0),\n        vec2f(-1.0, 3.0)\n    );\n    out.pos = vec4f(pos[vi], 0.0, 1.0);\n    out.uv = 0.5 * (pos[vi] + vec2f(1.0, 1.0));\n    return out;\n}",
+        .filter_text = "vert_main"});
+    items.push_back(Protocol::CompletionItem{
+        .label = "compute_main",
+        .kind = Protocol::CompletionItemKind::Function,
+        .detail = "(WGSL) @compute @workgroup_size(8, 8, 1)",
+        .documentation = "WebGPU Compute Shader entry point.",
+        .insert_text = "@compute @workgroup_size(8, 8, 1)\nfn cs_main(@builtin(global_invocation_id) gid: vec3u) {\n    $0\n}",
+        .filter_text = "compute_main"});
+    return items;
+  }
+
+  // GLSL / ShaderSandbox / ShaderToy default templates
+  items.push_back(Protocol::CompletionItem{
+      .label = "mainImage",
+      .kind = Protocol::CompletionItemKind::Function,
+      .detail = "(ShaderSandbox) void mainImage(out vec4 fragColor, in vec2 fragCoord)",
+      .documentation = "Standard ShaderToy / ShaderSandbox live shader entry point.",
+      .insert_text = "void mainImage(out vec4 fragColor, in vec2 fragCoord)\n{\n    vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;\n    vec3 col = 0.5 + 0.5 * cos(iTime + uv.xyx + vec3(0, 2, 4));\n    fragColor = vec4(col, 1.0);\n}",
+      .filter_text = "mainImage"});
+  items.push_back(Protocol::CompletionItem{
+      .label = "vert",
+      .kind = Protocol::CompletionItemKind::Snippet,
+      .detail = "(GLSL) #version 450 core Vertex Shader",
+      .documentation = "Full-screen triangle or standard GLSL vertex shader.",
+      .insert_text = "#version 450 core\n\nlayout(location = 0) in vec3 inPosition;\nlayout(location = 1) in vec2 inTexCoord;\n\nlayout(location = 0) out vec2 fragTexCoord;\n\nvoid main()\n{\n    gl_Position = vec4(inPosition, 1.0);\n    fragTexCoord = inTexCoord;\n}",
+      .filter_text = "vert"});
+  items.push_back(Protocol::CompletionItem{
+      .label = "frag",
+      .kind = Protocol::CompletionItemKind::Snippet,
+      .detail = "(GLSL) #version 450 core Fragment Shader",
+      .documentation = "Standard modern GLSL fragment shader with texture sampling.",
+      .insert_text = "#version 450 core\n\nlayout(location = 0) in vec2 fragTexCoord;\nlayout(location = 0) out vec4 outColor;\n\nlayout(binding = 0) uniform sampler2D uTexture;\n\nvoid main()\n{\n    outColor = texture(uTexture, fragTexCoord);\n}",
+      .filter_text = "frag"});
+  items.push_back(Protocol::CompletionItem{
+      .label = "raymarching",
+      .kind = Protocol::CompletionItemKind::Snippet,
+      .detail = "(GLSL) Raymarching Boilerplate & Camera",
+      .documentation = "Complete raymarching pipeline with SDF sphere, ray step, and normal calculation.",
+      .insert_text = "float map(vec3 p)\n{\n    return length(p) - 1.0;\n}\n\nvec3 calcNormal(vec3 p)\n{\n    const vec2 e = vec2(0.001, 0.0);\n    return normalize(vec3(\n        map(p + e.xyy) - map(p - e.xyy),\n        map(p + e.yxy) - map(p - e.yxy),\n        map(p + e.yyx) - map(p - e.yyx)\n    ));\n}\n\nvoid mainImage(out vec4 fragColor, in vec2 fragCoord)\n{\n    vec2 uv = (fragCoord - 0.5 * iResolution.xy) / iResolution.y;\n    vec3 ro = vec3(0.0, 0.0, -3.0);\n    vec3 rd = normalize(vec3(uv, 1.0));\n    \n    float t = 0.0;\n    for (int i = 0; i < 64; ++i)\n    {\n        vec3 p = ro + rd * t;\n        float d = map(p);\n        if (d < 0.001 || t > 20.0) break;\n        t += d;\n    }\n    \n    vec3 col = vec3(0.05);\n    if (t < 20.0)\n    {\n        vec3 p = ro + rd * t;\n        vec3 n = calcNormal(p);\n        vec3 light = normalize(vec3(1.0, 2.0, -1.0));\n        float diff = clamp(dot(n, light), 0.0, 1.0);\n        col = vec3(diff) * vec3(0.2, 0.7, 1.0) + vec3(0.1);\n    }\n    \n    fragColor = vec4(col, 1.0);\n}",
+      .filter_text = "raymarching"});
+  items.push_back(Protocol::CompletionItem{
+      .label = "palette",
+      .kind = Protocol::CompletionItemKind::Snippet,
+      .detail = "(GLSL) vec3 palette(float t, vec3 a, vec3 b, vec3 c, vec3 d)",
+      .documentation = "Inigo Quilez cosine based procedural color palette.",
+      .insert_text = "vec3 palette(float t, vec3 a, vec3 b, vec3 c, vec3 d)\n{\n    return a + b * cos(6.28318 * (c * t + d));\n}",
+      .filter_text = "palette"});
+  items.push_back(Protocol::CompletionItem{
+      .label = "rot",
+      .kind = Protocol::CompletionItemKind::Snippet,
+      .detail = "(GLSL) mat2 rot(float a)",
+      .documentation = "2D Rotation matrix helper.",
+      .insert_text = "mat2 rot(float a)\n{\n    float s = sin(a), c = cos(a);\n    return mat2(c, -s, s, c);\n}",
+      .filter_text = "rot"});
+
+  return items;
 }
 
 } // namespace
@@ -1759,6 +1859,13 @@ LanguageServerManager::get_templates_for_filename(std::string_view filename) {
   if (ext == ".php" || ext == ".phtml" || ext == ".php4" || ext == ".php5" ||
       ext == ".php7" || ext == ".php8" || ext == ".phps") {
     return get_php_templates();
+  }
+  if (ext == ".glsl" || ext == ".frag" || ext == ".vert" || ext == ".comp" ||
+      ext == ".geom" || ext == ".tesc" || ext == ".tese" || ext == ".shader" ||
+      ext == ".mesh" || ext == ".task" || ext == ".rgen" || ext == ".rint" ||
+      ext == ".fs" || ext == ".vs" || ext == ".hlsl" || ext == ".hlsli" ||
+      ext == ".fx" || ext == ".fxh" || ext == ".wgsl") {
+    return get_shader_templates(ext);
   }
   return {};
 }

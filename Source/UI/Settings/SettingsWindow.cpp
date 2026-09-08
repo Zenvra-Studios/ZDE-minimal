@@ -1,4 +1,5 @@
 #include "UI/Settings/SettingsWindow.h"
+#include "Utility/Ascii/AsciiMascotRenderer.h"
 #include "Utility/TextEncoding.h"
 #include "Utility/stb_image.h"
 
@@ -343,6 +344,12 @@ void SettingsWindow::draw_mascot_thumbnail(
       target_path = resolve_asset_path("Assets/icons/zenvra_logo.png");
       if (!std::filesystem::is_regular_file(target_path, ec)) {
         target_path = resolve_asset_path("zenvra_logo.png");
+        if (!std::filesystem::is_regular_file(target_path, ec)) {
+          target_path = Utility::Ascii::AsciiArtConverter::resolve_image_path(image_path);
+          if (!std::filesystem::is_regular_file(target_path, ec)) {
+            target_path = Utility::Ascii::AsciiArtConverter::resolve_image_path("zenvra_logo.png");
+          }
+        }
       }
     }
   }
@@ -360,6 +367,30 @@ void SettingsWindow::draw_mascot_thumbnail(
   const int thumb_h = static_cast<int>(bounds.height - 6.0F * dpi_scale);
   if (thumb_w <= 0 || thumb_h <= 0)
     return;
+
+  auto &service = Zenvra::Settings::SettingsService::instance();
+  const std::string render_mode =
+      service.get_schema().has_setting("workbench.mascot.renderMode")
+          ? service.get<std::string>("workbench.mascot.renderMode")
+          : "default";
+  if (render_mode == "ascii") {
+    HBITMAP ascii_bm =
+        Utility::Ascii::AsciiMascotRenderer::create_ascii_thumbnail_bitmap(
+            dc, target_path.string(), thumb_w, thumb_h, box_bg);
+    if (ascii_bm) {
+      const int draw_x =
+          static_cast<int>(bounds.x + (bounds.width - thumb_w) * 0.5F);
+      const int draw_y =
+          static_cast<int>(bounds.y + (bounds.height - thumb_h) * 0.5F);
+
+      HDC mem_dc = CreateCompatibleDC(dc);
+      HGDIOBJ prev_bm = SelectObject(mem_dc, ascii_bm);
+      BitBlt(dc, draw_x, draw_y, thumb_w, thumb_h, mem_dc, 0, 0, SRCCOPY);
+      SelectObject(mem_dc, prev_bm);
+      DeleteDC(mem_dc);
+      return;
+    }
+  }
 
   const std::string cache_key = target_path.string() + "@thumb#" +
                                 std::to_string(thumb_w) + "x" +
@@ -466,10 +497,17 @@ bool SettingsWindow::browse_mascot_image() {
     const std::string chosen_path =
         Utility::wide_to_utf8(file_name).value_or("");
     if (!chosen_path.empty()) {
+      Utility::Ascii::AsciiMascotRenderer::clear_bitmap_cache();
+      Utility::Ascii::AsciiArtConverter::clear_cache();
       auto &service = Zenvra::Settings::SettingsService::instance();
       service.set("workbench.mascot.image", chosen_path, m_active_scope);
       if (m_hwnd) {
         InvalidateRect(m_hwnd, nullptr, FALSE);
+        UpdateWindow(m_hwnd);
+      }
+      if (m_parent_hwnd && IsWindow(m_parent_hwnd)) {
+        InvalidateRect(m_parent_hwnd, nullptr, FALSE);
+        UpdateWindow(m_parent_hwnd);
       }
       return true;
     }
@@ -664,10 +702,17 @@ LRESULT SettingsWindow::handle_message(HWND hwnd, UINT message, WPARAM w_param,
           }
           if (lower_ext == ".png" || lower_ext == ".jpg" ||
               lower_ext == ".jpeg" || lower_ext == ".bmp") {
+            Utility::Ascii::AsciiMascotRenderer::clear_bitmap_cache();
+            Utility::Ascii::AsciiArtConverter::clear_cache();
             auto &service = Zenvra::Settings::SettingsService::instance();
             service.set("workbench.mascot.image", dropped.string(),
                         m_active_scope);
             InvalidateRect(hwnd, nullptr, FALSE);
+            UpdateWindow(hwnd);
+            if (m_parent_hwnd && IsWindow(m_parent_hwnd)) {
+              InvalidateRect(m_parent_hwnd, nullptr, FALSE);
+              UpdateWindow(m_parent_hwnd);
+            }
           }
         }
       }
@@ -887,7 +932,10 @@ LRESULT SettingsWindow::handle_message(HWND hwnd, UINT message, WPARAM w_param,
           if (!row.input_bounds.is_empty() &&
               row.input_bounds.contains(cur_x, cur_y) && row.def &&
               (row.def->type == Zenvra::Settings::SettingType::Integer ||
-               row.def->type == Zenvra::Settings::SettingType::Float)) {
+               row.def->type == Zenvra::Settings::SettingType::Float ||
+               row.def->type == Zenvra::Settings::SettingType::String) &&
+              row.def->id != "editor.fontFamily" &&
+              row.def->id != "workbench.mascot.image") {
             SetCursor(LoadCursor(nullptr, IDC_IBEAM));
             return TRUE;
           }
@@ -979,12 +1027,19 @@ LRESULT SettingsWindow::handle_message(HWND hwnd, UINT message, WPARAM w_param,
   case WM_CHAR: {
     char ch = static_cast<char>(w_param);
     if (!m_editing_setting_id.empty()) {
-      if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-') {
+      auto &service = Zenvra::Settings::SettingsService::instance();
+      const auto *def = service.get_schema().get_setting(m_editing_setting_id);
+      if (def && def->type == Zenvra::Settings::SettingType::String) {
+        if (ch >= 32 && ch != 127) {
+          m_editing_text.push_back(ch);
+          service.set(m_editing_setting_id, m_editing_text, m_active_scope);
+          InvalidateRect(hwnd, nullptr, FALSE);
+          return 0;
+        }
+      } else if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-') {
         m_editing_text.push_back(ch);
         try {
-          auto &service = Zenvra::Settings::SettingsService::instance();
-          if (const auto *def =
-                  service.get_schema().get_setting(m_editing_setting_id)) {
+          if (def) {
             if (def->type == Zenvra::Settings::SettingType::Integer) {
               service.set(m_editing_setting_id, std::stoll(m_editing_text),
                           m_active_scope);
@@ -1043,25 +1098,59 @@ LRESULT SettingsWindow::handle_message(HWND hwnd, UINT message, WPARAM w_param,
       }
     }
 
+    if ((GetKeyState(VK_CONTROL) & 0x8000) && (w_param == 'V' || w_param == 'v')) {
+      if (!m_editing_setting_id.empty()) {
+        if (OpenClipboard(hwnd)) {
+          HANDLE h_data = GetClipboardData(CF_UNICODETEXT);
+          if (h_data) {
+            const wchar_t *psz_text = static_cast<const wchar_t *>(GlobalLock(h_data));
+            if (psz_text) {
+              const std::string clip_utf8 = Utility::wide_to_utf8(psz_text).value_or("");
+              GlobalUnlock(h_data);
+              auto &service = Zenvra::Settings::SettingsService::instance();
+              const auto *def = service.get_schema().get_setting(m_editing_setting_id);
+              if (def && def->type == Zenvra::Settings::SettingType::String) {
+                m_editing_text += clip_utf8;
+                service.set(m_editing_setting_id, m_editing_text, m_active_scope);
+              }
+            }
+          }
+          CloseClipboard();
+          InvalidateRect(hwnd, nullptr, FALSE);
+          return 0;
+        }
+      }
+    }
+
     if (w_param == VK_BACK) {
       if (!m_editing_setting_id.empty()) {
+        auto &service = Zenvra::Settings::SettingsService::instance();
+        const auto *def =
+            service.get_schema().get_setting(m_editing_setting_id);
         if (!m_editing_text.empty()) {
           m_editing_text.pop_back();
-          if (!m_editing_text.empty() && m_editing_text != "-") {
-            try {
-              auto &service = Zenvra::Settings::SettingsService::instance();
-              if (const auto *def =
-                      service.get_schema().get_setting(m_editing_setting_id)) {
-                if (def->type == Zenvra::Settings::SettingType::Integer) {
+          try {
+            if (def) {
+              if (def->type == Zenvra::Settings::SettingType::Integer) {
+                if (!m_editing_text.empty() && m_editing_text != "-") {
                   service.set(m_editing_setting_id, std::stoll(m_editing_text),
                               m_active_scope);
-                } else if (def->type == Zenvra::Settings::SettingType::Float) {
+                }
+              } else if (def->type == Zenvra::Settings::SettingType::Float) {
+                if (!m_editing_text.empty() && m_editing_text != "-") {
                   service.set(m_editing_setting_id, std::stod(m_editing_text),
                               m_active_scope);
                 }
+              } else if (def->type == Zenvra::Settings::SettingType::String) {
+                service.set(m_editing_setting_id, m_editing_text,
+                            m_active_scope);
               }
-            } catch (...) {
             }
+          } catch (...) {
+          }
+        } else {
+          if (def && def->type == Zenvra::Settings::SettingType::String) {
+            service.set(m_editing_setting_id, std::string{}, m_active_scope);
           }
         }
         InvalidateRect(hwnd, nullptr, FALSE);
@@ -1292,10 +1381,11 @@ std::vector<SettingsSectionDef> get_all_sections() {
   sections.push_back(
       {"Commonly Used",
        "Commonly Used",
-       {"editor.fontSize", "editor.fontFamily", "workbench.mascot.image",
-        "editor.tabSize", "editor.renderWhitespace", "editor.cursorStyle",
-        "editor.wordWrap", "editor.lineHeight", "editor.minimap.enabled",
-        "theme.current", "workbench.sidebar.position", "terminal.fontSize"}});
+       {"editor.fontSize", "editor.fontFamily", "workbench.app.title",
+        "workbench.mascot.image", "workbench.mascot.renderMode", "editor.tabSize", "editor.renderWhitespace",
+        "editor.cursorStyle", "editor.wordWrap", "editor.lineHeight",
+        "editor.minimap.enabled", "theme.current", "workbench.sidebar.position",
+        "terminal.fontSize"}});
 
   sections.push_back(
       {"Text Editor",
@@ -1307,8 +1397,8 @@ std::vector<SettingsSectionDef> get_all_sections() {
   sections.push_back(
       {"Workbench",
        "Workbench",
-       {"workbench.mascot.image", "theme.current", "ui.fontSize",
-        "ui.fontFamily", "ui.scale", "workbench.sidebar.position",
+       {"workbench.app.title", "workbench.mascot.image", "workbench.mascot.renderMode", "theme.current",
+        "ui.fontSize", "ui.fontFamily", "ui.scale", "workbench.sidebar.position",
         "workbench.panel.position", "workbench.activityBar.visible"}});
 
   sections.push_back(
@@ -1599,7 +1689,7 @@ SettingsWindow::calculate_layout(float width, float height,
       SettingRowLayout row{};
       row.def = def;
       const float this_row_h = (def->id == "workbench.mascot.image")
-                                   ? (126.0F * dpi_scale)
+                                   ? (118.0F * dpi_scale)
                                    : row_h;
       row.bounds = Rect{content_x, current_unscrolled_y - m_scroll_offset,
                         gutter_w + row_card_w, this_row_h};
@@ -1647,7 +1737,21 @@ SettingsWindow::calculate_layout(float width, float height,
 
         row.control_bounds = Rect{
             row.thumbnail_bounds.x, ctrl_y,
-            (row.reset_btn_bounds.right() - row.thumbnail_bounds.x), thumb_sz};
+            (row.reset_btn_bounds.right() - row.thumbnail_bounds.x),
+            thumb_sz};
+      } else if (def->id == "workbench.mascot.renderMode") {
+        const float sw_def_w = 124.0F * dpi_scale;
+        const float sw_asc_w = 96.0F * dpi_scale;
+        const float btn_h = 26.0F * dpi_scale;
+        row.switch_default_btn_bounds =
+            Rect{row.focus_box_bounds.x + pad_inner, ctrl_y, sw_def_w, btn_h};
+        row.switch_ascii_btn_bounds =
+            Rect{row.switch_default_btn_bounds.right() + 4.0F * dpi_scale, ctrl_y,
+                 sw_asc_w, btn_h};
+        row.control_bounds = Rect{
+            row.switch_default_btn_bounds.x, ctrl_y,
+            (row.switch_ascii_btn_bounds.right() - row.switch_default_btn_bounds.x),
+            btn_h};
       } else if (def->type == Zenvra::Settings::SettingType::Boolean) {
         row.checkbox_bounds =
             Rect{row.focus_box_bounds.x + pad_inner, ctrl_y + 2.0F * dpi_scale,
@@ -1665,18 +1769,26 @@ SettingsWindow::calculate_layout(float width, float height,
                  28.0F * dpi_scale, 28.0F * dpi_scale};
         row.option_btn_bounds = row.input_bounds;
       } else if (def->type == Zenvra::Settings::SettingType::Integer ||
-                 def->type == Zenvra::Settings::SettingType::Float) {
-        const float num_w = 180.0F * dpi_scale;
+                 def->type == Zenvra::Settings::SettingType::Float ||
+                 def->type == Zenvra::Settings::SettingType::String) {
+        const float num_w =
+            (def->type == Zenvra::Settings::SettingType::String)
+                ? std::min(340.0F * dpi_scale,
+                           row.focus_box_bounds.width - pad_inner * 2.0F)
+                : 180.0F * dpi_scale;
         row.input_bounds = Rect{row.focus_box_bounds.x + pad_inner, ctrl_y,
                                 num_w, 28.0F * dpi_scale};
         row.control_bounds = row.input_bounds;
-        row.minus_btn_bounds = Rect{row.input_bounds.x, ctrl_y,
-                                    28.0F * dpi_scale, 28.0F * dpi_scale};
-        row.value_label_bounds =
-            Rect{row.minus_btn_bounds.right(), ctrl_y,
-                 num_w - 56.0F * dpi_scale, 28.0F * dpi_scale};
-        row.plus_btn_bounds = Rect{row.value_label_bounds.right(), ctrl_y,
-                                   28.0F * dpi_scale, 28.0F * dpi_scale};
+        if (def->type == Zenvra::Settings::SettingType::Integer ||
+            def->type == Zenvra::Settings::SettingType::Float) {
+          row.minus_btn_bounds = Rect{row.input_bounds.x, ctrl_y,
+                                      28.0F * dpi_scale, 28.0F * dpi_scale};
+          row.value_label_bounds =
+              Rect{row.minus_btn_bounds.right(), ctrl_y,
+                   num_w - 56.0F * dpi_scale, 28.0F * dpi_scale};
+          row.plus_btn_bounds = Rect{row.value_label_bounds.right(), ctrl_y,
+                                     28.0F * dpi_scale, 28.0F * dpi_scale};
+        }
       } else if (def->type == Zenvra::Settings::SettingType::Enum) {
         const float enum_w = std::min(
             280.0F * dpi_scale, row.focus_box_bounds.width - pad_inner * 2.0F);
@@ -1713,7 +1825,7 @@ SettingsWindow::calculate_layout(float width, float height,
         SettingRowLayout row{};
         row.def = def;
         const float this_row_h = (def->id == "workbench.mascot.image")
-                                     ? (126.0F * dpi_scale)
+                                     ? (118.0F * dpi_scale)
                                      : row_h;
         row.bounds = Rect{content_x, current_unscrolled_y - m_scroll_offset,
                           gutter_w + row_card_w, this_row_h};
@@ -1761,7 +1873,21 @@ SettingsWindow::calculate_layout(float width, float height,
 
           row.control_bounds = Rect{
               row.thumbnail_bounds.x, ctrl_y,
-              (row.reset_btn_bounds.right() - row.thumbnail_bounds.x), thumb_sz};
+              (row.reset_btn_bounds.right() - row.thumbnail_bounds.x),
+              thumb_sz};
+        } else if (def->id == "workbench.mascot.renderMode") {
+          const float sw_def_w = 124.0F * dpi_scale;
+          const float sw_asc_w = 96.0F * dpi_scale;
+          const float btn_h = 26.0F * dpi_scale;
+          row.switch_default_btn_bounds =
+              Rect{row.focus_box_bounds.x + pad_inner, ctrl_y, sw_def_w, btn_h};
+          row.switch_ascii_btn_bounds =
+              Rect{row.switch_default_btn_bounds.right() + 4.0F * dpi_scale, ctrl_y,
+                   sw_asc_w, btn_h};
+          row.control_bounds = Rect{
+              row.switch_default_btn_bounds.x, ctrl_y,
+              (row.switch_ascii_btn_bounds.right() - row.switch_default_btn_bounds.x),
+              btn_h};
         } else if (def->type == Zenvra::Settings::SettingType::Boolean) {
           row.checkbox_bounds = Rect{row.focus_box_bounds.x + pad_inner,
                                      ctrl_y + 2.0F * dpi_scale,
@@ -1780,18 +1906,26 @@ SettingsWindow::calculate_layout(float width, float height,
                    28.0F * dpi_scale, 28.0F * dpi_scale};
           row.option_btn_bounds = row.input_bounds;
         } else if (def->type == Zenvra::Settings::SettingType::Integer ||
-                   def->type == Zenvra::Settings::SettingType::Float) {
-          const float num_w = 180.0F * dpi_scale;
+                   def->type == Zenvra::Settings::SettingType::Float ||
+                   def->type == Zenvra::Settings::SettingType::String) {
+          const float num_w =
+              (def->type == Zenvra::Settings::SettingType::String)
+                  ? std::min(340.0F * dpi_scale,
+                             row.focus_box_bounds.width - pad_inner * 2.0F)
+                  : 180.0F * dpi_scale;
           row.input_bounds = Rect{row.focus_box_bounds.x + pad_inner, ctrl_y,
                                   num_w, 28.0F * dpi_scale};
           row.control_bounds = row.input_bounds;
-          row.minus_btn_bounds = Rect{row.input_bounds.x, ctrl_y,
-                                      28.0F * dpi_scale, 28.0F * dpi_scale};
-          row.value_label_bounds =
-              Rect{row.minus_btn_bounds.right(), ctrl_y,
-                   num_w - 56.0F * dpi_scale, 28.0F * dpi_scale};
-          row.plus_btn_bounds = Rect{row.value_label_bounds.right(), ctrl_y,
-                                     28.0F * dpi_scale, 28.0F * dpi_scale};
+          if (def->type == Zenvra::Settings::SettingType::Integer ||
+              def->type == Zenvra::Settings::SettingType::Float) {
+            row.minus_btn_bounds = Rect{row.input_bounds.x, ctrl_y,
+                                        28.0F * dpi_scale, 28.0F * dpi_scale};
+            row.value_label_bounds =
+                Rect{row.minus_btn_bounds.right(), ctrl_y,
+                     num_w - 56.0F * dpi_scale, 28.0F * dpi_scale};
+            row.plus_btn_bounds = Rect{row.value_label_bounds.right(), ctrl_y,
+                                       28.0F * dpi_scale, 28.0F * dpi_scale};
+          }
         } else if (def->type == Zenvra::Settings::SettingType::Enum) {
           const float enum_w =
               std::min(280.0F * dpi_scale,
@@ -2147,9 +2281,50 @@ bool SettingsWindow::handle_pointer_press(
             return true;
           }
           if (row.reset_btn_bounds.contains(x, y)) {
+            Utility::Ascii::AsciiMascotRenderer::clear_bitmap_cache();
+            Utility::Ascii::AsciiArtConverter::clear_cache();
             service.reset("workbench.mascot.image", m_active_scope);
             if (m_hwnd) {
               InvalidateRect(m_hwnd, nullptr, FALSE);
+              UpdateWindow(m_hwnd);
+            }
+            if (m_parent_hwnd && IsWindow(m_parent_hwnd)) {
+              InvalidateRect(m_parent_hwnd, nullptr, FALSE);
+              UpdateWindow(m_parent_hwnd);
+            }
+            return true;
+          }
+        }
+
+        // Mascot Render Mode interactions
+        if (row.def->id == "workbench.mascot.renderMode") {
+          if (row.switch_default_btn_bounds.contains(x, y)) {
+            Utility::Ascii::AsciiMascotRenderer::clear_bitmap_cache();
+            Utility::Ascii::AsciiArtConverter::clear_cache();
+            service.set("workbench.mascot.renderMode", std::string("default"),
+                        m_active_scope);
+            if (m_hwnd) {
+              InvalidateRect(m_hwnd, nullptr, FALSE);
+              UpdateWindow(m_hwnd);
+            }
+            if (m_parent_hwnd && IsWindow(m_parent_hwnd)) {
+              InvalidateRect(m_parent_hwnd, nullptr, FALSE);
+              UpdateWindow(m_parent_hwnd);
+            }
+            return true;
+          }
+          if (row.switch_ascii_btn_bounds.contains(x, y)) {
+            Utility::Ascii::AsciiMascotRenderer::clear_bitmap_cache();
+            Utility::Ascii::AsciiArtConverter::clear_cache();
+            service.set("workbench.mascot.renderMode", std::string("ascii"),
+                        m_active_scope);
+            if (m_hwnd) {
+              InvalidateRect(m_hwnd, nullptr, FALSE);
+              UpdateWindow(m_hwnd);
+            }
+            if (m_parent_hwnd && IsWindow(m_parent_hwnd)) {
+              InvalidateRect(m_parent_hwnd, nullptr, FALSE);
+              UpdateWindow(m_parent_hwnd);
             }
             return true;
           }
@@ -2167,9 +2342,12 @@ bool SettingsWindow::handle_pointer_press(
           }
         }
 
-        // Numeric input editing
-        if (row.def->type == Zenvra::Settings::SettingType::Integer ||
-            row.def->type == Zenvra::Settings::SettingType::Float) {
+        // Text / Numeric input editing
+        if ((row.def->type == Zenvra::Settings::SettingType::Integer ||
+             row.def->type == Zenvra::Settings::SettingType::Float ||
+             row.def->type == Zenvra::Settings::SettingType::String) &&
+            row.def->id != "editor.fontFamily" &&
+            row.def->id != "workbench.mascot.image") {
           if (row.input_bounds.contains(x, y)) {
             m_editing_setting_id = row.def->id;
             m_editing_text = service.get(row.def->id).to_display_string();
@@ -2942,89 +3120,6 @@ void SettingsWindow::render(HDC device_context,
                            (row.dropdown_btn_bounds.height - ch_sz) * 0.5F);
       draw_icon(device_context, "Assets/icons/chevron-down.svg", ch_x, ch_y,
                 ch_sz, to_color_ref(theme.text_secondary));
-    } else if (def->type == Zenvra::Settings::SettingType::Integer ||
-               def->type == Zenvra::Settings::SettingType::Float) {
-      // Pure Numeric Text Input (VS Code style)
-      const COLORREF input_bg = to_color_ref(theme.command_center_background);
-      const bool is_editing = (m_editing_setting_id == def->id);
-      const COLORREF input_border =
-          is_editing ? to_color_ref(theme.accent)
-                     : (row.is_input_hovered
-                            ? to_color_ref(theme.hover)
-                            : to_color_ref(theme.command_center_border));
-
-      draw_rounded_rect(device_context, row.input_bounds, input_bg,
-                        input_border, 2.5F * dpi_scale);
-
-      SelectObject(device_context, m_regular_font);
-      SetTextColor(device_context, to_color_ref(theme.text_primary));
-
-      const std::string display_val =
-          is_editing ? m_editing_text
-                     : service.get(def->id).to_display_string();
-      const std::wstring val_w =
-          Utility::utf8_to_wide(display_val).value_or(L"");
-
-      Rect text_box = row.input_bounds;
-      text_box.x += 8.0F * dpi_scale;
-      text_box.width -= 16.0F * dpi_scale;
-      RECT v_rc = to_native_rect(text_box);
-      DrawTextW(device_context, val_w.c_str(), -1, &v_rc,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-
-      // Blinking caret when editing
-      if (is_editing && m_caret_visible) {
-        SIZE val_ext{};
-        GetTextExtentPoint32W(device_context, val_w.c_str(),
-                              static_cast<int>(val_w.size()), &val_ext);
-        const int caret_x = v_rc.left + val_ext.cx + 1;
-        const int caret_top =
-            v_rc.top +
-            static_cast<int>((row.input_bounds.height - 16.0F * dpi_scale) *
-                             0.5F);
-        const int caret_bottom =
-            caret_top + static_cast<int>(16.0F * dpi_scale);
-
-        HPEN caret_pen =
-            CreatePen(PS_SOLID, 2, to_color_ref(theme.text_primary));
-        HGDIOBJ prev_cp = SelectObject(device_context, caret_pen);
-        MoveToEx(device_context, caret_x, caret_top, nullptr);
-        LineTo(device_context, caret_x, caret_bottom);
-        SelectObject(device_context, prev_cp);
-        DeleteObject(caret_pen);
-      }
-    } else if (def->type == Zenvra::Settings::SettingType::Enum) {
-      // Dropdown combobox: [ Option Name        v ]
-      const COLORREF opt_bg =
-          row.is_option_hovered ? to_color_ref(theme.hover)
-                                : to_color_ref(theme.command_center_background);
-      const COLORREF opt_border =
-          row.is_option_hovered ? to_color_ref(theme.accent)
-                                : to_color_ref(theme.command_center_border);
-      draw_rounded_rect(device_context, row.option_btn_bounds, opt_bg,
-                        opt_border, 2.5F * dpi_scale);
-
-      const std::string current = service.get<std::string>(def->id);
-      const std::wstring cur_w = Utility::utf8_to_wide(current).value_or(L"");
-
-      SelectObject(device_context, m_regular_font);
-      SetTextColor(device_context, to_color_ref(theme.text_primary));
-      Rect text_box = row.option_btn_bounds;
-      text_box.x += 10.0F * dpi_scale;
-      text_box.width -= 28.0F * dpi_scale;
-      RECT o_rc = to_native_rect(text_box);
-      DrawTextW(device_context, cur_w.c_str(), -1, &o_rc,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-
-      // Chevron down icon
-      const int ch_sz = static_cast<int>(9.0F * dpi_scale);
-      const int ch_x =
-          static_cast<int>(row.option_btn_bounds.right() - 16.0F * dpi_scale);
-      const int ch_y =
-          static_cast<int>(row.option_btn_bounds.y +
-                           (row.option_btn_bounds.height - ch_sz) * 0.5F);
-      draw_icon(device_context, "Assets/icons/chevron-down.svg", ch_x, ch_y,
-                ch_sz, to_color_ref(theme.text_secondary));
     } else if (def->id == "workbench.mascot.image") {
       const std::string img_path = service.get<std::string>(def->id);
 
@@ -3041,21 +3136,29 @@ void SettingsWindow::render(HDC device_context,
       draw_mascot_thumbnail(device_context, img_path, row.thumbnail_bounds,
                             theme, dpi_scale);
 
-      // Asset format badge (PNG / JPG / BMP) at bottom-left of thumbnail
-      std::string ext = "";
-      const auto dot_pos = img_path.find_last_of('.');
-      if (dot_pos != std::string::npos) {
-        ext = img_path.substr(dot_pos + 1);
-        for (auto &c : ext) {
-          c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+      const std::string render_mode =
+          service.get_schema().has_setting("workbench.mascot.renderMode")
+              ? service.get<std::string>("workbench.mascot.renderMode")
+              : "default";
+      const bool is_ascii_mode = (render_mode == "ascii");
+
+      // Asset format badge (PNG / JPG / BMP / ASCII) at bottom-left of thumbnail
+      std::string ext = is_ascii_mode ? "ASCII" : "";
+      if (!is_ascii_mode) {
+        const auto dot_pos = img_path.find_last_of('.');
+        if (dot_pos != std::string::npos) {
+          ext = img_path.substr(dot_pos + 1);
+          for (auto &c : ext) {
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+          }
         }
-      }
-      if (ext.empty()) {
-        ext = "PNG";
+        if (ext.empty()) {
+          ext = "PNG";
+        }
       }
       const std::wstring ext_w = Utility::utf8_to_wide(ext).value_or(L"PNG");
 
-      const float badge_w = 28.0F * dpi_scale;
+      const float badge_w = (is_ascii_mode ? 38.0F : 28.0F) * dpi_scale;
       const float badge_h = 13.0F * dpi_scale;
       const Rect badge_rc{
           row.thumbnail_bounds.x + 3.0F * dpi_scale,
@@ -3128,9 +3231,8 @@ void SettingsWindow::render(HDC device_context,
       RECT rs_rc = to_native_rect(row.reset_btn_bounds);
       DrawTextW(device_context, L"Reset", -1, &rs_rc,
                 DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-
       // 5. Drag & drop hint text next to reset button
-      Rect hint_rc{row.reset_btn_bounds.right() + 10.0F * dpi_scale,
+      Rect hint_rc{row.reset_btn_bounds.right() + 12.0F * dpi_scale,
                    row.browse_btn_bounds.y, 220.0F * dpi_scale,
                    row.browse_btn_bounds.height};
       SelectObject(device_context, m_small_font);
@@ -3138,6 +3240,145 @@ void SettingsWindow::render(HDC device_context,
       RECT h_native = to_native_rect(hint_rc);
       DrawTextW(device_context, L"Drop image here (.png, .jpg, .bmp)", -1,
                 &h_native, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    } else if (def->id == "workbench.mascot.renderMode") {
+      const bool is_ascii =
+          (service.get<std::string>("workbench.mascot.renderMode") == "ascii");
+
+      const COLORREF active_bg = to_color_ref(theme.accent);
+      const COLORREF inactive_bg =
+          to_color_ref(theme.command_center_background);
+      const COLORREF active_border = to_color_ref(theme.accent);
+      const COLORREF inactive_border =
+          to_color_ref(theme.command_center_border);
+
+      // [ Default (Solid) ]
+      const bool def_active = !is_ascii;
+      const COLORREF sw_def_bg =
+          def_active ? active_bg
+                     : (row.is_switch_default_hovered ? to_color_ref(theme.hover)
+                                                      : inactive_bg);
+      const COLORREF sw_def_border =
+          def_active ? active_border
+                     : (row.is_switch_default_hovered
+                            ? to_color_ref(theme.accent)
+                            : inactive_border);
+      draw_rounded_rect(device_context, row.switch_default_btn_bounds, sw_def_bg,
+                        sw_def_border, 3.0F * dpi_scale);
+      SelectObject(device_context, m_regular_font);
+      SetTextColor(device_context,
+                   def_active ? RGB(255, 255, 255)
+                              : to_color_ref(theme.text_secondary));
+      RECT sw_def_rc = to_native_rect(row.switch_default_btn_bounds);
+      DrawTextW(device_context, L"Default (Solid)", -1, &sw_def_rc,
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+
+      // [ ASCII Art ]
+      const bool asc_active = is_ascii;
+      const COLORREF sw_asc_bg =
+          asc_active ? active_bg
+                     : (row.is_switch_ascii_hovered ? to_color_ref(theme.hover)
+                                                    : inactive_bg);
+      const COLORREF sw_asc_border =
+          asc_active ? active_border
+                     : (row.is_switch_ascii_hovered
+                            ? to_color_ref(theme.accent)
+                            : inactive_border);
+      draw_rounded_rect(device_context, row.switch_ascii_btn_bounds, sw_asc_bg,
+                        sw_asc_border, 3.0F * dpi_scale);
+      SelectObject(device_context, m_regular_font);
+      SetTextColor(device_context,
+                   asc_active ? RGB(255, 255, 255)
+                              : to_color_ref(theme.text_secondary));
+      RECT sw_asc_rc = to_native_rect(row.switch_ascii_btn_bounds);
+      DrawTextW(device_context, L"ASCII Art", -1, &sw_asc_rc,
+                DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    } else if ((def->type == Zenvra::Settings::SettingType::Integer ||
+               def->type == Zenvra::Settings::SettingType::Float ||
+               def->type == Zenvra::Settings::SettingType::String) &&
+               def->id != "workbench.mascot.image") {
+      // Pure Text / Numeric Input (VS Code style)
+      const COLORREF input_bg = to_color_ref(theme.command_center_background);
+      const bool is_editing = (m_editing_setting_id == def->id);
+      const COLORREF input_border =
+          is_editing ? to_color_ref(theme.accent)
+                     : (row.is_input_hovered
+                            ? to_color_ref(theme.hover)
+                            : to_color_ref(theme.command_center_border));
+
+      draw_rounded_rect(device_context, row.input_bounds, input_bg,
+                        input_border, 2.5F * dpi_scale);
+
+      SelectObject(device_context, m_regular_font);
+      SetTextColor(device_context, to_color_ref(theme.text_primary));
+
+      const std::string val_str = is_editing
+                                      ? m_editing_text
+                                      : service.get(def->id).to_display_string();
+      const std::wstring val_w = Utility::utf8_to_wide(val_str).value_or(L"");
+
+      Rect text_box = row.input_bounds;
+      text_box.x += 8.0F * dpi_scale;
+      text_box.width -= 16.0F * dpi_scale;
+      RECT v_rc = to_native_rect(text_box);
+      DrawTextW(device_context, val_w.c_str(), -1, &v_rc,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+
+      // Blinking caret when editing
+      if (is_editing && m_caret_visible) {
+        const std::wstring edit_w =
+            Utility::utf8_to_wide(m_editing_text).value_or(L"");
+        SIZE val_ext{};
+        GetTextExtentPoint32W(device_context, edit_w.c_str(),
+                              static_cast<int>(edit_w.size()), &val_ext);
+        const int caret_x = v_rc.left + val_ext.cx + 1;
+        const int caret_top =
+            v_rc.top +
+            static_cast<int>((row.input_bounds.height - 16.0F * dpi_scale) *
+                             0.5F);
+        const int caret_bottom =
+            caret_top + static_cast<int>(16.0F * dpi_scale);
+
+        HPEN caret_pen =
+            CreatePen(PS_SOLID, 2, to_color_ref(theme.text_primary));
+        HGDIOBJ prev_cp = SelectObject(device_context, caret_pen);
+        MoveToEx(device_context, caret_x, caret_top, nullptr);
+        LineTo(device_context, caret_x, caret_bottom);
+        SelectObject(device_context, prev_cp);
+        DeleteObject(caret_pen);
+      }
+    } else if (def->type == Zenvra::Settings::SettingType::Enum &&
+               def->id != "workbench.mascot.renderMode") {
+      // Dropdown combobox: [ Option Name        v ]
+      const COLORREF opt_bg =
+          row.is_option_hovered ? to_color_ref(theme.hover)
+                                : to_color_ref(theme.command_center_background);
+      const COLORREF opt_border =
+          row.is_option_hovered ? to_color_ref(theme.accent)
+                                : to_color_ref(theme.command_center_border);
+      draw_rounded_rect(device_context, row.option_btn_bounds, opt_bg,
+                        opt_border, 2.5F * dpi_scale);
+
+      const std::string current = service.get<std::string>(def->id);
+      const std::wstring cur_w = Utility::utf8_to_wide(current).value_or(L"");
+
+      SelectObject(device_context, m_regular_font);
+      SetTextColor(device_context, to_color_ref(theme.text_primary));
+      Rect text_box = row.option_btn_bounds;
+      text_box.x += 10.0F * dpi_scale;
+      text_box.width -= 28.0F * dpi_scale;
+      RECT o_rc = to_native_rect(text_box);
+      DrawTextW(device_context, cur_w.c_str(), -1, &o_rc,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+
+      // Chevron down icon
+      const int ch_sz = static_cast<int>(9.0F * dpi_scale);
+      const int ch_x =
+          static_cast<int>(row.option_btn_bounds.right() - 16.0F * dpi_scale);
+      const int ch_y =
+          static_cast<int>(row.option_btn_bounds.y +
+                           (row.option_btn_bounds.height - ch_sz) * 0.5F);
+      draw_icon(device_context, "Assets/icons/chevron-down.svg", ch_x, ch_y,
+                ch_sz, to_color_ref(theme.text_secondary));
     }
   }
 

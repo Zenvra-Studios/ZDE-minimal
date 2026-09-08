@@ -34,6 +34,8 @@ struct SettingRowLayout
     Rect option_btn_bounds;
     Rect thumbnail_bounds;
     Rect browse_btn_bounds;
+    Rect switch_default_btn_bounds;
+    Rect switch_ascii_btn_bounds;
 
     const Zenvra::Settings::SettingDefinition* def = nullptr;
 
@@ -48,6 +50,8 @@ struct SettingRowLayout
     bool is_thumbnail_hovered = false;
     bool is_browse_hovered = false;
     bool is_reset_hovered = false;
+    bool is_switch_default_hovered = false;
+    bool is_switch_ascii_hovered = false;
     bool is_modified = false;
     bool is_enum_dropdown_open = false;
 

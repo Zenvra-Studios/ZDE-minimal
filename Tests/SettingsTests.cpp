@@ -6,6 +6,7 @@
 #include "Settings/SettingsValue.h"
 #include "UI/Settings/SettingsControl.h"
 #include "UI/Settings/SettingsWindow.h"
+#include "Utility/Ascii/AsciiArtConverter.h"
 
 #include <gtest/gtest.h>
 
@@ -469,3 +470,191 @@ TEST_F(SettingsTestFixture, MascotAssetSlotAndImageFormats)
     EXPECT_TRUE(mascot_row_found);
 }
 
+TEST_F(SettingsTestFixture, WelcomeAppTitleSettingAndLayout)
+{
+    const auto user_path = m_temp_dir / "user_settings.json";
+    const auto ws_path = m_temp_dir / "workspace_settings.json";
+
+    SettingsService service;
+    service.initialize(user_path, ws_path);
+
+    // 1. Verify schema registration and default title
+    const auto* title_def = service.get_schema().get_setting("workbench.app.title");
+    ASSERT_NE(title_def, nullptr);
+    EXPECT_EQ(title_def->type, SettingType::String);
+    EXPECT_EQ(title_def->defaultValue.as_string(), "Zenvra Development Studio");
+    EXPECT_EQ(service.get<std::string>("workbench.app.title"), "Zenvra Development Studio");
+
+    // 2. Test PubSub event notification on title change
+    int title_updates = 0;
+    std::string latest_title;
+    static_cast<void>(service.subscribe("workbench.app.title", [&](const SettingsChangedEvent& e) {
+        title_updates++;
+        latest_title = e.new_value.as_string();
+    }));
+
+    service.set("workbench.app.title", std::string("My Custom Studio"), SettingsScope::User);
+    EXPECT_EQ(service.get<std::string>("workbench.app.title"), "My Custom Studio");
+    EXPECT_EQ(title_updates, 1);
+    EXPECT_EQ(latest_title, "My Custom Studio");
+
+    // 3. Test Reset to default
+    service.reset("workbench.app.title", SettingsScope::User);
+    EXPECT_EQ(service.get<std::string>("workbench.app.title"), "Zenvra Development Studio");
+
+    // 4. Test SettingsWindow layout: verify workbench.app.title is directly above workbench.mascot.image
+    Zenvra::UI::Settings::SettingsWindow win;
+    const auto layout = win.calculate_layout(900.0F, 700.0F);
+
+    int title_index = -1;
+    int mascot_index = -1;
+    for (std::size_t i = 0; i < layout.rows.size(); ++i) {
+        if (layout.rows[i].def) {
+            if (layout.rows[i].def->id == "workbench.app.title") {
+                title_index = static_cast<int>(i);
+                EXPECT_FALSE(layout.rows[i].input_bounds.is_empty());
+                EXPECT_TRUE(layout.rows[i].is_interactive_point(
+                    layout.rows[i].input_bounds.x + 5.0F,
+                    layout.rows[i].input_bounds.y + 5.0F));
+            } else if (layout.rows[i].def->id == "workbench.mascot.image") {
+                mascot_index = static_cast<int>(i);
+            }
+        }
+    }
+
+    EXPECT_NE(title_index, -1);
+    EXPECT_NE(mascot_index, -1);
+    EXPECT_EQ(title_index + 1, mascot_index);
+}
+
+TEST_F(SettingsTestFixture, AsciiArtConverterAndMascotRenderMode)
+{
+    const auto user_path = m_temp_dir / "user_settings.json";
+    const auto ws_path = m_temp_dir / "workspace_settings.json";
+
+    SettingsService service;
+    service.initialize(user_path, ws_path);
+
+    // 1. Verify schema registration, type, and default value
+    const auto* mode_def = service.get_schema().get_setting("workbench.mascot.renderMode");
+    ASSERT_NE(mode_def, nullptr);
+    EXPECT_EQ(mode_def->type, SettingType::Enum);
+    EXPECT_EQ(mode_def->defaultValue.as_string(), "default");
+    EXPECT_EQ(service.get<std::string>("workbench.mascot.renderMode"), "default");
+
+    // Check enum options
+    ASSERT_EQ(mode_def->enum_values.size(), 2);
+    EXPECT_EQ(mode_def->enum_values[0].value, "default");
+    EXPECT_EQ(mode_def->enum_values[1].value, "ascii");
+
+    // 2. PubSub event notification on renderMode change
+    int mode_events = 0;
+    std::string latest_mode;
+    static_cast<void>(service.subscribe("workbench.mascot.renderMode", [&](const SettingsChangedEvent& e) {
+        mode_events++;
+        latest_mode = e.new_value.as_string();
+    }));
+
+    service.set("workbench.mascot.renderMode", std::string("ascii"), SettingsScope::User);
+    EXPECT_EQ(service.get<std::string>("workbench.mascot.renderMode"), "ascii");
+    EXPECT_EQ(mode_events, 1);
+    EXPECT_EQ(latest_mode, "ascii");
+
+    service.set("workbench.mascot.renderMode", std::string("default"), SettingsScope::User);
+    EXPECT_EQ(service.get<std::string>("workbench.mascot.renderMode"), "default");
+    EXPECT_EQ(mode_events, 2);
+    EXPECT_EQ(latest_mode, "default");
+
+    // 3. Test dedicated SettingsWindow row for workbench.mascot.renderMode
+    Zenvra::UI::Settings::SettingsWindow win;
+    const auto layout = win.calculate_layout(900.0F, 700.0F);
+    bool render_mode_row_found = false;
+    for (const auto& row : layout.rows) {
+        if (row.def && row.def->id == "workbench.mascot.renderMode") {
+            render_mode_row_found = true;
+            EXPECT_FALSE(row.switch_default_btn_bounds.is_empty());
+            EXPECT_FALSE(row.switch_ascii_btn_bounds.is_empty());
+
+            Zenvra::UI::Settings::SettingRowLayout interactive_row = row;
+            EXPECT_TRUE(interactive_row.handle_pointer_move(row.switch_default_btn_bounds.x + 5.0F, row.switch_default_btn_bounds.y + 5.0F));
+            EXPECT_TRUE(interactive_row.is_switch_default_hovered);
+
+            EXPECT_TRUE(interactive_row.handle_pointer_move(row.switch_ascii_btn_bounds.x + 5.0F, row.switch_ascii_btn_bounds.y + 5.0F));
+            EXPECT_TRUE(interactive_row.is_switch_ascii_hovered);
+
+            EXPECT_TRUE(interactive_row.handle_pointer_press(
+                row.switch_ascii_btn_bounds.x + 5.0F, row.switch_ascii_btn_bounds.y + 5.0F,
+                *row.def, service, SettingsScope::User));
+            EXPECT_EQ(service.get<std::string>("workbench.mascot.renderMode"), "ascii");
+
+            EXPECT_TRUE(interactive_row.handle_pointer_press(
+                row.switch_default_btn_bounds.x + 5.0F, row.switch_default_btn_bounds.y + 5.0F,
+                *row.def, service, SettingsScope::User));
+            EXPECT_EQ(service.get<std::string>("workbench.mascot.renderMode"), "default");
+            break;
+        }
+    }
+    EXPECT_TRUE(render_mode_row_found);
+
+    // 4. Test AsciiArtConverter unit logic with synthetic RGBA pixels
+    // Create an 8x8 test pattern: top half bright white (255), bottom half dark black (0)
+    constexpr int img_w = 8;
+    constexpr int img_h = 8;
+    std::vector<uint8_t> pixels(img_w * img_h * 4, 0);
+
+    for (int y = 0; y < img_h; ++y) {
+        for (int x = 0; x < img_w; ++x) {
+            const int idx = (y * img_w + x) * 4;
+            if (y < 4) {
+                // Bright white
+                pixels[idx] = 255;
+                pixels[idx + 1] = 255;
+                pixels[idx + 2] = 255;
+                pixels[idx + 3] = 255;
+            } else {
+                // Dark
+                pixels[idx] = 0;
+                pixels[idx + 1] = 0;
+                pixels[idx + 2] = 0;
+                pixels[idx + 3] = 255;
+            }
+        }
+    }
+
+    Zenvra::Utility::Ascii::AsciiConvertOptions opts;
+    opts.target_width = 8;
+    opts.target_height = 4;
+    opts.colored = true;
+
+    const auto art = Zenvra::Utility::Ascii::AsciiArtConverter::convert_raw_pixels(
+        pixels.data(), img_w, img_h, opts);
+
+    EXPECT_TRUE(art.is_valid());
+    EXPECT_EQ(art.width, 8);
+    EXPECT_EQ(art.height, 4);
+    EXPECT_EQ(art.cells.size(), 32);
+
+    // Top row should be dense/bright character (e.g. '@' or '#')
+    const auto* top_cell = art.cell_at(0, 0);
+    ASSERT_NE(top_cell, nullptr);
+    EXPECT_NE(top_cell->character, ' ');
+    EXPECT_EQ(top_cell->r, 255);
+    EXPECT_EQ(top_cell->g, 255);
+    EXPECT_EQ(top_cell->b, 255);
+
+    // Bottom row should be dark character (e.g. ' ' or '.')
+    const auto* bottom_cell = art.cell_at(0, 3);
+    ASSERT_NE(bottom_cell, nullptr);
+    EXPECT_EQ(bottom_cell->r, 0);
+    EXPECT_EQ(bottom_cell->g, 0);
+    EXPECT_EQ(bottom_cell->b, 0);
+
+    // Formatted plain text should contain newlines separating 4 rows
+    const std::string text = Zenvra::Utility::Ascii::AsciiArtConverter::to_plain_string(art);
+    EXPECT_FALSE(text.empty());
+    int line_breaks = 0;
+    for (char c : text) {
+        if (c == '\n') line_breaks++;
+    }
+    EXPECT_EQ(line_breaks, 3);
+}

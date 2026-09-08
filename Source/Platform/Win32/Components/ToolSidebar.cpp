@@ -18,10 +18,16 @@ using Zenvra::Utility::round_to_int;
 
 std::string ellipsize(HDC device_context, AntialiasedFont &font,
                       std::string text, int maximum_width) {
+  if (maximum_width <= 0) {
+    return {};
+  }
   if (font.getTextWidth(device_context, text) <= maximum_width) {
     return text;
   }
   constexpr std::string_view suffix = "...";
+  if (font.getTextWidth(device_context, std::string{suffix}) > maximum_width) {
+    return {};
+  }
   while (!text.empty() &&
          font.getTextWidth(device_context, text + std::string{suffix}) >
              maximum_width) {
@@ -1680,26 +1686,60 @@ void ToolSidebar::render(
   }
 
   if (m_model.get_active_icon() != UI::Editor::SidebarIcon::Project) {
+    const int clip_saved = SaveDC(device_context);
+    IntersectClipRect(device_context,
+                      round_to_int(panel.x),
+                      round_to_int(panel.y + header_height * scale),
+                      round_to_int(panel.right()),
+                      round_to_int(panel.bottom()));
+
     const float content_y = panel.y + (header_height + 22.0F) * scale;
-    surface.draw_text(device_context, *surface.m_ui_font,
-                      m_model.get_content_heading(), panel.x + 14.0F * scale,
-                      content_y, surface.m_palette.text_primary);
+    const int max_content_w = std::max(round_to_int(panel.width - 28.0F * scale), 0);
+    const std::string heading = ellipsize(
+        device_context, *surface.m_ui_font, std::string{m_model.get_content_heading()},
+        max_content_w);
+    if (!heading.empty()) {
+      surface.draw_text(device_context, *surface.m_ui_font,
+                        heading, panel.x + 14.0F * scale,
+                        content_y, surface.m_palette.text_primary);
+    }
     const std::string detail = ellipsize(
         device_context, *surface.m_small_font, std::string{m_model.get_content_detail()},
-        std::max(round_to_int(panel.width - 28.0F * scale), 1));
-    surface.draw_text(device_context, *surface.m_small_font, detail,
-                      panel.x + 14.0F * scale, content_y + 24.0F * scale,
-                      surface.m_palette.text_muted);
+        max_content_w);
+    if (!detail.empty()) {
+      surface.draw_text(device_context, *surface.m_small_font, detail,
+                        panel.x + 14.0F * scale, content_y + 24.0F * scale,
+                        surface.m_palette.text_muted);
+    }
+    RestoreDC(device_context, clip_saved);
   } else {
     const std::span<const UI::Editor::ProjectTreeItem> items = m_model.get_project_items();
     if (items.empty()) {
+      const int clip_saved = SaveDC(device_context);
+      IntersectClipRect(device_context,
+                        round_to_int(panel.x),
+                        round_to_int(panel.y + header_height * scale),
+                        round_to_int(panel.right()),
+                        round_to_int(panel.bottom()));
+
+      const int max_text_w = std::max(round_to_int(panel.width - 28.0F * scale), 0);
       const float msg_y = panel.y + (header_height + 22.0F) * scale;
-      surface.draw_text(device_context, *surface.m_ui_font,
-                        "No Folder Opened", panel.x + 14.0F * scale,
-                        msg_y, surface.m_palette.text_primary);
-      surface.draw_text(device_context, *surface.m_small_font,
-                        "You have not yet opened a folder.", panel.x + 14.0F * scale,
-                        msg_y + 20.0F * scale, surface.m_palette.text_muted);
+
+      const std::string title_text = ellipsize(
+          device_context, *surface.m_ui_font, "No Folder Opened", max_text_w);
+      if (!title_text.empty()) {
+        surface.draw_text(device_context, *surface.m_ui_font,
+                          title_text, panel.x + 14.0F * scale,
+                          msg_y, surface.m_palette.text_primary);
+      }
+
+      const std::string desc_text = ellipsize(
+          device_context, *surface.m_small_font, "You have not yet opened a folder.", max_text_w);
+      if (!desc_text.empty()) {
+        surface.draw_text(device_context, *surface.m_small_font,
+                          desc_text, panel.x + 14.0F * scale,
+                          msg_y + 20.0F * scale, surface.m_palette.text_muted);
+      }
 
       float btn_y = msg_y + 36.0F * scale;
       const float btn_w = std::max(panel.width - 28.0F * scale, 0.0F);
@@ -1707,34 +1747,58 @@ void ToolSidebar::render(
       const float btn_x = panel.x + 14.0F * scale;
 
       m_empty_state_open_btn.set_bounds(UI::Rect{btn_x, btn_y, btn_w, btn_h});
-      surface.fill_rounded_rectangle(
-          device_context, m_empty_state_open_btn.get_bounds(),
-          m_empty_state_open_btn.get_state().hovered
-              ? UI::Theme::Color{17, 119, 187, 255}
-              : UI::Theme::Color{14, 99, 156, 255},
-          4.0F * scale);
-      surface.draw_text(
-          device_context, *surface.m_small_font, "Open Folder",
-          btn_x + btn_w * 0.5F - 36.0F * scale, btn_y + btn_h * 0.5F,
-          UI::Theme::Color{255, 255, 255, 255});
+      if (btn_w > 4.0F * scale) {
+        surface.fill_rounded_rectangle(
+            device_context, m_empty_state_open_btn.get_bounds(),
+            m_empty_state_open_btn.get_state().hovered
+                ? UI::Theme::Color{17, 119, 187, 255}
+                : UI::Theme::Color{14, 99, 156, 255},
+            4.0F * scale);
+        const int max_btn_w = std::max(round_to_int(btn_w - 12.0F * scale), 0);
+        const std::string open_btn_text = ellipsize(
+            device_context, *surface.m_small_font, "Open Folder", max_btn_w);
+        if (!open_btn_text.empty()) {
+          const int open_text_w = surface.m_small_font->getTextWidth(device_context, open_btn_text);
+          const float open_text_x = std::max(btn_x + 6.0F * scale, btn_x + (btn_w - static_cast<float>(open_text_w)) * 0.5F);
+          surface.draw_text(
+              device_context, *surface.m_small_font, open_btn_text,
+              open_text_x, btn_y + btn_h * 0.5F,
+              UI::Theme::Color{255, 255, 255, 255});
+        }
+      }
 
       btn_y += btn_h + 20.0F * scale;
-      surface.draw_text(device_context, *surface.m_small_font,
-                        "Clone from a remote repository.",
-                        panel.x + 14.0F * scale, btn_y, surface.m_palette.text_muted);
+      const std::string clone_msg = ellipsize(
+          device_context, *surface.m_small_font, "Clone from a remote repository.", max_text_w);
+      if (!clone_msg.empty()) {
+        surface.draw_text(device_context, *surface.m_small_font,
+                          clone_msg,
+                          panel.x + 14.0F * scale, btn_y, surface.m_palette.text_muted);
+      }
 
       btn_y += 14.0F * scale;
       m_empty_state_clone_btn.set_bounds(UI::Rect{btn_x, btn_y, btn_w, btn_h});
-      surface.fill_rounded_rectangle(
-          device_context, m_empty_state_clone_btn.get_bounds(),
-          m_empty_state_clone_btn.get_state().hovered
-              ? UI::Theme::Color{58, 62, 72, 255}
-              : UI::Theme::Color{44, 48, 56, 255},
-          4.0F * scale);
-      surface.draw_text(
-          device_context, *surface.m_small_font, "Clone Repository",
-          btn_x + btn_w * 0.5F - 46.0F * scale, btn_y + btn_h * 0.5F,
-          UI::Theme::Color{215, 220, 228, 255});
+      if (btn_w > 4.0F * scale) {
+        surface.fill_rounded_rectangle(
+            device_context, m_empty_state_clone_btn.get_bounds(),
+            m_empty_state_clone_btn.get_state().hovered
+                ? UI::Theme::Color{58, 62, 72, 255}
+                : UI::Theme::Color{44, 48, 56, 255},
+            4.0F * scale);
+        const int max_btn_w = std::max(round_to_int(btn_w - 12.0F * scale), 0);
+        const std::string clone_btn_text = ellipsize(
+            device_context, *surface.m_small_font, "Clone Repository", max_btn_w);
+        if (!clone_btn_text.empty()) {
+          const int clone_text_w = surface.m_small_font->getTextWidth(device_context, clone_btn_text);
+          const float clone_text_x = std::max(btn_x + 6.0F * scale, btn_x + (btn_w - static_cast<float>(clone_text_w)) * 0.5F);
+          surface.draw_text(
+              device_context, *surface.m_small_font, clone_btn_text,
+              clone_text_x, btn_y + btn_h * 0.5F,
+              UI::Theme::Color{215, 220, 228, 255});
+        }
+      }
+
+      RestoreDC(device_context, clip_saved);
     } else {
       const std::size_t first = m_model.get_scroll_offset();
       const std::size_t row_count = viewport_row_count(layout);
@@ -1797,7 +1861,7 @@ void ToolSidebar::render(
 
         for (std::size_t level = 0; level < item.depth; ++level) {
           const int guide_x = round_to_int(
-              panel.x + (17.0F + static_cast<float>(level) * 16.0F) * scale);
+              panel.x + (13.0F + static_cast<float>(level) * 16.0F) * scale);
 
           bool line_active = false;
           for (std::size_t next = item_index + 1; next < items.size(); ++next) {

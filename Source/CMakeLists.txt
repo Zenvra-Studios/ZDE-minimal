@@ -229,6 +229,21 @@ if(WIN32)
         )
     endif()
 
+    # Deploy shader-language-server binary and DXC DLLs strictly inside plugins/lsp/ folder
+    set(SHADER_LS_DIR "${CMAKE_SOURCE_DIR}/ThirdParty/lsp/shader-ls/win")
+    if(NOT EXISTS "${SHADER_LS_DIR}/shader-language-server.exe")
+        set(SHADER_LS_DIR "${CMAKE_SOURCE_DIR}/ThirdParty/lsp/shader-ls")
+    endif()
+    if(EXISTS "${SHADER_LS_DIR}/shader-language-server.exe")
+        add_custom_command(TARGET ZDE POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ZDE>/plugins/lsp"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SHADER_LS_DIR}/shader-language-server.exe" "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/shader-language-server.exe"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SHADER_LS_DIR}/dxcompiler.dll" "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/dxcompiler.dll"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "${SHADER_LS_DIR}/dxil.dll" "$<TARGET_FILE_DIR:ZDE>/plugins/lsp/dxil.dll"
+            COMMENT "Deploying shader-language-server binary and DirectX compiler DLLs into plugins/lsp/..."
+        )
+    endif()
+
     # Deploy Resources directory strictly containing icons and fonts only
     add_custom_command(TARGET ZDE POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ZDE>/Resources"

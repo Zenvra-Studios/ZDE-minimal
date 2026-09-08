@@ -2191,3 +2191,160 @@ TEST(LanguageServerTests, FolderIconModelDefaultsToVSCodeOutlineIcons) {
   EXPECT_EQ(UI::Editor::folder_icon_asset_for_path(std::filesystem::path("ThirdParty"), false, true), "folder.svg");
 }
 
+TEST(LanguageServerTests, ShaderLanguageServerProfilesAndExecutable) {
+  // 1. Verify GLSL profile resolution
+  const auto* glsl_profile = Language::Registry::ServerRegistry::instance().find_profile_for_filename("sandbox.frag");
+  ASSERT_NE(glsl_profile, nullptr);
+  EXPECT_EQ(glsl_profile->language_id, "glsl");
+  EXPECT_EQ(glsl_profile->executable_name, "shader-language-server");
+
+  const auto* vert_profile = Language::Registry::ServerRegistry::instance().find_profile_for_filename("main.vert");
+  ASSERT_NE(vert_profile, nullptr);
+  EXPECT_EQ(vert_profile->language_id, "glsl");
+
+  // 2. Verify HLSL profile resolution
+  const auto* hlsl_profile = Language::Registry::ServerRegistry::instance().find_profile_for_filename("shader.hlsl");
+  ASSERT_NE(hlsl_profile, nullptr);
+  EXPECT_EQ(hlsl_profile->language_id, "hlsl");
+  EXPECT_EQ(hlsl_profile->executable_name, "shader-language-server");
+
+  // 3. Verify WGSL profile resolution
+  const auto* wgsl_profile = Language::Registry::ServerRegistry::instance().find_profile_for_filename("render.wgsl");
+  ASSERT_NE(wgsl_profile, nullptr);
+  EXPECT_EQ(wgsl_profile->language_id, "wgsl");
+  EXPECT_EQ(wgsl_profile->executable_name, "shader-language-server");
+
+  // 4. Verify shader-language-server executable resolution in system / plugins
+  const auto exe = Language::Registry::ServerRegistry::instance().find_executable_in_system("shader-language-server");
+  EXPECT_FALSE(exe.empty());
+  EXPECT_TRUE(std::filesystem::exists(exe));
+}
+
+TEST(LanguageServerTests, ShaderSyntaxHighlightingGLSL) {
+  const auto* grammar = Language::Syntax::GrammarRegistry::instance().get_grammar_for_filename("test.frag");
+  ASSERT_NE(grammar, nullptr);
+  EXPECT_EQ(grammar->name, "GLSL");
+
+  std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+  Language::Syntax::TokenizerState state{};
+
+  // Line with precision, uniform, and types
+  const std::string line = "precision highp float; uniform vec2 iResolution; uniform float iTime;";
+  const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(line, *grammar, tokens, state);
+  ASSERT_GT(count, 0u);
+
+  bool found_precision = false;
+  bool found_highp = false;
+  bool found_float = false;
+  bool found_uniform = false;
+  bool found_vec2 = false;
+  bool found_iResolution = false;
+  bool found_iTime = false;
+
+  for (std::size_t i = 0; i < count; ++i) {
+    if (tokens[i].text == "precision") {
+      EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Keyword);
+      found_precision = true;
+    } else if (tokens[i].text == "highp") {
+      EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Keyword);
+      found_highp = true;
+    } else if (tokens[i].text == "float") {
+      EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Type);
+      found_float = true;
+    } else if (tokens[i].text == "uniform") {
+      EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Keyword);
+      found_uniform = true;
+    } else if (tokens[i].text == "vec2") {
+      EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Type);
+      found_vec2 = true;
+    } else if (tokens[i].text == "iResolution") {
+      EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Macro);
+      found_iResolution = true;
+    } else if (tokens[i].text == "iTime") {
+      EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Macro);
+      found_iTime = true;
+    }
+  }
+
+  EXPECT_TRUE(found_precision);
+  EXPECT_TRUE(found_highp);
+  EXPECT_TRUE(found_float);
+  EXPECT_TRUE(found_uniform);
+  EXPECT_TRUE(found_vec2);
+  EXPECT_TRUE(found_iResolution);
+  EXPECT_TRUE(found_iTime);
+}
+
+TEST(LanguageServerTests, ShaderSyntaxHighlightingHLSL) {
+  const auto* grammar = Language::Syntax::GrammarRegistry::instance().get_grammar_for_filename("test.hlsl");
+  ASSERT_NE(grammar, nullptr);
+  EXPECT_EQ(grammar->name, "HLSL");
+
+  std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+  Language::Syntax::TokenizerState state{};
+
+  const std::string line = "cbuffer Constants : register(b0) { float4x4 uViewProj; };";
+  const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(line, *grammar, tokens, state);
+  ASSERT_GT(count, 0u);
+
+  bool found_cbuffer = false;
+  bool found_register = false;
+  bool found_float4x4 = false;
+
+  for (std::size_t i = 0; i < count; ++i) {
+    if (tokens[i].text == "cbuffer") {
+      EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Keyword);
+      found_cbuffer = true;
+    } else if (tokens[i].text == "register") {
+      EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Keyword);
+      found_register = true;
+    } else if (tokens[i].text == "float4x4") {
+      EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Type);
+      found_float4x4 = true;
+    }
+  }
+
+  EXPECT_TRUE(found_cbuffer);
+  EXPECT_TRUE(found_register);
+  EXPECT_TRUE(found_float4x4);
+}
+
+TEST(LanguageServerTests, ShaderSyntaxHighlightingWGSL) {
+  const auto* grammar = Language::Syntax::GrammarRegistry::instance().get_grammar_for_filename("test.wgsl");
+  ASSERT_NE(grammar, nullptr);
+  EXPECT_EQ(grammar->name, "WGSL");
+
+  std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens> tokens{};
+  Language::Syntax::TokenizerState state{};
+
+  const std::string line = "@fragment fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f";
+  const std::size_t count = Language::Syntax::GenericGrammarEngine::tokenize_line(line, *grammar, tokens, state);
+  ASSERT_GT(count, 0u);
+
+  bool found_fragment = false;
+  bool found_fn = false;
+  bool found_vec2f = false;
+  bool found_vec4f = false;
+
+  for (std::size_t i = 0; i < count; ++i) {
+    if (tokens[i].text == "@fragment") {
+      EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Keyword);
+      found_fragment = true;
+    } else if (tokens[i].text == "fn") {
+      EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Keyword);
+      found_fn = true;
+    } else if (tokens[i].text == "vec2f") {
+      EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Type);
+      found_vec2f = true;
+    } else if (tokens[i].text == "vec4f") {
+      EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Type);
+      found_vec4f = true;
+    }
+  }
+
+  EXPECT_TRUE(found_fragment);
+  EXPECT_TRUE(found_fn);
+  EXPECT_TRUE(found_vec2f);
+  EXPECT_TRUE(found_vec4f);
+}
+

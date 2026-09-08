@@ -175,7 +175,11 @@ file_icon_asset_for_path(const std::filesystem::path &path) {
   if (extension == ".glsl" || extension == ".hlsl" || extension == ".wgsl" ||
       extension == ".vert" || extension == ".frag" || extension == ".geom" ||
       extension == ".comp" || extension == ".tesc" || extension == ".tese" ||
-      extension == ".shader") {
+      extension == ".mesh" || extension == ".task" || extension == ".rgen" ||
+      extension == ".rint" || extension == ".rahit" || extension == ".rchit" ||
+      extension == ".rmiss" || extension == ".rcall" ||
+      extension == ".fs" || extension == ".vs" || extension == ".hlsli" ||
+      extension == ".fx" || extension == ".fxh" || extension == ".shader") {
     return Detail::shader_icon();
   }
 

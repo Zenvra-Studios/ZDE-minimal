@@ -1,1 +1,4 @@
 /ffmpeg/*
+/zint/
+/zlib/
+/zxing-cpp/

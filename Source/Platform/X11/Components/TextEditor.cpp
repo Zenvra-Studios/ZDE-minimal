@@ -3234,7 +3234,14 @@ void TextEditor::draw_document(
     const float logo_size = 180.0F * dpi;
     const float logo_gap = 32.0F * dpi;
 
-    const std::string title = "Zenvra Development Studio";
+    std::string title = "Zenvra Development Studio";
+    auto &settings_service = Zenvra::Settings::SettingsService::instance();
+    if (settings_service.get_schema().has_setting("workbench.app.title")) {
+      const std::string custom_title = settings_service.get<std::string>("workbench.app.title");
+      if (!custom_title.empty()) {
+        title = custom_title;
+      }
+    }
     const int title_w =
         surface.m_large_font
             ? surface.get_text_width(*surface.m_large_font, title)

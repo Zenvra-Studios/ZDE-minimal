@@ -506,6 +506,17 @@ void SettingsService::register_default_settings()
     });
 
     m_schema.register_setting({
+        .id = "workbench.app.title",
+        .title = "App Title",
+        .description = "Controls the application title displayed on the empty welcome screen.",
+        .type = SettingType::String,
+        .defaultValue = std::string("Zenvra Development Studio"),
+        .category = "Workbench",
+        .subcategory = "Appearance",
+        .tags = {"title", "welcome", "app", "workbench", "branding", "name"},
+    });
+
+    m_schema.register_setting({
         .id = "workbench.mascot.image",
         .title = "Mascot Image",
         .description = "Controls the mascot / splash image displayed on the empty welcome screen. Supports PNG, JPG, JPEG, and BMP files.",
@@ -514,6 +525,21 @@ void SettingsService::register_default_settings()
         .category = "Workbench",
         .subcategory = "Appearance",
         .tags = {"mascot", "logo", "splash", "welcome", "image", "workbench", "branding"},
+    });
+
+    m_schema.register_setting({
+        .id = "workbench.mascot.renderMode",
+        .title = "Mascot Render Mode",
+        .description = "Controls whether the mascot is rendered as a solid graphic or dynamic ASCII art.",
+        .type = SettingType::Enum,
+        .defaultValue = std::string("default"),
+        .category = "Workbench",
+        .subcategory = "Appearance",
+        .tags = {"mascot", "ascii", "solid", "render", "style", "workbench", "logo"},
+        .enum_values = {
+            {.label = "Default (Solid Image)", .value = "default"},
+            {.label = "ASCII Art", .value = "ascii"}
+        },
     });
 
     // 5. Terminal settings

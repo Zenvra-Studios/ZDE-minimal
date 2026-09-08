@@ -8,6 +8,7 @@
 #include "Utility/stb_image.h"
 
 #include "UI/Editor/EditorFileSystem.h"
+#include "Utility/Ascii/AsciiMascotRenderer.h"
 #include "Utility/Fonts.h"
 #include <lunasvg.h>
 
@@ -256,9 +257,12 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
     } else if (event.id == "editor.renderWhitespace") {
       m_text_editor.set_render_whitespace(settings_service.get<std::string>("editor.renderWhitespace"));
       if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
-    } else if (event.id == "editor.minimap.enabled" || event.id == "workbench.activityBar.visible" || event.id == "theme.current" || event.id == "workbench.mascot.image") {
+    } else if (event.id == "editor.minimap.enabled" || event.id == "workbench.activityBar.visible" || event.id == "theme.current" || event.id == "workbench.mascot.image" || event.id == "workbench.mascot.renderMode" || event.id == "workbench.app.title") {
+      Utility::Ascii::AsciiMascotRenderer::clear_bitmap_cache();
+      Utility::Ascii::AsciiArtConverter::clear_cache();
       if (m_window_handle) {
         InvalidateRect(m_window_handle, nullptr, FALSE);
+        UpdateWindow(m_window_handle);
       }
     }
   }));
@@ -352,7 +356,7 @@ bool StudioWorkspaceRenderer::open_file(const std::filesystem::path &path) {
   if (res) {
     const std::string ext = path.extension().string();
     if (ext == ".glsl" || ext == ".frag" || ext == ".vert" || ext == ".comp" ||
-        ext == ".shader" || ext == ".hlsl") {
+        ext == ".shader" || ext == ".hlsl" || ext == ".wgsl" || ext == ".fs" || ext == ".vs") {
       m_shader_sandbox_panel.set_visible(true);
     }
     sync_shader_sandbox();
@@ -366,7 +370,7 @@ bool StudioWorkspaceRenderer::open_file_at_location(
   if (res) {
     const std::string ext = path.extension().string();
     if (ext == ".glsl" || ext == ".frag" || ext == ".vert" || ext == ".comp" ||
-        ext == ".shader" || ext == ".hlsl") {
+        ext == ".shader" || ext == ".hlsl" || ext == ".wgsl" || ext == ".fs" || ext == ".vs") {
       m_shader_sandbox_panel.set_visible(true);
     }
     sync_shader_sandbox();
@@ -1298,6 +1302,10 @@ void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
                  m_palette.editor_background);
   fill_rectangle(device_context, layout.editor_bounds,
                  m_palette.editor_background);
+  if (!layout.shader_splitter_bounds.is_empty()) {
+    fill_rectangle(device_context, layout.shader_splitter_bounds,
+                   m_palette.editor_background);
+  }
   fill_rectangle(device_context, layout.status_bar_bounds,
                  m_palette.status_background);
   SetBkMode(device_context, TRANSPARENT);
