@@ -15,6 +15,7 @@ add_library(ZDEPlatformWin32
     Components/TerminalPanel.cpp
     Components/TextEditor.cpp
     Components/ToolSidebar.cpp
+    Components/ToolSwitcherPopup.cpp
     Components/Win32PromptDialog.cpp
     Components/ShaderSandboxPanel.cpp
     Utility/Win32Dialogs.cpp
@@ -33,7 +34,7 @@ target_compile_definitions(ZDEPlatformWin32 PRIVATE
 )
 target_link_libraries(ZDEPlatformWin32
     PUBLIC Zenvra::Core Zenvra::PlatformHost Zenvra::Settings
-    PRIVATE Zenvra::Commands Zenvra::UI Zenvra::Language Zenvra::Terminal Zenvra::Services lunasvg ZDEUtility
+    PRIVATE Zenvra::Commands Zenvra::UI Zenvra::Language Zenvra::Terminal Zenvra::Services Zenvra::Plugins lunasvg ZDEUtility
             user32 gdi32 msimg32 shell32 dwmapi uxtheme usp10 ole32 uuid runtimeobject comctl32
 )
 zde_enable_warnings(ZDEPlatformWin32)

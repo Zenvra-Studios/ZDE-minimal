@@ -2,6 +2,7 @@
 #include "Language/LanguageServerManager.h"
 #include "Language/Syntax/GrammarRegistry.h"
 #include "Language/Toolchain/ToolchainDetector.h"
+#include "Plugins/PluginManager.h"
 #include "Platform/PlatformWindowFactory.h"
 #include "Utility/MultiContext.h"
 
@@ -264,6 +265,9 @@ bool Application::initialize()
     Language::Syntax::GrammarRegistry::instance().initialize_default_grammars();
     Language::LanguageServerManager::instance().set_workspace_root({});
     Language::Toolchain::ToolchainDetector::instance().refresh();
+
+    // Initialize Plugin & Toolchain subsystem (Local-first / Git-first)
+    Plugins::PluginManager::instance().initialize();
 
     // Create the initial primary window context
     auto* initial_window = create_new_window(m_specification.initial_path);

@@ -7,7 +7,7 @@ add_library(Zenvra::Application ALIAS ZDEApplication)
 
 target_include_directories(ZDEApplication PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/..")
 target_link_libraries(ZDEApplication
-    PUBLIC Zenvra::Commands Zenvra::Core Zenvra::Language Zenvra::UI Zenvra::Services Zenvra::Tools
+    PUBLIC Zenvra::Commands Zenvra::Core Zenvra::Language Zenvra::UI Zenvra::Services Zenvra::Tools Zenvra::Plugins
     PRIVATE Zenvra::Platform
 )
 zde_enable_warnings(ZDEApplication)

@@ -151,40 +151,40 @@ endif()
 #         "USE_BUNDLED_ZLIB OFF"
 # )
 
-# mupdf - Lightweight PDF, XPS, and E-book viewer / parser
-CPMAddPackage(
-    NAME mupdf
-    GIT_REPOSITORY "https://github.com/ArtifexSoftware/mupdf.git"
-    GIT_TAG master
-    GIT_SHALLOW TRUE
-    GIT_SUBMODULES ""
-    DOWNLOAD_ONLY YES
-)
-if(mupdf_ADDED)
-    if(NOT TARGET mupdf)
-        add_library(mupdf INTERFACE IMPORTED)
-        set_target_properties(mupdf PROPERTIES
-            INTERFACE_INCLUDE_DIRECTORIES "${mupdf_SOURCE_DIR}/include"
-        )
-    endif()
-endif()
+# mupdf - Lightweight PDF, XPS, and E-book viewer / parser (disabled - not in use)
+# CPMAddPackage(
+#     NAME mupdf
+#     GIT_REPOSITORY "https://github.com/ArtifexSoftware/mupdf.git"
+#     GIT_TAG master
+#     GIT_SHALLOW TRUE
+#     GIT_SUBMODULES ""
+#     DOWNLOAD_ONLY YES
+# )
+# if(mupdf_ADDED)
+#     if(NOT TARGET mupdf)
+#         add_library(mupdf INTERFACE IMPORTED)
+#         set_target_properties(mupdf PROPERTIES
+#             INTERFACE_INCLUDE_DIRECTORIES "${mupdf_SOURCE_DIR}/include"
+#         )
+#     endif()
+# endif()
 
-# epub-cpp - Modern C++20 EPUB 3.3 parser library
-CPMAddPackage(
-    NAME epub_cpp
-    GIT_REPOSITORY "https://github.com/donghch/epub-cpp.git"
-    GIT_TAG main
-    GIT_SHALLOW TRUE
-    DOWNLOAD_ONLY YES
-)
-if(epub_cpp_ADDED)
-    if(NOT TARGET epub-cpp)
-        add_library(epub-cpp INTERFACE IMPORTED)
-        set_target_properties(epub-cpp PROPERTIES
-            INTERFACE_INCLUDE_DIRECTORIES "${epub_cpp_SOURCE_DIR}/include"
-        )
-    endif()
-endif()
+# epub-cpp - Modern C++20 EPUB 3.3 parser library (disabled - not in use)
+# CPMAddPackage(
+#     NAME epub_cpp
+#     GIT_REPOSITORY "https://github.com/donghch/epub-cpp.git"
+#     GIT_TAG main
+#     GIT_SHALLOW TRUE
+#     DOWNLOAD_ONLY YES
+# )
+# if(epub_cpp_ADDED)
+#     if(NOT TARGET epub-cpp)
+#         add_library(epub-cpp INTERFACE IMPORTED)
+#         set_target_properties(epub-cpp PROPERTIES
+#             INTERFACE_INCLUDE_DIRECTORIES "${epub_cpp_SOURCE_DIR}/include"
+#         )
+#     endif()
+# endif()
 
 foreach(gtest_target IN ITEMS gtest gtest_main gmock gmock_main)
     if(TARGET ${gtest_target})

@@ -183,7 +183,7 @@ void CocoaMenuBridge::build_native_menu_bar() {
                                      "zde.settings.telemetry",
                                      shared_delegate)];
     [pref_menu addItem:[NSMenuItem separatorItem]];
-    [pref_menu addItem:make_cmd_item(@"Extensions",
+    [pref_menu addItem:make_cmd_item(@"Plugins",
                                      Commands::CommandIds::open_plugins,
                                      shared_delegate,
                                      @"X",
@@ -626,7 +626,7 @@ void CocoaMenuBridge::build_native_menu_bar() {
                                      shared_delegate,
                                      @"D",
                                      NSEventModifierFlagShift | NSEventModifierFlagCommand)];
-    [view_menu addItem:make_cmd_item(@"Extensions",
+    [view_menu addItem:make_cmd_item(@"Plugins",
                                      Commands::CommandIds::open_plugins,
                                      shared_delegate,
                                      @"X",
