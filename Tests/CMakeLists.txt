@@ -9,6 +9,7 @@ add_executable(ZDEUnitTests
     FFmpegTests.cpp
     ShaderServiceTests.cpp
     SettingsTests.cpp
+    PluginSystemTests.cpp
     # SourceControlTests.cpp
 )
 
@@ -26,6 +27,7 @@ target_link_libraries(ZDEUnitTests PRIVATE
     Zenvra::Drivers::Audio
     Zenvra::Tools
     Zenvra::Services
+    Zenvra::Plugins
     # Zenvra::SourceControl
     Zenvra::Platform
     Zenvra::Graphics
