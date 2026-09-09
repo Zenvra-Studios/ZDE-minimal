@@ -6,6 +6,7 @@ add_subdirectory(Utility)
 add_subdirectory(Settings)
 add_subdirectory(Media)
 add_subdirectory(UI)
+add_subdirectory(Editors)
 add_subdirectory(Tools)
 add_subdirectory(Services)
 add_subdirectory(Platform)
@@ -198,7 +199,6 @@ endif()
 # Their current CMake files remain safe no-ops until implementation starts.
 foreach(module_dir IN ITEMS
     AI
-    Editors
     Explorer
     Language
     Panels

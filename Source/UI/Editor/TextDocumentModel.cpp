@@ -415,6 +415,7 @@ bool TextDocumentModel::insert_text(std::string_view utf8_text)
     {
         return false;
     }
+    record_undo_snapshot();
 
     if (!m_secondary_cursors.empty())
     {
@@ -775,6 +776,10 @@ bool TextDocumentModel::execute(EditorInputCommand command, bool extend_selectio
     {
         return false;
     }
+    if (editing_command)
+    {
+        record_undo_snapshot();
+    }
     const std::size_t original_line = m_caret_line;
     const std::size_t original_column = m_caret_column;
     const bool originally_selected = has_selection();
@@ -910,6 +915,7 @@ bool TextDocumentModel::delete_selection()
     {
         return false;
     }
+    record_undo_snapshot();
     const TextSelection selection = get_selection();
     if (selection.start.line >= m_lines.size() || selection.end.line >= m_lines.size())
     {
@@ -2107,6 +2113,203 @@ bool TextDocumentModel::is_line_inactive(std::size_t line_index) const noexcept
         update_inactive_lines_cache();
     }
     return line_index < m_inactive_lines.size() ? m_inactive_lines[line_index] : false;
+}
+
+void TextDocumentModel::record_undo_snapshot()
+{
+    if (m_undo_stack.size() >= 200)
+    {
+        m_undo_stack.erase(m_undo_stack.begin());
+    }
+    m_undo_stack.push_back(UndoSnapshot{m_lines, m_caret_line, m_caret_column});
+    m_redo_stack.clear();
+}
+
+bool TextDocumentModel::can_undo() const noexcept
+{
+    return !m_undo_stack.empty();
+}
+
+bool TextDocumentModel::can_redo() const noexcept
+{
+    return !m_redo_stack.empty();
+}
+
+bool TextDocumentModel::undo()
+{
+    if (m_read_only || m_undo_stack.empty())
+    {
+        return false;
+    }
+    m_redo_stack.push_back(UndoSnapshot{m_lines, m_caret_line, m_caret_column});
+    UndoSnapshot snap = std::move(m_undo_stack.back());
+    m_undo_stack.pop_back();
+
+    m_lines = std::move(snap.lines);
+    m_caret_line = std::min(snap.caret_line, m_lines.empty() ? 0 : m_lines.size() - 1);
+    const std::size_t line_len_undo = m_lines.empty() ? 0 : m_lines[m_caret_line].size();
+    m_caret_column = std::min(snap.caret_column, line_len_undo);
+    m_selection_anchor = {m_caret_line, m_caret_column};
+    m_dirty = true;
+    ++m_revision;
+    update_preferred_column();
+    return true;
+}
+
+bool TextDocumentModel::redo()
+{
+    if (m_read_only || m_redo_stack.empty())
+    {
+        return false;
+    }
+    m_undo_stack.push_back(UndoSnapshot{m_lines, m_caret_line, m_caret_column});
+    UndoSnapshot snap = std::move(m_redo_stack.back());
+    m_redo_stack.pop_back();
+
+    m_lines = std::move(snap.lines);
+    m_caret_line = std::min(snap.caret_line, m_lines.empty() ? 0 : m_lines.size() - 1);
+    const std::size_t line_len_redo = m_lines.empty() ? 0 : m_lines[m_caret_line].size();
+    m_caret_column = std::min(snap.caret_column, line_len_redo);
+    m_selection_anchor = {m_caret_line, m_caret_column};
+    m_dirty = true;
+    ++m_revision;
+    update_preferred_column();
+    return true;
+}
+
+bool TextDocumentModel::delete_range(TextPosition start, TextPosition end)
+{
+    if (m_read_only || m_lines.empty())
+    {
+        return false;
+    }
+    if (end < start)
+    {
+        std::swap(start, end);
+    }
+    if (start == end)
+    {
+        return false;
+    }
+
+    record_undo_snapshot();
+
+    if (start.line >= m_lines.size()) start.line = m_lines.size() - 1;
+    if (end.line >= m_lines.size()) end.line = m_lines.size() - 1;
+
+    if (start.line == end.line)
+    {
+        const std::size_t col_start = std::min(start.column, m_lines[start.line].size());
+        const std::size_t col_end = std::min(end.column, m_lines[start.line].size());
+        if (col_start < col_end)
+        {
+            m_lines[start.line].erase(col_start, col_end - col_start);
+        }
+    }
+    else
+    {
+        const std::size_t col_start = std::min(start.column, m_lines[start.line].size());
+        m_lines[start.line].erase(col_start);
+        const std::size_t col_end = std::min(end.column, m_lines[end.line].size());
+        m_lines[start.line] += m_lines[end.line].substr(col_end);
+
+        const auto erase_first = m_lines.begin() + static_cast<std::ptrdiff_t>(start.line + 1);
+        const auto erase_last = m_lines.begin() + static_cast<std::ptrdiff_t>(end.line + 1);
+        if (erase_first < erase_last && erase_last <= m_lines.end())
+        {
+            m_lines.erase(erase_first, erase_last);
+        }
+    }
+
+    m_caret_line = start.line;
+    m_caret_column = std::min(start.column, m_lines[m_caret_line].size());
+    m_selection_anchor = {m_caret_line, m_caret_column};
+    m_dirty = true;
+    ++m_revision;
+    update_preferred_column();
+    return true;
+}
+
+bool TextDocumentModel::delete_lines(std::size_t start_line, std::size_t count)
+{
+    if (m_read_only || m_lines.empty() || count == 0)
+    {
+        return false;
+    }
+    if (start_line >= m_lines.size())
+    {
+        return false;
+    }
+
+    record_undo_snapshot();
+
+    const std::size_t lines_to_remove = std::min(count, m_lines.size() - start_line);
+    const auto it_first = m_lines.begin() + static_cast<std::ptrdiff_t>(start_line);
+    const auto it_last = it_first + static_cast<std::ptrdiff_t>(lines_to_remove);
+    m_lines.erase(it_first, it_last);
+
+    if (m_lines.empty())
+    {
+        m_lines.push_back("");
+    }
+
+    m_caret_line = std::min(start_line, m_lines.size() - 1);
+    const std::string_view l = m_lines[m_caret_line];
+    std::size_t col = 0;
+    while (col < l.size() && std::isspace(static_cast<unsigned char>(l[col])))
+    {
+        ++col;
+    }
+    m_caret_column = col;
+    m_selection_anchor = {m_caret_line, m_caret_column};
+    m_dirty = true;
+    ++m_revision;
+    update_preferred_column();
+    return true;
+}
+
+std::string TextDocumentModel::get_text_range(TextPosition start, TextPosition end) const
+{
+    if (m_lines.empty()) return "";
+    if (end < start) std::swap(start, end);
+
+    if (start.line >= m_lines.size()) start.line = m_lines.size() - 1;
+    if (end.line >= m_lines.size()) end.line = m_lines.size() - 1;
+
+    if (start.line == end.line)
+    {
+        const std::string_view l = m_lines[start.line];
+        const std::size_t s = std::min(start.column, l.size());
+        const std::size_t e = std::min(end.column, l.size());
+        return std::string{l.substr(s, e > s ? e - s : 0)};
+    }
+
+    std::string result;
+    result += m_lines[start.line].substr(std::min(start.column, m_lines[start.line].size()));
+    result += '\n';
+
+    for (std::size_t l = start.line + 1; l < end.line; ++l)
+    {
+        result += m_lines[l];
+        result += '\n';
+    }
+
+    result += m_lines[end.line].substr(0, std::min(end.column, m_lines[end.line].size()));
+    return result;
+}
+
+std::string TextDocumentModel::get_lines_text(std::size_t start_line, std::size_t count) const
+{
+    if (m_lines.empty() || count == 0 || start_line >= m_lines.size()) return "";
+    const std::size_t end_line = std::min(start_line + count, m_lines.size());
+
+    std::string result;
+    for (std::size_t l = start_line; l < end_line; ++l)
+    {
+        result += m_lines[l];
+        result += '\n';
+    }
+    return result;
 }
 
 } // namespace Zenvra::UI::Editor

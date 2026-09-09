@@ -144,6 +144,17 @@ public:
     [[nodiscard]] const std::unordered_set<std::size_t>& get_breakpoints() const noexcept;
     void clear_all_breakpoints() noexcept;
 
+    bool delete_range(TextPosition start, TextPosition end);
+    bool delete_lines(std::size_t start_line, std::size_t count);
+    [[nodiscard]] std::string get_text_range(TextPosition start, TextPosition end) const;
+    [[nodiscard]] std::string get_lines_text(std::size_t start_line, std::size_t count) const;
+
+    bool undo();
+    bool redo();
+    [[nodiscard]] bool can_undo() const noexcept;
+    [[nodiscard]] bool can_redo() const noexcept;
+    void record_undo_snapshot();
+
 private:
     void insert_new_line();
     void delete_backward();
@@ -173,6 +184,15 @@ private:
     std::size_t m_revision = 0;
     bool m_dirty = false;
     bool m_read_only = false;
+
+    struct UndoSnapshot
+    {
+        std::vector<std::string> lines;
+        std::size_t caret_line = 0;
+        std::size_t caret_column = 0;
+    };
+    std::vector<UndoSnapshot> m_undo_stack;
+    std::vector<UndoSnapshot> m_redo_stack;
 };
 
 } // namespace Zenvra::UI::Editor

@@ -10,6 +10,7 @@ add_executable(ZDEUnitTests
     ShaderServiceTests.cpp
     SettingsTests.cpp
     PluginSystemTests.cpp
+    VimModeTests.cpp
     # SourceControlTests.cpp
 )
 
@@ -18,6 +19,7 @@ target_link_libraries(ZDEUnitTests PRIVATE
     GTest::gtest
     Zenvra::Application
     Zenvra::UI
+    Zenvra::Editors
     Zenvra::Settings
     Zenvra::Language
     Zenvra::Terminal

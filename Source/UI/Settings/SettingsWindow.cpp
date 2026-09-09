@@ -1381,7 +1381,7 @@ std::vector<SettingsSectionDef> get_all_sections() {
   sections.push_back(
       {"Commonly Used",
        "Commonly Used",
-       {"editor.fontSize", "editor.fontFamily", "workbench.app.title",
+       {"editor.interactionMode", "vim.enabled", "editor.lineNumbers", "editor.fontSize", "editor.fontFamily", "workbench.app.title",
         "workbench.mascot.image", "workbench.mascot.renderMode", "editor.tabSize", "editor.renderWhitespace",
         "editor.cursorStyle", "editor.wordWrap", "editor.lineHeight",
         "editor.minimap.enabled", "theme.current", "workbench.sidebar.position",
@@ -1390,9 +1390,23 @@ std::vector<SettingsSectionDef> get_all_sections() {
   sections.push_back(
       {"Text Editor",
        "Text Editor",
-       {"editor.fontSize", "editor.fontFamily", "editor.tabSize",
+       {"editor.interactionMode", "vim.enabled", "editor.lineNumbers", "editor.fontSize", "editor.fontFamily", "editor.tabSize",
         "editor.lineHeight", "editor.cursorStyle", "editor.wordWrap",
         "editor.renderWhitespace", "editor.minimap.enabled"}});
+
+  sections.push_back(
+      {"Default Mode",
+       "Default Mode (Standard)",
+       {"editor.interactionMode", "editor.cursorStyle", "editor.lineNumbers",
+        "editor.tabSize", "editor.lineHeight", "editor.wordWrap",
+        "editor.renderWhitespace", "editor.minimap.enabled"}});
+
+  sections.push_back(
+      {"Vim",
+       "Vim (Modal Editing)",
+       {"editor.interactionMode", "vim.enabled", "vim.startMode",
+        "vim.leaderKey", "vim.escapeKey", "vim.relativeLineNumbers",
+        "vim.showModeIndicator", "vim.timeout"}});
 
   sections.push_back(
       {"Workbench",
@@ -1515,7 +1529,9 @@ SettingsWindow::calculate_layout(float width, float height,
        "Text Editor",
        0,
        true,
-       {{"Editor:Cursor", "Cursor"},
+       {{"Editor:DefaultMode", "Default Mode (Standard)"},
+        {"Editor:Vim", "Vim / Modal Editing"},
+        {"Editor:Cursor", "Cursor"},
         {"Editor:Find", "Find"},
         {"Editor:Font", "Font"},
         {"Editor:Formatting", "Formatting"},
@@ -1524,6 +1540,8 @@ SettingsWindow::calculate_layout(float width, float height,
         {"Editor:Minimap", "Minimap"},
         {"Editor:Suggestions", "Suggestions"},
         {"Editor:Files", "Files"}}},
+      {"Default Mode", "Default Mode", 0, false, {}},
+      {"Vim", "Vim", 0, false, {}},
       {"Workbench",
        "Workbench",
        0,

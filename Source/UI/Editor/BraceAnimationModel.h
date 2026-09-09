@@ -4,47 +4,65 @@
 
 #include <optional>
 
-namespace Zenvra::UI::Editor
-{
+namespace Zenvra::UI::Editor {
 
-/// Model for driving a "zoom/pulse" animation on matched curly braces.
-class BraceAnimationModel
-{
+/// Model for driving a sequential "zoom/pulse" animation on matched delimiters
+/// (Xcode style).
+class BraceAnimationModel {
 public:
-    /// Check if there is an active brace pair being highlighted/animated.
-    [[nodiscard]] bool has_active_braces() const noexcept;
+  enum class Stage { Idle, PrimaryUp, PrimaryDown, SecondaryUp, SecondaryDown };
 
-    /// The active opening brace position, if any.
-    [[nodiscard]] std::optional<TextPosition> get_open_brace() const noexcept;
+  /// Check if there is an active brace pair being highlighted/animated.
+  [[nodiscard]] bool has_active_braces() const noexcept;
 
-    /// The active closing brace position, if any.
-    [[nodiscard]] std::optional<TextPosition> get_close_brace() const noexcept;
+  /// The active opening brace position, if any.
+  [[nodiscard]] std::optional<TextPosition> get_open_brace() const noexcept;
 
-    /// Current visual scale of the highlight box (e.g. 1.0 to 1.3).
-    [[nodiscard]] float get_pulse_scale() const noexcept;
+  /// The active closing brace position, if any.
+  [[nodiscard]] std::optional<TextPosition> get_close_brace() const noexcept;
 
-    /// Set a new pair of active braces. Triggers a pulse animation if they differ
-    /// from the previously active braces.
-    void set_active_braces(std::optional<TextPosition> open, std::optional<TextPosition> close) noexcept;
+  /// The active bracket that is currently pulsing its scale, if any.
+  [[nodiscard]] std::optional<TextPosition> get_pulsing_brace() const noexcept;
 
-    /// Clear active braces.
-    void clear() noexcept;
+  /// Check if animation is actively running.
+  [[nodiscard]] bool is_animating() const noexcept {
+    return m_stage != Stage::Idle;
+  }
 
-    /// Advance the pulse animation. Returns true if still animating.
-    [[nodiscard]] bool tick() noexcept;
+  /// Current visual scale of a specific brace position (1.0F to 1.28F).
+  [[nodiscard]] float get_brace_scale(const TextPosition &pos) const noexcept;
+
+  /// Overall pulse scale for backward compatibility.
+  [[nodiscard]] float get_pulse_scale() const noexcept;
+
+  /// Set a new pair of active braces. Triggers sequential pulse animation if
+  /// changed. Primary brace (where caret is) pulses first, then secondary brace
+  /// (partner) pulses at the end.
+  void set_active_braces(
+      std::optional<TextPosition> open, std::optional<TextPosition> close,
+      std::optional<TextPosition> primary = std::nullopt) noexcept;
+
+  /// Clear active braces.
+  void clear() noexcept;
+
+  /// Advance the pulse animation. Returns true if still animating.
+  [[nodiscard]] bool tick() noexcept;
 
 private:
-    std::optional<TextPosition> m_open_brace;
-    std::optional<TextPosition> m_close_brace;
+  std::optional<TextPosition> m_open_brace;
+  std::optional<TextPosition> m_close_brace;
+  std::optional<TextPosition> m_primary_brace;
+  std::optional<TextPosition> m_secondary_brace;
 
-    float m_pulse_scale = 1.0F;
-    bool m_pulsing_up = false;
-    // Track time for frame-rate independent animation
-    unsigned long long m_last_tick_ms = 0; 
-    
-    static constexpr float pulse_max_scale = 1.6F; // Increased from 1.25F for a more dramatic pop
-    static constexpr float pulse_speed_up_per_sec = 4.0F; // reaches 1.6 in 0.15s
-    static constexpr float pulse_speed_down_per_sec = 2.0F; // reaches 1.0 in 0.3s
+  float m_primary_scale = 1.0F;
+  float m_secondary_scale = 1.0F;
+  Stage m_stage = Stage::Idle;
+
+  unsigned long long m_last_tick_ms = 0;
+
+  static constexpr float pulse_max_scale = 1.28F;
+  static constexpr float pulse_speed_up_per_sec = 4.5F;
+  static constexpr float pulse_speed_down_per_sec = 3.2F;
 };
 
 } // namespace Zenvra::UI::Editor

@@ -16,6 +16,7 @@
 #include "UI/Editor/MediaPlayerView.h"
 #include "UI/Editor/SelectionAnimationModel.h"
 #include "UI/Editor/StudioEditorModel.h"
+#include "Editors/Interaction/EditorInputRouter.h"
 #include "Utility/DragDropModel.h"
 
 #include <windows.h>
@@ -149,6 +150,12 @@ public:
   void set_tab_size(std::size_t size) noexcept;
   [[nodiscard]] std::size_t get_tab_size() const noexcept { return m_tab_size; }
 
+  [[nodiscard]] Editors::EditorInputRouter& get_input_router() noexcept { return m_input_router; }
+  [[nodiscard]] const Editors::EditorInputRouter& get_input_router() const noexcept { return m_input_router; }
+
+  void set_relative_line_numbers(bool enabled) noexcept { m_relative_line_numbers = enabled; }
+  [[nodiscard]] bool get_relative_line_numbers() const noexcept { return m_relative_line_numbers; }
+
   [[nodiscard]] float get_line_height(const StudioWorkspaceRenderer &surface, HDC device_context = nullptr) const noexcept;
 
   void render(const StudioWorkspaceRenderer &surface, HDC device_context,
@@ -222,6 +229,7 @@ private:
   [[nodiscard]] std::string get_active_document_filename() const;
 
   UI::Editor::EditorController m_controller;
+  mutable Editors::EditorInputRouter m_input_router;
   mutable UI::Components::EditorFoldingModel m_folding;
   mutable EditorMinimap m_minimap;
   mutable EditorScrollbar m_scrollbar;
@@ -331,6 +339,7 @@ private:
   std::string m_cursor_style = "Line";
   std::string m_render_whitespace = "selection";
   std::size_t m_tab_size = 4;
+  bool m_relative_line_numbers = false;
   using FullscreenHandler = std::function<void(bool)>;
   FullscreenHandler m_fullscreen_handler;
 

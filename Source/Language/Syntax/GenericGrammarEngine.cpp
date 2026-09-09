@@ -1262,7 +1262,9 @@ std::size_t GenericGrammarEngine::tokenize_line(
                 }
                 else if (identifier == "class" || identifier == "struct" || identifier == "interface" ||
                          identifier == "enum" || identifier == "trait" || identifier == "record" || identifier == "union" ||
-                         identifier == "typename")
+                         identifier == "typename" || identifier == "new" ||
+                         identifier == "extends" || identifier == "implements" || identifier == "permits" ||
+                         identifier == "instanceof")
                 {
                     decl_context = DeclContext::Class;
                 }
@@ -1302,17 +1304,31 @@ std::size_t GenericGrammarEngine::tokenize_line(
                     append(identifier, UI::Editor::EditorTokenKind::Plain);
                 }
             }
-            else if (decl_context == DeclContext::Namespace || decl_context == DeclContext::Class)
+            else if (decl_context == DeclContext::Class)
+            {
+                // Class/type names after class, extends, implements, new (e.g. Controller, View, BmnTanah) -> PINK (Label)
+                append(identifier, UI::Editor::EditorTokenKind::Label);
+            }
+            else if (decl_context == DeclContext::Namespace)
             {
                 append(identifier, UI::Editor::EditorTokenKind::Label);
-                if (decl_context != DeclContext::Namespace)
+            }
+            else if (decl_context == DeclContext::Function)
+            {
+                // Function declaration: in PHP functions are Plain (white), otherwise Label
+                if (grammar.name == "PHP")
                 {
-                    decl_context = DeclContext::None;
+                    append(identifier, UI::Editor::EditorTokenKind::Plain);
                 }
+                else
+                {
+                    append(identifier, UI::Editor::EditorTokenKind::Label);
+                }
+                decl_context = DeclContext::None;
             }
             else if (followed_by_scope)
             {
-                // Part of scope resolution A::B::C (e.g. EditorScrollbar::reset, Zenvra::Platform)
+                // Part of scope resolution A::B::C (e.g. Airbase::all, EditorScrollbar::reset, Zenvra::Platform) -> PINK (Label)
                 append(identifier, UI::Editor::EditorTokenKind::Label);
             }
             else if ((prev_token_kind == UI::Editor::EditorTokenKind::Type ||
@@ -1334,6 +1350,23 @@ std::size_t GenericGrammarEngine::tokenize_line(
             {
                 // PascalCase user-defined types (e.g. StudioWorkspaceRenderer, Drawable, SidebarItem, MyComponent)
                 append(identifier, UI::Editor::EditorTokenKind::Type);
+            }
+            else if (grammar.name == "PHP" && is_pascal_case_type(identifier))
+            {
+                // PHP Class/type reference (e.g. return type ": View", parameter "Airbase $airbase", nullable "?View", union "View|null") -> PINK (Label)
+                const bool is_type_or_class_pos =
+                    (prev_token_text == ":" || prev_token_text == "?" || prev_token_text == "\\" ||
+                     prev_token_text == "|" || prev_token_text == "&" ||
+                     (next_idx < line.size() && line[next_idx] == '$') ||
+                     (next_idx + 3 < line.size() && line.substr(next_idx, 4) == "...$"));
+                if (is_type_or_class_pos)
+                {
+                    append(identifier, UI::Editor::EditorTokenKind::Label);
+                }
+                else
+                {
+                    append(identifier, UI::Editor::EditorTokenKind::Plain);
+                }
             }
             else if (grammar.supports_preprocessor && identifier == "defined")
             {
@@ -1363,6 +1396,11 @@ std::size_t GenericGrammarEngine::tokenize_line(
                 if (grammar.name == "CMake" || grammar.name == "Meson")
                 {
                     append(identifier, UI::Editor::EditorTokenKind::Keyword);
+                }
+                else if (grammar.name == "PHP")
+                {
+                    // In PHP, functions and method calls are Plain (white)
+                    append(identifier, UI::Editor::EditorTokenKind::Plain);
                 }
                 else
                 {

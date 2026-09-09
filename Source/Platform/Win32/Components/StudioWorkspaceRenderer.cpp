@@ -243,6 +243,26 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
   m_text_editor.set_cursor_style(settings_service.get<std::string>("editor.cursorStyle"));
   m_text_editor.set_render_whitespace(settings_service.get<std::string>("editor.renderWhitespace"));
 
+  const std::string interaction_mode = settings_service.get<std::string>("editor.interactionMode");
+  const bool vim_enabled = settings_service.get<bool>("vim.enabled");
+  if (interaction_mode == "vim" || vim_enabled) {
+    m_text_editor.get_input_router().set_interaction_mode(Editors::InteractionMode::Vim);
+  } else {
+    m_text_editor.get_input_router().set_interaction_mode(Editors::InteractionMode::Default);
+  }
+  const std::string line_numbers = settings_service.get<std::string>("editor.lineNumbers");
+  m_text_editor.set_relative_line_numbers(line_numbers == "relative" || settings_service.get<bool>("vim.relativeLineNumbers"));
+  if (auto* vim = m_text_editor.get_input_router().get_vim_mode()) {
+    const int timeout_ms = settings_service.get<int>("vim.timeout");
+    vim->get_state().timeout_seconds = static_cast<double>(std::max(100, timeout_ms)) / 1000.0;
+    vim->get_state().leader_key = settings_service.get<std::string>("vim.leaderKey");
+    vim->get_state().escape_key = settings_service.get<std::string>("vim.escapeKey");
+    const std::string start_mode = settings_service.get<std::string>("vim.startMode");
+    if (start_mode == "insert") {
+      vim->set_mode(Editors::VimMode::Insert);
+    }
+  }
+
   static_cast<void>(settings_service.subscribe([this, &settings_service](const Settings::SettingsChangedEvent& event) {
     if (event.id == "editor.fontSize" || event.id == "editor.fontFamily" || event.id == "editor.lineHeight") {
       reload_editor_font();
@@ -257,6 +277,73 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
       if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
     } else if (event.id == "editor.renderWhitespace") {
       m_text_editor.set_render_whitespace(settings_service.get<std::string>("editor.renderWhitespace"));
+      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+    } else if (event.id == "editor.interactionMode") {
+      const std::string im = settings_service.get<std::string>("editor.interactionMode");
+      if (im == "vim") {
+        m_text_editor.get_input_router().set_interaction_mode(Editors::InteractionMode::Vim);
+        if (!settings_service.get<bool>("vim.enabled")) {
+          settings_service.set("vim.enabled", true);
+        }
+      } else {
+        m_text_editor.get_input_router().set_interaction_mode(Editors::InteractionMode::Default);
+        if (settings_service.get<bool>("vim.enabled")) {
+          settings_service.set("vim.enabled", false);
+        }
+      }
+      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+    } else if (event.id == "vim.enabled") {
+      const bool ve = settings_service.get<bool>("vim.enabled");
+      if (ve) {
+        m_text_editor.get_input_router().set_interaction_mode(Editors::InteractionMode::Vim);
+        if (settings_service.get<std::string>("editor.interactionMode") != "vim") {
+          settings_service.set("editor.interactionMode", std::string("vim"));
+        }
+      } else {
+        m_text_editor.get_input_router().set_interaction_mode(Editors::InteractionMode::Default);
+        if (settings_service.get<std::string>("editor.interactionMode") != "default") {
+          settings_service.set("editor.interactionMode", std::string("default"));
+        }
+      }
+      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+    } else if (event.id == "editor.lineNumbers") {
+      const std::string ln = settings_service.get<std::string>("editor.lineNumbers");
+      if (ln == "relative") {
+        m_text_editor.set_relative_line_numbers(true);
+      } else {
+        m_text_editor.set_relative_line_numbers(settings_service.get<bool>("vim.relativeLineNumbers"));
+      }
+      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+    } else if (event.id == "vim.relativeLineNumbers") {
+      const std::string ln = settings_service.get<std::string>("editor.lineNumbers");
+      if (ln != "relative") {
+        m_text_editor.set_relative_line_numbers(settings_service.get<bool>("vim.relativeLineNumbers"));
+      }
+      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+    } else if (event.id == "vim.showModeIndicator") {
+      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+    } else if (event.id == "vim.timeout") {
+      if (auto* vim = m_text_editor.get_input_router().get_vim_mode()) {
+        const int timeout_ms = settings_service.get<int>("vim.timeout");
+        vim->get_state().timeout_seconds = static_cast<double>(std::max(100, timeout_ms)) / 1000.0;
+      }
+    } else if (event.id == "vim.leaderKey") {
+      if (auto* vim = m_text_editor.get_input_router().get_vim_mode()) {
+        vim->get_state().leader_key = settings_service.get<std::string>("vim.leaderKey");
+      }
+    } else if (event.id == "vim.escapeKey") {
+      if (auto* vim = m_text_editor.get_input_router().get_vim_mode()) {
+        vim->get_state().escape_key = settings_service.get<std::string>("vim.escapeKey");
+      }
+    } else if (event.id == "vim.startMode") {
+      if (auto* vim = m_text_editor.get_input_router().get_vim_mode()) {
+        const std::string start_mode = settings_service.get<std::string>("vim.startMode");
+        if (start_mode == "insert") {
+          vim->set_mode(Editors::VimMode::Insert);
+        } else {
+          vim->set_mode(Editors::VimMode::Normal);
+        }
+      }
       if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
     } else if (event.id == "editor.minimap.enabled" || event.id == "workbench.activityBar.visible" || event.id == "theme.current" || event.id == "workbench.mascot.image" || event.id == "workbench.mascot.renderMode" || event.id == "workbench.app.title") {
       Utility::Ascii::AsciiMascotRenderer::clear_bitmap_cache();
@@ -1378,9 +1465,14 @@ void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
   m_shader_sandbox_panel.render(*this, device_context, layout);
   if (const UI::Editor::TextDocumentModel *document =
           m_text_editor.get_document()) {
+    auto status = document->get_status();
+    const bool show_indicator = Settings::SettingsService::instance().get<bool>("vim.showModeIndicator");
+    if (m_text_editor.get_input_router().is_vim_active() && show_indicator) {
+      status.vim_mode = m_text_editor.get_input_router().get_mode_name();
+    }
     m_footer_toolbar.render(*this, device_context, layout,
                             document->get_full_breadcrumbs(),
-                            document->get_status());
+                            status);
   } else {
     m_footer_toolbar.render(*this, device_context, layout, {},
                             UI::Editor::FooterEditorStatus{});

@@ -21,6 +21,7 @@
 #include "UI/Editor/FileIconModel.h"
 #include "UI/Editor/StudioEditorModel.h"
 #include "UI/Editor/TextDocumentModel.h"
+#include "UI/Editor/BraceAnimationModel.h"
 #include "UI/Toolbar/StudioMainToolbar.h"
 
 using namespace Zenvra;
@@ -1970,6 +1971,110 @@ TEST(LanguageServerTests, PHPSyntaxAndIntelliSense) {
     }
   }
 
+  // 2j. PHP Class inheritance, static class calls, instantiation, and function calls
+  {
+    // Class definition and inheritance (extends, implements) -> Label (pink)
+    const std::string_view class_line = "class BmnTanahController extends Controller implements Viewable, Actionable";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t c_count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        class_line, *php_grammar, tokens, state);
+    ASSERT_GT(c_count, 0u);
+
+    for (std::size_t i = 0; i < c_count; ++i) {
+      if (tokens[i].text == "BmnTanahController" || tokens[i].text == "Controller" ||
+          tokens[i].text == "Viewable" || tokens[i].text == "Actionable") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Label);
+      }
+    }
+
+    // Function declaration, parameters, and return types
+    const std::string_view func_decl = "public function create(string $airbaseId): View";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t f_count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        func_decl, *php_grammar, tokens, state);
+    ASSERT_GT(f_count, 0u);
+
+    for (std::size_t i = 0; i < f_count; ++i) {
+      if (tokens[i].text == "create") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Plain);
+      } else if (tokens[i].text == "string") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Type);
+      } else if (tokens[i].text == "View") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Label); // Class return type is pink
+      }
+    }
+
+    const std::string_view param_decl = "public function index(Airbase $airbase): ?View";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t p_count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        param_decl, *php_grammar, tokens, state);
+    ASSERT_GT(p_count, 0u);
+
+    for (std::size_t i = 0; i < p_count; ++i) {
+      if (tokens[i].text == "index") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Plain);
+      } else if (tokens[i].text == "Airbase") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Label); // Class parameter type is pink
+      } else if (tokens[i].text == "View") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Label); // Class nullable return type is pink
+      }
+    }
+
+    // Static class call Airbase::all() and BmnTanah::query()
+    const std::string_view static_call = "$airbases = Airbase::all(); $query = BmnTanah::query();";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t s_count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        static_call, *php_grammar, tokens, state);
+    ASSERT_GT(s_count, 0u);
+
+    for (std::size_t i = 0; i < s_count; ++i) {
+      if (tokens[i].text == "Airbase" || tokens[i].text == "BmnTanah") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Label);
+      } else if (tokens[i].text == "all" || tokens[i].text == "query") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Plain);
+      }
+    }
+
+    // Method calls and function calls: $this->resolveAirbase($id) ?? abort(404);
+    const std::string_view method_call = "$airbase = $this->resolveAirbase($airbaseId) ?? abort(404);";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t m_count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        method_call, *php_grammar, tokens, state);
+    ASSERT_GT(m_count, 0u);
+
+    for (std::size_t i = 0; i < m_count; ++i) {
+      if (tokens[i].text == "resolveAirbase" || tokens[i].text == "abort") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Plain);
+      }
+    }
+
+    // Member call: $query->paginate(100); return view('pages.bmntanah.index');
+    const std::string_view call2 = "$items = $query->paginate(100); return view('pages.bmntanah.index');";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t c2_count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        call2, *php_grammar, tokens, state);
+    ASSERT_GT(c2_count, 0u);
+
+    for (std::size_t i = 0; i < c2_count; ++i) {
+      if (tokens[i].text == "paginate" || tokens[i].text == "view") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Plain);
+      }
+    }
+
+    // Instantiation: $obj = new Airbase();
+    const std::string_view new_call = "$obj = new Airbase();";
+    state = Language::Syntax::TokenizerState{};
+    const std::size_t n_count = Language::Syntax::GenericGrammarEngine::tokenize_line(
+        new_call, *php_grammar, tokens, state);
+    ASSERT_GT(n_count, 0u);
+
+    for (std::size_t i = 0; i < n_count; ++i) {
+      if (tokens[i].text == "Airbase") {
+        EXPECT_EQ(tokens[i].kind, UI::Editor::EditorTokenKind::Label);
+      }
+    }
+  }
+
   // 3. Verify Server Registry Profile for PHP
   const auto* php_profile =
       Language::Registry::ServerRegistry::instance().find_profile_for_filename("app.php");
@@ -2369,5 +2474,33 @@ TEST(LanguageServerTests, ShaderSyntaxHighlightingWGSL) {
   EXPECT_TRUE(found_fn);
   EXPECT_TRUE(found_vec2f);
   EXPECT_TRUE(found_vec4f);
+}
+
+TEST(LanguageServerTests, XcodeStyleBraceAnimationModel) {
+  UI::Editor::BraceAnimationModel anim;
+  EXPECT_FALSE(anim.has_active_braces());
+  EXPECT_FALSE(anim.is_animating());
+
+  UI::Editor::TextPosition open_pos{5, 10};
+  UI::Editor::TextPosition close_pos{15, 1};
+  
+  // User places caret on open brace '{' -> sequential animation: open_pos primary, close_pos secondary
+  anim.set_active_braces(open_pos, close_pos, open_pos);
+  EXPECT_TRUE(anim.has_active_braces());
+  EXPECT_TRUE(anim.is_animating());
+  EXPECT_EQ(anim.get_open_brace(), open_pos);
+  EXPECT_EQ(anim.get_close_brace(), close_pos);
+  EXPECT_EQ(anim.get_pulsing_brace(), open_pos);
+  EXPECT_FLOAT_EQ(anim.get_brace_scale(close_pos), 1.0F);
+
+  // Now caret moves to close brace '}' -> close_pos pulses first
+  anim.set_active_braces(open_pos, close_pos, close_pos);
+  EXPECT_TRUE(anim.has_active_braces());
+  EXPECT_EQ(anim.get_pulsing_brace(), close_pos);
+  EXPECT_FLOAT_EQ(anim.get_brace_scale(open_pos), 1.0F);
+
+  anim.clear();
+  EXPECT_FALSE(anim.has_active_braces());
+  EXPECT_FALSE(anim.get_pulsing_brace().has_value());
 }
 

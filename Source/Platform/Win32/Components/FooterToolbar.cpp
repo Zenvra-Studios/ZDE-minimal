@@ -56,11 +56,28 @@ void FooterToolbar::render(
              std::string{status.encoding} + "    " +
              std::to_string(status.indent_width) + " spaces")
           : "UTF-8    Ready";
+  float right_offset = 12.0F * scale;
+  if (!status.vim_mode.empty()) {
+    const int mode_w = surface.get_text_width(
+        device_context, *surface.m_small_font, status.vim_mode);
+    const float badge_w = static_cast<float>(mode_w) + 16.0F * scale;
+    const float badge_h = 16.0F * scale;
+    const float badge_x = layout.status_bar_bounds.right() - right_offset - badge_w;
+    const UI::Rect badge_rect{badge_x, center_y - badge_h * 0.5F, badge_w, badge_h};
+    surface.fill_rounded_rectangle(device_context, badge_rect,
+                                   surface.m_palette.selection_background,
+                                   3.0F * scale);
+    surface.draw_text(device_context, *surface.m_small_font, status.vim_mode,
+                      badge_x + 8.0F * scale, center_y,
+                      surface.m_palette.accent);
+    right_offset += badge_w + 12.0F * scale;
+  }
+
   const float status_x =
       layout.status_bar_bounds.right() -
       static_cast<float>(surface.get_text_width(
           device_context, *surface.m_small_font, status_text)) -
-      12.0F * scale;
+      right_offset;
   surface.draw_text(device_context, *surface.m_small_font, status_text,
                     status_x, center_y, surface.m_palette.text_muted);
 

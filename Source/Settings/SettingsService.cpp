@@ -257,6 +257,121 @@ void SettingsService::register_default_settings()
 {
     // 1. Editor settings
     m_schema.register_setting({
+        .id = "editor.interactionMode",
+        .title = "Editor Interaction Mode",
+        .description = "Controls the interaction mode for the editor: Default (standard modern IDE editing) or Vim (modal editing).",
+        .type = SettingType::Enum,
+        .defaultValue = "default",
+        .category = "Editor",
+        .subcategory = "DefaultMode",
+        .tags = {"default", "vim", "mode", "modal", "vi", "standard", "interaction"},
+        .enum_values = {
+            {.label = "Default (Standard Mode)", .value = "default"},
+            {.label = "Vim (Modal Editing)", .value = "vim"}
+        },
+    });
+
+    m_schema.register_setting({
+        .id = "editor.lineNumbers",
+        .title = "Line Numbers",
+        .description = "Controls the display of line numbers: on (standard absolute line numbers), relative (relative to cursor line), or off.",
+        .type = SettingType::Enum,
+        .defaultValue = "on",
+        .category = "Editor",
+        .subcategory = "DefaultMode",
+        .tags = {"line", "numbers", "relative", "gutter", "default"},
+        .enum_values = {
+            {.label = "On (Absolute)", .value = "on"},
+            {.label = "Relative", .value = "relative"},
+            {.label = "Off", .value = "off"}
+        },
+    });
+
+    m_schema.register_setting({
+        .id = "vim.enabled",
+        .title = "Enable Vim Mode",
+        .description = "Enables Vim emulation in the editor.",
+        .type = SettingType::Boolean,
+        .defaultValue = false,
+        .category = "Editor",
+        .subcategory = "Vim",
+        .tags = {"vim", "enable", "vi", "mode"},
+    });
+
+    m_schema.register_setting({
+        .id = "vim.startMode",
+        .title = "Vim Start Mode",
+        .description = "The default mode when entering Vim (Normal or Insert).",
+        .type = SettingType::Enum,
+        .defaultValue = "normal",
+        .category = "Editor",
+        .subcategory = "Vim",
+        .tags = {"vim", "start", "mode"},
+        .enum_values = {
+            {.label = "Normal Mode", .value = "normal"},
+            {.label = "Insert Mode", .value = "insert"}
+        },
+    });
+
+    m_schema.register_setting({
+        .id = "vim.leaderKey",
+        .title = "Vim Leader Key",
+        .description = "The leader key for custom Vim keybindings.",
+        .type = SettingType::String,
+        .defaultValue = "\\",
+        .category = "Editor",
+        .subcategory = "Vim",
+        .tags = {"vim", "leader"},
+    });
+
+    m_schema.register_setting({
+        .id = "vim.escapeKey",
+        .title = "Vim Escape Key",
+        .description = "Key used to exit insert/visual modes.",
+        .type = SettingType::String,
+        .defaultValue = "Escape",
+        .category = "Editor",
+        .subcategory = "Vim",
+        .tags = {"vim", "escape"},
+    });
+
+    m_schema.register_setting({
+        .id = "vim.relativeLineNumbers",
+        .title = "Vim Relative Line Numbers",
+        .description = "Shows line numbers relative to cursor in Vim mode.",
+        .type = SettingType::Boolean,
+        .defaultValue = false,
+        .category = "Editor",
+        .subcategory = "Vim",
+        .tags = {"vim", "line", "numbers"},
+    });
+
+    m_schema.register_setting({
+        .id = "vim.showModeIndicator",
+        .title = "Vim Show Mode Indicator",
+        .description = "Displays the current Vim mode in the status bar.",
+        .type = SettingType::Boolean,
+        .defaultValue = true,
+        .category = "Editor",
+        .subcategory = "Vim",
+        .tags = {"vim", "status", "mode"},
+    });
+
+    m_schema.register_setting({
+        .id = "vim.timeout",
+        .title = "Vim Sequence Timeout",
+        .description = "Timeout in milliseconds for pending Vim key sequences.",
+        .type = SettingType::Integer,
+        .defaultValue = 1000,
+        .category = "Editor",
+        .subcategory = "Vim",
+        .tags = {"vim", "timeout"},
+        .minimum = 100.0,
+        .maximum = 5000.0,
+        .step = 100.0,
+    });
+
+    m_schema.register_setting({
         .id = "editor.fontSize",
         .title = "Font Size",
         .description = "Controls the font size in pixels for the code editor.",
@@ -363,12 +478,12 @@ void SettingsService::register_default_settings()
     m_schema.register_setting({
         .id = "editor.cursorStyle",
         .title = "Cursor Style",
-        .description = "Controls the visual caret style used inside the editor.",
+        .description = "Controls the visual caret style used inside the editor: Line, Block, or Underline.",
         .type = SettingType::Enum,
         .defaultValue = "Line",
         .category = "Editor",
         .subcategory = "Caret",
-        .tags = {"cursor", "caret", "style"},
+        .tags = {"cursor", "caret", "style", "default", "line", "block", "underline"},
         .enum_values = {
             {"Line", "Line"},
             {"Block", "Block"},

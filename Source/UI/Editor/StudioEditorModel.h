@@ -112,6 +112,7 @@ struct FooterEditorStatus
     std::string_view line_ending = "LF";
     std::string_view encoding = "UTF-8";
     std::size_t indent_width = 4;
+    std::string_view vim_mode = "";
 };
 
 struct StudioEditorPalette
