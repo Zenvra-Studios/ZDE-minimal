@@ -87,6 +87,7 @@ enum class SidebarIcon
     Terminal,
     Problems,
     Shader,
+    ToolPlugin,
 };
 
 enum class SidebarPlacement
@@ -235,6 +236,8 @@ public:
 };
 
 [[nodiscard]] std::span<const SidebarItem> get_studio_sidebar_items() noexcept;
+void set_active_tool_sidebar_item(std::string_view id, std::string_view name);
+void clear_active_tool_sidebar_item() noexcept;
 [[nodiscard]] Rect calculate_studio_sidebar_item_bounds(
     const StudioEditorLayoutResult& layout,
     std::size_t item_index) noexcept;

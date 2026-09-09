@@ -226,7 +226,7 @@ std::string_view ActivityPanelModel::get_title() const noexcept
     case SidebarIcon::VersionControl: return "Source Control";
     case SidebarIcon::Run: return "Run & Debug";
     case SidebarIcon::Terminal: return "Terminal";
-    case SidebarIcon::Services: return "Services";
+    case SidebarIcon::Services: return "Plugins";
     case SidebarIcon::Problems: return "Problems";
     case SidebarIcon::Shader: return "Shader Sandbox";
     case SidebarIcon::More: return "More";
@@ -240,7 +240,7 @@ std::string_view ActivityPanelModel::get_content_heading() const noexcept
     {
     case SidebarIcon::VersionControl: return "No pending changes";
     case SidebarIcon::Search: return "Search across the workspace";
-    case SidebarIcon::Services: return "No services configured";
+    case SidebarIcon::Services: return "No plugins configured";
     case SidebarIcon::More: return "Available tool windows";
     case SidebarIcon::Run: return "Run and debug";
     case SidebarIcon::Problems: return "No problems detected";
@@ -257,7 +257,7 @@ std::string_view ActivityPanelModel::get_content_detail() const noexcept
     {
     case SidebarIcon::VersionControl: return "Workspace changes will appear here.";
     case SidebarIcon::Search: return "Search results will appear in this panel.";
-    case SidebarIcon::Services: return "Registered local services will appear here.";
+    case SidebarIcon::Services: return "Installed plugins and language servers will appear here.";
     case SidebarIcon::More: return "Explorer, Search, Git, Run, Terminal, Problems";
     case SidebarIcon::Run: return "Create a run configuration to start debugging.";
     case SidebarIcon::Problems: return "Diagnostics from opened buffers appear here.";

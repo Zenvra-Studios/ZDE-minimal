@@ -24,7 +24,9 @@ enum class SidebarActionKind {
     NewFile,
     NewFolder,
     Refresh,
-    CollapseAll
+    CollapseAll,
+    SwitchTool,
+    OpenTerminal
 };
 
 struct SidebarPressResult {
@@ -112,7 +114,11 @@ public:
     [[nodiscard]] bool handle_pointer_release() noexcept;
     [[nodiscard]] bool is_dragging_item() const noexcept { return m_is_dragging_item; }
     [[nodiscard]] bool is_holding_item() const noexcept { return m_drag_source_row.has_value(); }
-    [[nodiscard]] bool is_dragging_scrollbar() const noexcept { return m_project_scrollbar.is_dragging() || m_search_scrollbar.is_dragging(); }
+    [[nodiscard]] bool is_dragging_scrollbar() const noexcept {
+        return m_project_scrollbar.is_dragging() ||
+               m_search_scrollbar.is_dragging() ||
+               m_extensions_scrollbar.is_dragging();
+    }
     [[nodiscard]] bool tick_animations() noexcept;
 
     void render(
@@ -140,6 +146,8 @@ private:
         const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
     [[nodiscard]] UI::Rect search_scrollbar_bounds(
         const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
+    [[nodiscard]] UI::Rect extensions_scrollbar_bounds(
+        const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
     [[nodiscard]] std::vector<std::size_t> get_sticky_items() const;
 
     void render_search_panel(
@@ -155,6 +163,35 @@ private:
         float point_x,
         float point_y) noexcept;
 
+    void render_extensions_panel(
+        const StudioWorkspaceRenderer& surface,
+        HDC device_context,
+        const UI::Editor::StudioEditorLayoutResult& layout) const;
+    [[nodiscard]] SidebarPressResult handle_extensions_press(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y);
+    [[nodiscard]] bool handle_extensions_move(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) noexcept;
+
+    void render_tool_plugin_panel(
+        const StudioWorkspaceRenderer& surface,
+        HDC device_context,
+        const UI::Editor::StudioEditorLayoutResult& layout) const;
+    [[nodiscard]] SidebarPressResult handle_tool_plugin_press(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y);
+    [[nodiscard]] bool handle_tool_plugin_move(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) noexcept;
+    [[nodiscard]] bool handle_extensions_scroll(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        std::ptrdiff_t line_delta) noexcept;
+
     UI::Editor::ActivityPanelModel m_model;
     UI::Editor::WorkspaceSearchModel m_search_model;
     ExplorerHeader m_explorer_header;
@@ -166,8 +203,10 @@ private:
     std::optional<UI::Editor::SidebarIcon> m_hovered_icon;
     mutable UI::Components::ScrollBar m_project_scrollbar;
     mutable UI::Components::ScrollBar m_search_scrollbar;
+    mutable UI::Components::ScrollBar m_extensions_scrollbar;
     bool m_hovered_scrollbar = false;
     bool m_hovered_search_scrollbar = false;
+    bool m_hovered_extensions_scrollbar = false;
 
     // Search UI Hover States
     bool m_hover_search_chevron = false;
@@ -179,6 +218,34 @@ private:
     bool m_hover_search_refresh = false;
     bool m_hover_search_clear = false;
     bool m_hover_search_collapse_all = false;
+
+    // Extensions UI State
+    std::string m_ext_search_query;
+    bool m_ext_search_focused = false;
+    bool m_ext_installed_expanded = true;
+    bool m_ext_recommended_expanded = true;
+    float m_ext_scroll_y = 0.0F;
+
+    bool m_hover_ext_refresh = false;
+    bool m_hover_ext_more = false;
+    bool m_hover_ext_filter = false;
+    bool m_hover_ext_clear = false;
+    bool m_hover_ext_installed_header = false;
+    bool m_hover_ext_recommended_header = false;
+    std::optional<std::size_t> m_hovered_ext_installed_idx;
+    std::optional<std::size_t> m_hovered_ext_recommended_idx;
+    std::optional<std::size_t> m_hovered_ext_gear_idx;
+    std::optional<std::size_t> m_hovered_ext_install_idx;
+    std::optional<std::size_t> m_hovered_ext_uninstall_idx;
+
+    // Tool Plugin Panel UI State
+    bool m_hover_tool_switch = false;
+    bool m_hover_tool_refresh = false;
+    bool m_hover_tool_action_btn1 = false;
+    bool m_hover_tool_action_btn2 = false;
+    bool m_tool_section1_expanded = true;
+    bool m_tool_section2_expanded = true;
+    std::optional<std::size_t> m_hovered_tool_item_idx;
 
     float m_width = default_width;
     bool m_resizing = false;

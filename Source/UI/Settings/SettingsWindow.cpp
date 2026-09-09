@@ -1421,7 +1421,7 @@ std::vector<SettingsSectionDef> get_all_sections() {
   sections.push_back(
       {"Security", "Security", {"security.workspace.trust.enabled"}});
 
-  sections.push_back({"Extensions", "Extensions", {}});
+  sections.push_back({"Plugins", "Plugins", {}});
 
   return sections;
 }
@@ -1546,7 +1546,7 @@ SettingsWindow::calculate_layout(float width, float height,
         {"Features:Debug", "Debug"},
         {"Features:Testing", "Testing"},
         {"Features:SourceControl", "Source Control"},
-        {"Features:Extensions", "Extensions"},
+        {"Features:Plugins", "Plugins"},
         {"Features:Terminal", "Terminal"},
         {"Features:Task", "Task"},
         {"Features:Problems", "Problems"},
@@ -1565,7 +1565,7 @@ SettingsWindow::calculate_layout(float width, float height,
         {"Application:Update", "Update"},
         {"Application:Telemetry", "Telemetry"}}},
       {"Security", "Security", 0, true, {{"Security:Workspace", "Workspace"}}},
-      {"Extensions", "Extensions", 0, false, {}}};
+      {"Plugins", "Plugins", 0, false, {}}};
 
   const float item_margin_left = 10.0F * dpi_scale;
   const float item_margin_right = 8.0F * dpi_scale;

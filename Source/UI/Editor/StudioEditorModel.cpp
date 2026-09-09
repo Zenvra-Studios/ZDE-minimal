@@ -15,14 +15,17 @@ namespace Zenvra::UI::Editor {
 
 namespace {
 
-constexpr std::array<SidebarItem, 7> sidebar_items{
+std::string s_active_tool_id;
+std::string s_active_tool_name;
+
+std::vector<SidebarItem> s_sidebar_items = {
     SidebarItem{"project", "Project", SidebarIcon::Project,
                 SidebarPlacement::Top, true},
     SidebarItem{"version-control", "Version Control",
                 SidebarIcon::VersionControl, SidebarPlacement::Top, false},
     SidebarItem{"search", "Search", SidebarIcon::Search, SidebarPlacement::Top,
                 false},
-    SidebarItem{"services", "Services", SidebarIcon::Services,
+    SidebarItem{"services", "Plugins", SidebarIcon::Services,
                 SidebarPlacement::Top, false},
     SidebarItem{"shader", "Shader Sandbox", SidebarIcon::Shader,
                 SidebarPlacement::Top, false},
@@ -31,6 +34,38 @@ constexpr std::array<SidebarItem, 7> sidebar_items{
     SidebarItem{"terminal", "Terminal", SidebarIcon::Terminal,
                 SidebarPlacement::Bottom, false},
 };
+
+void rebuild_sidebar_items() {
+  s_sidebar_items = {
+      SidebarItem{"project", "Project", SidebarIcon::Project,
+                  SidebarPlacement::Top, true},
+      SidebarItem{"version-control", "Version Control",
+                  SidebarIcon::VersionControl, SidebarPlacement::Top, false},
+      SidebarItem{"search", "Search", SidebarIcon::Search, SidebarPlacement::Top,
+                  false},
+      SidebarItem{"services", "Plugins", SidebarIcon::Services,
+                  SidebarPlacement::Top, false},
+      SidebarItem{"shader", "Shader Sandbox", SidebarIcon::Shader,
+                  SidebarPlacement::Top, false},
+  };
+  if (!s_active_tool_name.empty()) {
+    s_sidebar_items.push_back(SidebarItem{
+        s_active_tool_id,
+        s_active_tool_name,
+        SidebarIcon::ToolPlugin,
+        SidebarPlacement::Top,
+        false
+    });
+  }
+  s_sidebar_items.push_back(SidebarItem{
+      "more", "More Tool Windows", SidebarIcon::More,
+      SidebarPlacement::Top, false
+  });
+  s_sidebar_items.push_back(SidebarItem{
+      "terminal", "Terminal", SidebarIcon::Terminal,
+      SidebarPlacement::Bottom, false
+  });
+}
 
 } // namespace
 
@@ -264,7 +299,25 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
 }
 
 std::span<const SidebarItem> get_studio_sidebar_items() noexcept {
-  return sidebar_items;
+  return s_sidebar_items;
+}
+
+void set_active_tool_sidebar_item(std::string_view id, std::string_view name) {
+  if (s_active_tool_id == id && s_active_tool_name == name) {
+    return;
+  }
+  s_active_tool_id = std::string(id);
+  s_active_tool_name = std::string(name);
+  rebuild_sidebar_items();
+}
+
+void clear_active_tool_sidebar_item() noexcept {
+  if (s_active_tool_id.empty() && s_active_tool_name.empty()) {
+    return;
+  }
+  s_active_tool_id.clear();
+  s_active_tool_name.clear();
+  rebuild_sidebar_items();
 }
 
 Rect calculate_studio_sidebar_item_bounds(
