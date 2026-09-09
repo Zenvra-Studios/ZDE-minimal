@@ -3,6 +3,7 @@
 #include "Language/LanguageServerManager.h"
 #include "Platform/HostSystem.h"
 #include "Platform/PlatformDialogs.h"
+#include "Plugins/PluginManager.h"
 #include "Settings/SettingsService.h"
 #include "Utility/Antialiasing.h"
 #include "Utility/stb_image.h"
@@ -433,6 +434,29 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     return m_prompt_modal.handle_pointer_press(point_x, point_y, prompt_layout);
   }
 
+  if (m_tool_switcher_popup.is_visible()) {
+    const auto pop_res = m_tool_switcher_popup.handle_pointer_press(point_x, point_y, m_dpi_scale);
+    if (pop_res.handled) {
+      if (!pop_res.switched_tool_id.empty()) {
+        auto& pm = Zenvra::Plugins::PluginManager::instance();
+        pm.set_active_tool_plugin_id(pop_res.switched_tool_id);
+        auto active_tool = pm.get_active_tool_plugin();
+        if (active_tool) {
+          UI::Editor::set_active_tool_sidebar_item(active_tool->get_id(), active_tool->get_name());
+        }
+        m_tool_sidebar.get_model().set_visible(true);
+        static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::ToolPlugin));
+      } else if (pop_res.open_marketplace) {
+        m_tool_sidebar.get_model().set_visible(true);
+        static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::Services));
+      }
+      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+      return true;
+    }
+    m_tool_switcher_popup.hide();
+    if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+  }
+
   if (m_text_editor.is_media_fullscreen()) {
     const UI::Editor::StudioEditorLayoutResult layout =
         calculate_layout(client_width, client_height, 0.0F);
@@ -465,6 +489,16 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
         sync_shader_sandbox();
       }
       return true;
+    }
+    if (items[*sidebar_index].icon == UI::Editor::SidebarIcon::More) {
+      const UI::Rect item_bounds = UI::Editor::calculate_studio_sidebar_item_bounds(layout, *sidebar_index);
+      m_tool_switcher_popup.show(item_bounds.right() + 4.0F * m_dpi_scale, item_bounds.y);
+      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+      return true;
+    }
+    if (items[*sidebar_index].icon == UI::Editor::SidebarIcon::ToolPlugin) {
+      m_tool_sidebar.get_model().set_visible(true);
+      return m_tool_sidebar.activate(UI::Editor::SidebarIcon::ToolPlugin);
     }
     return m_tool_sidebar.activate(items[*sidebar_index].icon);
   }
@@ -540,6 +574,19 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
             m_tool_sidebar.get_model().create_directory(name, created_p);
             if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
           });
+    } else if (sidebar_res.action == SidebarActionKind::SwitchTool) {
+      const UI::Rect panel = layout.tool_sidebar_bounds;
+      m_tool_switcher_popup.show(panel.right() + 4.0F * m_dpi_scale, panel.y + 10.0F * m_dpi_scale);
+      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+      return true;
+    } else if (sidebar_res.action == SidebarActionKind::OpenTerminal) {
+      m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+      if (!m_terminal_panel.is_visible()) {
+        static_cast<void>(m_terminal_panel.toggle());
+      }
+      m_terminal_panel.set_focused(true);
+      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+      return true;
     }
     return true;
   }
@@ -587,6 +634,12 @@ bool StudioWorkspaceRenderer::handle_pointer_move(float point_x, float point_y,
     const auto prompt_layout =
         m_prompt_modal.calculate_layout(viewport, m_dpi_scale);
     return m_prompt_modal.handle_pointer_move(point_x, point_y, prompt_layout);
+  }
+
+  if (m_tool_switcher_popup.is_visible()) {
+    if (m_tool_switcher_popup.handle_pointer_move(point_x, point_y, m_dpi_scale)) {
+      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+    }
   }
 
   if (m_text_editor.is_media_fullscreen()) {
@@ -1279,6 +1332,14 @@ void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
     return;
   }
 
+  auto& pm = Zenvra::Plugins::PluginManager::instance();
+  auto active_tool = pm.get_active_tool_plugin();
+  if (active_tool) {
+    UI::Editor::set_active_tool_sidebar_item(active_tool->get_id(), active_tool->get_name());
+  } else {
+    UI::Editor::clear_active_tool_sidebar_item();
+  }
+
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
   if (m_text_editor.is_media_fullscreen()) {
@@ -1325,8 +1386,11 @@ void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
                             UI::Editor::FooterEditorStatus{});
   }
 
-  // Floating overlays (e.g. Action Dropdown Menu, Diagnostics) rendered on top of everything
+  // Floating overlays (e.g. Action Dropdown Menu, Diagnostics, Tool Switcher) rendered on top of everything
   m_text_editor.render_overlays(*this, device_context, layout);
+  if (m_tool_switcher_popup.is_visible()) {
+    m_tool_switcher_popup.render(*this, device_context, m_dpi_scale);
+  }
 }
 
 void StudioWorkspaceRenderer::fill_rectangle(

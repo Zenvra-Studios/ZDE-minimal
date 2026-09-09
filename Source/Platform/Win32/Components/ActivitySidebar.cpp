@@ -1,5 +1,6 @@
 #include "Platform/Win32/Components/ActivitySidebar.h"
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
+#include "Plugins/PluginManager.h"
 #include "Utility/MathUtil.h"
 
 #include <algorithm>
@@ -151,6 +152,27 @@ void ActivitySidebar::draw_icon(
     case UI::Editor::SidebarIcon::Shader:
         asset_name = "material-icon-theme/shader.svg";
         break;
+    case UI::Editor::SidebarIcon::ToolPlugin: {
+        auto& pm = Zenvra::Plugins::PluginManager::instance();
+        auto tool = pm.get_active_tool_plugin();
+        std::string tool_name = tool ? tool->get_name() : "";
+        std::string tool_id = tool ? tool->get_id() : "";
+        std::string tool_lower = tool_name;
+        for (char& c : tool_lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+        if (tool_lower.find("docker") != std::string::npos || tool_id.find("docker") != std::string::npos) {
+            asset_name = "material-icon-theme/docker.svg";
+        } else if (tool_lower.find("qemu") != std::string::npos || tool_id.find("qemu") != std::string::npos) {
+            asset_name = "vscode-codicons/icons/chip.svg";
+        } else if (tool_lower.find("gdb") != std::string::npos || tool_lower.find("debug") != std::string::npos) {
+            asset_name = "vscode-codicons/icons/debug-alt.svg";
+        } else if (tool_lower.find("wasm") != std::string::npos) {
+            asset_name = "vscode-codicons/icons/server.svg";
+        } else {
+            asset_name = "vscode-codicons/icons/tools.svg";
+        }
+        break;
+    }
     case UI::Editor::SidebarIcon::Run:
         asset_name = "Assets/icons/play.svg";
         break;
@@ -167,6 +189,13 @@ void ActivitySidebar::draw_icon(
 
     if (!asset_name.empty())
     {
+        // ToolPlugin icons (Docker etc.) use material-icon-theme SVGs which have
+        // more internal padding than vscode-codicons. Scale them up so they
+        // appear visually equal to the other sidebar icons.
+        const int draw_size = (icon == UI::Editor::SidebarIcon::ToolPlugin)
+            ? std::max(round_to_int(UI::Editor::StudioEditorMetrics::sidebar_icon_size * 1.33F * surface.m_dpi_scale), 18)
+            : size;
+
         const UI::Theme::Color icon_color = active
             ? UI::Theme::Color{255, 255, 255, 255}
             : (hovered ? surface.m_palette.text_primary : surface.m_palette.text_muted);
@@ -178,7 +207,7 @@ void ActivitySidebar::draw_icon(
             asset_name,
             center_x,
             center_y,
-            size,
+            draw_size,
             icon_color,
             bg_color,
             false);

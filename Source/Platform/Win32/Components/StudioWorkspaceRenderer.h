@@ -8,6 +8,7 @@
 #include "Platform/Win32/Components/ToolSidebar.h"
 #include "Platform/Win32/Event/ScrollEvent.h"
 #include "Platform/Win32/Components/Win32PromptDialog.h"
+#include "Platform/Win32/Components/ToolSwitcherPopup.h"
 #include "UI/Components/PromptModal.h"
 #include "UI/Components/AddNewItemDialog.h"
 #include "UI/Editor/StudioEditorModel.h"
@@ -310,6 +311,7 @@ private:
     friend class TerminalPanel;
     friend class TextEditor;
     friend class ToolSidebar;
+    friend class ToolSwitcherPopup;
     friend class ::Zenvra::Platform::Win32::Win32Window;
 
     void fill_rectangle(HDC device_context, const UI::Rect& rectangle, const UI::Theme::Color& color) const;
@@ -364,6 +366,8 @@ private:
     [[nodiscard]] UI::Settings::SettingsWindow& get_settings_window() const noexcept { return m_settings_window; }
     void render_settings_window(HDC device_context, int client_width, int client_height, const UI::Theme::StudioTheme& theme) const;
 
+    [[nodiscard]] ToolSwitcherPopup& get_tool_switcher_popup() const noexcept { return m_tool_switcher_popup; }
+
     HWND m_window_handle = nullptr;
 
     UINT m_dpi = 96;
@@ -390,6 +394,7 @@ private:
     mutable Win32PromptDialog m_prompt_dialog;
     mutable UI::Components::AddNewItemDialog m_add_item_dialog;
     mutable UI::Settings::SettingsWindow m_settings_window;
+    mutable ToolSwitcherPopup m_tool_switcher_popup;
     mutable std::unordered_map<std::string, std::vector<std::uint32_t>> m_svg_cache;
     SplitterCornerKind m_active_corner_resizing = SplitterCornerKind::None;
 };
