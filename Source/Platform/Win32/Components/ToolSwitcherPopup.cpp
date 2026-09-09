@@ -62,6 +62,10 @@ void ToolSwitcherPopup::refresh_items()
         {
             item.icon_asset = "vscode-codicons/icons/server.svg";
         }
+        else if (name_lower.find("cmake") != std::string::npos || item.id.find("cmake") != std::string::npos)
+        {
+            item.icon_asset = "Assets/icons/cmake.svg";
+        }
         else
         {
             item.icon_asset = "vscode-codicons/icons/tools.svg";

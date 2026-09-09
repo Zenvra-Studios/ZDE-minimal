@@ -58,35 +58,6 @@
       "state": "enabled",
       "version": "0.6.0"
     },
-    "ms-azuretools.vscode-docker": {
-      "enabled": true,
-      "id": "ms-azuretools.vscode-docker",
-      "installPath": "C:\\Users\\Administrator\\Documents\\ZDE-minimal\\plugins\\tools\\ms-azuretools.vscode-docker",
-      "manifest": {
-        "capabilities": [],
-        "category": "tools",
-        "dependencies": {
-          "plugins": [],
-          "tools": []
-        },
-        "description": "Makes it easy to create, manage, and debug containerized applications",
-        "id": "ms-azuretools.vscode-docker",
-        "name": "Docker",
-        "platforms": [],
-        "publisher": {
-          "id": "",
-          "name": "Microsoft"
-        },
-        "version": "1.29.0",
-        "zde": {
-          "minimumVersion": "0.1.0"
-        }
-      },
-      "name": "Docker",
-      "source": "git",
-      "state": "enabled",
-      "version": "1.29.0"
-    },
     "ms-vscode.cmake-tools": {
       "enabled": true,
       "id": "ms-vscode.cmake-tools",

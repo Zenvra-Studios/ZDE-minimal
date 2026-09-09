@@ -1,0 +1,9 @@
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- CMake logo: three triangles forming the iconic CMake shape -->
+  <!-- Left triangle (blue in original) -->
+  <path d="M11.8 2L3 19.4L12.6 11.3L11.8 2Z" fill="currentColor" opacity="0.85"/>
+  <!-- Bottom triangle (green in original) -->
+  <path d="M20.4 20L8.6 15.2L3 20H20.4Z" fill="currentColor" opacity="0.6"/>
+  <!-- Right triangle (red in original) -->
+  <path d="M21 19.8L12.2 2.3L13.5 16.8L21 19.8Z" fill="currentColor" opacity="1"/>
+</svg>

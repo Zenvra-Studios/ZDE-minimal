@@ -168,6 +168,8 @@ void ActivitySidebar::draw_icon(
             asset_name = "vscode-codicons/icons/debug-alt.svg";
         } else if (tool_lower.find("wasm") != std::string::npos) {
             asset_name = "vscode-codicons/icons/server.svg";
+        } else if (tool_lower.find("cmake") != std::string::npos || tool_id.find("cmake") != std::string::npos) {
+            asset_name = "Assets/icons/cmake.svg";
         } else {
             asset_name = "vscode-codicons/icons/tools.svg";
         }
