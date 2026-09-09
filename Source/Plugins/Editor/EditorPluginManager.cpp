@@ -1,4 +1,4 @@
-#include "Editor/EditorPluginManager.h"
+#include "Plugins/Editor/EditorPluginManager.h"
 #include "Settings/SettingsService.h"
 
 namespace Zenvra::Plugins::Editor
