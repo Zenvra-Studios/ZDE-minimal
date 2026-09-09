@@ -81,6 +81,12 @@ public:
     /// Gets cached diagnostics for a document URI
     [[nodiscard]] std::vector<Protocol::Diagnostic> get_diagnostics_for_document(const std::string& uri) const;
 
+    /// Stop a specific language client (e.g. when an extension is uninstalled or disabled)
+    void stop_client_for_language(std::string_view language_id);
+
+    /// Checks if a language is currently supported by an installed & registered plugin
+    [[nodiscard]] bool is_language_supported(std::string_view language_id) const;
+
     /// Shutdown all active clients
     void shutdown_all();
     void stop_all() { shutdown_all(); }

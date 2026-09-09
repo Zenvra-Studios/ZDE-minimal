@@ -2121,7 +2121,6 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
   const auto *profile =
       Registry::ServerRegistry::instance().find_profile_for_filename(fname_str);
   if (profile == nullptr) {
-    lsp_debug_log("[zde-lsp] NO PROFILE for " + fname_str);
     return nullptr;
   }
 
@@ -2133,11 +2132,18 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
     return nullptr;
   }
 
-  // Locate the language server executable (e.g. clangd.exe, rust-analyzer.exe,
-  // etc.)
-  const std::filesystem::path exe_path =
-      Registry::ServerRegistry::instance().find_executable_in_system(
-          profile->executable_name);
+  // Locate the language server executable (e.g. clangd.exe, rust-analyzer.exe, etc.)
+  std::filesystem::path exe_path;
+  if (!profile->custom_executable_path.empty()) {
+    std::error_code ec;
+    if (std::filesystem::exists(profile->custom_executable_path, ec)) {
+      exe_path = profile->custom_executable_path;
+    }
+  }
+  if (exe_path.empty()) {
+    exe_path = Registry::ServerRegistry::instance().find_executable_in_system(
+        profile->executable_name);
+  }
   if (exe_path.empty()) {
     lsp_debug_log("[zde-lsp] EXE NOT FOUND for " +
                   std::string(profile->executable_name));
@@ -2477,6 +2483,16 @@ void LanguageServerManager::request_completion(
     const Protocol::Position &pos, std::string_view line_text,
     std::function<void(std::vector<Protocol::CompletionItem>)> callback,
     std::optional<char> trigger_character) {
+  // Require that an LSP plugin is installed and registered for this file type
+  const auto *profile =
+      Registry::ServerRegistry::instance().find_profile_for_filename(filename);
+  if (profile == nullptr) {
+    if (callback) {
+      callback({});
+    }
+    return;
+  }
+
   const std::filesystem::path p(filename);
   const std::string ext = p.extension().string();
   const std::string fname = p.filename().string();
@@ -2796,6 +2812,29 @@ LanguageServerManager::get_diagnostics_for_document(
     return it->second;
   }
   return {};
+}
+
+void LanguageServerManager::stop_client_for_language(std::string_view language_id) {
+  std::lock_guard<std::mutex> lock(m_clients_mutex);
+  std::string lang(language_id);
+  if (auto it = m_clients.find(lang); it != m_clients.end()) {
+    if (it->second) {
+      it->second->shutdown();
+      it->second->exit();
+    }
+    m_clients.erase(it);
+  }
+  m_unavailable_languages.erase(lang);
+
+  // Clear diagnostics associated with this language
+  std::erase_if(m_document_diagnostics, [&](const auto &item) {
+    const auto *p = Registry::ServerRegistry::instance().find_profile_for_filename(item.first);
+    return p != nullptr && p->language_id == lang;
+  });
+}
+
+bool LanguageServerManager::is_language_supported(std::string_view language_id) const {
+  return Registry::ServerRegistry::instance().has_profile_for_language(language_id);
 }
 
 void LanguageServerManager::shutdown_all() {
