@@ -40,12 +40,16 @@ void FooterToolbar::render(
     const UI::Editor::StudioEditorLayoutResult &layout,
     std::span<const UI::Editor::BreadcrumbItem> breadcrumbs,
     const UI::Editor::FooterEditorStatus &status) const {
-  surface.fill_rectangle(device_context, layout.status_bar_bounds,
-                         surface.m_palette.status_background);
-  surface.draw_line(device_context, 0, round_to_int(layout.status_bar_bounds.y),
-                    round_to_int(layout.status_bar_bounds.right()),
-                    round_to_int(layout.status_bar_bounds.y),
-                    surface.m_palette.border);
+  if (surface.m_palette.is_modern) {
+    // Modern mode: unified seamless window surface (blurred or solid), no top border
+  } else {
+    surface.fill_rectangle(device_context, layout.status_bar_bounds,
+                           surface.m_palette.status_background);
+    surface.draw_line(device_context, 0, round_to_int(layout.status_bar_bounds.y),
+                      round_to_int(layout.status_bar_bounds.right()),
+                      round_to_int(layout.status_bar_bounds.y),
+                      surface.m_palette.border);
+  }
   const float scale = surface.m_dpi_scale;
   const float center_y =
       layout.status_bar_bounds.y + layout.status_bar_bounds.height * 0.5F;

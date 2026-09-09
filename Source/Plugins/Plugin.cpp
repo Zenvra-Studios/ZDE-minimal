@@ -113,4 +113,36 @@ std::vector<std::filesystem::path> Plugin::get_lsp_files() const
     return results;
 }
 
+std::vector<std::filesystem::path> Plugin::get_theme_files() const
+{
+    std::vector<std::filesystem::path> results;
+    std::error_code ec;
+
+    // 1. Direct themes/ directory
+    std::filesystem::path dir = m_install_path / "themes";
+    if (std::filesystem::is_directory(dir, ec))
+    {
+        for (const auto& entry : std::filesystem::directory_iterator(dir, ec))
+        {
+            if (entry.is_regular_file() && entry.path().extension() == ".json")
+            {
+                results.push_back(entry.path());
+            }
+        }
+    }
+
+    // 2. Direct theme.json in root
+    std::filesystem::path root_theme = m_install_path / "theme.json";
+    if (std::filesystem::is_regular_file(root_theme, ec))
+    {
+        if (std::find(results.begin(), results.end(), root_theme) == results.end())
+        {
+            results.push_back(root_theme);
+        }
+    }
+
+    return results;
+}
+
 } // namespace Zenvra::Plugins
+

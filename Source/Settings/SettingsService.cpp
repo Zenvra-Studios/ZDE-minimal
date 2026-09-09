@@ -541,13 +541,15 @@ void SettingsService::register_default_settings()
         .title = "Color Theme",
         .description = "Specifies the active color theme applied to the studio interface.",
         .type = SettingType::Enum,
-        .defaultValue = "Dark",
+        .defaultValue = "Zenvra Dark Modern",
         .category = "Appearance",
         .subcategory = "Theme",
         .tags = {"theme", "color", "dark", "light"},
         .enum_values = {
-            {"Dark", "Dark"},
-            {"Light", "Light"},
+            {"Zenvra Dark", "Zenvra Dark"},
+            {"Zenvra Light", "Zenvra Light"},
+            {"Zenvra Dark Modern", "Zenvra Dark Modern"},
+            {"Zenvra Light Modern", "Zenvra Light Modern"},
             {"High Contrast", "High Contrast"}
         },
     });

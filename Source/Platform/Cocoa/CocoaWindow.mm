@@ -2,6 +2,8 @@
 
 #include "Language/LanguageServerManager.h"
 #include "Platform/Cocoa/CocoaWindow.h"
+#include "Settings/SettingsService.h"
+#include "UI/Theme/ThemeManager.h"
 
 #include "Platform/Cocoa/Runtime/CocoaContext.h"
 #include "Platform/Cocoa/Runtime/CocoaMenuBridge.h"
@@ -140,6 +142,13 @@ CocoaWindow::~CocoaWindow()
         [view release];
         m_content_view = nullptr;
     }
+    if (m_blur_view != nullptr)
+    {
+        NSVisualEffectView* blur = (__bridge NSVisualEffectView*)m_blur_view;
+        [blur removeFromSuperview];
+        [blur release];
+        m_blur_view = nullptr;
+    }
     if (m_delegate != nullptr)
     {
         ZenvraWindowDelegate* delegate = (__bridge ZenvraWindowDelegate*)m_delegate;
@@ -225,13 +234,22 @@ bool CocoaWindow::initialize()
     // icon asset root stay uninitialized, so the text editor buffer content,
     // the explorer sidebar and every toolkit icon fail to render.
     const CGFloat dpi_scale = [window backingScaleFactor];
+    const auto initial_theme = UI::Theme::ThemeManager::instance().get_current_theme();
     if (!m_renderer.initialize(
-            static_cast<float>(dpi_scale), UI::Theme::StudioTheme::zenvra_dark()))
+            static_cast<float>(dpi_scale), initial_theme))
     {
         std::cerr << "Fatal error: the Cocoa workspace renderer could not be "
                      "initialized.\n";
         return false;
     }
+    apply_theme(initial_theme);
+
+    Settings::SettingsService::instance().register_listener(
+        [this](const Settings::SettingsEvent& event) {
+            if (event.id == "theme.current") {
+                apply_theme(UI::Theme::ThemeManager::instance().get_current_theme());
+            }
+        });
 
     Language::LanguageServerManager::instance().set_diagnostics_callback(
         [this](const std::string& uri, const std::vector<Language::Protocol::Diagnostic>& diags) {
@@ -616,6 +634,51 @@ void CocoaWindow::set_command_state_query_callback(CommandStateQueryCallback cal
     {
         ZenvraContentView* view = (__bridge ZenvraContentView*)m_content_view;
         [view setCommandCallback:query_dispatcher];
+    }
+}
+
+void CocoaWindow::apply_theme(const UI::Theme::StudioTheme& theme)
+{
+    if (m_window_handle == nullptr) return;
+    NSWindow* window = (__bridge NSWindow*)m_window_handle;
+
+    // 1. Native Appearance (Aqua vs DarkAqua)
+    window.appearance = [NSAppearance appearanceNamed:theme.is_dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
+
+    // 2. OS Blur (NSVisualEffectView)
+    if (theme.enable_os_blur)
+    {
+        if (m_blur_view == nullptr && m_content_view != nullptr)
+        {
+            NSView* cv = (__bridge NSView*)m_content_view;
+            NSVisualEffectView* blur = [[NSVisualEffectView alloc] initWithFrame:cv.bounds];
+            blur.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+            blur.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+            blur.material = NSVisualEffectMaterialUnderWindowBackground;
+            blur.state = NSVisualEffectStateActive;
+            [cv addSubview:blur positioned:NSWindowBelow relativeTo:nil];
+            m_blur_view = (__bridge_retained void*)blur;
+        }
+        else if (m_blur_view != nullptr)
+        {
+            NSVisualEffectView* blur = (__bridge NSVisualEffectView*)m_blur_view;
+            blur.hidden = NO;
+        }
+    }
+    else
+    {
+        if (m_blur_view != nullptr)
+        {
+            NSVisualEffectView* blur = (__bridge NSVisualEffectView*)m_blur_view;
+            blur.hidden = YES;
+        }
+    }
+
+    m_renderer.set_theme(theme);
+    if (m_content_view != nullptr)
+    {
+        ZenvraContentView* view = (__bridge ZenvraContentView*)m_content_view;
+        [view setNeedsDisplay:YES];
     }
 }
 

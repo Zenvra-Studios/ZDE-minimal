@@ -119,6 +119,8 @@ private:
   void show_system_menu_at_icon();
   void copy_to_clipboard(const std::string &text);
   static std::wstring utf8_to_wide(std::string_view text);
+  void apply_theme(const UI::Theme::StudioTheme& theme);
+  void apply_os_backdrop(bool enable_blur, UI::Theme::BackdropEffect effect, bool is_dark);
 
   struct ExplorerContextMenuItem {
     std::string label;
@@ -151,7 +153,7 @@ private:
   CommandStateQueryCallback m_command_state_query_callback;
   Components::Menubar m_menubar;
   Components::StudioWorkspaceRenderer m_workspace_renderer;
-  UI::Theme::StudioTheme m_theme = UI::Theme::StudioTheme::zenvra_dark();
+  UI::Theme::StudioTheme m_theme = UI::Theme::StudioTheme::zenvra_dark_modern();
   UI::Chrome::WindowChromeLayout m_chrome_layout_engine;
   UI::Chrome::WindowChromeLayoutResult m_chrome_layout;
   UI::Components::AboutModal m_about_modal;

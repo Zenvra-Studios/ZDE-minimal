@@ -59,6 +59,8 @@ void AsciiMascotRenderer::render_ascii_to_dc(
     const uint8_t bg_r = GetRValue(bg_color);
     const uint8_t bg_g = GetGValue(bg_color);
     const uint8_t bg_b = GetBValue(bg_color);
+    const float bg_lum = (0.2126F * bg_r + 0.7152F * bg_g + 0.0722F * bg_b) / 255.0F;
+    const bool is_light_bg = (bg_lum > 0.5F);
 
     for (int y = 0; y < art.height; ++y) {
         const int py = static_cast<int>(std::round(bounds.y + static_cast<float>(y) * cell_h));
@@ -71,19 +73,47 @@ void AsciiMascotRenderer::render_ascii_to_dc(
             const int px = static_cast<int>(std::round(bounds.x + static_cast<float>(x) * cell_w));
 
             if (colored) {
-                // Adaptive clarity boost: lifts faint line contours while maintaining solid gradient dynamics
-                const float lum_val = (0.2126F * cell->r + 0.7152F * cell->g + 0.0722F * cell->b) / 255.0F;
-                const float boost_factor = 1.0F + 0.85F * (1.0F - lum_val);
-                int r = std::clamp(static_cast<int>(cell->r * boost_factor + 45.0F), 0, 255);
-                int g = std::clamp(static_cast<int>(cell->g * boost_factor + 45.0F), 0, 255);
-                int b = std::clamp(static_cast<int>(cell->b * boost_factor + 45.0F), 0, 255);
+                if (is_light_bg) {
+                    // For light theme, invert brightness so white/light logo glyphs become crisp dark black/slate font
+                    int r = 255 - cell->r;
+                    int g = 255 - cell->g;
+                    int b = 255 - cell->b;
 
-                const uint8_t out_r = static_cast<uint8_t>((r * cell->a + bg_r * (255 - cell->a)) / 255);
-                const uint8_t out_g = static_cast<uint8_t>((g * cell->a + bg_g * (255 - cell->a)) / 255);
-                const uint8_t out_b = static_cast<uint8_t>((b * cell->a + bg_b * (255 - cell->a)) / 255);
-                SetTextColor(dc, RGB(out_r, out_g, out_b));
+                    // Ensure high contrast against light background: clamp to deep dark ink
+                    const float inv_lum = (0.2126F * r + 0.7152F * g + 0.0722F * b) / 255.0F;
+                    if (inv_lum > 0.35F) {
+                        const float scale = 0.35F / inv_lum;
+                        r = static_cast<int>(r * scale);
+                        g = static_cast<int>(g * scale);
+                        b = static_cast<int>(b * scale);
+                    }
+                    r = std::clamp(r, 18, 110);
+                    g = std::clamp(g, 18, 110);
+                    b = std::clamp(b, 24, 130);
+
+                    const uint8_t out_r = static_cast<uint8_t>((r * cell->a + bg_r * (255 - cell->a)) / 255);
+                    const uint8_t out_g = static_cast<uint8_t>((g * cell->a + bg_g * (255 - cell->a)) / 255);
+                    const uint8_t out_b = static_cast<uint8_t>((b * cell->a + bg_b * (255 - cell->a)) / 255);
+                    SetTextColor(dc, RGB(out_r, out_g, out_b));
+                } else {
+                    // Adaptive clarity boost: lifts faint line contours while maintaining solid gradient dynamics
+                    const float lum_val = (0.2126F * cell->r + 0.7152F * cell->g + 0.0722F * cell->b) / 255.0F;
+                    const float boost_factor = 1.0F + 0.85F * (1.0F - lum_val);
+                    int r = std::clamp(static_cast<int>(cell->r * boost_factor + 45.0F), 0, 255);
+                    int g = std::clamp(static_cast<int>(cell->g * boost_factor + 45.0F), 0, 255);
+                    int b = std::clamp(static_cast<int>(cell->b * boost_factor + 45.0F), 0, 255);
+
+                    const uint8_t out_r = static_cast<uint8_t>((r * cell->a + bg_r * (255 - cell->a)) / 255);
+                    const uint8_t out_g = static_cast<uint8_t>((g * cell->a + bg_g * (255 - cell->a)) / 255);
+                    const uint8_t out_b = static_cast<uint8_t>((b * cell->a + bg_b * (255 - cell->a)) / 255);
+                    SetTextColor(dc, RGB(out_r, out_g, out_b));
+                }
             } else {
-                SetTextColor(dc, RGB(245, 248, 255));
+                if (is_light_bg) {
+                    SetTextColor(dc, RGB(24, 28, 36)); // Crisp dark black/slate font for light theme
+                } else {
+                    SetTextColor(dc, RGB(245, 248, 255)); // Bright white font for dark theme
+                }
             }
 
             const WCHAR ch = static_cast<WCHAR>(static_cast<unsigned char>(cell->character));

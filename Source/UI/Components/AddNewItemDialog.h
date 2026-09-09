@@ -12,7 +12,6 @@
 #include <vector>
 #include <windows.h>
 
-
 namespace Zenvra::UI::Components {
 
 struct ItemTemplate {

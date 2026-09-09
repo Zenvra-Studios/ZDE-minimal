@@ -63,6 +63,7 @@ public:
     [[nodiscard]] std::vector<std::filesystem::path> get_grammar_files() const;
     [[nodiscard]] std::vector<std::filesystem::path> get_language_files() const;
     [[nodiscard]] std::vector<std::filesystem::path> get_lsp_files() const;
+    [[nodiscard]] std::vector<std::filesystem::path> get_theme_files() const;
 
 private:
     PluginManifest m_manifest;

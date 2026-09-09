@@ -3,7 +3,7 @@
     "golang.go": {
       "enabled": true,
       "id": "golang.go",
-      "installPath": "C:\\Users\\Administrator\\Documents\\ZDE-minimal\\plugins\\lsp\\golang.go",
+      "installPath": "C:\\Users\\Administrator\\Documents\\Projects\\ZDE-minimal\\plugins\\lsp\\golang.go",
       "manifest": {
         "capabilities": [],
         "category": "lsp",
@@ -25,14 +25,14 @@
         }
       },
       "name": "Go",
-      "source": "git",
+      "source": "local",
       "state": "enabled",
       "version": "0.44.0"
     },
     "llvm-vs-code-extensions.vscode-clangd": {
       "enabled": true,
       "id": "llvm-vs-code-extensions.vscode-clangd",
-      "installPath": "C:\\Users\\Administrator\\Documents\\ZDE-minimal\\plugins\\lsp\\llvm-vs-code-extensions.vscode-clangd",
+      "installPath": "C:\\Users\\Administrator\\Documents\\Projects\\ZDE-minimal\\plugins\\lsp\\llvm-vs-code-extensions.vscode-clangd",
       "manifest": {
         "capabilities": [],
         "category": "lsp",
@@ -40,28 +40,28 @@
           "plugins": [],
           "tools": []
         },
-        "description": "C/C++ completion, navigation, and insights",
+        "description": "C/C++ completion, navigation, diagnostics and semantic tokens via clangd LSP",
         "id": "llvm-vs-code-extensions.vscode-clangd",
-        "name": "vscode-clangd",
+        "name": "clangd",
         "platforms": [],
         "publisher": {
-          "id": "llvm-vs-code-extensions",
+          "id": "",
           "name": "llvm-vs-code-extensions"
         },
-        "version": "0.6.0",
+        "version": "0.1.33",
         "zde": {
           "minimumVersion": "0.1.0"
         }
       },
-      "name": "vscode-clangd",
+      "name": "clangd",
       "source": "git",
       "state": "enabled",
-      "version": "0.6.0"
+      "version": "0.1.33"
     },
     "ms-vscode.cmake-tools": {
       "enabled": true,
       "id": "ms-vscode.cmake-tools",
-      "installPath": "C:\\Users\\Administrator\\Documents\\ZDE-minimal\\plugins\\lsp\\ms-vscode.cmake-tools",
+      "installPath": "C:\\Users\\Administrator\\Documents\\Projects\\ZDE-minimal\\plugins\\lsp\\ms-vscode.cmake-tools",
       "manifest": {
         "capabilities": [],
         "category": "lsp",
@@ -83,7 +83,7 @@
         }
       },
       "name": "CMake Tools",
-      "source": "git",
+      "source": "local",
       "state": "enabled",
       "version": "1.19.52"
     }

@@ -1,4 +1,5 @@
 #include "UI/Settings/SettingsWindow.h"
+#include "UI/Theme/ThemeManager.h"
 #include "Utility/Ascii/AsciiMascotRenderer.h"
 #include "Utility/TextEncoding.h"
 #include "Utility/stb_image.h"
@@ -619,6 +620,8 @@ void SettingsWindow::close() {
   m_scrollbar_thumb_hovered = false;
   m_search_clear_hovered = false;
   m_is_dragging_scrollbar = false;
+  m_is_dragging_sidebar_scrollbar = false;
+  m_dropdown.close();
 }
 
 void SettingsWindow::toggle(HWND parent_hwnd) {
@@ -815,19 +818,8 @@ LRESULT SettingsWindow::handle_message(HWND hwnd, UINT message, WPARAM w_param,
                          static_cast<float>(rc.bottom - rc.top), dpi_scale);
 
     bool need_redraw = false;
-    if (m_is_dragging_font_scrollbar && m_font_dropdown_max_scroll > 0.0F) {
-      const float track_h = m_font_dropdown_scrollbar_track.height;
-      const float thumb_h = m_font_dropdown_scrollbar_thumb.height;
-      const float travel = track_h - thumb_h;
-      if (travel > 0.0F) {
-        const float delta_y = y - m_drag_start_font_y;
-        const float delta_scroll =
-            (delta_y / travel) * m_font_dropdown_max_scroll;
-        m_font_dropdown_scroll =
-            std::clamp(m_drag_start_font_scroll + delta_scroll, 0.0F,
-                       m_font_dropdown_max_scroll);
-        need_redraw = true;
-      }
+    if (m_dropdown.is_dragging_scrollbar()) {
+      need_redraw = m_dropdown.handle_pointer_move(x, y, dpi_scale);
     } else if (m_is_dragging_sidebar_scrollbar && m_sidebar_max_scroll > 0.0F) {
       const float track_h = layout.sidebar_scrollbar_track.height;
       const float thumb_h = layout.sidebar_scrollbar_thumb.height;
@@ -890,10 +882,9 @@ LRESULT SettingsWindow::handle_message(HWND hwnd, UINT message, WPARAM w_param,
       const float cur_x = static_cast<float>(cursor_pos.x);
       const float cur_y = static_cast<float>(cursor_pos.y);
 
-      if (m_font_dropdown_open &&
-          m_font_dropdown_bounds.contains(cur_x, cur_y)) {
-        if (!m_font_dropdown_scrollbar_track.is_empty() &&
-            m_font_dropdown_scrollbar_track.contains(cur_x, cur_y)) {
+      if (m_dropdown.is_open() && m_dropdown.is_point_inside(cur_x, cur_y)) {
+        if (!m_dropdown.get_scrollbar_track().is_empty() &&
+            m_dropdown.get_scrollbar_track().contains(cur_x, cur_y)) {
           SetCursor(LoadCursor(nullptr, IDC_ARROW));
         } else {
           SetCursor(LoadCursor(nullptr, IDC_HAND));
@@ -973,9 +964,9 @@ LRESULT SettingsWindow::handle_message(HWND hwnd, UINT message, WPARAM w_param,
     } else if (!layout.scrollbar_thumb.is_empty() &&
                layout.scrollbar_thumb.contains(x, y)) {
       SetCapture(hwnd);
-    } else if (m_font_dropdown_open &&
-               !m_font_dropdown_scrollbar_thumb.is_empty() &&
-               m_font_dropdown_scrollbar_thumb.contains(x, y)) {
+    } else if (m_dropdown.is_open() &&
+               !m_dropdown.get_scrollbar_thumb().is_empty() &&
+               m_dropdown.get_scrollbar_thumb().contains(x, y)) {
       SetCapture(hwnd);
     }
 
@@ -996,7 +987,7 @@ LRESULT SettingsWindow::handle_message(HWND hwnd, UINT message, WPARAM w_param,
                          static_cast<float>(rc.bottom - rc.top), dpi_scale);
 
     if (m_is_dragging_scrollbar || m_is_dragging_sidebar_scrollbar ||
-        m_is_dragging_font_scrollbar) {
+        m_dropdown.is_dragging_scrollbar()) {
       ReleaseCapture();
       handle_pointer_release(x, y, layout);
       InvalidateRect(hwnd, nullptr, FALSE);
@@ -1056,7 +1047,7 @@ LRESULT SettingsWindow::handle_message(HWND hwnd, UINT message, WPARAM w_param,
     }
 
     if (ch >= 32 && ch != 127) {
-      m_font_dropdown_open = false;
+      m_dropdown.close();
       std::string s(1, ch);
       if (m_search_input.handle_text_input(s)) {
         m_scroll_offset = 0.0F;
@@ -1070,8 +1061,8 @@ LRESULT SettingsWindow::handle_message(HWND hwnd, UINT message, WPARAM w_param,
     const float dpi_scale = static_cast<float>(m_dpi) / 96.0F;
 
     if (w_param == VK_ESCAPE) {
-      if (m_font_dropdown_open) {
-        m_font_dropdown_open = false;
+      if (m_dropdown.is_open()) {
+        m_dropdown.close();
         InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
       }
@@ -1086,8 +1077,8 @@ LRESULT SettingsWindow::handle_message(HWND hwnd, UINT message, WPARAM w_param,
     }
 
     if (w_param == VK_RETURN) {
-      if (m_font_dropdown_open) {
-        m_font_dropdown_open = false;
+      if (m_dropdown.is_open()) {
+        m_dropdown.close();
         InvalidateRect(hwnd, nullptr, FALSE);
         return 0;
       }
@@ -1163,9 +1154,8 @@ LRESULT SettingsWindow::handle_message(HWND hwnd, UINT message, WPARAM w_param,
     }
 
     if (w_param == VK_UP) {
-      if (m_font_dropdown_open && m_font_dropdown_max_scroll > 0.0F) {
-        m_font_dropdown_scroll =
-            std::max(0.0F, m_font_dropdown_scroll - 38.0F * dpi_scale);
+      if (m_dropdown.is_open()) {
+        static_cast<void>(m_dropdown.handle_key(VK_UP, dpi_scale));
       } else {
         m_scroll_offset = std::max(0.0F, m_scroll_offset - 44.0F * dpi_scale);
       }
@@ -1174,10 +1164,8 @@ LRESULT SettingsWindow::handle_message(HWND hwnd, UINT message, WPARAM w_param,
     }
 
     if (w_param == VK_DOWN) {
-      if (m_font_dropdown_open && m_font_dropdown_max_scroll > 0.0F) {
-        m_font_dropdown_scroll =
-            std::min(m_font_dropdown_max_scroll,
-                     m_font_dropdown_scroll + 38.0F * dpi_scale);
+      if (m_dropdown.is_open()) {
+        static_cast<void>(m_dropdown.handle_key(VK_DOWN, dpi_scale));
       } else {
         m_scroll_offset =
             std::min(m_max_scroll, m_scroll_offset + 44.0F * dpi_scale);
@@ -1435,7 +1423,7 @@ std::vector<SettingsSectionDef> get_all_sections() {
   sections.push_back(
       {"Security", "Security", {"security.workspace.trust.enabled"}});
 
-  sections.push_back({"Plugins", "Plugins", {}});
+  sections.push_back({"Plugins", "Extensions & Themes", {"theme.current"}});
 
   return sections;
 }
@@ -1583,7 +1571,7 @@ SettingsWindow::calculate_layout(float width, float height,
         {"Application:Update", "Update"},
         {"Application:Telemetry", "Telemetry"}}},
       {"Security", "Security", 0, true, {{"Security:Workspace", "Workspace"}}},
-      {"Plugins", "Plugins", 0, false, {}}};
+      {"Plugins", "Extensions & Themes", 0, false, {}}};
 
   const float item_margin_left = 10.0F * dpi_scale;
   const float item_margin_right = 8.0F * dpi_scale;
@@ -1969,82 +1957,22 @@ SettingsWindow::calculate_layout(float width, float height,
   const_cast<SettingsWindow *>(this)->m_scroll_offset =
       std::clamp(m_scroll_offset, 0.0F, m_max_scroll);
 
-  // Font breakdown dropdown layout
-  if (m_font_dropdown_open) {
+  // Dropdown component layout
+  if (m_dropdown.is_open()) {
+    bool owner_found = false;
     for (const auto &row : layout.rows) {
-      if (row.def && row.def->id == "editor.fontFamily") {
-        const auto &coding_fonts = get_installed_coding_fonts();
-        const float dd_w = row.input_bounds.width;
-        const float item_h = 38.0F * dpi_scale;
-        const float total_items_h =
-            static_cast<float>(coding_fonts.size()) * item_h + 8.0F * dpi_scale;
-        // Clamp dropdown height so it shows ~5.5 items comfortably with a
-        // scrollbar
-        const float max_dd_h = std::min(total_items_h, 228.0F * dpi_scale);
-
-        // Available space below and above the font family input box
-        const float space_below =
-            (layout.dialog_bounds.bottom() - 10.0F * dpi_scale) -
-            (row.input_bounds.bottom() + 2.0F * dpi_scale);
-        const float space_above = (row.input_bounds.y - 2.0F * dpi_scale) -
-                                  (layout.dialog_bounds.y + 40.0F * dpi_scale);
-
-        float dd_y = row.input_bounds.bottom() + 2.0F * dpi_scale;
-        float actual_dd_h = max_dd_h;
-
-        if (space_below < max_dd_h && space_above > space_below) {
-          actual_dd_h = std::min(max_dd_h, space_above);
-          dd_y = row.input_bounds.y - 2.0F * dpi_scale - actual_dd_h;
-        } else if (space_below < max_dd_h) {
-          actual_dd_h = std::max(120.0F * dpi_scale, space_below);
-        }
-
-        m_font_dropdown_bounds =
-            Rect{row.input_bounds.x, dd_y, dd_w, actual_dd_h};
-
-        m_font_dropdown_max_scroll =
-            std::max(0.0F, total_items_h - actual_dd_h);
-        const_cast<SettingsWindow *>(this)->m_font_dropdown_scroll = std::clamp(
-            m_font_dropdown_scroll, 0.0F, m_font_dropdown_max_scroll);
-
-        const float item_w = (m_font_dropdown_max_scroll > 0.0F)
-                                 ? (dd_w - 18.0F * dpi_scale)
-                                 : (dd_w - 8.0F * dpi_scale);
-
-        m_font_dropdown_items.clear();
-        float opt_y = m_font_dropdown_bounds.y + 4.0F * dpi_scale -
-                      m_font_dropdown_scroll;
-        for (const auto &opt : coding_fonts) {
-          m_font_dropdown_items.push_back(
-              {opt.name, Rect{m_font_dropdown_bounds.x + 4.0F * dpi_scale,
-                              opt_y, item_w, item_h}});
-          opt_y += item_h;
-        }
-
-        // Scrollbar for font dropdown
-        if (m_font_dropdown_max_scroll > 0.0F) {
-          const float s_track_w = 6.0F * dpi_scale;
-          m_font_dropdown_scrollbar_track = Rect{
-              m_font_dropdown_bounds.right() - s_track_w - 4.0F * dpi_scale,
-              m_font_dropdown_bounds.y + 4.0F * dpi_scale, s_track_w,
-              m_font_dropdown_bounds.height - 8.0F * dpi_scale};
-          const float view_ratio =
-              m_font_dropdown_bounds.height / total_items_h;
-          const float thumb_h =
-              std::max(22.0F * dpi_scale,
-                       m_font_dropdown_scrollbar_track.height * view_ratio);
-          const float travel = m_font_dropdown_scrollbar_track.height - thumb_h;
-          const float thumb_y =
-              m_font_dropdown_scrollbar_track.y +
-              (m_font_dropdown_scroll / m_font_dropdown_max_scroll) * travel;
-          m_font_dropdown_scrollbar_thumb = Rect{
-              m_font_dropdown_scrollbar_track.x, thumb_y, s_track_w, thumb_h};
-        } else {
-          m_font_dropdown_scrollbar_track = Rect{};
-          m_font_dropdown_scrollbar_thumb = Rect{};
-        }
+      if (row.def && row.def->id == m_dropdown.get_owner_id()) {
+        const Rect anchor = (row.def->id == "editor.fontFamily")
+                                ? row.input_bounds
+                                : row.option_btn_bounds;
+        const_cast<SettingsWindow *>(this)->m_dropdown.calculate_layout(
+            anchor, layout.dialog_bounds, dpi_scale);
+        owner_found = true;
         break;
       }
+    }
+    if (!owner_found) {
+      const_cast<SettingsWindow *>(this)->m_dropdown.close();
     }
   }
 
@@ -2086,7 +2014,7 @@ SettingsWindow::calculate_layout(const Rect &viewport_bounds,
 
 bool SettingsWindow::is_interactive_point(
     float x, float y, const SettingsWindowLayoutResult &layout) const noexcept {
-  if (m_font_dropdown_open && m_font_dropdown_bounds.contains(x, y))
+  if (m_dropdown.is_open() && m_dropdown.is_point_inside(x, y))
     return true;
   if (layout.close_btn_bounds.contains(x, y))
     return true;
@@ -2128,56 +2056,31 @@ bool SettingsWindow::is_interactive_point(
 
 bool SettingsWindow::handle_pointer_press(
     float x, float y, const SettingsWindowLayoutResult &layout) noexcept {
-  // 1. Font dropdown interaction
-  if (m_font_dropdown_open) {
-    if (m_font_dropdown_bounds.contains(x, y)) {
-      // Check if clicking on font dropdown scrollbar
-      if (!m_font_dropdown_scrollbar_thumb.is_empty() &&
-          m_font_dropdown_scrollbar_thumb.contains(x, y)) {
-        m_is_dragging_font_scrollbar = true;
-        m_drag_start_font_y = y;
-        m_drag_start_font_scroll = m_font_dropdown_scroll;
-        if (m_hwnd)
+  // 1. Dropdown component interaction
+  if (m_dropdown.is_open()) {
+    if (m_dropdown.is_point_inside(x, y)) {
+      if (m_dropdown.handle_pointer_press(x, y, 1.0F)) {
+        if (m_dropdown.is_dragging_scrollbar() && m_hwnd) {
           SetCapture(m_hwnd);
-        return true;
-      }
-      if (!m_font_dropdown_scrollbar_track.is_empty() &&
-          m_font_dropdown_scrollbar_track.contains(x, y)) {
-        if (y < m_font_dropdown_scrollbar_thumb.y) {
-          m_font_dropdown_scroll =
-              std::max(0.0F, m_font_dropdown_scroll - 80.0F);
-        } else {
-          m_font_dropdown_scroll = std::min(m_font_dropdown_max_scroll,
-                                            m_font_dropdown_scroll + 80.0F);
         }
         return true;
       }
-
-      for (const auto &[font_name, item_bounds] : m_font_dropdown_items) {
-        if (item_bounds.bottom() > m_font_dropdown_bounds.y &&
-            item_bounds.y < m_font_dropdown_bounds.bottom() &&
-            item_bounds.contains(x, y)) {
-          auto &service = Zenvra::Settings::SettingsService::instance();
-          service.set("editor.fontFamily", font_name, m_active_scope);
-          m_font_dropdown_open = false;
-          return true;
-        }
-      }
-      return true;
     }
 
-    // If clicking on the input box or chevron that toggled it, simply close it
+    // Check if clicking on the toggle button of the current open dropdown
     for (const auto &row : layout.rows) {
-      if (row.def && row.def->id == "editor.fontFamily") {
-        if (row.input_bounds.contains(x, y) ||
-            row.dropdown_btn_bounds.contains(x, y)) {
-          m_font_dropdown_open = false;
+      if (row.def && row.def->id == m_dropdown.get_owner_id()) {
+        const Rect btn = (row.def->id == "editor.fontFamily")
+                             ? row.input_bounds
+                             : row.option_btn_bounds;
+        if (btn.contains(x, y) || row.dropdown_btn_bounds.contains(x, y)) {
+          m_dropdown.close();
           return true;
         }
         break;
       }
     }
-    m_font_dropdown_open = false;
+    m_dropdown.close();
   }
 
   // 2. Close button
@@ -2352,9 +2255,33 @@ bool SettingsWindow::handle_pointer_press(
         if (row.def->id == "editor.fontFamily") {
           if (row.input_bounds.contains(x, y) ||
               row.dropdown_btn_bounds.contains(x, y)) {
-            m_font_dropdown_open = !m_font_dropdown_open;
-            if (m_font_dropdown_open) {
-              m_font_dropdown_scroll = 0.0F;
+            if (m_dropdown.is_open() &&
+                m_dropdown.get_owner_id() == "editor.fontFamily") {
+              m_dropdown.close();
+            } else {
+              std::vector<UI::Components::DropdownItem> items;
+              const auto &coding_fonts = get_installed_coding_fonts();
+              items.reserve(coding_fonts.size());
+              for (const auto &cf : coding_fonts) {
+                items.push_back({
+                    .id = cf.name,
+                    .label = cf.name,
+                    .description = cf.tag,
+                    .preview_colors = {},
+                    .preview_font_family = cf.primary_name,
+                });
+              }
+              m_dropdown.set_owner_id("editor.fontFamily");
+              m_dropdown.set_items(std::move(items));
+              m_dropdown.set_selected_id(
+                  service.get<std::string>("editor.fontFamily"));
+              m_dropdown.set_on_select([this](
+                                           const UI::Components::DropdownItem
+                                               &item) {
+                auto &s = Zenvra::Settings::SettingsService::instance();
+                s.set("editor.fontFamily", item.id, m_active_scope);
+              });
+              m_dropdown.open(row.input_bounds, layout.dialog_bounds, 1.0F);
             }
             return true;
           }
@@ -2385,22 +2312,50 @@ bool SettingsWindow::handle_pointer_press(
           }
         }
 
-        // Enum Option
+        // Enum Option Dropdown
         if (row.def->type == Zenvra::Settings::SettingType::Enum &&
             !row.def->enum_values.empty()) {
-          if (row.option_btn_bounds.contains(x, y)) {
-            const std::string current = service.get<std::string>(row.def->id);
-            std::size_t curr_idx = 0;
-            for (std::size_t i = 0; i < row.def->enum_values.size(); ++i) {
-              if (row.def->enum_values[i].value == current) {
-                curr_idx = i;
-                break;
+          if (row.option_btn_bounds.contains(x, y) ||
+              row.dropdown_btn_bounds.contains(x, y)) {
+            if (m_dropdown.is_open() &&
+                m_dropdown.get_owner_id() == row.def->id) {
+              m_dropdown.close();
+            } else {
+              const bool is_theme = (row.def->id == "theme.current");
+              std::vector<UI::Components::DropdownItem> items;
+              items.reserve(row.def->enum_values.size());
+              for (const auto &opt : row.def->enum_values) {
+                std::vector<Theme::Color> swatches;
+                if (is_theme) {
+                  auto t_info =
+                      UI::Theme::ThemeManager::instance().find_theme(opt.value);
+                  if (t_info.has_value()) {
+                    swatches.push_back(t_info->theme_data.window_background);
+                    swatches.push_back(t_info->theme_data.panel_background);
+                    swatches.push_back(t_info->theme_data.accent);
+                  }
+                }
+                items.push_back({
+                    .id = opt.value,
+                    .label = opt.label.empty() ? opt.value : opt.label,
+                    .description = {},
+                    .preview_colors = std::move(swatches),
+                    .preview_font_family = {},
+                });
               }
+              const std::string setting_id = row.def->id;
+              m_dropdown.set_owner_id(setting_id);
+              m_dropdown.set_items(std::move(items));
+              m_dropdown.set_selected_id(service.get<std::string>(setting_id));
+              m_dropdown.set_on_select([this, setting_id](
+                                           const UI::Components::DropdownItem
+                                               &item) {
+                auto &s = Zenvra::Settings::SettingsService::instance();
+                s.set(setting_id, item.id, m_active_scope);
+              });
+              m_dropdown.open(row.option_btn_bounds, layout.dialog_bounds,
+                              1.0F);
             }
-            const std::size_t next_idx =
-                (curr_idx + 1) % row.def->enum_values.size();
-            service.set(row.def->id, row.def->enum_values[next_idx].value,
-                        m_active_scope);
             return true;
           }
         }
@@ -2442,44 +2397,12 @@ bool SettingsWindow::handle_pointer_move(
     return true;
   }
 
-  if (m_is_dragging_font_scrollbar && m_font_dropdown_max_scroll > 0.0F) {
-    const float track_h = m_font_dropdown_scrollbar_track.height;
-    const float thumb_h = m_font_dropdown_scrollbar_thumb.height;
-    const float travel = track_h - thumb_h;
-    if (travel > 0.0F) {
-      const float delta_y = y - m_drag_start_font_y;
-      const float delta_scroll =
-          (delta_y / travel) * m_font_dropdown_max_scroll;
-      m_font_dropdown_scroll =
-          std::clamp(m_drag_start_font_scroll + delta_scroll, 0.0F,
-                     m_font_dropdown_max_scroll);
-      changed = true;
-    }
-    return true;
+  if (m_dropdown.is_dragging_scrollbar()) {
+    return m_dropdown.handle_pointer_move(x, y, 1.0F);
   }
 
-  if (m_font_dropdown_open) {
-    const bool s_hovered = !m_font_dropdown_scrollbar_thumb.is_empty() &&
-                           m_font_dropdown_scrollbar_thumb.contains(x, y);
-    if (m_font_scrollbar_thumb_hovered != s_hovered) {
-      m_font_scrollbar_thumb_hovered = s_hovered;
-      changed = true;
-    }
-
-    std::string new_opt;
-    if (m_font_dropdown_bounds.contains(x, y) &&
-        !m_font_dropdown_scrollbar_track.contains(x, y)) {
-      for (const auto &[font_name, bounds] : m_font_dropdown_items) {
-        if (bounds.bottom() > m_font_dropdown_bounds.y &&
-            bounds.y < m_font_dropdown_bounds.bottom() &&
-            bounds.contains(x, y)) {
-          new_opt = font_name;
-          break;
-        }
-      }
-    }
-    if (m_hovered_font_option != new_opt) {
-      m_hovered_font_option = std::move(new_opt);
+  if (m_dropdown.is_open()) {
+    if (m_dropdown.handle_pointer_move(x, y, 1.0F)) {
       changed = true;
     }
   }
@@ -2535,6 +2458,7 @@ bool SettingsWindow::handle_pointer_move(
   if (m_sidebar_scrollbar_thumb_hovered != sb_scroll_h) {
     m_sidebar_scrollbar_thumb_hovered = sb_scroll_h;
     changed = true;
+    changed = true;
   }
 
   for (auto &row : const_cast<SettingsWindowLayoutResult &>(layout).rows) {
@@ -2547,7 +2471,7 @@ bool SettingsWindow::handle_pointer_move(
 }
 
 bool SettingsWindow::handle_pointer_release(
-    float, float, const SettingsWindowLayoutResult &) noexcept {
+    float x, float y, const SettingsWindowLayoutResult &) noexcept {
   bool released = false;
   if (m_is_dragging_scrollbar) {
     m_is_dragging_scrollbar = false;
@@ -2557,31 +2481,20 @@ bool SettingsWindow::handle_pointer_release(
     m_is_dragging_sidebar_scrollbar = false;
     released = true;
   }
-  if (m_is_dragging_font_scrollbar) {
-    m_is_dragging_font_scrollbar = false;
+  if (m_dropdown.handle_pointer_release(x, y)) {
     released = true;
   }
   return released;
 }
 
-bool SettingsWindow::handle_scroll(float delta_y,
-                                   const SettingsWindowLayoutResult &layout,
-                                   float mouse_x, float mouse_y) noexcept {
+bool SettingsWindow::handle_scroll(
+    float delta_y, const SettingsWindowLayoutResult &layout, float mouse_x,
+    float mouse_y) noexcept {
   const float step = 44.0F;
 
-  // 0. If mouse is inside font dropdown, scroll font dropdown!
-  if (m_font_dropdown_open &&
-      m_font_dropdown_bounds.contains(mouse_x, mouse_y)) {
-    if (m_font_dropdown_max_scroll > 0.0F) {
-      const float new_font_offset =
-          std::clamp(m_font_dropdown_scroll - delta_y * step, 0.0F,
-                     m_font_dropdown_max_scroll);
-      if (std::abs(new_font_offset - m_font_dropdown_scroll) > 0.01F) {
-        m_font_dropdown_scroll = new_font_offset;
-        return true;
-      }
-    }
-    return true;
+  // 0. If mouse is inside dropdown popover, scroll dropdown!
+  if (m_dropdown.is_open() && m_dropdown.is_point_inside(mouse_x, mouse_y)) {
+    return m_dropdown.handle_scroll(delta_y, mouse_x, mouse_y, 1.0F);
   }
 
   // If mouse is inside sidebar, scroll sidebar!
@@ -3089,12 +3002,14 @@ void SettingsWindow::render(HDC device_context,
     } else if (def->id == "editor.fontFamily") {
       // Font Family with Coding Fonts Dropdown
       const COLORREF font_bg = to_color_ref(theme.command_center_background);
+      const bool is_font_open =
+          m_dropdown.is_open() &&
+          (m_dropdown.get_owner_id() == "editor.fontFamily");
       const COLORREF font_border =
-          m_font_dropdown_open
-              ? to_color_ref(theme.accent)
-              : (row.is_input_hovered
-                     ? to_color_ref(theme.hover)
-                     : to_color_ref(theme.command_center_border));
+          is_font_open ? to_color_ref(theme.accent)
+                       : (row.is_input_hovered
+                              ? to_color_ref(theme.hover)
+                              : to_color_ref(theme.command_center_border));
       draw_rounded_rect(device_context, row.input_bounds, font_bg, font_border,
                         2.5F * dpi_scale);
 
@@ -3367,12 +3282,16 @@ void SettingsWindow::render(HDC device_context,
     } else if (def->type == Zenvra::Settings::SettingType::Enum &&
                def->id != "workbench.mascot.renderMode") {
       // Dropdown combobox: [ Option Name        v ]
+      const bool is_this_open =
+          m_dropdown.is_open() && (m_dropdown.get_owner_id() == def->id);
       const COLORREF opt_bg =
-          row.is_option_hovered ? to_color_ref(theme.hover)
-                                : to_color_ref(theme.command_center_background);
+          (row.is_option_hovered || is_this_open)
+              ? to_color_ref(theme.hover)
+              : to_color_ref(theme.command_center_background);
       const COLORREF opt_border =
-          row.is_option_hovered ? to_color_ref(theme.accent)
-                                : to_color_ref(theme.command_center_border);
+          (row.is_option_hovered || is_this_open)
+              ? to_color_ref(theme.accent)
+              : to_color_ref(theme.command_center_border);
       draw_rounded_rect(device_context, row.option_btn_bounds, opt_bg,
                         opt_border, 2.5F * dpi_scale);
 
@@ -3412,117 +3331,10 @@ void SettingsWindow::render(HDC device_context,
                       thumb_col, 3.0F * dpi_scale);
   }
 
-  // 8. Floating Coding Font Breakdown Dropdown (Rendered as floating popover on
-  // top)
-  if (m_font_dropdown_open && !m_font_dropdown_items.empty()) {
-    // Dropdown container box with VS Code popover styling
-    draw_rounded_rect(device_context, m_font_dropdown_bounds,
-                      to_color_ref(theme.command_center_background),
-                      to_color_ref(theme.accent), 3.0F * dpi_scale);
-
-    // Clip items strictly within the rounded dropdown box so scrolled items
-    // never bleed outside
-    const int saved_font_dc = SaveDC(device_context);
-    HRGN font_clip_rgn = CreateRoundRectRgn(
-        static_cast<int>(m_font_dropdown_bounds.x + 1.0F * dpi_scale),
-        static_cast<int>(m_font_dropdown_bounds.y + 1.0F * dpi_scale),
-        static_cast<int>(m_font_dropdown_bounds.right() - 1.0F * dpi_scale),
-        static_cast<int>(m_font_dropdown_bounds.bottom() - 1.0F * dpi_scale),
-        static_cast<int>(3.0F * dpi_scale), static_cast<int>(3.0F * dpi_scale));
-    SelectClipRgn(device_context, font_clip_rgn);
-
-    const std::string cur_font = service.get<std::string>("editor.fontFamily");
-    const auto &installed_fonts = get_installed_coding_fonts();
-
-    for (std::size_t opt_idx = 0; opt_idx < m_font_dropdown_items.size() &&
-                                  opt_idx < installed_fonts.size();
-         ++opt_idx) {
-      const auto &[font_name, item_bounds] = m_font_dropdown_items[opt_idx];
-      // Skip items scrolled out of dropdown viewport
-      if (item_bounds.bottom() <= m_font_dropdown_bounds.y ||
-          item_bounds.y >= m_font_dropdown_bounds.bottom()) {
-        continue;
-      }
-
-      const auto &opt_def = installed_fonts[opt_idx];
-      const bool is_item_hovered = (m_hovered_font_option == font_name);
-      const bool is_item_selected =
-          (cur_font == font_name ||
-           get_primary_font_name(cur_font) == opt_def.primary_name);
-
-      if (is_item_hovered) {
-        draw_rounded_rect(device_context, item_bounds,
-                          to_color_ref(theme.hover), to_color_ref(theme.hover),
-                          2.0F * dpi_scale);
-      }
-
-      // Active indicator / checkmark on left
-      if (is_item_selected) {
-        Rect pip{item_bounds.x + 4.0F * dpi_scale,
-                 item_bounds.y + 8.0F * dpi_scale, 3.0F * dpi_scale,
-                 item_bounds.height - 16.0F * dpi_scale};
-        draw_rect_solid(device_context, pip, to_color_ref(theme.accent));
-      }
-
-      // Create preview font matching this installed font family!
-      const std::wstring w_face =
-          Utility::utf8_to_wide(opt_def.primary_name).value_or(L"");
-      HFONT preview_font = nullptr;
-      if (!w_face.empty()) {
-        preview_font = CreateFontW(
-            -static_cast<int>(13.5F * dpi_scale), 0, 0, 0,
-            is_item_selected ? FW_SEMIBOLD : FW_NORMAL, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN, w_face.c_str());
-      }
-
-      // Font Family Name rendered in its ACTUAL typeface
-      HGDIOBJ old_font_item = SelectObject(
-          device_context,
-          preview_font ? preview_font
-                       : (is_item_selected ? m_semibold_font : m_regular_font));
-      SetTextColor(device_context, is_item_selected
-                                       ? RGB(255, 255, 255)
-                                       : to_color_ref(theme.text_primary));
-      Rect name_rc_box{
-          item_bounds.x + 14.0F * dpi_scale, item_bounds.y + 3.0F * dpi_scale,
-          item_bounds.width - 20.0F * dpi_scale, 16.0F * dpi_scale};
-      RECT n_rc = to_native_rect(name_rc_box);
-      const std::wstring w_name =
-          Utility::utf8_to_wide(opt_def.name).value_or(L"");
-      DrawTextW(device_context, w_name.c_str(), -1, &n_rc,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-      SelectObject(device_context, old_font_item);
-      if (preview_font) {
-        DeleteObject(preview_font);
-      }
-
-      // Tag / Description (in clean UI small font)
-      SelectObject(device_context, m_small_font);
-      SetTextColor(device_context, to_color_ref(theme.text_secondary));
-      Rect tag_rc_box{item_bounds.x + 14.0F * dpi_scale,
-                      item_bounds.y + 19.0F * dpi_scale,
-                      item_bounds.width - 20.0F * dpi_scale, 14.0F * dpi_scale};
-      RECT tg_rc = to_native_rect(tag_rc_box);
-      const std::wstring w_tag =
-          Utility::utf8_to_wide(opt_def.tag).value_or(L"");
-      DrawTextW(device_context, w_tag.c_str(), -1, &tg_rc,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-    }
-
-    // 8b. Scrollbar for Font Dropdown (Minimalist 6px pill, VS Code style)
-    if (m_font_dropdown_max_scroll > 0.0F &&
-        !m_font_dropdown_scrollbar_thumb.is_empty()) {
-      const bool is_thumb_active =
-          m_is_dragging_font_scrollbar || m_font_scrollbar_thumb_hovered;
-      const COLORREF thumb_col =
-          is_thumb_active ? RGB(95, 100, 115) : to_color_ref(theme.hover);
-      draw_rounded_rect(device_context, m_font_dropdown_scrollbar_thumb,
-                        thumb_col, thumb_col, 3.0F * dpi_scale);
-    }
-
-    RestoreDC(device_context, saved_font_dc);
-    DeleteObject(font_clip_rgn);
+  // 8. Floating Dropdown Popover (reusable UI component)
+  if (m_dropdown.is_open()) {
+    m_dropdown.render(device_context, theme, dpi_scale, m_regular_font,
+                      m_semibold_font, m_small_font);
   }
 
   // 9. 1px Crisp Window Border around entire dialog

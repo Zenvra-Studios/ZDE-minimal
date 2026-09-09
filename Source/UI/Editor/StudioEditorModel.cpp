@@ -100,6 +100,126 @@ StudioEditorPalette StudioEditorPalette::dark() noexcept {
   };
 }
 
+StudioEditorPalette StudioEditorPalette::light() noexcept {
+  return StudioEditorPalette{
+      .workspace_background = {255, 255, 255, 255},
+      .tab_background = {245, 245, 247, 255},
+      .tab_active_background = {255, 255, 255, 255},
+      .sidebar_background = {248, 249, 250, 255},
+      .editor_background = {255, 255, 255, 255},
+      .active_line_background = {243, 245, 248, 255},
+      .selection_background = {173, 214, 255, 255},
+      .status_background = {245, 245, 247, 255},
+      .border = {228, 228, 231, 255},
+      .text_primary = {24, 24, 27, 255},
+      .text_muted = {107, 114, 128, 255},
+      .keyword = {0, 0, 255, 255},
+      .number = {9, 134, 88, 255},
+      .label = {175, 0, 219, 255},
+      .type = {38, 127, 153, 255},
+      .comment = {106, 115, 125, 255},
+      .accent = {0, 102, 204, 255},
+      .warning = {180, 100, 0, 255},
+      .success = {40, 167, 69, 255},
+      .tooltip_background = {255, 255, 255, 255},
+      .hover_background = {235, 236, 240, 255},
+      .indent_guide = {225, 228, 232, 255},
+      .indent_guide_active = {180, 185, 195, 255},
+      .directive = {175, 0, 219, 255},
+      .macro_symbol = {38, 127, 153, 255},
+      .include_header = {163, 21, 21, 255},
+      .is_dark = false,
+  };
+}
+
+StudioEditorPalette StudioEditorPalette::dark_modern() noexcept {
+  auto p = dark();
+  p.workspace_background = {24, 25, 28, 255};
+  p.tab_background = {20, 21, 24, 255};
+  p.tab_active_background = {30, 31, 35, 255};
+  p.sidebar_background = {22, 23, 26, 255};
+  p.editor_background = {24, 25, 28, 255};
+  p.status_background = {20, 21, 24, 255};
+  p.border = {50, 52, 60, 255};
+  p.is_dark = true;
+  p.is_modern = true;
+  return p;
+}
+
+StudioEditorPalette StudioEditorPalette::light_modern() noexcept {
+  auto p = light();
+  p.workspace_background = {255, 255, 255, 255};
+  p.tab_background = {245, 245, 247, 255};
+  p.tab_active_background = {255, 255, 255, 255};
+  p.sidebar_background = {248, 249, 250, 255};
+  p.editor_background = {255, 255, 255, 255};
+  p.status_background = {245, 245, 247, 255};
+  p.border = {220, 222, 226, 255};
+  p.is_dark = false;
+  p.is_modern = true;
+  return p;
+}
+
+StudioEditorPalette StudioEditorPalette::high_contrast() noexcept {
+  return StudioEditorPalette{
+      .workspace_background = {0, 0, 0, 255},
+      .tab_background = {0, 0, 0, 255},
+      .tab_active_background = {0, 0, 0, 255},
+      .sidebar_background = {0, 0, 0, 255},
+      .editor_background = {0, 0, 0, 255},
+      .active_line_background = {15, 15, 15, 255},
+      .selection_background = {0, 95, 184, 255},
+      .status_background = {0, 0, 0, 255},
+      .border = {108, 142, 191, 255},
+      .text_primary = {255, 255, 255, 255},
+      .text_muted = {255, 255, 255, 255},
+      .keyword = {86, 156, 214, 255},
+      .number = {181, 206, 168, 255},
+      .label = {218, 126, 168, 255},
+      .type = {78, 201, 176, 255},
+      .comment = {122, 128, 138, 255},
+      .accent = {243, 133, 24, 255},
+      .warning = {255, 255, 0, 255},
+      .success = {0, 255, 0, 255},
+      .tooltip_background = {0, 0, 0, 255},
+      .hover_background = {30, 30, 30, 255},
+      .indent_guide = {60, 60, 60, 255},
+      .indent_guide_active = {120, 120, 120, 255},
+      .directive = {197, 134, 192, 255},
+      .macro_symbol = {78, 201, 176, 255},
+      .include_header = {206, 145, 120, 255},
+      .is_dark = true,
+      .is_modern = false,
+  };
+}
+
+StudioEditorPalette StudioEditorPalette::from_theme(const Theme::StudioTheme& theme) noexcept {
+  StudioEditorPalette p;
+  const bool is_modern_theme = theme.is_modern || theme.enable_os_blur;
+  if (!theme.is_dark) {
+    p = is_modern_theme ? light_modern() : light();
+  } else if (theme.window_background.red == 0 && theme.window_background.green == 0 && theme.window_background.blue == 0) {
+    p = high_contrast();
+  } else {
+    p = is_modern_theme ? dark_modern() : dark();
+  }
+
+  p.workspace_background = theme.window_background;
+  p.editor_background = theme.window_background;
+  p.tab_background = theme.window_background;
+  p.sidebar_background = theme.panel_background;
+  p.border = theme.titlebar_border;
+  p.text_primary = theme.text_primary;
+  p.text_muted = theme.text_secondary;
+  p.accent = theme.accent;
+  p.hover_background = theme.hover;
+  p.status_background = theme.panel_background;
+  p.is_dark = theme.is_dark;
+  p.is_modern = is_modern_theme;
+
+  return p;
+}
+
 StudioEditorLayoutResult StudioEditorLayout::calculate(
     float client_width, float client_height, float content_top, float dpi_scale,
     bool terminal_visible, float terminal_height, bool terminal_maximized,
@@ -185,7 +305,7 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
   
   const float integrated_tab_x = std::min(nav_width, safe_width);
   const float min_center_drag_gap = (safe_top > 0.0F && nav_width > 0.0F) ? (160.0F * safe_scale) : 0.0F;
-  const float max_tab_width_ratio = safe_width * 0.75F;
+  const float max_tab_width_ratio = safe_width * 0.46F;
   const float available_for_tabs =
       std::max(0.0F, safe_width - integrated_tab_x - ctrl_width - min_center_drag_gap);
   const float effective_tab_width =

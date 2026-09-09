@@ -454,6 +454,10 @@ bool PluginManager::activate_plugin(std::shared_ptr<Plugin> plugin)
     }
 
     plugin->set_state(PluginState::Enabled);
+    for (const auto& cb : m_lifecycle_callbacks)
+    {
+        if (cb) cb(plugin, true);
+    }
     return true;
 }
 
@@ -480,6 +484,10 @@ void PluginManager::deactivate_plugin(std::shared_ptr<Plugin> plugin)
         }
     }
     plugin->set_state(PluginState::Disabled);
+    for (const auto& cb : m_lifecycle_callbacks)
+    {
+        if (cb) cb(plugin, false);
+    }
 }
 
 Installer::InstallResult PluginManager::install_from_local(const std::filesystem::path& path)
@@ -622,6 +630,12 @@ std::shared_ptr<Plugin> PluginManager::get_active_tool_plugin() const
     const std::string id = get_active_tool_plugin_id();
     if (id.empty()) return nullptr;
     return m_registry.get_plugin(id);
+}
+
+void PluginManager::register_lifecycle_listener(PluginLifecycleCallback cb)
+{
+    std::lock_guard<std::recursive_mutex> lock(m_mutex);
+    m_lifecycle_callbacks.push_back(std::move(cb));
 }
 
 } // namespace Zenvra::Plugins

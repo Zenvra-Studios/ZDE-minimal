@@ -11,6 +11,8 @@ add_executable(ZDEUnitTests
     SettingsTests.cpp
     PluginSystemTests.cpp
     VimModeTests.cpp
+    ThemeTests.cpp
+    DropdownTests.cpp
     # SourceControlTests.cpp
 )
 

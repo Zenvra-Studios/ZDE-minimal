@@ -53,6 +53,7 @@ public:
 
     // Workspace & Chrome integration
     [[nodiscard]] Components::CocoaChromeRenderer& get_renderer() { return m_renderer; }
+    void apply_theme(const UI::Theme::StudioTheme& theme);
 
 private:
     void refresh_chrome_layout();
@@ -66,6 +67,7 @@ private:
     void* m_window_handle = nullptr;
     void* m_delegate = nullptr;
     void* m_content_view = nullptr; // ZenvraContentView
+    void* m_blur_view = nullptr;    // NSVisualEffectView
 
     TitlebarHitTestCallback m_titlebar_hit_test_callback;
     CommandInvokedCallback m_command_invoked_callback;

@@ -163,6 +163,9 @@ public:
   void
   render_overlays(const StudioWorkspaceRenderer &surface, HDC device_context,
                   const UI::Editor::StudioEditorLayoutResult &layout) const;
+  void
+  draw_tab_strip(const StudioWorkspaceRenderer &surface, HDC device_context,
+                 const UI::Editor::StudioEditorLayoutResult &layout) const;
 
 private:
   HWND m_window_handle = nullptr;
@@ -194,9 +197,6 @@ private:
     float anchor_y = 0.0F;
   };
 
-  void draw_tab_strip(const StudioWorkspaceRenderer &surface,
-                      HDC device_context,
-                      const UI::Editor::StudioEditorLayoutResult &layout) const;
   void
   draw_editor_header(const StudioWorkspaceRenderer &surface, HDC device_context,
                      const UI::Editor::StudioEditorLayoutResult &layout) const;
@@ -260,6 +260,13 @@ public:
     return m_scrollbar.is_dragging() || m_split_scrollbar.is_dragging() ||
            m_minimap.is_dragging() || m_split_minimap.is_dragging() ||
            m_dragging_tab_scrollbar || m_dragging_text_hscrollbar;
+  }
+  [[nodiscard]] std::optional<UI::Rect> get_active_tab_bounds() const noexcept {
+    const auto active_idx = m_controller.get_active_index();
+    if (active_idx && *active_idx < m_tab_count) {
+      return m_tab_bounds[*active_idx];
+    }
+    return std::nullopt;
   }
 
 private:

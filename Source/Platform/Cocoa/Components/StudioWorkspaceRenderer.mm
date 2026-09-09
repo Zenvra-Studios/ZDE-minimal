@@ -5,6 +5,7 @@
 #include "Platform/HostSystem.h"
 #include "Utility/Fonts.h"
 #include "UI/Editor/EditorFileSystem.h"
+#include "UI/Theme/ThemeManager.h"
 #include "Commands/CommandIds.h"
 
 #include <lunasvg.h>
@@ -189,45 +190,7 @@ bool StudioWorkspaceRenderer::initialize(float dpi_scale)
         return false;
     }
 
-    // Convert palette colors to CGFloat RGBA
-    color_to_rgba(m_palette.workspace_background, m_colors.workspace_background);
-    color_to_rgba(m_palette.tab_background, m_colors.tab_background);
-    color_to_rgba(m_palette.tab_active_background, m_colors.tab_active_background);
-    color_to_rgba(m_palette.sidebar_background, m_colors.sidebar_background);
-    color_to_rgba(m_palette.editor_background, m_colors.editor_background);
-    color_to_rgba(m_palette.active_line_background, m_colors.active_line_background);
-    color_to_rgba(m_palette.selection_background, m_colors.selection_background);
-    color_to_rgba(m_palette.status_background, m_colors.status_background);
-    color_to_rgba(m_palette.border, m_colors.border);
-    color_to_rgba(m_palette.text_primary, m_colors.text_primary);
-    color_to_rgba(m_palette.text_muted, m_colors.text_muted);
-    color_to_rgba(m_palette.accent, m_colors.accent);
-    color_to_rgba(m_palette.warning, m_colors.warning);
-    color_to_rgba(m_palette.success, m_colors.success);
-    color_to_rgba(m_palette.hover_background, m_colors.hover_background);
-    color_to_rgba(m_palette.indent_guide, m_colors.indent_guide);
-    color_to_rgba(m_palette.indent_guide_active, m_colors.indent_guide_active);
-    m_text.primary = color_to_hex(m_palette.text_primary);
-    m_text.muted = color_to_hex(m_palette.text_muted);
-    m_text.keyword = color_to_hex(m_palette.keyword);
-    m_text.number = color_to_hex(m_palette.number);
-    m_text.label = color_to_hex(m_palette.label);
-    m_text.type = color_to_hex(m_palette.type);
-    m_text.comment = color_to_hex(m_palette.comment);
-    m_text.accent = color_to_hex(m_palette.accent);
-    m_text.warning = color_to_hex(m_palette.warning);
-    m_text.success = color_to_hex(m_palette.success);
-
-    m_text_dimmed.primary = color_to_hex(UI::Theme::dim_color(m_palette.text_primary, m_palette.editor_background));
-    m_text_dimmed.muted = color_to_hex(UI::Theme::dim_color(m_palette.text_muted, m_palette.editor_background));
-    m_text_dimmed.keyword = color_to_hex(UI::Theme::dim_color(m_palette.keyword, m_palette.editor_background));
-    m_text_dimmed.number = color_to_hex(UI::Theme::dim_color(m_palette.number, m_palette.editor_background));
-    m_text_dimmed.label = color_to_hex(UI::Theme::dim_color(m_palette.label, m_palette.editor_background));
-    m_text_dimmed.type = color_to_hex(UI::Theme::dim_color(m_palette.type, m_palette.editor_background));
-    m_text_dimmed.comment = color_to_hex(UI::Theme::dim_color(m_palette.comment, m_palette.editor_background));
-    m_text_dimmed.accent = color_to_hex(UI::Theme::dim_color(m_palette.accent, m_palette.editor_background));
-    m_text_dimmed.warning = color_to_hex(UI::Theme::dim_color(m_palette.warning, m_palette.editor_background));
-    m_text_dimmed.success = color_to_hex(UI::Theme::dim_color(m_palette.success, m_palette.editor_background));
+    update_theme(UI::Theme::ThemeManager::instance().get_current_theme());
     static_cast<void>(m_tool_sidebar.initialize());
     const auto active_workspace = m_tool_sidebar.get_model().get_workspace_root();
     if (!active_workspace.empty())
@@ -1895,6 +1858,49 @@ void StudioWorkspaceRenderer::draw_svg_icon(
             
         CGContextRestoreGState(context);
     }
+}
+
+void StudioWorkspaceRenderer::update_theme(const UI::Theme::StudioTheme& theme)
+{
+    m_palette = UI::Editor::StudioEditorPalette::from_theme(theme);
+    color_to_rgba(m_palette.workspace_background, m_colors.workspace_background);
+    color_to_rgba(m_palette.tab_background, m_colors.tab_background);
+    color_to_rgba(m_palette.tab_active_background, m_colors.tab_active_background);
+    color_to_rgba(m_palette.sidebar_background, m_colors.sidebar_background);
+    color_to_rgba(m_palette.editor_background, m_colors.editor_background);
+    color_to_rgba(m_palette.active_line_background, m_colors.active_line_background);
+    color_to_rgba(m_palette.selection_background, m_colors.selection_background);
+    color_to_rgba(m_palette.status_background, m_colors.status_background);
+    color_to_rgba(m_palette.border, m_colors.border);
+    color_to_rgba(m_palette.text_primary, m_colors.text_primary);
+    color_to_rgba(m_palette.text_muted, m_colors.text_muted);
+    color_to_rgba(m_palette.accent, m_colors.accent);
+    color_to_rgba(m_palette.warning, m_colors.warning);
+    color_to_rgba(m_palette.success, m_colors.success);
+    color_to_rgba(m_palette.hover_background, m_colors.hover_background);
+    color_to_rgba(m_palette.indent_guide, m_colors.indent_guide);
+    color_to_rgba(m_palette.indent_guide_active, m_colors.indent_guide_active);
+    m_text.primary = color_to_hex(m_palette.text_primary);
+    m_text.muted = color_to_hex(m_palette.text_muted);
+    m_text.keyword = color_to_hex(m_palette.keyword);
+    m_text.number = color_to_hex(m_palette.number);
+    m_text.label = color_to_hex(m_palette.label);
+    m_text.type = color_to_hex(m_palette.type);
+    m_text.comment = color_to_hex(m_palette.comment);
+    m_text.accent = color_to_hex(m_palette.accent);
+    m_text.warning = color_to_hex(m_palette.warning);
+    m_text.success = color_to_hex(m_palette.success);
+
+    m_text_dimmed.primary = color_to_hex(UI::Theme::dim_color(m_palette.text_primary, m_palette.editor_background));
+    m_text_dimmed.muted = color_to_hex(UI::Theme::dim_color(m_palette.text_muted, m_palette.editor_background));
+    m_text_dimmed.keyword = color_to_hex(UI::Theme::dim_color(m_palette.keyword, m_palette.editor_background));
+    m_text_dimmed.number = color_to_hex(UI::Theme::dim_color(m_palette.number, m_palette.editor_background));
+    m_text_dimmed.label = color_to_hex(UI::Theme::dim_color(m_palette.label, m_palette.editor_background));
+    m_text_dimmed.type = color_to_hex(UI::Theme::dim_color(m_palette.type, m_palette.editor_background));
+    m_text_dimmed.comment = color_to_hex(UI::Theme::dim_color(m_palette.comment, m_palette.editor_background));
+    m_text_dimmed.accent = color_to_hex(UI::Theme::dim_color(m_palette.accent, m_palette.editor_background));
+    m_text_dimmed.warning = color_to_hex(UI::Theme::dim_color(m_palette.warning, m_palette.editor_background));
+    m_text_dimmed.success = color_to_hex(UI::Theme::dim_color(m_palette.success, m_palette.editor_background));
 }
 
 } // namespace Zenvra::Platform::Cocoa::Components

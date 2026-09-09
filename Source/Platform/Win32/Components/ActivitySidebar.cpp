@@ -74,51 +74,53 @@ void ActivitySidebar::render(
                 ? surface.m_shader_sandbox_panel.is_visible()
                 : surface.m_tool_sidebar.is_active(item.icon);
         const bool hovered = surface.m_tool_sidebar.is_hovered(item.icon);
+        const float item_h = UI::Editor::StudioEditorMetrics::sidebar_item_height * surface.m_dpi_scale;
+        const UI::Rect box_rect{
+            layout.activity_bar_bounds.x + 4.0F * surface.m_dpi_scale,
+            center_y - item_h * 0.5F + 3.0F * surface.m_dpi_scale,
+            layout.activity_bar_bounds.width - 8.0F * surface.m_dpi_scale,
+            item_h - 6.0F * surface.m_dpi_scale,
+        };
+        const float box_radius = 5.0F * surface.m_dpi_scale;
+
         if (active)
         {
-            surface.fill_rectangle(
+            const UI::Theme::Color active_bg = surface.m_palette.is_dark
+                ? UI::Theme::Color{255, 255, 255, 28}
+                : UI::Theme::Color{0, 102, 204, 28};
+            surface.fill_rounded_rectangle(device_context, box_rect, active_bg, box_radius);
+
+            const UI::Rect pill_rect{
+                layout.activity_bar_bounds.x,
+                center_y - 12.0F * surface.m_dpi_scale,
+                2.5F * surface.m_dpi_scale,
+                24.0F * surface.m_dpi_scale,
+            };
+            surface.fill_rounded_rectangle(
                 device_context,
-                UI::Rect{
-                    layout.activity_bar_bounds.x,
-                    center_y - UI::Editor::StudioEditorMetrics::sidebar_item_height *
-                        0.5F * surface.m_dpi_scale,
-                    layout.activity_bar_bounds.width,
-                    UI::Editor::StudioEditorMetrics::sidebar_item_height * surface.m_dpi_scale,
-                },
-                surface.m_palette.tab_active_background);
-            surface.fill_rectangle(
-                device_context,
-                UI::Rect{
-                    layout.activity_bar_bounds.x,
-                    center_y - 13.0F * surface.m_dpi_scale,
-                    2.0F * surface.m_dpi_scale,
-                    26.0F * surface.m_dpi_scale,
-                },
-                surface.m_palette.text_primary);
+                pill_rect,
+                surface.m_palette.is_dark ? surface.m_palette.text_primary : surface.m_palette.accent,
+                1.25F * surface.m_dpi_scale);
         }
         else if (hovered)
         {
-            surface.fill_rectangle(
-                device_context,
-                UI::Rect{
-                    layout.activity_bar_bounds.x,
-                    center_y - UI::Editor::StudioEditorMetrics::sidebar_item_height *
-                        0.5F * surface.m_dpi_scale,
-                    layout.activity_bar_bounds.width,
-                    UI::Editor::StudioEditorMetrics::sidebar_item_height * surface.m_dpi_scale,
-                },
-                surface.m_palette.hover_background);
+            const UI::Theme::Color hover_bg = surface.m_palette.is_dark
+                ? UI::Theme::Color{255, 255, 255, 18}
+                : UI::Theme::Color{0, 0, 0, 16};
+            surface.fill_rounded_rectangle(device_context, box_rect, hover_bg, box_radius);
         }
         draw_icon(surface, device_context, item.icon, center_x, round_to_int(center_y), active, hovered);
     }
 
-    surface.draw_line(
-        device_context,
-        round_to_int(layout.activity_bar_bounds.right() - 1.0F),
-        round_to_int(layout.activity_bar_bounds.y),
-        round_to_int(layout.activity_bar_bounds.right() - 1.0F),
-        round_to_int(layout.activity_bar_bounds.bottom()),
-        surface.m_palette.border);
+    if (!surface.m_palette.is_modern) {
+        surface.draw_line(
+            device_context,
+            round_to_int(layout.activity_bar_bounds.right() - 1.0F),
+            round_to_int(layout.activity_bar_bounds.y),
+            round_to_int(layout.activity_bar_bounds.right() - 1.0F),
+            round_to_int(layout.activity_bar_bounds.bottom()),
+            surface.m_palette.border);
+    }
 }
 
 /**
@@ -199,11 +201,13 @@ void ActivitySidebar::draw_icon(
             : size;
 
         const UI::Theme::Color icon_color = active
-            ? UI::Theme::Color{255, 255, 255, 255}
+            ? (surface.m_palette.is_dark ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.accent)
             : (hovered ? surface.m_palette.text_primary : surface.m_palette.text_muted);
         const UI::Theme::Color bg_color = active
-            ? surface.m_palette.tab_active_background
-            : (hovered ? surface.m_palette.hover_background : surface.m_palette.sidebar_background);
+            ? (surface.m_palette.is_dark ? UI::Theme::Color{255, 255, 255, 28} : UI::Theme::Color{0, 102, 204, 28})
+            : (hovered
+                ? (surface.m_palette.is_dark ? UI::Theme::Color{255, 255, 255, 18} : UI::Theme::Color{0, 0, 0, 16})
+                : UI::Theme::Color{0, 0, 0, 0});
         surface.draw_svg_icon(
             device_context,
             asset_name,

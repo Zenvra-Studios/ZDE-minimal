@@ -9,3 +9,19 @@
 [submodule "Assets/icons/vscode-symbols"]
 	path = Assets/icons/vscode-symbols
 	url = https://github.com/miguelsolorio/vscode-symbols.git
+
+[submodule "plugins/emulators/qemu"]
+	path = plugins/emulators/qemu
+	url = https://github.com/qemu/qemu.git
+
+[submodule "plugins/general/ms-vscode.cmake-tools"]
+	path = plugins/general/ms-vscode.cmake-tools
+	url = https://github.com/microsoft/vscode-cmake-tools.git
+
+[submodule "plugins/general/vscode-go"]
+	path = plugins/general/vscode-go
+	url = https://github.com/golang/vscode-go.git
+
+[submodule "plugins/lsp/llvm-vs-code-extensions.vscode-clangd"]
+	path = plugins/lsp/llvm-vs-code-extensions.vscode-clangd
+	url = https://github.com/clangd/vscode-clangd.git

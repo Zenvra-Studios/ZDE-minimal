@@ -34,6 +34,7 @@ public:
     StudioWorkspaceRenderer& operator=(const StudioWorkspaceRenderer&) = delete;
 
     [[nodiscard]] bool initialize(float dpi_scale);
+    void update_theme(const UI::Theme::StudioTheme& theme);
     [[nodiscard]] bool open_file(const std::filesystem::path& path);
     [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root);
     [[nodiscard]] bool close_project();

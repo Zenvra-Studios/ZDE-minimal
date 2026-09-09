@@ -53,6 +53,11 @@ bool CocoaChromeRenderer::initialize(float dpi_scale,
     return false;
   }
 
+  set_theme(theme);
+  return true;
+}
+
+void CocoaChromeRenderer::set_theme(const UI::Theme::StudioTheme &theme) {
   m_theme = theme;
   color_to_rgba(theme.window_background, m_colors.window_background);
   color_to_rgba(theme.titlebar_background, m_colors.titlebar_background);
@@ -81,7 +86,7 @@ bool CocoaChromeRenderer::initialize(float dpi_scale,
   m_text_colors.secondary = hex;
   m_text_colors.white = "#ffffff";
 
-  return true;
+  m_workspace_renderer.update_theme(theme);
 }
 
 void CocoaChromeRenderer::shutdown() {

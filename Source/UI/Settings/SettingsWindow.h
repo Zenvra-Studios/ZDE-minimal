@@ -2,6 +2,7 @@
 
 #include "Settings/SettingsDefinition.h"
 #include "Settings/SettingsService.h"
+#include "UI/Components/Dropdown.h"
 #include "UI/Components/Input.h"
 #include "UI/Geometry.h"
 #include "UI/Settings/SettingsControl.h"
@@ -212,18 +213,7 @@ private:
     std::string m_focused_setting_id = "editor.fontSize";
     std::string m_editing_setting_id;
     std::string m_editing_text;
-    bool m_font_dropdown_open = false;
-    float m_font_dropdown_scroll = 0.0F;
-    mutable float m_font_dropdown_max_scroll = 0.0F;
-    bool m_is_dragging_font_scrollbar = false;
-    float m_drag_start_font_y = 0.0F;
-    float m_drag_start_font_scroll = 0.0F;
-    mutable Rect m_font_dropdown_bounds;
-    mutable Rect m_font_dropdown_scrollbar_track;
-    mutable Rect m_font_dropdown_scrollbar_thumb;
-    mutable bool m_font_scrollbar_thumb_hovered = false;
-    mutable std::vector<std::pair<std::string, Rect>> m_font_dropdown_items;
-    mutable std::string m_hovered_font_option;
+    UI::Components::Dropdown m_dropdown;
 };
 
 } // namespace Zenvra::UI::Settings

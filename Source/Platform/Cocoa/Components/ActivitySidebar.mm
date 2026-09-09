@@ -76,34 +76,30 @@ void ActivitySidebar::render(
         const bool hovered = surface.m_tool_sidebar.is_hovered(item.icon);
 
         const float item_h = UI::Editor::StudioEditorMetrics::sidebar_item_height * surface.m_dpi_scale;
-        const UI::Rect item_bounds{
-            layout.activity_bar_bounds.x,
-            center_y - item_h * 0.5F,
-            layout.activity_bar_bounds.width,
-            item_h,
+        const UI::Rect box_rect{
+            layout.activity_bar_bounds.x + 4.0F * surface.m_dpi_scale,
+            center_y - item_h * 0.5F + 3.0F * surface.m_dpi_scale,
+            layout.activity_bar_bounds.width - 8.0F * surface.m_dpi_scale,
+            item_h - 6.0F * surface.m_dpi_scale,
         };
+        const float box_radius = 5.0F * surface.m_dpi_scale;
 
         if (active)
         {
-            surface.fill_rectangle(context, item_bounds, surface.m_colors.tab_active_background);
+            const CGFloat active_col[4] = {1.0, 1.0, 1.0, 0.12};
+            surface.fill_rounded_rectangle(context, box_rect, active_col, box_radius);
             const UI::Rect pill_rect{
                 layout.activity_bar_bounds.x,
-                center_y - 13.0F * surface.m_dpi_scale,
+                center_y - 12.0F * surface.m_dpi_scale,
                 2.5F * surface.m_dpi_scale,
-                26.0F * surface.m_dpi_scale,
+                24.0F * surface.m_dpi_scale,
             };
             surface.fill_rounded_rectangle(context, pill_rect, surface.m_colors.text_primary, 1.25F * surface.m_dpi_scale);
         }
         else if (hovered)
         {
-            const UI::Rect hover_rect{
-                layout.activity_bar_bounds.x + 4.0F * surface.m_dpi_scale,
-                center_y - (item_h * 0.5F - 3.0F),
-                layout.activity_bar_bounds.width - 8.0F * surface.m_dpi_scale,
-                item_h - 6.0F * surface.m_dpi_scale,
-            };
             const CGFloat hover_col[4] = {1.0, 1.0, 1.0, 0.08};
-            surface.fill_rounded_rectangle(context, hover_rect, hover_col, 5.0F * surface.m_dpi_scale);
+            surface.fill_rounded_rectangle(context, box_rect, hover_col, box_radius);
         }
         draw_icon(surface, context, item.icon, center_x, round_to_int(center_y), active, hovered);
 

@@ -9,6 +9,7 @@
 #include "Platform/Win32/Event/ScrollEvent.h"
 #include "Platform/Win32/WinRT/WinRTContext.h"
 #include "UI/Components/MenuModel.h"
+#include "UI/Theme/ThemeManager.h"
 #include "Utility/Antialiasing.h"
 #include "Utility/Ascii/AsciiArtConverter.h"
 #include "Utility/Ascii/AsciiMascotRenderer.h"
@@ -78,7 +79,7 @@ void invoke_uxtheme_proc(HMODULE uxtheme, LPCSTR proc_identifier,
   }
 }
 
-void enable_menu_dark_mode(HWND hwnd) {
+void enable_menu_dark_mode(HWND hwnd, bool is_dark = true) {
   HMODULE uxtheme =
       LoadLibraryExW(L"uxtheme.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
   if (!uxtheme) {
@@ -89,13 +90,13 @@ void enable_menu_dark_mode(HWND hwnd) {
   }
 
   invoke_uxtheme_proc<PreferredAppMode(WINAPI *)(PreferredAppMode)>(
-      uxtheme, MAKEINTRESOURCEA(135), PreferredAppMode::ForceDark);
+      uxtheme, MAKEINTRESOURCEA(135), is_dark ? PreferredAppMode::ForceDark : PreferredAppMode::ForceLight);
   invoke_uxtheme_proc<bool(WINAPI *)(HWND, bool)>(
-      uxtheme, MAKEINTRESOURCEA(133), hwnd, true);
+      uxtheme, MAKEINTRESOURCEA(133), hwnd, is_dark);
   invoke_uxtheme_proc<void(WINAPI *)()>(
       uxtheme, MAKEINTRESOURCEA(136));
   invoke_uxtheme_proc<HRESULT(WINAPI *)(HWND, LPCWSTR, LPCWSTR)>(
-      uxtheme, "SetWindowTheme", hwnd, L"DarkMode_Explorer", nullptr);
+      uxtheme, "SetWindowTheme", hwnd, is_dark ? L"DarkMode_Explorer" : L"Explorer", nullptr);
 }
 
 COLORREF to_color_ref(const UI::Theme::Color &color) {
@@ -113,8 +114,16 @@ RECT to_native_rect(const UI::Rect &rectangle) {
   };
 }
 
+void fill_rounded_rectangle(HDC device_context, const UI::Rect &rectangle,
+                            const UI::Theme::Color &color, int radius);
+
 void fill_rectangle(HDC device_context, const UI::Rect &rectangle,
                     const UI::Theme::Color &color) {
+  if (rectangle.is_empty()) return;
+  if (color.alpha < 255) {
+    fill_rounded_rectangle(device_context, rectangle, color, 0);
+    return;
+  }
   RECT native_rectangle = to_native_rect(rectangle);
   SetDCBrushColor(device_context, to_color_ref(color));
   FillRect(device_context, &native_rectangle,
@@ -487,14 +496,6 @@ bool Win32Window::initialize() {
 
   const DWORD win_build = get_windows_build_number();
 
-  const BOOL dark_mode_enabled = TRUE;
-  if (FAILED(DwmSetWindowAttribute(m_window_handle, 20, &dark_mode_enabled,
-                                   sizeof(dark_mode_enabled)))) {
-    DwmSetWindowAttribute(m_window_handle, 19, &dark_mode_enabled,
-                          sizeof(dark_mode_enabled));
-  }
-  enable_menu_dark_mode(m_window_handle);
-
   // OS Versioned DWM Corner Validation:
   // - Windows 11 (Build >= 22000): Apply DWMWCP_ROUND (2) so all 4 corners are
   // rounded
@@ -538,6 +539,9 @@ bool Win32Window::initialize() {
   Runtime::WinRTContext::initialize();
   m_tray.create(m_window_handle, WM_TRAYICON,
                 L"ZDE - Zenvra Development Environment");
+
+  const auto initial_theme = UI::Theme::ThemeManager::instance().get_current_theme();
+  apply_theme(initial_theme);
 
   return true;
 }
@@ -876,6 +880,10 @@ LRESULT CALLBACK Win32Window::window_proc(HWND window_handle, UINT message,
 LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
                                     WPARAM w_param, LPARAM l_param) {
   switch (message) {
+  case WM_THEMECHANGED: {
+    apply_theme(UI::Theme::ThemeManager::instance().get_current_theme());
+    return 0;
+  }
   case WM_DROPFILES: {
     const HDROP drop = reinterpret_cast<HDROP>(w_param);
     const std::vector<std::filesystem::path> dropped_paths =
@@ -3189,19 +3197,47 @@ void Win32Window::paint_custom_chrome() {
     return;
   }
 
+  if (m_workspace_renderer.m_ui_font == nullptr || m_ui_font == nullptr) {
+    EndPaint(m_window_handle, &paint_data);
+    return;
+  }
+
   refresh_chrome_layout();
 
   HDC buffer_context = CreateCompatibleDC(window_context);
-  HBITMAP buffer_bitmap =
-      CreateCompatibleBitmap(window_context, client_width, client_height);
+  BITMAPINFO buffer_bmi{};
+  buffer_bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  buffer_bmi.bmiHeader.biWidth = client_width;
+  buffer_bmi.bmiHeader.biHeight = -client_height; // Top-down DIB
+  buffer_bmi.bmiHeader.biPlanes = 1;
+  buffer_bmi.bmiHeader.biBitCount = 32;
+  buffer_bmi.bmiHeader.biCompression = BI_RGB;
+
+  void *buffer_bits = nullptr;
+  HBITMAP buffer_bitmap = CreateDIBSection(
+      window_context, &buffer_bmi, DIB_RGB_COLORS, &buffer_bits, nullptr, 0);
+  if (!buffer_bitmap) {
+    buffer_bitmap =
+        CreateCompatibleBitmap(window_context, client_width, client_height);
+  }
   HGDIOBJ previous_bitmap = SelectObject(buffer_context, buffer_bitmap);
 
-  fill_rectangle(buffer_context,
-                 UI::Rect{0.0F, 0.0F, static_cast<float>(client_width),
-                          static_cast<float>(client_height)},
-                 m_theme.window_background);
-  fill_rectangle(buffer_context, m_chrome_layout.titlebar_bounds,
-                 m_theme.titlebar_background);
+  if (m_theme.enable_os_blur) {
+    PatBlt(buffer_context, 0, 0, client_width, client_height, BLACKNESS);
+    fill_rectangle(buffer_context,
+                   UI::Rect{0.0F, 0.0F, static_cast<float>(client_width),
+                            static_cast<float>(client_height)},
+                   m_theme.titlebar_background);
+  } else {
+    fill_rectangle(buffer_context,
+                   UI::Rect{0.0F, 0.0F, static_cast<float>(client_width),
+                            static_cast<float>(client_height)},
+                   m_theme.window_background);
+    if (!m_theme.is_modern) {
+      fill_rectangle(buffer_context, m_chrome_layout.titlebar_bounds,
+                     m_theme.titlebar_background);
+    }
+  }
 
   SetBkMode(buffer_context, TRANSPARENT);
   HGDIOBJ previous_font = SelectObject(buffer_context, m_ui_font);
@@ -3214,6 +3250,14 @@ void Win32Window::paint_custom_chrome() {
         UI::Theme::Color{0, 0, 0, 255});
     static_cast<void>(m_workspace_renderer.tick_animations());
     m_workspace_renderer.render(buffer_context, client_width, client_height, 0.0F);
+
+    if (buffer_bits != nullptr && m_theme.enable_os_blur) {
+      auto *pixels = static_cast<uint32_t *>(buffer_bits);
+      const size_t total_px = static_cast<size_t>(client_width) * client_height;
+      for (size_t i = 0; i < total_px; ++i) {
+        pixels[i] |= 0xFF000000;
+      }
+    }
 
     BitBlt(window_context, 0, 0, client_width, client_height, buffer_context, 0,
            0, SRCCOPY);
@@ -3296,17 +3340,18 @@ void Win32Window::paint_custom_chrome() {
   m_workspace_renderer.render(buffer_context, client_width, client_height,
                               m_chrome_layout.titlebar_bounds.bottom());
 
-  // Draw titlebar bottom separator border across full width with proper z-index
-  // above content
-  const int titlebar_bottom_y =
-      round_to_int(m_chrome_layout.titlebar_bounds.bottom()) - 1;
-  HPEN titlebar_border_pen =
-      CreatePen(PS_SOLID, 1, to_color_ref(m_theme.titlebar_border));
-  HGDIOBJ prev_border_pen = SelectObject(buffer_context, titlebar_border_pen);
-  MoveToEx(buffer_context, 0, titlebar_bottom_y, nullptr);
-  LineTo(buffer_context, client_width, titlebar_bottom_y);
-  SelectObject(buffer_context, prev_border_pen);
-  DeleteObject(titlebar_border_pen);
+  // Draw titlebar bottom separator border across full width only for traditional non-modern themes
+  if (!m_theme.is_modern && !m_theme.enable_os_blur) {
+    const int titlebar_bottom_y =
+        round_to_int(m_chrome_layout.titlebar_bounds.bottom()) - 1;
+    HPEN titlebar_border_pen =
+        CreatePen(PS_SOLID, 1, to_color_ref(m_theme.titlebar_border));
+    HGDIOBJ prev_border_pen = SelectObject(buffer_context, titlebar_border_pen);
+    MoveToEx(buffer_context, 0, titlebar_bottom_y, nullptr);
+    LineTo(buffer_context, client_width, titlebar_bottom_y);
+    SelectObject(buffer_context, prev_border_pen);
+    DeleteObject(titlebar_border_pen);
+  }
 
   auto draw_toolbar_hover = [&](const UI::Rect &bounds) {
     UI::Rect hover_bounds = bounds;
@@ -3552,6 +3597,51 @@ void Win32Window::paint_custom_chrome() {
 
   SelectObject(buffer_context, previous_font);
 
+  if (buffer_bits != nullptr && m_theme.enable_os_blur) {
+    auto *pixels = static_cast<uint32_t *>(buffer_bits);
+    const float content_top = m_chrome_layout.titlebar_bounds.bottom();
+
+    const bool modal_full_overlay =
+        m_about_modal.is_visible() ||
+        m_workspace_renderer.is_prompt_modal_visible() ||
+        m_workspace_renderer.is_add_item_dialog_visible() ||
+        m_workspace_renderer.is_settings_window_visible();
+
+    if (modal_full_overlay) {
+      const size_t total_px = static_cast<size_t>(client_width) * client_height;
+      for (size_t i = 0; i < total_px; ++i) {
+        pixels[i] |= 0xFF000000;
+      }
+    } else {
+      m_workspace_renderer.apply_solid_card_alpha(
+          pixels, client_width, client_height, content_top);
+
+      auto stamp_rect_alpha = [&](const UI::Rect &r) {
+        if (r.is_empty()) return;
+        const int x0 = std::clamp(static_cast<int>(r.x), 0, client_width);
+        const int y0 = std::clamp(static_cast<int>(r.y), 0, client_height);
+        const int x1 = std::clamp(static_cast<int>(r.right()), 0, client_width);
+        const int y1 = std::clamp(static_cast<int>(r.bottom()), 0, client_height);
+        for (int y = y0; y < y1; ++y) {
+          uint32_t *row = &pixels[y * client_width];
+          for (int x = x0; x < x1; ++x) {
+            row[x] |= 0xFF000000;
+          }
+        }
+      };
+
+      if (m_menu_overlay_open) {
+        stamp_rect_alpha(calculate_menu_overlay_geometry().bounds);
+      }
+      if (m_open_menu_index.has_value()) {
+        stamp_rect_alpha(calculate_popup_menu_geometry(*m_open_menu_index).bounds);
+      }
+      if (m_explorer_context_menu.visible) {
+        stamp_rect_alpha(m_explorer_context_menu.bounds);
+      }
+    }
+  }
+
   BitBlt(window_context, 0, 0, client_width, client_height, buffer_context, 0,
          0, SRCCOPY);
   SelectObject(buffer_context, previous_bitmap);
@@ -3610,18 +3700,24 @@ void Win32Window::update_dwm_border_color(bool force) {
     } else {
       DwmSetWindowAttribute(m_window_handle, dwm_corner_preference_attr,
                             &dwm_corner_round, sizeof(dwm_corner_round));
-      const COLORREF border_color =
-          focused ? RGB(68, 71, 78) : RGB(45, 47, 52);
+      const COLORREF border_color = m_theme.is_dark
+          ? (focused ? RGB(68, 71, 78) : RGB(45, 47, 52))
+          : (focused ? RGB(180, 184, 192) : RGB(215, 218, 224));
       DwmSetWindowAttribute(m_window_handle, dwm_border_color_attr,
                             &border_color, sizeof(border_color));
     }
   }
 
   if (m_custom_chrome_enabled) {
-    const MARGINS frame_margins = maximized
-        ? MARGINS{0, 0, 0, 0}
-        : MARGINS{1, 1, 1, 1};
-    DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
+    if (m_theme.enable_os_blur) {
+      const MARGINS frame_margins{-1, -1, -1, -1};
+      DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
+    } else {
+      const MARGINS frame_margins = maximized
+          ? MARGINS{0, 0, 0, 0}
+          : MARGINS{1, 1, 1, 1};
+      DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
+    }
   }
 }
 
@@ -5164,6 +5260,129 @@ void Win32Window::show_system_menu_at_icon() {
       static_cast<int>(m_chrome_layout.titlebar_bounds.bottom())};
   ClientToScreen(m_window_handle, &screen_pt);
   show_system_menu(screen_pt.x, screen_pt.y);
+}
+
+void Win32Window::apply_os_backdrop(bool enable_blur, UI::Theme::BackdropEffect effect, bool is_dark) {
+  if (m_window_handle == nullptr) return;
+
+  const DWORD win_build = get_windows_build_number();
+
+  // 1. Windows 11 22H2+ (Build >= 22621): DWMWA_SYSTEMBACKDROP_TYPE (38)
+  constexpr DWORD dwm_backdrop_type_attr = 38;
+  constexpr DWORD dwmsbt_none = 1;
+  constexpr DWORD dwmsbt_mainwindow = 2;   // Mica
+  constexpr DWORD dwmsbt_transient = 3;    // Acrylic
+
+  // 2. Windows 11 21H2 (Build 22000): DWMWA_MICA_EFFECT (1029)
+  constexpr DWORD dwm_mica_attr = 1029;
+
+  if (enable_blur) {
+    if (win_build >= 22621) {
+      const DWORD backdrop = (effect == UI::Theme::BackdropEffect::Mica)
+                                 ? dwmsbt_mainwindow
+                                 : dwmsbt_transient;
+      DwmSetWindowAttribute(m_window_handle, dwm_backdrop_type_attr, &backdrop, sizeof(backdrop));
+    } else if (win_build >= 22000) {
+      const BOOL mica_on = TRUE;
+      DwmSetWindowAttribute(m_window_handle, dwm_mica_attr, &mica_on, sizeof(mica_on));
+    }
+
+    // Acrylic blur composition: SetWindowCompositionAttribute
+    HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    if (user32) {
+      struct ACCENT_POLICY {
+        int AccentState;
+        int AccentFlags;
+        int GradientColor;
+        int AnimationId;
+      };
+      struct WINDOWCOMPOSITIONATTRIBDATA {
+        int Attrib;
+        void *pvData;
+        size_t cbData;
+      };
+      using PFN_SetWindowCompositionAttribute = BOOL(WINAPI *)(HWND, WINDOWCOMPOSITIONATTRIBDATA *);
+      auto pfnSetWindowCompositionAttribute =
+          reinterpret_cast<PFN_SetWindowCompositionAttribute>(
+              GetProcAddress(user32, "SetWindowCompositionAttribute"));
+      if (pfnSetWindowCompositionAttribute) {
+        ACCENT_POLICY policy{};
+        policy.AccentState = 4; // ACCENT_ENABLE_ACRYLICBLURBEHIND
+        policy.AccentFlags = 2; // draw all borders
+        // Tint format: AABBGGRR
+        policy.GradientColor = is_dark ? 0x99100e14 : 0x99f0f0f2;
+        WINDOWCOMPOSITIONATTRIBDATA data{19, &policy, sizeof(policy)};
+        pfnSetWindowCompositionAttribute(m_window_handle, &data);
+      }
+    }
+
+    const MARGINS frame_margins{-1, -1, -1, -1};
+    DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
+  } else {
+    if (win_build >= 22621) {
+      const DWORD backdrop = dwmsbt_none;
+      DwmSetWindowAttribute(m_window_handle, dwm_backdrop_type_attr, &backdrop, sizeof(backdrop));
+    } else if (win_build >= 22000) {
+      const BOOL mica_on = FALSE;
+      DwmSetWindowAttribute(m_window_handle, dwm_mica_attr, &mica_on, sizeof(mica_on));
+    }
+
+    HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    if (user32) {
+      struct ACCENT_POLICY {
+        int AccentState;
+        int AccentFlags;
+        int GradientColor;
+        int AnimationId;
+      };
+      struct WINDOWCOMPOSITIONATTRIBDATA {
+        int Attrib;
+        void *pvData;
+        size_t cbData;
+      };
+      using PFN_SetWindowCompositionAttribute = BOOL(WINAPI *)(HWND, WINDOWCOMPOSITIONATTRIBDATA *);
+      auto pfnSetWindowCompositionAttribute =
+          reinterpret_cast<PFN_SetWindowCompositionAttribute>(
+              GetProcAddress(user32, "SetWindowCompositionAttribute"));
+      if (pfnSetWindowCompositionAttribute) {
+        ACCENT_POLICY policy{};
+        policy.AccentState = 0; // ACCENT_DISABLED
+        WINDOWCOMPOSITIONATTRIBDATA data{19, &policy, sizeof(policy)};
+        pfnSetWindowCompositionAttribute(m_window_handle, &data);
+      }
+    }
+
+    if (m_custom_chrome_enabled) {
+      const MARGINS frame_margins = is_maximized()
+                                        ? MARGINS{0, 0, 0, 0}
+                                        : MARGINS{1, 1, 1, 1};
+      DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
+    }
+  }
+}
+
+void Win32Window::apply_theme(const UI::Theme::StudioTheme& theme) {
+  m_theme = theme;
+  m_about_modal.set_theme(UI::Components::ModalTheme::from_theme(theme));
+  m_workspace_renderer.update_theme(theme);
+
+  if (m_window_handle != nullptr) {
+    const BOOL dark_mode_enabled = theme.is_dark ? TRUE : FALSE;
+    if (FAILED(DwmSetWindowAttribute(m_window_handle, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */,
+                                     &dark_mode_enabled, sizeof(dark_mode_enabled)))) {
+      DwmSetWindowAttribute(m_window_handle, 19 /* DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 */,
+                            &dark_mode_enabled, sizeof(dark_mode_enabled));
+    }
+    enable_menu_dark_mode(m_window_handle, theme.is_dark);
+    apply_os_backdrop(theme.enable_os_blur, theme.backdrop_effect, theme.is_dark);
+    update_dwm_border_color(GetFocus() == m_window_handle);
+
+    SetWindowPos(m_window_handle, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
+                     SWP_FRAMECHANGED);
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+    UpdateWindow(m_window_handle);
+  }
 }
 
 } // namespace Zenvra::Platform::Win32

@@ -143,9 +143,16 @@ struct StudioEditorPalette
     Theme::Color directive;
     Theme::Color macro_symbol;
     Theme::Color include_header;
+    bool is_dark = true;
+    bool is_modern = false;
 
     [[nodiscard]] static StudioEditorPalette dark() noexcept;
     [[nodiscard]] static StudioEditorPalette jetbrains_dark() noexcept { return dark(); }
+    [[nodiscard]] static StudioEditorPalette light() noexcept;
+    [[nodiscard]] static StudioEditorPalette dark_modern() noexcept;
+    [[nodiscard]] static StudioEditorPalette light_modern() noexcept;
+    [[nodiscard]] static StudioEditorPalette high_contrast() noexcept;
+    [[nodiscard]] static StudioEditorPalette from_theme(const Theme::StudioTheme& theme) noexcept;
 };
 
 struct StudioEditorLayoutResult

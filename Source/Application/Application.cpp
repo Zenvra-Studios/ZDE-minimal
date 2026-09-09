@@ -2,8 +2,9 @@
 #include "Language/LanguageServerManager.h"
 #include "Language/Syntax/GrammarRegistry.h"
 #include "Language/Toolchain/ToolchainDetector.h"
-#include "Plugins/PluginManager.h"
 #include "Platform/PlatformWindowFactory.h"
+#include "Plugins/PluginManager.h"
+#include "UI/Theme/ThemeManager.h"
 #include "Utility/MultiContext.h"
 
 #include <chrono>
@@ -268,6 +269,9 @@ bool Application::initialize()
 
     // Initialize Plugin & Toolchain subsystem (Local-first / Git-first)
     Plugins::PluginManager::instance().initialize();
+
+    // Initialize Theme subsystem and sync themes with Settings
+    UI::Theme::ThemeManager::instance().initialize();
 
     // Create the initial primary window context
     auto* initial_window = create_new_window(m_specification.initial_path);

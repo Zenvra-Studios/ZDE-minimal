@@ -8,6 +8,7 @@
 #include "Plugins/Toolchain/ToolManager.h"
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -68,6 +69,9 @@ public:
     void set_active_tool_plugin_id(std::string_view plugin_id);
     [[nodiscard]] std::shared_ptr<Plugin> get_active_tool_plugin() const;
 
+    using PluginLifecycleCallback = std::function<void(std::shared_ptr<Plugin>, bool is_activated)>;
+    void register_lifecycle_listener(PluginLifecycleCallback cb);
+
     [[nodiscard]] const std::filesystem::path& get_plugins_root() const noexcept { return m_plugins_root; }
     [[nodiscard]] const std::filesystem::path& get_zde_home() const noexcept { return m_zde_home; }
     [[nodiscard]] const std::filesystem::path& get_bundled_dir() const noexcept { return m_bundled_dir; }
@@ -86,6 +90,7 @@ private:
     Installer::DependencyResolver m_resolver;
     std::unique_ptr<Installer::PluginInstaller> m_installer;
 
+    std::vector<PluginLifecycleCallback> m_lifecycle_callbacks;
     std::string m_active_tool_plugin_id;
     bool m_initialized{false};
     mutable std::recursive_mutex m_mutex;

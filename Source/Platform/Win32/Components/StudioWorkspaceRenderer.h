@@ -49,6 +49,9 @@ public:
 
     [[nodiscard]] bool initialize(UINT dpi);
     void update_dpi(UINT dpi);
+    void update_theme(const UI::Theme::StudioTheme& theme);
+    [[nodiscard]] const UI::Editor::StudioEditorPalette& get_palette() const noexcept { return m_palette; }
+    [[nodiscard]] const UI::Theme::StudioTheme& get_theme() const noexcept { return m_theme; }
     [[nodiscard]] bool open_file(const std::filesystem::path& path);
     [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root);
     [[nodiscard]] bool close_project();
@@ -266,6 +269,20 @@ public:
         int client_width,
         int client_height,
         float content_top) const noexcept;
+    struct ModernCardGeometry {
+        UI::Rect sidebar_card;
+        UI::Rect editor_card;
+        UI::Rect terminal_card;
+        UI::Rect shader_card;
+        float card_radius = 8.0F;
+    };
+
+    [[nodiscard]] ModernCardGeometry get_modern_card_geometry(
+        int client_width, int client_height, float content_top) const noexcept;
+
+    void apply_solid_card_alpha(
+        uint32_t* pixels, int client_width, int client_height, float content_top) const noexcept;
+
     [[nodiscard]] bool tick_animations() noexcept;
     void shutdown();
     void render(
@@ -317,6 +334,7 @@ private:
     void fill_rectangle(HDC device_context, const UI::Rect& rectangle, const UI::Theme::Color& color) const;
     void fill_rounded_rectangle(HDC device_context, const UI::Rect& rectangle, const UI::Theme::Color& color, float radius) const;
     void draw_rectangle(HDC device_context, const UI::Rect& rectangle, const UI::Theme::Color& color) const;
+    void draw_rounded_rectangle(HDC device_context, const UI::Rect& rectangle, const UI::Theme::Color& color, float radius) const;
     void draw_line(
         HDC device_context,
         int from_x,
@@ -383,7 +401,8 @@ private:
     std::unique_ptr<AntialiasedFont> m_large_font;
     std::filesystem::path m_icon_asset_root;
     UI::Editor::StudioEditorLayout m_layout_engine;
-    UI::Editor::StudioEditorPalette m_palette = UI::Editor::StudioEditorPalette::dark();
+    UI::Editor::StudioEditorPalette m_palette = UI::Editor::StudioEditorPalette::dark_modern();
+    UI::Theme::StudioTheme m_theme = UI::Theme::StudioTheme::zenvra_dark_modern();
     ActivitySidebar m_activity_sidebar;
     FooterToolbar m_footer_toolbar;
     ToolSidebar m_tool_sidebar;

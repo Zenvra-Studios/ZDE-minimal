@@ -89,6 +89,7 @@ public:
     [[nodiscard]] bool initialize(
         float dpi_scale,
         const UI::Theme::StudioTheme& theme);
+    void set_theme(const UI::Theme::StudioTheme& theme);
     void shutdown();
     [[nodiscard]] const std::filesystem::path& get_icon_asset_root() const noexcept;
 

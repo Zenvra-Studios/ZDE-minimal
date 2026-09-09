@@ -5,16 +5,17 @@
 #include "Platform/PlatformDialogs.h"
 #include "Plugins/PluginManager.h"
 #include "Settings/SettingsService.h"
+#include "UI/Theme/ThemeManager.h"
 #include "Utility/Antialiasing.h"
 #include "Utility/stb_image.h"
 
 #include "UI/Editor/EditorFileSystem.h"
 #include "Utility/Ascii/AsciiMascotRenderer.h"
-#include "Utility/Fonts.h"
-#include <lunasvg.h>
-
 #include "Utility/MathUtil.h"
 #include "Utility/Shadows.h"
+#include "Utility/Fonts.h"
+
+#include <lunasvg.h>
 
 #include <algorithm>
 #include <array>
@@ -36,26 +37,28 @@ namespace Zenvra::Platform::Win32::Components {
 
 namespace {
 
-static int CALLBACK EnumFontFamExProc(
-    const LOGFONTW * /*lpelfe*/,
-    const TEXTMETRICW * /*lpntme*/,
-    DWORD /*FontType*/,
-    LPARAM lParam)
-{
-  *reinterpret_cast<bool*>(lParam) = true;
+static int CALLBACK EnumFontFamExProc(const LOGFONTW * /*lpelfe*/,
+                                      const TEXTMETRICW * /*lpntme*/,
+                                      DWORD /*FontType*/, LPARAM lParam) {
+  *reinterpret_cast<bool *>(lParam) = true;
   return 0; // stop enumeration on first match
 }
 
 static bool is_font_available(const std::string &font_name) {
-  if (font_name.empty()) return false;
+  if (font_name.empty())
+    return false;
   HDC dc = GetDC(nullptr);
-  if (!dc) return false;
+  if (!dc)
+    return false;
   LOGFONTW lf{};
-  int wlen = MultiByteToWideChar(CP_UTF8, 0, font_name.c_str(), static_cast<int>(font_name.length()), lf.lfFaceName, 31);
+  int wlen = MultiByteToWideChar(CP_UTF8, 0, font_name.c_str(),
+                                 static_cast<int>(font_name.length()),
+                                 lf.lfFaceName, 31);
   lf.lfFaceName[wlen] = L'\0';
   lf.lfCharSet = DEFAULT_CHARSET;
   bool found = false;
-  EnumFontFamiliesExW(dc, &lf, EnumFontFamExProc, reinterpret_cast<LPARAM>(&found), 0);
+  EnumFontFamiliesExW(dc, &lf, EnumFontFamExProc,
+                      reinterpret_cast<LPARAM>(&found), 0);
   ReleaseDC(nullptr, dc);
   return found;
 }
@@ -118,8 +121,10 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
 
   // 1. Resolve Icon Directory (prioritizes project_root/Assets/icons)
   const std::vector<std::filesystem::path> icon_candidates = {
-      project_root ? (*project_root / "Assets" / "icons") : std::filesystem::path{},
-      project_root ? (*project_root / "Resources" / "icons") : std::filesystem::path{},
+      project_root ? (*project_root / "Assets" / "icons")
+                   : std::filesystem::path{},
+      project_root ? (*project_root / "Resources" / "icons")
+                   : std::filesystem::path{},
       exe_dir / "Assets" / "icons",
       exe_dir / "Resources" / "icons",
       exe_dir.parent_path() / "Assets" / "icons",
@@ -128,7 +133,8 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
       current_path / "Resources" / "icons",
   };
   for (const auto &candidate : icon_candidates) {
-    if (!candidate.empty() && std::filesystem::is_directory(candidate, path_error)) {
+    if (!candidate.empty() &&
+        std::filesystem::is_directory(candidate, path_error)) {
       m_icon_asset_root = candidate;
       break;
     }
@@ -141,13 +147,16 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
       exe_dir / "Assets" / "fonts",
       exe_dir.parent_path() / "Resources" / "fonts",
       exe_dir.parent_path() / "Assets" / "fonts",
-      project_root ? (*project_root / "Resources" / "fonts") : std::filesystem::path{},
-      project_root ? (*project_root / "Assets" / "fonts") : std::filesystem::path{},
+      project_root ? (*project_root / "Resources" / "fonts")
+                   : std::filesystem::path{},
+      project_root ? (*project_root / "Assets" / "fonts")
+                   : std::filesystem::path{},
       current_path / "Resources" / "fonts",
       current_path / "Assets" / "fonts",
   };
   for (const auto &candidate : font_candidates) {
-    if (!candidate.empty() && std::filesystem::is_directory(candidate, path_error)) {
+    if (!candidate.empty() &&
+        std::filesystem::is_directory(candidate, path_error)) {
       fonts_dir = candidate;
       break;
     }
@@ -197,35 +206,47 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
   m_editor_font_name = hack_loaded ? "Hack" : "Consolas";
   m_ui_font_name = opensans_loaded ? "Open Sans" : "Segoe UI";
 
-  auto& settings_service = Settings::SettingsService::instance();
+  auto &settings_service = Settings::SettingsService::instance();
   settings_service.initialize();
+  update_theme(UI::Theme::ThemeManager::instance().get_current_theme());
 
-  const auto existing_workspace = m_tool_sidebar.get_model().get_workspace_root();
+  const auto existing_workspace =
+      m_tool_sidebar.get_model().get_workspace_root();
   if (!existing_workspace.empty()) {
     settings_service.set_workspace_path(existing_workspace);
   }
 
   const int configured_size = settings_service.get<int>("editor.fontSize");
-  const int effective_size = (configured_size >= 8 && configured_size <= 72) ? configured_size : 14;
-  const std::string configured_font = settings_service.get<std::string>("editor.fontFamily");
+  const int effective_size =
+      (configured_size >= 8 && configured_size <= 72) ? configured_size : 14;
+  const std::string configured_font =
+      settings_service.get<std::string>("editor.fontFamily");
   if (!configured_font.empty()) {
     m_editor_font_name = resolve_font_family_name(configured_font);
   }
 
   const int term_size = settings_service.get<int>("terminal.fontSize");
-  const int eff_term_size = (term_size >= 8 && term_size <= 72) ? term_size : 14;
-  const std::string term_font = settings_service.get<std::string>("terminal.fontFamily");
-  m_terminal_font_name = !term_font.empty() ? resolve_font_family_name(term_font) : m_editor_font_name;
+  const int eff_term_size =
+      (term_size >= 8 && term_size <= 72) ? term_size : 14;
+  const std::string term_font =
+      settings_service.get<std::string>("terminal.fontFamily");
+  m_terminal_font_name = !term_font.empty()
+                             ? resolve_font_family_name(term_font)
+                             : m_editor_font_name;
 
   m_ui_font = std::make_unique<AntialiasedFont>(
       m_ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
   m_small_font = std::make_unique<AntialiasedFont>(
       m_ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
   m_editor_font = std::make_unique<AntialiasedFont>(
-      m_editor_font_name, std::max(round_to_int(static_cast<float>(effective_size) * m_dpi_scale), 10));
+      m_editor_font_name,
+      std::max(round_to_int(static_cast<float>(effective_size) * m_dpi_scale),
+               10));
   m_editor_font->setLigaturesEnabled(true);
   m_terminal_font = std::make_unique<AntialiasedFont>(
-      m_terminal_font_name, std::max(round_to_int(static_cast<float>(eff_term_size) * m_dpi_scale), 10));
+      m_terminal_font_name,
+      std::max(round_to_int(static_cast<float>(eff_term_size) * m_dpi_scale),
+               10));
   m_terminal_font->setLigaturesEnabled(true);
   m_minimap_font = std::make_unique<AntialiasedFont>(
       m_editor_font_name, std::max(round_to_int(3.0F * m_dpi_scale), 3));
@@ -239,121 +260,172 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
   }
 
   // Synchronize TextEditor settings on startup
-  m_text_editor.set_tab_size(static_cast<std::size_t>(std::max(1, settings_service.get<int>("editor.tabSize"))));
-  m_text_editor.set_cursor_style(settings_service.get<std::string>("editor.cursorStyle"));
-  m_text_editor.set_render_whitespace(settings_service.get<std::string>("editor.renderWhitespace"));
+  m_text_editor.set_tab_size(static_cast<std::size_t>(
+      std::max(1, settings_service.get<int>("editor.tabSize"))));
+  m_text_editor.set_cursor_style(
+      settings_service.get<std::string>("editor.cursorStyle"));
+  m_text_editor.set_render_whitespace(
+      settings_service.get<std::string>("editor.renderWhitespace"));
 
-  const std::string interaction_mode = settings_service.get<std::string>("editor.interactionMode");
+  const std::string interaction_mode =
+      settings_service.get<std::string>("editor.interactionMode");
   const bool vim_enabled = settings_service.get<bool>("vim.enabled");
   if (interaction_mode == "vim" || vim_enabled) {
-    m_text_editor.get_input_router().set_interaction_mode(Editors::InteractionMode::Vim);
+    m_text_editor.get_input_router().set_interaction_mode(
+        Editors::InteractionMode::Vim);
   } else {
-    m_text_editor.get_input_router().set_interaction_mode(Editors::InteractionMode::Default);
+    m_text_editor.get_input_router().set_interaction_mode(
+        Editors::InteractionMode::Default);
   }
-  const std::string line_numbers = settings_service.get<std::string>("editor.lineNumbers");
-  m_text_editor.set_relative_line_numbers(line_numbers == "relative" || settings_service.get<bool>("vim.relativeLineNumbers"));
-  if (auto* vim = m_text_editor.get_input_router().get_vim_mode()) {
+  const std::string line_numbers =
+      settings_service.get<std::string>("editor.lineNumbers");
+  m_text_editor.set_relative_line_numbers(
+      line_numbers == "relative" ||
+      settings_service.get<bool>("vim.relativeLineNumbers"));
+  if (auto *vim = m_text_editor.get_input_router().get_vim_mode()) {
     const int timeout_ms = settings_service.get<int>("vim.timeout");
-    vim->get_state().timeout_seconds = static_cast<double>(std::max(100, timeout_ms)) / 1000.0;
-    vim->get_state().leader_key = settings_service.get<std::string>("vim.leaderKey");
-    vim->get_state().escape_key = settings_service.get<std::string>("vim.escapeKey");
-    const std::string start_mode = settings_service.get<std::string>("vim.startMode");
+    vim->get_state().timeout_seconds =
+        static_cast<double>(std::max(100, timeout_ms)) / 1000.0;
+    vim->get_state().leader_key =
+        settings_service.get<std::string>("vim.leaderKey");
+    vim->get_state().escape_key =
+        settings_service.get<std::string>("vim.escapeKey");
+    const std::string start_mode =
+        settings_service.get<std::string>("vim.startMode");
     if (start_mode == "insert") {
       vim->set_mode(Editors::VimMode::Insert);
     }
   }
 
-  static_cast<void>(settings_service.subscribe([this, &settings_service](const Settings::SettingsChangedEvent& event) {
-    if (event.id == "editor.fontSize" || event.id == "editor.fontFamily" || event.id == "editor.lineHeight") {
-      reload_editor_font();
-    } else if (event.id == "terminal.fontSize" || event.id == "terminal.fontFamily") {
-      reload_terminal_font();
-    } else if (event.id == "editor.tabSize") {
-      const int ts = settings_service.get<int>("editor.tabSize");
-      m_text_editor.set_tab_size(static_cast<std::size_t>(std::max(1, ts)));
-      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
-    } else if (event.id == "editor.cursorStyle") {
-      m_text_editor.set_cursor_style(settings_service.get<std::string>("editor.cursorStyle"));
-      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
-    } else if (event.id == "editor.renderWhitespace") {
-      m_text_editor.set_render_whitespace(settings_service.get<std::string>("editor.renderWhitespace"));
-      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
-    } else if (event.id == "editor.interactionMode") {
-      const std::string im = settings_service.get<std::string>("editor.interactionMode");
-      if (im == "vim") {
-        m_text_editor.get_input_router().set_interaction_mode(Editors::InteractionMode::Vim);
-        if (!settings_service.get<bool>("vim.enabled")) {
-          settings_service.set("vim.enabled", true);
+  static_cast<void>(settings_service.subscribe(
+      [this, &settings_service](const Settings::SettingsChangedEvent &event) {
+        if (event.id == "editor.fontSize" || event.id == "editor.fontFamily" ||
+            event.id == "editor.lineHeight") {
+          reload_editor_font();
+        } else if (event.id == "terminal.fontSize" ||
+                   event.id == "terminal.fontFamily") {
+          reload_terminal_font();
+        } else if (event.id == "editor.tabSize") {
+          const int ts = settings_service.get<int>("editor.tabSize");
+          m_text_editor.set_tab_size(static_cast<std::size_t>(std::max(1, ts)));
+          if (m_window_handle)
+            InvalidateRect(m_window_handle, nullptr, FALSE);
+        } else if (event.id == "editor.cursorStyle") {
+          m_text_editor.set_cursor_style(
+              settings_service.get<std::string>("editor.cursorStyle"));
+          if (m_window_handle)
+            InvalidateRect(m_window_handle, nullptr, FALSE);
+        } else if (event.id == "editor.renderWhitespace") {
+          m_text_editor.set_render_whitespace(
+              settings_service.get<std::string>("editor.renderWhitespace"));
+          if (m_window_handle)
+            InvalidateRect(m_window_handle, nullptr, FALSE);
+        } else if (event.id == "editor.interactionMode") {
+          const std::string im =
+              settings_service.get<std::string>("editor.interactionMode");
+          if (im == "vim") {
+            m_text_editor.get_input_router().set_interaction_mode(
+                Editors::InteractionMode::Vim);
+            if (!settings_service.get<bool>("vim.enabled")) {
+              settings_service.set("vim.enabled", true);
+            }
+          } else {
+            m_text_editor.get_input_router().set_interaction_mode(
+                Editors::InteractionMode::Default);
+            if (settings_service.get<bool>("vim.enabled")) {
+              settings_service.set("vim.enabled", false);
+            }
+          }
+          if (m_window_handle)
+            InvalidateRect(m_window_handle, nullptr, FALSE);
+        } else if (event.id == "vim.enabled") {
+          const bool ve = settings_service.get<bool>("vim.enabled");
+          if (ve) {
+            m_text_editor.get_input_router().set_interaction_mode(
+                Editors::InteractionMode::Vim);
+            if (settings_service.get<std::string>("editor.interactionMode") !=
+                "vim") {
+              settings_service.set("editor.interactionMode",
+                                   std::string("vim"));
+            }
+          } else {
+            m_text_editor.get_input_router().set_interaction_mode(
+                Editors::InteractionMode::Default);
+            if (settings_service.get<std::string>("editor.interactionMode") !=
+                "default") {
+              settings_service.set("editor.interactionMode",
+                                   std::string("default"));
+            }
+          }
+          if (m_window_handle)
+            InvalidateRect(m_window_handle, nullptr, FALSE);
+        } else if (event.id == "editor.lineNumbers") {
+          const std::string ln =
+              settings_service.get<std::string>("editor.lineNumbers");
+          if (ln == "relative") {
+            m_text_editor.set_relative_line_numbers(true);
+          } else {
+            m_text_editor.set_relative_line_numbers(
+                settings_service.get<bool>("vim.relativeLineNumbers"));
+          }
+          if (m_window_handle)
+            InvalidateRect(m_window_handle, nullptr, FALSE);
+        } else if (event.id == "vim.relativeLineNumbers") {
+          const std::string ln =
+              settings_service.get<std::string>("editor.lineNumbers");
+          if (ln != "relative") {
+            m_text_editor.set_relative_line_numbers(
+                settings_service.get<bool>("vim.relativeLineNumbers"));
+          }
+          if (m_window_handle)
+            InvalidateRect(m_window_handle, nullptr, FALSE);
+        } else if (event.id == "vim.showModeIndicator") {
+          if (m_window_handle)
+            InvalidateRect(m_window_handle, nullptr, FALSE);
+        } else if (event.id == "vim.timeout") {
+          if (auto *vim = m_text_editor.get_input_router().get_vim_mode()) {
+            const int timeout_ms = settings_service.get<int>("vim.timeout");
+            vim->get_state().timeout_seconds =
+                static_cast<double>(std::max(100, timeout_ms)) / 1000.0;
+          }
+        } else if (event.id == "vim.leaderKey") {
+          if (auto *vim = m_text_editor.get_input_router().get_vim_mode()) {
+            vim->get_state().leader_key =
+                settings_service.get<std::string>("vim.leaderKey");
+          }
+        } else if (event.id == "vim.escapeKey") {
+          if (auto *vim = m_text_editor.get_input_router().get_vim_mode()) {
+            vim->get_state().escape_key =
+                settings_service.get<std::string>("vim.escapeKey");
+          }
+        } else if (event.id == "vim.startMode") {
+          if (auto *vim = m_text_editor.get_input_router().get_vim_mode()) {
+            const std::string start_mode =
+                settings_service.get<std::string>("vim.startMode");
+            if (start_mode == "insert") {
+              vim->set_mode(Editors::VimMode::Insert);
+            } else {
+              vim->set_mode(Editors::VimMode::Normal);
+            }
+          }
+          if (m_window_handle)
+            InvalidateRect(m_window_handle, nullptr, FALSE);
+        } else if (event.id == "editor.minimap.enabled" ||
+                   event.id == "workbench.activityBar.visible" ||
+                   event.id == "theme.current" ||
+                   event.id == "workbench.mascot.image" ||
+                   event.id == "workbench.mascot.renderMode" ||
+                   event.id == "workbench.app.title") {
+          Utility::Ascii::AsciiMascotRenderer::clear_bitmap_cache();
+          Utility::Ascii::AsciiArtConverter::clear_cache();
+          update_theme(UI::Theme::ThemeManager::instance().get_current_theme());
+          if (m_window_handle) {
+            PostMessageW(m_window_handle, WM_THEMECHANGED, 0, 0);
+            InvalidateRect(m_window_handle, nullptr, FALSE);
+            UpdateWindow(m_window_handle);
+          }
         }
-      } else {
-        m_text_editor.get_input_router().set_interaction_mode(Editors::InteractionMode::Default);
-        if (settings_service.get<bool>("vim.enabled")) {
-          settings_service.set("vim.enabled", false);
-        }
-      }
-      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
-    } else if (event.id == "vim.enabled") {
-      const bool ve = settings_service.get<bool>("vim.enabled");
-      if (ve) {
-        m_text_editor.get_input_router().set_interaction_mode(Editors::InteractionMode::Vim);
-        if (settings_service.get<std::string>("editor.interactionMode") != "vim") {
-          settings_service.set("editor.interactionMode", std::string("vim"));
-        }
-      } else {
-        m_text_editor.get_input_router().set_interaction_mode(Editors::InteractionMode::Default);
-        if (settings_service.get<std::string>("editor.interactionMode") != "default") {
-          settings_service.set("editor.interactionMode", std::string("default"));
-        }
-      }
-      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
-    } else if (event.id == "editor.lineNumbers") {
-      const std::string ln = settings_service.get<std::string>("editor.lineNumbers");
-      if (ln == "relative") {
-        m_text_editor.set_relative_line_numbers(true);
-      } else {
-        m_text_editor.set_relative_line_numbers(settings_service.get<bool>("vim.relativeLineNumbers"));
-      }
-      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
-    } else if (event.id == "vim.relativeLineNumbers") {
-      const std::string ln = settings_service.get<std::string>("editor.lineNumbers");
-      if (ln != "relative") {
-        m_text_editor.set_relative_line_numbers(settings_service.get<bool>("vim.relativeLineNumbers"));
-      }
-      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
-    } else if (event.id == "vim.showModeIndicator") {
-      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
-    } else if (event.id == "vim.timeout") {
-      if (auto* vim = m_text_editor.get_input_router().get_vim_mode()) {
-        const int timeout_ms = settings_service.get<int>("vim.timeout");
-        vim->get_state().timeout_seconds = static_cast<double>(std::max(100, timeout_ms)) / 1000.0;
-      }
-    } else if (event.id == "vim.leaderKey") {
-      if (auto* vim = m_text_editor.get_input_router().get_vim_mode()) {
-        vim->get_state().leader_key = settings_service.get<std::string>("vim.leaderKey");
-      }
-    } else if (event.id == "vim.escapeKey") {
-      if (auto* vim = m_text_editor.get_input_router().get_vim_mode()) {
-        vim->get_state().escape_key = settings_service.get<std::string>("vim.escapeKey");
-      }
-    } else if (event.id == "vim.startMode") {
-      if (auto* vim = m_text_editor.get_input_router().get_vim_mode()) {
-        const std::string start_mode = settings_service.get<std::string>("vim.startMode");
-        if (start_mode == "insert") {
-          vim->set_mode(Editors::VimMode::Insert);
-        } else {
-          vim->set_mode(Editors::VimMode::Normal);
-        }
-      }
-      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
-    } else if (event.id == "editor.minimap.enabled" || event.id == "workbench.activityBar.visible" || event.id == "theme.current" || event.id == "workbench.mascot.image" || event.id == "workbench.mascot.renderMode" || event.id == "workbench.app.title") {
-      Utility::Ascii::AsciiMascotRenderer::clear_bitmap_cache();
-      Utility::Ascii::AsciiArtConverter::clear_cache();
-      if (m_window_handle) {
-        InvalidateRect(m_window_handle, nullptr, FALSE);
-        UpdateWindow(m_window_handle);
-      }
-    }
-  }));
+      }));
 
   if (existing_workspace.empty()) {
     static_cast<void>(m_tool_sidebar.initialize());
@@ -364,7 +436,8 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
   if (!active_workspace.empty()) {
     m_terminal_panel.set_working_directory(active_workspace);
   } else {
-    m_terminal_panel.set_working_directory(Platform::HostSystem::get_user_home_directory());
+    m_terminal_panel.set_working_directory(
+        Platform::HostSystem::get_user_home_directory());
   }
   m_terminal_panel.set_focused(false);
   static_cast<void>(m_shader_sandbox_panel.initialize());
@@ -405,8 +478,7 @@ StudioWorkspaceRenderer::calculate_layout(int client_width, int client_height,
 }
 
 void StudioWorkspaceRenderer::sync_shader_sandbox() const {
-  if (const UI::Editor::TextDocumentModel *doc =
-          m_text_editor.get_document()) {
+  if (const UI::Editor::TextDocumentModel *doc = m_text_editor.get_document()) {
     const std::string filename = std::string(doc->get_file_name());
     const std::filesystem::path file_path(filename);
     const std::string ext = file_path.extension().string();
@@ -417,15 +489,17 @@ void StudioWorkspaceRenderer::sync_shader_sandbox() const {
       full_text += '\n';
     }
 
-    if (Services::Shader::ShaderService::is_shader_source_candidate(full_text, ext) && !full_text.empty()) {
-      const_cast<StudioWorkspaceRenderer*>(this)->m_shader_sandbox_panel.stage_source_code(full_text);
+    if (Services::Shader::ShaderService::is_shader_source_candidate(full_text,
+                                                                    ext) &&
+        !full_text.empty()) {
+      const_cast<StudioWorkspaceRenderer *>(this)
+          ->m_shader_sandbox_panel.stage_source_code(full_text);
     }
   }
 }
 
 bool StudioWorkspaceRenderer::build_and_simulate_current_shader() {
-  if (const UI::Editor::TextDocumentModel *doc =
-          m_text_editor.get_document()) {
+  if (const UI::Editor::TextDocumentModel *doc = m_text_editor.get_document()) {
     std::string full_text;
     for (const auto &line : doc->get_lines()) {
       full_text += line;
@@ -444,7 +518,8 @@ bool StudioWorkspaceRenderer::open_file(const std::filesystem::path &path) {
   if (res) {
     const std::string ext = path.extension().string();
     if (ext == ".glsl" || ext == ".frag" || ext == ".vert" || ext == ".comp" ||
-        ext == ".shader" || ext == ".hlsl" || ext == ".wgsl" || ext == ".fs" || ext == ".vs") {
+        ext == ".shader" || ext == ".hlsl" || ext == ".wgsl" || ext == ".fs" ||
+        ext == ".vs") {
       m_shader_sandbox_panel.set_visible(true);
     }
     sync_shader_sandbox();
@@ -458,7 +533,8 @@ bool StudioWorkspaceRenderer::open_file_at_location(
   if (res) {
     const std::string ext = path.extension().string();
     if (ext == ".glsl" || ext == ".frag" || ext == ".vert" || ext == ".comp" ||
-        ext == ".shader" || ext == ".hlsl" || ext == ".wgsl" || ext == ".fs" || ext == ".vs") {
+        ext == ".shader" || ext == ".hlsl" || ext == ".wgsl" || ext == ".fs" ||
+        ext == ".vs") {
       m_shader_sandbox_panel.set_visible(true);
     }
     sync_shader_sandbox();
@@ -482,7 +558,8 @@ bool StudioWorkspaceRenderer::close_project() {
   m_text_editor.close_all_files();
   m_tool_sidebar.clear_workspace();
   m_terminal_panel.shutdown();
-  m_terminal_panel.set_working_directory(Platform::HostSystem::get_user_home_directory());
+  m_terminal_panel.set_working_directory(
+      Platform::HostSystem::get_user_home_directory());
   m_shader_sandbox_panel.set_visible(false);
   Language::LanguageServerManager::instance().shutdown_all();
   Language::LanguageServerManager::instance().set_workspace_root({});
@@ -512,7 +589,6 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     int client_height, float content_top, bool extend_selection,
     std::string &command_out) {
 
-
   if (m_prompt_modal.is_visible()) {
     const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(client_width),
                             static_cast<float>(client_height)};
@@ -522,34 +598,40 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
   }
 
   if (m_tool_switcher_popup.is_visible()) {
-    const auto pop_res = m_tool_switcher_popup.handle_pointer_press(point_x, point_y, m_dpi_scale);
+    const auto pop_res = m_tool_switcher_popup.handle_pointer_press(
+        point_x, point_y, m_dpi_scale);
     if (pop_res.handled) {
       if (!pop_res.switched_tool_id.empty()) {
-        auto& pm = Zenvra::Plugins::PluginManager::instance();
+        auto &pm = Zenvra::Plugins::PluginManager::instance();
         pm.set_active_tool_plugin_id(pop_res.switched_tool_id);
         auto active_tool = pm.get_active_tool_plugin();
         if (active_tool) {
-          UI::Editor::set_active_tool_sidebar_item(active_tool->get_id(), active_tool->get_name());
+          UI::Editor::set_active_tool_sidebar_item(active_tool->get_id(),
+                                                   active_tool->get_name());
         }
         m_tool_sidebar.get_model().set_visible(true);
-        static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::ToolPlugin));
+        static_cast<void>(
+            m_tool_sidebar.activate(UI::Editor::SidebarIcon::ToolPlugin));
       } else if (pop_res.open_marketplace) {
         m_tool_sidebar.get_model().set_visible(true);
-        static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::Services));
+        static_cast<void>(
+            m_tool_sidebar.activate(UI::Editor::SidebarIcon::Services));
       }
-      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+      if (m_window_handle)
+        InvalidateRect(m_window_handle, nullptr, FALSE);
       return true;
     }
     m_tool_switcher_popup.hide();
-    if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+    if (m_window_handle)
+      InvalidateRect(m_window_handle, nullptr, FALSE);
   }
 
   if (m_text_editor.is_media_fullscreen()) {
     const UI::Editor::StudioEditorLayoutResult layout =
         calculate_layout(client_width, client_height, 0.0F);
-    return m_text_editor.handle_pointer_press(
-        *this, device_context, layout, point_x, point_y, extend_selection,
-        command_out);
+    return m_text_editor.handle_pointer_press(*this, device_context, layout,
+                                              point_x, point_y,
+                                              extend_selection, command_out);
   }
 
   const UI::Editor::StudioEditorLayoutResult layout =
@@ -560,11 +642,14 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
         UI::Editor::get_studio_sidebar_items();
     if (items[*sidebar_index].icon == UI::Editor::SidebarIcon::Terminal) {
       if (!m_terminal_panel.is_visible()) {
-        m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+        m_terminal_panel.set_active_channel(
+            TerminalPanel::PanelChannel::Terminal);
         return m_terminal_panel.toggle();
       }
-      if (m_terminal_panel.get_active_channel() != TerminalPanel::PanelChannel::Terminal) {
-        m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+      if (m_terminal_panel.get_active_channel() !=
+          TerminalPanel::PanelChannel::Terminal) {
+        m_terminal_panel.set_active_channel(
+            TerminalPanel::PanelChannel::Terminal);
         m_terminal_panel.set_focused(true);
         return true;
       }
@@ -578,9 +663,13 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
       return true;
     }
     if (items[*sidebar_index].icon == UI::Editor::SidebarIcon::More) {
-      const UI::Rect item_bounds = UI::Editor::calculate_studio_sidebar_item_bounds(layout, *sidebar_index);
-      m_tool_switcher_popup.show(item_bounds.right() + 4.0F * m_dpi_scale, item_bounds.y);
-      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+      const UI::Rect item_bounds =
+          UI::Editor::calculate_studio_sidebar_item_bounds(layout,
+                                                           *sidebar_index);
+      m_tool_switcher_popup.show(item_bounds.right() + 4.0F * m_dpi_scale,
+                                 item_bounds.y);
+      if (m_window_handle)
+        InvalidateRect(m_window_handle, nullptr, FALSE);
       return true;
     }
     if (items[*sidebar_index].icon == UI::Editor::SidebarIcon::ToolPlugin) {
@@ -591,7 +680,8 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
   }
 
   // Check 2D Corner Splitter Resizing First!
-  const SplitterCornerKind corner = get_splitter_corner_at(layout, point_x, point_y);
+  const SplitterCornerKind corner =
+      get_splitter_corner_at(layout, point_x, point_y);
   if (corner == SplitterCornerKind::SidebarTerminal) {
     m_active_corner_resizing = SplitterCornerKind::SidebarTerminal;
     m_tool_sidebar.begin_resize(point_x);
@@ -629,7 +719,8 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
         return true;
       }
       if (sidebar_res.line > 0) {
-        static_cast<void>(open_file_at_location(*sidebar_res.path, sidebar_res.line, sidebar_res.column));
+        static_cast<void>(open_file_at_location(
+            *sidebar_res.path, sidebar_res.line, sidebar_res.column));
       } else {
         static_cast<void>(open_file(*sidebar_res.path));
       }
@@ -638,8 +729,7 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
       const auto root = m_tool_sidebar.get_model().get_workspace_root();
       const std::string proj_name = root.filename().string();
       m_add_item_dialog.open(
-          m_window_handle,
-          *sidebar_res.path, proj_name,
+          m_window_handle, *sidebar_res.path, proj_name,
           [this](const std::string &name, const std::string &initial_content) {
             std::filesystem::path created_p;
             if (m_tool_sidebar.get_model().create_file(name, created_p)) {
@@ -659,20 +749,25 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
           m_window_handle, *sidebar_res.path, [this](const std::string &name) {
             std::filesystem::path created_p;
             m_tool_sidebar.get_model().create_directory(name, created_p);
-            if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+            if (m_window_handle)
+              InvalidateRect(m_window_handle, nullptr, FALSE);
           });
     } else if (sidebar_res.action == SidebarActionKind::SwitchTool) {
       const UI::Rect panel = layout.tool_sidebar_bounds;
-      m_tool_switcher_popup.show(panel.right() + 4.0F * m_dpi_scale, panel.y + 10.0F * m_dpi_scale);
-      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+      m_tool_switcher_popup.show(panel.right() + 4.0F * m_dpi_scale,
+                                 panel.y + 10.0F * m_dpi_scale);
+      if (m_window_handle)
+        InvalidateRect(m_window_handle, nullptr, FALSE);
       return true;
     } else if (sidebar_res.action == SidebarActionKind::OpenTerminal) {
-      m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+      m_terminal_panel.set_active_channel(
+          TerminalPanel::PanelChannel::Terminal);
       if (!m_terminal_panel.is_visible()) {
         static_cast<void>(m_terminal_panel.toggle());
       }
       m_terminal_panel.set_focused(true);
-      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+      if (m_window_handle)
+        InvalidateRect(m_window_handle, nullptr, FALSE);
       return true;
     }
     return true;
@@ -687,7 +782,8 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     m_tool_sidebar.set_focused(false);
     m_terminal_panel.set_focused(false);
     sync_shader_sandbox();
-    return m_shader_sandbox_panel.handle_pointer_press(layout, point_x, point_y);
+    return m_shader_sandbox_panel.handle_pointer_press(layout, point_x,
+                                                       point_y);
   }
   m_terminal_panel.set_focused(false);
   m_tool_sidebar.set_focused(false);
@@ -714,7 +810,6 @@ bool StudioWorkspaceRenderer::handle_pointer_move(float point_x, float point_y,
                                                   int client_height,
                                                   float content_top) noexcept {
 
-
   if (m_prompt_modal.is_visible()) {
     const UI::Rect viewport{0.0F, 0.0F, static_cast<float>(client_width),
                             static_cast<float>(client_height)};
@@ -724,8 +819,10 @@ bool StudioWorkspaceRenderer::handle_pointer_move(float point_x, float point_y,
   }
 
   if (m_tool_switcher_popup.is_visible()) {
-    if (m_tool_switcher_popup.handle_pointer_move(point_x, point_y, m_dpi_scale)) {
-      if (m_window_handle) InvalidateRect(m_window_handle, nullptr, FALSE);
+    if (m_tool_switcher_popup.handle_pointer_move(point_x, point_y,
+                                                  m_dpi_scale)) {
+      if (m_window_handle)
+        InvalidateRect(m_window_handle, nullptr, FALSE);
     }
   }
 
@@ -738,12 +835,15 @@ bool StudioWorkspaceRenderer::handle_pointer_move(float point_x, float point_y,
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
 
-  const SplitterCornerKind corner = get_splitter_corner_at(layout, point_x, point_y);
+  const SplitterCornerKind corner =
+      get_splitter_corner_at(layout, point_x, point_y);
   if (corner == SplitterCornerKind::SidebarTerminal) {
     m_tool_sidebar.set_resize_hovered(true);
     m_terminal_panel.set_resize_hovered(true);
-    static_cast<void>(m_text_editor.handle_pointer_move(layout, point_x, point_y));
-    static_cast<void>(m_shader_sandbox_panel.handle_pointer_move(layout, point_x, point_y));
+    static_cast<void>(
+        m_text_editor.handle_pointer_move(layout, point_x, point_y));
+    static_cast<void>(
+        m_shader_sandbox_panel.handle_pointer_move(layout, point_x, point_y));
     m_tool_sidebar.set_resize_hovered(true);
     m_terminal_panel.set_resize_hovered(true);
     return true;
@@ -751,8 +851,10 @@ bool StudioWorkspaceRenderer::handle_pointer_move(float point_x, float point_y,
   if (corner == SplitterCornerKind::ShaderTerminal) {
     m_shader_sandbox_panel.set_resize_hovered(true);
     m_terminal_panel.set_resize_hovered(true);
-    static_cast<void>(m_tool_sidebar.handle_pointer_move(layout, point_x, point_y));
-    static_cast<void>(m_text_editor.handle_pointer_move(layout, point_x, point_y));
+    static_cast<void>(
+        m_tool_sidebar.handle_pointer_move(layout, point_x, point_y));
+    static_cast<void>(
+        m_text_editor.handle_pointer_move(layout, point_x, point_y));
     m_shader_sandbox_panel.set_resize_hovered(true);
     m_terminal_panel.set_resize_hovered(true);
     return true;
@@ -760,8 +862,10 @@ bool StudioWorkspaceRenderer::handle_pointer_move(float point_x, float point_y,
   if (corner == SplitterCornerKind::EditorSplitTerminal) {
     m_text_editor.set_split_resize_hovered(true);
     m_terminal_panel.set_resize_hovered(true);
-    static_cast<void>(m_tool_sidebar.handle_pointer_move(layout, point_x, point_y));
-    static_cast<void>(m_shader_sandbox_panel.handle_pointer_move(layout, point_x, point_y));
+    static_cast<void>(
+        m_tool_sidebar.handle_pointer_move(layout, point_x, point_y));
+    static_cast<void>(
+        m_shader_sandbox_panel.handle_pointer_move(layout, point_x, point_y));
     m_text_editor.set_split_resize_hovered(true);
     m_terminal_panel.set_resize_hovered(true);
     return true;
@@ -800,7 +904,8 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(HDC device_context,
   }
   if (m_active_corner_resizing == SplitterCornerKind::ShaderTerminal) {
     bool changed = false;
-    changed |= m_shader_sandbox_panel.handle_pointer_drag(layout, point_x, point_y);
+    changed |=
+        m_shader_sandbox_panel.handle_pointer_drag(layout, point_x, point_y);
     changed |= m_terminal_panel.handle_pointer_drag(layout, point_y);
     return changed;
   }
@@ -812,14 +917,16 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(HDC device_context,
     return changed;
   }
 
-  if (m_text_editor.is_pointer_selecting() || m_text_editor.is_resizing_split() ||
-      m_text_editor.is_tab_dragging() || m_text_editor.is_scrollbar_dragging() ||
+  if (m_text_editor.is_pointer_selecting() ||
+      m_text_editor.is_resizing_split() || m_text_editor.is_tab_dragging() ||
+      m_text_editor.is_scrollbar_dragging() ||
       m_text_editor.is_media_dragging()) {
     return m_text_editor.handle_pointer_drag(*this, device_context, layout,
                                              point_x, point_y);
   }
   if (m_tool_sidebar.is_resizing() || m_tool_sidebar.is_dragging_item() ||
-      m_tool_sidebar.is_holding_item() || m_tool_sidebar.is_dragging_scrollbar()) {
+      m_tool_sidebar.is_holding_item() ||
+      m_tool_sidebar.is_dragging_scrollbar()) {
     return m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y);
   }
   if (m_terminal_panel.is_resizing()) {
@@ -828,12 +935,14 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(HDC device_context,
   if (m_shader_sandbox_panel.is_resizing()) {
     return m_shader_sandbox_panel.handle_pointer_drag(layout, point_x, point_y);
   }
-  if (m_tool_sidebar.is_visible() && m_tool_sidebar.contains(layout, point_x, point_y)) {
+  if (m_tool_sidebar.is_visible() &&
+      m_tool_sidebar.contains(layout, point_x, point_y)) {
     if (m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y)) {
       return true;
     }
   }
-  if (m_terminal_panel.is_visible() && m_terminal_panel.contains(layout, point_x, point_y)) {
+  if (m_terminal_panel.is_visible() &&
+      m_terminal_panel.contains(layout, point_x, point_y)) {
     if (m_terminal_panel.handle_pointer_drag(layout, point_x, point_y)) {
       return true;
     }
@@ -850,21 +959,20 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(HDC device_context,
 
 bool StudioWorkspaceRenderer::handle_pointer_release() noexcept {
 
-
-  const bool was_corner_resizing = (m_active_corner_resizing != SplitterCornerKind::None);
+  const bool was_corner_resizing =
+      (m_active_corner_resizing != SplitterCornerKind::None);
   m_active_corner_resizing = SplitterCornerKind::None;
   const bool terminal_changed = m_terminal_panel.handle_pointer_release();
   const bool sidebar_changed = m_tool_sidebar.handle_pointer_release();
   const bool editor_changed = m_text_editor.handle_pointer_release();
   const bool shader_changed = m_shader_sandbox_panel.handle_pointer_release();
-  return was_corner_resizing || terminal_changed || sidebar_changed || editor_changed ||
-         shader_changed;
+  return was_corner_resizing || terminal_changed || sidebar_changed ||
+         editor_changed || shader_changed;
 }
 
 bool StudioWorkspaceRenderer::handle_scroll(const Event::ScrollEvent &event,
                                             int client_width, int client_height,
                                             float content_top) noexcept {
-
 
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
@@ -907,7 +1015,8 @@ StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id) {
   }
   if (command_id == Commands::CommandIds::build_build_project ||
       command_id == Commands::CommandIds::run_start) {
-    if (const UI::Editor::TextDocumentModel *doc = m_text_editor.get_document()) {
+    if (const UI::Editor::TextDocumentModel *doc =
+            m_text_editor.get_document()) {
       const std::string filename = std::string(doc->get_file_name());
       const std::filesystem::path file_path(filename);
       const std::string ext = file_path.extension().string();
@@ -918,7 +1027,9 @@ StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id) {
         full_text += '\n';
       }
 
-      if (Services::Shader::ShaderService::is_shader_source_candidate(full_text, ext) && !full_text.empty()) {
+      if (Services::Shader::ShaderService::is_shader_source_candidate(full_text,
+                                                                      ext) &&
+          !full_text.empty()) {
         m_shader_sandbox_panel.set_source_code(full_text);
         m_shader_sandbox_panel.get_service().compile_and_render();
         m_shader_sandbox_panel.get_service().play();
@@ -938,11 +1049,14 @@ StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id) {
   }
   if (command_id == Commands::CommandIds::view_terminal_panel) {
     if (!m_terminal_panel.is_visible()) {
-      m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+      m_terminal_panel.set_active_channel(
+          TerminalPanel::PanelChannel::Terminal);
       return m_terminal_panel.toggle();
     }
-    if (m_terminal_panel.get_active_channel() != TerminalPanel::PanelChannel::Terminal) {
-      m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+    if (m_terminal_panel.get_active_channel() !=
+        TerminalPanel::PanelChannel::Terminal) {
+      m_terminal_panel.set_active_channel(
+          TerminalPanel::PanelChannel::Terminal);
       m_terminal_panel.set_focused(true);
       return true;
     }
@@ -953,7 +1067,8 @@ StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id) {
       m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Output);
       return m_terminal_panel.toggle();
     }
-    if (m_terminal_panel.get_active_channel() != TerminalPanel::PanelChannel::Output) {
+    if (m_terminal_panel.get_active_channel() !=
+        TerminalPanel::PanelChannel::Output) {
       m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Output);
       m_terminal_panel.set_focused(true);
       return true;
@@ -974,7 +1089,8 @@ StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id) {
       command_id == Commands::CommandIds::view_project_panel ||
       command_id == Commands::CommandIds::view_outline_panel) {
     m_tool_sidebar.get_model().set_visible(true);
-    static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::Project));
+    static_cast<void>(
+        m_tool_sidebar.activate(UI::Editor::SidebarIcon::Project));
     return true;
   }
   if (command_id == Commands::CommandIds::view_search) {
@@ -984,7 +1100,8 @@ StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id) {
   }
   if (command_id == Commands::CommandIds::view_git_panel) {
     m_tool_sidebar.get_model().set_visible(true);
-    static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::VersionControl));
+    static_cast<void>(
+        m_tool_sidebar.activate(UI::Editor::SidebarIcon::VersionControl));
     return true;
   }
   if (command_id == Commands::CommandIds::view_debugger_panel) {
@@ -994,11 +1111,13 @@ StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id) {
   }
   if (command_id == Commands::CommandIds::open_plugins) {
     m_tool_sidebar.get_model().set_visible(true);
-    static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::Services));
+    static_cast<void>(
+        m_tool_sidebar.activate(UI::Editor::SidebarIcon::Services));
     return true;
   }
   if (command_id == Commands::CommandIds::open_settings) {
-    m_settings_window.set_theme(UI::Theme::StudioTheme::zenvra_dark());
+    m_settings_window.set_theme(
+        UI::Theme::ThemeManager::instance().get_current_theme());
     m_settings_window.toggle(m_window_handle);
     return true;
   }
@@ -1095,16 +1214,19 @@ bool StudioWorkspaceRenderer::handle_search_char(char32_t codepoint) {
   return m_tool_sidebar.handle_char(codepoint);
 }
 
-bool StudioWorkspaceRenderer::handle_search_key(int vkey, bool ctrl, bool shift, bool alt) {
+bool StudioWorkspaceRenderer::handle_search_key(int vkey, bool ctrl, bool shift,
+                                                bool alt) {
   return m_tool_sidebar.handle_key(vkey, ctrl, shift, alt);
 }
 
-bool StudioWorkspaceRenderer::handle_sidebar_key(int vkey, bool ctrl, bool shift, bool alt) {
+bool StudioWorkspaceRenderer::handle_sidebar_key(int vkey, bool ctrl,
+                                                 bool shift, bool alt) {
   return m_tool_sidebar.handle_key(vkey, ctrl, shift, alt);
 }
 
 bool StudioWorkspaceRenderer::is_editor_focused() const noexcept {
-  return !m_terminal_panel.is_focused() && !m_tool_sidebar.is_focused() && m_text_editor.is_focused();
+  return !m_terminal_panel.is_focused() && !m_tool_sidebar.is_focused() &&
+         m_text_editor.is_focused();
 }
 
 bool StudioWorkspaceRenderer::is_terminal_focused() const noexcept {
@@ -1149,10 +1271,12 @@ bool StudioWorkspaceRenderer::is_editor_point(
          !m_text_editor.is_scrollbar_point(layout, point_x, point_y);
 }
 
-bool StudioWorkspaceRenderer::is_media_point(
-    float point_x, float point_y, int client_width, int client_height,
-    float content_top) const noexcept {
-  const float effective_top = m_text_editor.is_media_fullscreen() ? 0.0F : content_top;
+bool StudioWorkspaceRenderer::is_media_point(float point_x, float point_y,
+                                             int client_width,
+                                             int client_height,
+                                             float content_top) const noexcept {
+  const float effective_top =
+      m_text_editor.is_media_fullscreen() ? 0.0F : content_top;
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, effective_top);
   return m_text_editor.is_media_point(layout, point_x, point_y);
@@ -1161,7 +1285,8 @@ bool StudioWorkspaceRenderer::is_media_point(
 bool StudioWorkspaceRenderer::is_media_interactive_point(
     float point_x, float point_y, int client_width, int client_height,
     float content_top) const noexcept {
-  const float effective_top = m_text_editor.is_media_fullscreen() ? 0.0F : content_top;
+  const float effective_top =
+      m_text_editor.is_media_fullscreen() ? 0.0F : content_top;
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, effective_top);
   return m_text_editor.is_media_interactive_point(layout, point_x, point_y);
@@ -1283,9 +1408,9 @@ StudioWorkspaceRenderer::get_splitter_corner_at(
   if (m_text_editor.is_split_active() && m_terminal_panel.is_visible() &&
       !layout.editor_bounds.is_empty() &&
       !layout.terminal_panel_bounds.is_empty()) {
-    const float splitter_x = layout.editor_bounds.x +
-                             (layout.editor_bounds.width - 2.0F * scale) *
-                                 m_text_editor.get_split_ratio();
+    const float splitter_x =
+        layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) *
+                                     m_text_editor.get_split_ratio();
     const float cy = layout.terminal_panel_bounds.y;
     if (point_x >= (splitter_x - radius) && point_x <= (splitter_x + radius) &&
         point_y >= (cy - radius) && point_y <= (cy + radius)) {
@@ -1410,6 +1535,169 @@ void StudioWorkspaceRenderer::shutdown() {
   m_ui_font.reset();
 }
 
+StudioWorkspaceRenderer::ModernCardGeometry
+StudioWorkspaceRenderer::get_modern_card_geometry(
+    int client_width, int client_height, float content_top) const noexcept {
+  const UI::Editor::StudioEditorLayoutResult layout =
+      calculate_layout(client_width, client_height, content_top);
+  const float scale = layout.dpi_scale;
+  const float sep_gap = std::max(std::round(6.0F * scale), 6.0F);
+  const float outer_gap = std::max(std::round(5.0F * scale), 4.0F);
+  const float card_radius = std::max(std::round(8.0F * scale), 8.0F);
+
+  ModernCardGeometry geom;
+  geom.card_radius = card_radius;
+
+  const bool has_sidebar =
+      m_tool_sidebar.is_visible() && !layout.tool_sidebar_bounds.is_empty();
+  if (has_sidebar) {
+    geom.sidebar_card = UI::Rect{
+        layout.tool_sidebar_bounds.x + outer_gap,
+        layout.tool_sidebar_bounds.y + outer_gap,
+        std::max(0.0F, layout.tool_sidebar_bounds.width - outer_gap - sep_gap * 0.5F),
+        std::max(0.0F, layout.tool_sidebar_bounds.height - outer_gap * 2.0F),
+    };
+  }
+
+  const float editor_col_left =
+      has_sidebar ? (layout.tool_sidebar_bounds.right() + sep_gap * 0.5F)
+                  : (layout.activity_bar_bounds.right() + outer_gap);
+
+  const float shader_split_x =
+      layout.shader_splitter_bounds.x + layout.shader_splitter_bounds.width * 0.5F;
+  const float editor_col_right =
+      layout.shader_panel_visible
+          ? (shader_split_x - sep_gap * 0.5F)
+          : (layout.workspace_bounds.right() - outer_gap);
+
+  const float editor_col_top = (layout.editor_header_bounds.is_empty()
+                                    ? layout.gutter_bounds.y
+                                    : layout.editor_header_bounds.y) +
+                               outer_gap;
+  const float editor_col_bottom = layout.status_bar_bounds.y - outer_gap;
+
+  const bool has_terminal = m_terminal_panel.is_visible() &&
+                            !layout.terminal_panel_bounds.is_empty();
+
+  const float editor_card_bottom =
+      has_terminal ? (layout.terminal_panel_bounds.y - sep_gap * 0.5F)
+                   : editor_col_bottom;
+  geom.editor_card = UI::Rect{
+      editor_col_left,
+      editor_col_top,
+      std::max(0.0F, editor_col_right - editor_col_left),
+      std::max(0.0F, editor_card_bottom - editor_col_top),
+  };
+
+  if (has_terminal) {
+    const float term_top = layout.terminal_panel_bounds.y + sep_gap * 0.5F;
+    geom.terminal_card = UI::Rect{
+        editor_col_left,
+        term_top,
+        std::max(0.0F, editor_col_right - editor_col_left),
+        std::max(0.0F, editor_col_bottom - term_top),
+    };
+  }
+
+  const bool has_shader = m_shader_sandbox_panel.is_visible() &&
+                          !layout.shader_panel_bounds.is_empty();
+  if (has_shader) {
+    const float shader_left = shader_split_x + sep_gap * 0.5F;
+    geom.shader_card = UI::Rect{
+        shader_left,
+        layout.shader_panel_bounds.y + outer_gap,
+        std::max(0.0F, layout.shader_panel_bounds.right() - outer_gap - shader_left),
+        std::max(0.0F, layout.shader_panel_bounds.height - outer_gap * 2.0F),
+    };
+  }
+
+  return geom;
+}
+
+namespace {
+
+void set_card_alpha_channel(uint32_t *pixels, int img_w, int img_h,
+                            const UI::Rect &card, float radius) noexcept {
+  if (card.is_empty() || !pixels || img_w <= 0 || img_h <= 0)
+    return;
+  const int x0 = std::clamp(static_cast<int>(std::round(card.x)), 0, img_w);
+  const int y0 = std::clamp(static_cast<int>(std::round(card.y)), 0, img_h);
+  const int x1 =
+      std::clamp(static_cast<int>(std::round(card.right())), 0, img_w);
+  const int y1 =
+      std::clamp(static_cast<int>(std::round(card.bottom())), 0, img_h);
+  const float r = std::min({radius, card.width * 0.5F, card.height * 0.5F});
+  const float r2 = r * r;
+
+  for (int y = y0; y < y1; ++y) {
+    uint32_t *row = &pixels[y * img_w];
+    const float cy = static_cast<float>(y) + 0.5F;
+    const bool in_top_corner = (r > 0.0F && cy < card.y + r);
+    const bool in_bottom_corner = (r > 0.0F && cy > card.bottom() - r);
+
+    for (int x = x0; x < x1; ++x) {
+      const float cx = static_cast<float>(x) + 0.5F;
+      const bool in_left_corner = (r > 0.0F && cx < card.x + r);
+      const bool in_right_corner = (r > 0.0F && cx > card.right() - r);
+
+      if ((in_top_corner || in_bottom_corner) &&
+          (in_left_corner || in_right_corner)) {
+        const float corner_cx =
+            in_left_corner ? (card.x + r) : (card.right() - r);
+        const float corner_cy =
+            in_top_corner ? (card.y + r) : (card.bottom() - r);
+        const float dx = cx - corner_cx;
+        const float dy = cy - corner_cy;
+        if (dx * dx + dy * dy > r2) {
+          continue; // outside rounded corner -> keep blurred backdrop
+        }
+      }
+      row[x] |= 0xFF000000; // 100% solid opaque
+    }
+  }
+}
+
+} // namespace
+
+void StudioWorkspaceRenderer::apply_solid_card_alpha(
+    uint32_t *pixels, int client_width, int client_height,
+    float content_top) const noexcept {
+  if (!pixels || client_width <= 0 || client_height <= 0)
+    return;
+
+  const bool is_modern_style =
+      m_palette.is_modern || m_theme.is_modern || m_theme.enable_os_blur;
+
+  if (!is_modern_style) {
+    const int top_y = std::clamp(static_cast<int>(std::round(content_top)), 0,
+                                 client_height);
+    for (int y = top_y; y < client_height; ++y) {
+      uint32_t *row = &pixels[y * client_width];
+      for (int x = 0; x < client_width; ++x) {
+        row[x] |= 0xFF000000;
+      }
+    }
+    return;
+  }
+
+  const auto geom =
+      get_modern_card_geometry(client_width, client_height, content_top);
+  set_card_alpha_channel(pixels, client_width, client_height, geom.sidebar_card,
+                         geom.card_radius);
+  set_card_alpha_channel(pixels, client_width, client_height, geom.editor_card,
+                         geom.card_radius);
+  set_card_alpha_channel(pixels, client_width, client_height, geom.terminal_card,
+                         geom.card_radius);
+  set_card_alpha_channel(pixels, client_width, client_height, geom.shader_card,
+                         geom.card_radius);
+
+  if (m_tool_switcher_popup.is_visible()) {
+    set_card_alpha_channel(pixels, client_width, client_height,
+                           m_tool_switcher_popup.calculate_bounds(m_dpi_scale),
+                           8.0F);
+  }
+}
+
 void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
                                      int client_height,
                                      float content_top) const {
@@ -1419,10 +1707,11 @@ void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
     return;
   }
 
-  auto& pm = Zenvra::Plugins::PluginManager::instance();
+  auto &pm = Zenvra::Plugins::PluginManager::instance();
   auto active_tool = pm.get_active_tool_plugin();
   if (active_tool) {
-    UI::Editor::set_active_tool_sidebar_item(active_tool->get_id(), active_tool->get_name());
+    UI::Editor::set_active_tool_sidebar_item(active_tool->get_id(),
+                                             active_tool->get_name());
   } else {
     UI::Editor::clear_active_tool_sidebar_item();
   }
@@ -1436,49 +1725,178 @@ void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
     m_text_editor.render_overlays(*this, device_context, layout);
     return;
   }
-  fill_rectangle(device_context, layout.workspace_bounds,
-                 m_palette.workspace_background);
-  fill_rectangle(device_context, layout.tab_bar_bounds,
-                 m_palette.tab_background);
-  fill_rectangle(device_context, layout.activity_bar_bounds,
-                 m_palette.sidebar_background);
-  fill_rectangle(device_context, layout.tool_sidebar_bounds,
-                 m_palette.sidebar_background);
-  fill_rectangle(device_context, layout.editor_header_bounds,
-                 m_palette.editor_background);
-  fill_rectangle(device_context, layout.gutter_bounds,
-                 m_palette.editor_background);
-  fill_rectangle(device_context, layout.editor_bounds,
-                 m_palette.editor_background);
-  if (!layout.shader_splitter_bounds.is_empty()) {
-    fill_rectangle(device_context, layout.shader_splitter_bounds,
-                   m_palette.editor_background);
-  }
-  fill_rectangle(device_context, layout.status_bar_bounds,
-                 m_palette.status_background);
-  SetBkMode(device_context, TRANSPARENT);
+  const bool is_modern_style =
+      m_palette.is_modern || m_theme.is_modern || m_theme.enable_os_blur;
 
-  m_text_editor.render(*this, device_context, layout);
-  m_terminal_panel.render(*this, device_context, layout);
-  m_tool_sidebar.render(*this, device_context, layout);
-  m_activity_sidebar.render(*this, device_context, layout);
-  m_shader_sandbox_panel.render(*this, device_context, layout);
+  if (!is_modern_style) {
+    fill_rectangle(device_context, layout.workspace_bounds,
+                   m_palette.workspace_background);
+    fill_rectangle(device_context, layout.activity_bar_bounds,
+                   m_palette.sidebar_background);
+
+    const bool tabs_are_in_titlebar =
+        layout.tab_bar_bounds.bottom() <= layout.activity_bar_bounds.y;
+    if (tabs_are_in_titlebar) {
+      m_text_editor.draw_tab_strip(*this, device_context, layout);
+    } else {
+      fill_rectangle(device_context, layout.tab_bar_bounds,
+                     m_palette.tab_background);
+    }
+
+    fill_rectangle(device_context, layout.tool_sidebar_bounds,
+                   m_palette.sidebar_background);
+    fill_rectangle(device_context, layout.editor_header_bounds,
+                   m_palette.editor_background);
+    fill_rectangle(device_context, layout.gutter_bounds,
+                   m_palette.editor_background);
+    fill_rectangle(device_context, layout.editor_bounds,
+                   m_palette.editor_background);
+    if (!layout.shader_splitter_bounds.is_empty()) {
+      fill_rectangle(device_context, layout.shader_splitter_bounds,
+                     m_palette.editor_background);
+    }
+    fill_rectangle(device_context, layout.status_bar_bounds,
+                   m_palette.status_background);
+    SetBkMode(device_context, TRANSPARENT);
+
+    m_text_editor.render(*this, device_context, layout);
+    m_terminal_panel.render(*this, device_context, layout);
+    m_tool_sidebar.render(*this, device_context, layout);
+    m_activity_sidebar.render(*this, device_context, layout);
+    m_shader_sandbox_panel.render(*this, device_context, layout);
+  } else {
+    // ----------------- Modern Style (Seamless JetBrains-Style Minimalist UI)
+    // -----------------
+    const auto geom =
+        get_modern_card_geometry(client_width, client_height, content_top);
+    const float card_radius = geom.card_radius;
+
+    // In modern mode, the unified window background (frosted glass blur when OS
+    // blur is enabled, or window_background) seamlessly hosts titlebar,
+    // sidebar, footer, and floating cards without dividing borders.
+    const bool tabs_are_in_titlebar =
+        layout.tab_bar_bounds.bottom() <= layout.activity_bar_bounds.y;
+    if (tabs_are_in_titlebar) {
+      m_text_editor.draw_tab_strip(*this, device_context, layout);
+    } else {
+      fill_rectangle(device_context, layout.tab_bar_bounds,
+                     m_palette.tab_background);
+    }
+    SetBkMode(device_context, TRANSPARENT);
+
+    // 2. Activity Sidebar (vertical strip)
+    m_activity_sidebar.render(*this, device_context, layout);
+
+    // 3. Tool Sidebar (Explorer) Card Wrapper
+    if (!geom.sidebar_card.is_empty()) {
+      // Solid wrapper background with rounded corners
+      fill_rounded_rectangle(device_context, geom.sidebar_card,
+                             m_palette.sidebar_background, card_radius);
+
+      // Clip content inside rounded wrapper
+      const int saved = SaveDC(device_context);
+      HRGN rgn = CreateRoundRectRgn(
+          round_to_int(geom.sidebar_card.x), round_to_int(geom.sidebar_card.y),
+          round_to_int(geom.sidebar_card.right()) + 1,
+          round_to_int(geom.sidebar_card.bottom()) + 1,
+          round_to_int(card_radius * 2.0F), round_to_int(card_radius * 2.0F));
+      SelectClipRgn(device_context, rgn);
+      DeleteObject(rgn);
+
+      m_tool_sidebar.render(*this, device_context, layout);
+
+      RestoreDC(device_context, saved);
+
+      // Subtle 1px rounded outline
+      draw_rounded_rectangle(device_context, geom.sidebar_card, m_palette.border,
+                             card_radius);
+    }
+
+    // 4. Text Editor Card Wrapper
+    if (!geom.editor_card.is_empty()) {
+      // Solid wrapper background with rounded corners for Text Editor
+      fill_rounded_rectangle(device_context, geom.editor_card,
+                             m_palette.editor_background, card_radius);
+
+      const int saved = SaveDC(device_context);
+      HRGN rgn = CreateRoundRectRgn(
+          round_to_int(geom.editor_card.x), round_to_int(geom.editor_card.y),
+          round_to_int(geom.editor_card.right()) + 1,
+          round_to_int(geom.editor_card.bottom()) + 1,
+          round_to_int(card_radius * 2.0F), round_to_int(card_radius * 2.0F));
+      SelectClipRgn(device_context, rgn);
+      DeleteObject(rgn);
+
+      m_text_editor.render(*this, device_context, layout);
+
+      RestoreDC(device_context, saved);
+
+      draw_rounded_rectangle(device_context, geom.editor_card, m_palette.border,
+                             card_radius);
+    }
+
+    // Terminal Panel Card (when visible)
+    if (!geom.terminal_card.is_empty()) {
+      fill_rounded_rectangle(device_context, geom.terminal_card,
+                             m_palette.editor_background, card_radius);
+
+      const int saved = SaveDC(device_context);
+      HRGN rgn = CreateRoundRectRgn(
+          round_to_int(geom.terminal_card.x), round_to_int(geom.terminal_card.y),
+          round_to_int(geom.terminal_card.right()) + 1,
+          round_to_int(geom.terminal_card.bottom()) + 1,
+          round_to_int(card_radius * 2.0F), round_to_int(card_radius * 2.0F));
+      SelectClipRgn(device_context, rgn);
+      DeleteObject(rgn);
+
+      m_terminal_panel.render(*this, device_context, layout);
+
+      RestoreDC(device_context, saved);
+
+      draw_rounded_rectangle(device_context, geom.terminal_card, m_palette.border,
+                             card_radius);
+    }
+
+    // 5. Shader Sandbox Panel / Emulator Card Wrapper
+    if (!geom.shader_card.is_empty()) {
+      // Solid wrapper background with rounded corners for Emulator / Shader Sandbox
+      fill_rounded_rectangle(device_context, geom.shader_card,
+                             m_palette.sidebar_background, card_radius);
+
+      const int saved = SaveDC(device_context);
+      HRGN rgn = CreateRoundRectRgn(
+          round_to_int(geom.shader_card.x), round_to_int(geom.shader_card.y),
+          round_to_int(geom.shader_card.right()) + 1,
+          round_to_int(geom.shader_card.bottom()) + 1,
+          round_to_int(card_radius * 2.0F), round_to_int(card_radius * 2.0F));
+      SelectClipRgn(device_context, rgn);
+      DeleteObject(rgn);
+
+      m_shader_sandbox_panel.render(*this, device_context, layout);
+
+      RestoreDC(device_context, saved);
+
+      draw_rounded_rectangle(device_context, geom.shader_card, m_palette.border,
+                             card_radius);
+    }
+  }
   if (const UI::Editor::TextDocumentModel *document =
           m_text_editor.get_document()) {
     auto status = document->get_status();
-    const bool show_indicator = Settings::SettingsService::instance().get<bool>("vim.showModeIndicator");
+    const bool show_indicator = Settings::SettingsService::instance().get<bool>(
+        "vim.showModeIndicator");
     if (m_text_editor.get_input_router().is_vim_active() && show_indicator) {
       status.vim_mode = m_text_editor.get_input_router().get_mode_name();
     }
     m_footer_toolbar.render(*this, device_context, layout,
-                            document->get_full_breadcrumbs(),
-                            status);
+                            document->get_full_breadcrumbs(), status);
   } else {
     m_footer_toolbar.render(*this, device_context, layout, {},
                             UI::Editor::FooterEditorStatus{});
   }
 
-  // Floating overlays (e.g. Action Dropdown Menu, Diagnostics, Tool Switcher) rendered on top of everything
+  // Floating overlays (e.g. Action Dropdown Menu, Diagnostics, Tool Switcher)
+  // rendered on top of everything
   m_text_editor.render_overlays(*this, device_context, layout);
   if (m_tool_switcher_popup.is_visible()) {
     m_tool_switcher_popup.render(*this, device_context, m_dpi_scale);
@@ -1520,6 +1938,21 @@ void StudioWorkspaceRenderer::fill_rounded_rectangle(
     FillRect(device_context, &bounds,
              static_cast<HBRUSH>(GetStockObject(DC_BRUSH)));
     return;
+  }
+
+  if (color.alpha >= 255 && r > 0.0f) {
+    HRGN rgn = CreateRoundRectRgn(
+        round_to_int(rectangle.x), round_to_int(rectangle.y),
+        round_to_int(rectangle.right()) + 1,
+        round_to_int(rectangle.bottom()) + 1,
+        round_to_int(r * 2.0F), round_to_int(r * 2.0F));
+    if (rgn) {
+      HBRUSH brush = CreateSolidBrush(to_color_ref(color));
+      FillRgn(device_context, rgn, brush);
+      DeleteObject(brush);
+      DeleteObject(rgn);
+      return;
+    }
   }
 
   BITMAPINFO bmi{};
@@ -1575,7 +2008,8 @@ void StudioWorkspaceRenderer::fill_rounded_rectangle(
         float alpha_f = std::clamp(0.5f - (dist - r), 0.0f, 1.0f);
 
         if (alpha_f > 0.0f) {
-          uint32_t a = static_cast<uint32_t>(alpha_f * static_cast<float>(col_a));
+          uint32_t a =
+              static_cast<uint32_t>(alpha_f * static_cast<float>(col_a));
           uint32_t pr = (col_r * a) / 255;
           uint32_t pg = (col_g * a) / 255;
           uint32_t pb = (col_b * a) / 255;
@@ -1614,6 +2048,25 @@ void StudioWorkspaceRenderer::draw_rectangle(
       SelectObject(device_context, GetStockObject(HOLLOW_BRUSH));
   Rectangle(device_context, bounds.left, bounds.top, bounds.right,
             bounds.bottom);
+  SelectObject(device_context, previous_brush);
+  SelectObject(device_context, previous_pen);
+  DeleteObject(pen);
+}
+
+void StudioWorkspaceRenderer::draw_rounded_rectangle(
+    HDC device_context, const UI::Rect &rectangle,
+    const UI::Theme::Color &color, float radius) const {
+  if (rectangle.is_empty()) {
+    return;
+  }
+  const RECT bounds = to_native_rect(rectangle);
+  HPEN pen = CreatePen(PS_SOLID, 1, to_color_ref(color));
+  HGDIOBJ previous_pen = SelectObject(device_context, pen);
+  HGDIOBJ previous_brush =
+      SelectObject(device_context, GetStockObject(HOLLOW_BRUSH));
+  const int d = round_to_int(radius * 2.0F);
+  RoundRect(device_context, bounds.left, bounds.top, bounds.right,
+            bounds.bottom, d, d);
   SelectObject(device_context, previous_brush);
   SelectObject(device_context, previous_pen);
   DeleteObject(pen);
@@ -1710,13 +2163,17 @@ void StudioWorkspaceRenderer::draw_svg_icon(
   std::filesystem::path resolved_path{asset_name};
   if (resolved_path.is_relative() && !m_icon_asset_root.empty()) {
     std::string rel_str = resolved_path.string();
-    if (rel_str.starts_with("Assets/icons/") || rel_str.starts_with("Assets\\icons\\")) {
+    if (rel_str.starts_with("Assets/icons/") ||
+        rel_str.starts_with("Assets\\icons\\")) {
       rel_str = rel_str.substr(13);
-    } else if (rel_str.starts_with("Resources/icons/") || rel_str.starts_with("Resources\\icons\\")) {
+    } else if (rel_str.starts_with("Resources/icons/") ||
+               rel_str.starts_with("Resources\\icons\\")) {
       rel_str = rel_str.substr(16);
-    } else if (rel_str.starts_with("Assets/") || rel_str.starts_with("Assets\\")) {
+    } else if (rel_str.starts_with("Assets/") ||
+               rel_str.starts_with("Assets\\")) {
       rel_str = rel_str.substr(7);
-    } else if (rel_str.starts_with("Resources/") || rel_str.starts_with("Resources\\")) {
+    } else if (rel_str.starts_with("Resources/") ||
+               rel_str.starts_with("Resources\\")) {
       rel_str = rel_str.substr(10);
     } else if (rel_str.starts_with("vscode-codicons/icons/")) {
       // Submodule layout: codicon SVGs live under src/icons/
@@ -1725,17 +2182,30 @@ void StudioWorkspaceRenderer::draw_svg_icon(
 
     const std::filesystem::path filename = resolved_path.filename();
     const std::filesystem::path direct_path = m_icon_asset_root / rel_str;
-    const std::filesystem::path symbol_file_1 = m_icon_asset_root / "vscode-symbols" / "icons" / "files" / filename;
-    const std::filesystem::path symbol_folder_1 = m_icon_asset_root / "vscode-symbols" / "icons" / "folders" / filename;
-    const std::filesystem::path symbol_file_src = m_icon_asset_root / "vscode-symbols" / "src" / "icons" / "files" / filename;
-    const std::filesystem::path symbol_folder_src = m_icon_asset_root / "vscode-symbols" / "src" / "icons" / "folders" / filename;
-    const std::filesystem::path symbol_file_2 = m_icon_asset_root / "vscode-symbols" / "files" / filename;
-    const std::filesystem::path symbol_folder_2 = m_icon_asset_root / "vscode-symbols" / "folders" / filename;
-    const std::filesystem::path codicon_direct = m_icon_asset_root / "vscode-codicons" / "icons" / rel_str;
-    const std::filesystem::path codicon_file = m_icon_asset_root / "vscode-codicons" / "icons" / filename;
-    const std::filesystem::path codicon_src = m_icon_asset_root / "vscode-codicons" / "src" / "icons" / filename;
-    const std::filesystem::path vsicon_file = m_icon_asset_root / "vscode-icons" / "icons" / filename;
-    const std::filesystem::path material_file = m_icon_asset_root / "material-icon-theme" / filename;
+    const std::filesystem::path symbol_file_1 =
+        m_icon_asset_root / "vscode-symbols" / "icons" / "files" / filename;
+    const std::filesystem::path symbol_folder_1 =
+        m_icon_asset_root / "vscode-symbols" / "icons" / "folders" / filename;
+    const std::filesystem::path symbol_file_src = m_icon_asset_root /
+                                                  "vscode-symbols" / "src" /
+                                                  "icons" / "files" / filename;
+    const std::filesystem::path symbol_folder_src =
+        m_icon_asset_root / "vscode-symbols" / "src" / "icons" / "folders" /
+        filename;
+    const std::filesystem::path symbol_file_2 =
+        m_icon_asset_root / "vscode-symbols" / "files" / filename;
+    const std::filesystem::path symbol_folder_2 =
+        m_icon_asset_root / "vscode-symbols" / "folders" / filename;
+    const std::filesystem::path codicon_direct =
+        m_icon_asset_root / "vscode-codicons" / "icons" / rel_str;
+    const std::filesystem::path codicon_file =
+        m_icon_asset_root / "vscode-codicons" / "icons" / filename;
+    const std::filesystem::path codicon_src =
+        m_icon_asset_root / "vscode-codicons" / "src" / "icons" / filename;
+    const std::filesystem::path vsicon_file =
+        m_icon_asset_root / "vscode-icons" / "icons" / filename;
+    const std::filesystem::path material_file =
+        m_icon_asset_root / "material-icon-theme" / filename;
 
     if (std::filesystem::is_regular_file(direct_path, path_error)) {
       resolved_path = direct_path;
@@ -1745,7 +2215,8 @@ void StudioWorkspaceRenderer::draw_svg_icon(
       resolved_path = symbol_folder_1;
     } else if (std::filesystem::is_regular_file(symbol_file_src, path_error)) {
       resolved_path = symbol_file_src;
-    } else if (std::filesystem::is_regular_file(symbol_folder_src, path_error)) {
+    } else if (std::filesystem::is_regular_file(symbol_folder_src,
+                                                path_error)) {
       resolved_path = symbol_folder_src;
     } else if (std::filesystem::is_regular_file(symbol_file_2, path_error)) {
       resolved_path = symbol_file_2;
@@ -1762,12 +2233,12 @@ void StudioWorkspaceRenderer::draw_svg_icon(
     } else if (std::filesystem::is_regular_file(material_file, path_error)) {
       resolved_path = material_file;
     } else {
-      const std::filesystem::path themed_path = m_icon_asset_root / resolved_path;
+      const std::filesystem::path themed_path =
+          m_icon_asset_root / resolved_path;
       if (std::filesystem::is_regular_file(themed_path, path_error)) {
         resolved_path = themed_path;
       } else {
-        const std::filesystem::path legacy_path =
-            m_icon_asset_root / filename;
+        const std::filesystem::path legacy_path = m_icon_asset_root / filename;
         if (std::filesystem::is_regular_file(legacy_path, path_error)) {
           resolved_path = legacy_path;
         }
@@ -1785,7 +2256,8 @@ void StudioWorkspaceRenderer::draw_svg_icon(
 
   const std::string resolved_string = resolved_path.string();
   const std::string cache_key = resolved_string + "@" + std::to_string(size) +
-                                "#" + to_font_color(color) + (preserve_source_colors ? "_p" : "");
+                                "#" + to_font_color(color) +
+                                (preserve_source_colors ? "_p" : "");
   auto cached = m_svg_cache.find(cache_key);
   if (cached == m_svg_cache.end()) {
     if (m_svg_cache.size() >= 128) {
@@ -1814,15 +2286,18 @@ void StudioWorkspaceRenderer::draw_svg_icon(
       const std::uint32_t source_green = (source[index] >> 8U) & 0xFFU;
       const std::uint32_t source_blue = source[index] & 0xFFU;
 
-      const std::uint32_t red = preserve_source_colors
-          ? source_red
-          : (static_cast<std::uint32_t>(color.red) * alpha) / 255U;
-      const std::uint32_t green = preserve_source_colors
-          ? source_green
-          : (static_cast<std::uint32_t>(color.green) * alpha) / 255U;
-      const std::uint32_t blue = preserve_source_colors
-          ? source_blue
-          : (static_cast<std::uint32_t>(color.blue) * alpha) / 255U;
+      const std::uint32_t red =
+          preserve_source_colors
+              ? source_red
+              : (static_cast<std::uint32_t>(color.red) * alpha) / 255U;
+      const std::uint32_t green =
+          preserve_source_colors
+              ? source_green
+              : (static_cast<std::uint32_t>(color.green) * alpha) / 255U;
+      const std::uint32_t blue =
+          preserve_source_colors
+              ? source_blue
+              : (static_cast<std::uint32_t>(color.blue) * alpha) / 255U;
 
       pixels[index] = (alpha << 24U) | (red << 16U) | (green << 8U) | blue;
     }
@@ -1843,9 +2318,12 @@ void StudioWorkspaceRenderer::draw_svg_icon(
   bitmap_info.bmiHeader.biCompression = BI_RGB;
 
   void *dib_bits = nullptr;
-  HBITMAP hbmp = CreateDIBSection(mem_dc, &bitmap_info, DIB_RGB_COLORS, &dib_bits, nullptr, 0);
+  HBITMAP hbmp = CreateDIBSection(mem_dc, &bitmap_info, DIB_RGB_COLORS,
+                                  &dib_bits, nullptr, 0);
   if (hbmp && dib_bits) {
-    std::memcpy(dib_bits, cached->second.data(), static_cast<std::size_t>(size) * static_cast<std::size_t>(size) * sizeof(std::uint32_t));
+    std::memcpy(dib_bits, cached->second.data(),
+                static_cast<std::size_t>(size) *
+                    static_cast<std::size_t>(size) * sizeof(std::uint32_t));
     HGDIOBJ old_bmp = SelectObject(mem_dc, hbmp);
 
     BLENDFUNCTION blend{};
@@ -1950,6 +2428,24 @@ void StudioWorkspaceRenderer::draw_png_icon(
 
     stbi_image_free(data);
 
+    const float bg_lum =
+        (0.2126F * background.red + 0.7152F * background.green +
+         0.0722F * background.blue) /
+        255.0F;
+    const bool is_light_theme = (bg_lum > 0.5F);
+    if (is_light_theme &&
+        (asset_path.find("zenvra_logo") != std::string::npos ||
+         asset_path.find("mascot") != std::string::npos ||
+         asset_path.find("logo") != std::string::npos)) {
+      for (std::size_t i = 0; i + 3 < resampled.size(); i += 4) {
+        if (resampled[i + 3] > 10) {
+          resampled[i] = static_cast<std::uint8_t>(255 - resampled[i]);
+          resampled[i + 1] = static_cast<std::uint8_t>(255 - resampled[i + 1]);
+          resampled[i + 2] = static_cast<std::uint8_t>(255 - resampled[i + 2]);
+        }
+      }
+    }
+
     Utility::ColorRGBA bg_color{background.red, background.green,
                                 background.blue, 255};
     auto bmp_data = Utility::AntialiasedImage::composite_to_dib(
@@ -2024,7 +2520,8 @@ void StudioWorkspaceRenderer::render_prompt_modal(HDC device_context,
   DeleteObject(mem_bm);
   DeleteDC(mem_dc);
 
-  // 2. Dialog Container (macOS sleek minimalist dark card with elevation shadow)
+  // 2. Dialog Container (macOS sleek minimalist dark card with elevation
+  // shadow)
   const UI::Theme::Color dialog_bg{28, 29, 34, 255};
   const UI::Theme::Color border_col{58, 60, 68, 255};
 
@@ -2044,20 +2541,22 @@ void StudioWorkspaceRenderer::render_prompt_modal(HDC device_context,
   // 3. Title & Subtitle (macOS centered bold typography)
   const std::string title_str = m_prompt_modal.get_title();
   const int title_tw = get_text_width(device_context, *m_ui_font, title_str);
-  const float title_x = layout.base_layout.dialog_bounds.x +
-                        (layout.base_layout.dialog_bounds.width - static_cast<float>(title_tw)) * 0.5F;
-  draw_text(device_context, *m_ui_font, title_str,
-            title_x,
+  const float title_x =
+      layout.base_layout.dialog_bounds.x +
+      (layout.base_layout.dialog_bounds.width - static_cast<float>(title_tw)) *
+          0.5F;
+  draw_text(device_context, *m_ui_font, title_str, title_x,
             layout.title_bounds.y + layout.title_bounds.height * 0.5F,
             UI::Theme::Color{235, 238, 242, 255});
 
   if (m_prompt_modal.get_mode() == UI::Components::PromptMode::ConfirmDelete) {
     const std::string sub_str = m_prompt_modal.get_subtitle();
     const int sub_tw = get_text_width(device_context, *m_small_font, sub_str);
-    const float sub_x = layout.base_layout.dialog_bounds.x +
-                        (layout.base_layout.dialog_bounds.width - static_cast<float>(sub_tw)) * 0.5F;
-    draw_text(device_context, *m_small_font, sub_str,
-              sub_x,
+    const float sub_x =
+        layout.base_layout.dialog_bounds.x +
+        (layout.base_layout.dialog_bounds.width - static_cast<float>(sub_tw)) *
+            0.5F;
+    draw_text(device_context, *m_small_font, sub_str, sub_x,
               layout.subtitle_bounds.y + layout.subtitle_bounds.height * 0.5F,
               UI::Theme::Color{145, 150, 160, 255});
   }
@@ -2070,13 +2569,17 @@ void StudioWorkspaceRenderer::render_prompt_modal(HDC device_context,
     fill_rounded_rectangle(device_context, layout.close_button_bounds, close_bg,
                            4.0F * m_dpi_scale);
   }
-  const int prompt_cx = round_to_int(layout.close_button_bounds.x + layout.close_button_bounds.width * 0.5F);
-  const int prompt_cy = round_to_int(layout.close_button_bounds.y + layout.close_button_bounds.height * 0.5F);
+  const int prompt_cx = round_to_int(layout.close_button_bounds.x +
+                                     layout.close_button_bounds.width * 0.5F);
+  const int prompt_cy = round_to_int(layout.close_button_bounds.y +
+                                     layout.close_button_bounds.height * 0.5F);
   const int prompt_icon_sz = std::max(round_to_int(12.0F * m_dpi_scale), 10);
-  draw_svg_icon(
-      device_context, "diagnostic-error.svg", prompt_cx, prompt_cy, prompt_icon_sz,
-      m_prompt_modal.is_close_hovered() ? UI::Theme::Color{255, 255, 255, 255} : UI::Theme::Color{180, 185, 195, 255},
-      close_bg);
+  draw_svg_icon(device_context, "diagnostic-error.svg", prompt_cx, prompt_cy,
+                prompt_icon_sz,
+                m_prompt_modal.is_close_hovered()
+                    ? UI::Theme::Color{255, 255, 255, 255}
+                    : UI::Theme::Color{180, 185, 195, 255},
+                close_bg);
 
   // 5. Pure Transparent Borderless Input Field (macOS Cocoa standard)
   if (m_prompt_modal.get_mode() != UI::Components::PromptMode::ConfirmDelete) {
@@ -2109,13 +2612,14 @@ void StudioWorkspaceRenderer::render_prompt_modal(HDC device_context,
     const auto cancel_bg = m_prompt_modal.is_cancel_hovered()
                                ? UI::Theme::Color{58, 61, 68, 255}
                                : UI::Theme::Color{45, 47, 52, 255};
-    fill_rounded_rectangle(device_context, layout.cancel_button_bounds, cancel_bg,
-                           6.0F * m_dpi_scale);
+    fill_rounded_rectangle(device_context, layout.cancel_button_bounds,
+                           cancel_bg, 6.0F * m_dpi_scale);
     const int cancel_tw = get_text_width(device_context, *m_ui_font, "Cancel");
-    const float cancel_tx = layout.cancel_button_bounds.x +
-                            (layout.cancel_button_bounds.width - static_cast<float>(cancel_tw)) * 0.5F;
-    draw_text(device_context, *m_ui_font, "Cancel",
-              cancel_tx,
+    const float cancel_tx =
+        layout.cancel_button_bounds.x +
+        (layout.cancel_button_bounds.width - static_cast<float>(cancel_tw)) *
+            0.5F;
+    draw_text(device_context, *m_ui_font, "Cancel", cancel_tx,
               layout.cancel_button_bounds.y +
                   layout.cancel_button_bounds.height * 0.5F,
               UI::Theme::Color{204, 204, 204, 255});
@@ -2134,10 +2638,10 @@ void StudioWorkspaceRenderer::render_prompt_modal(HDC device_context,
                            6.0F * m_dpi_scale);
     const std::string confirm_label = m_prompt_modal.get_confirm_label();
     const int ok_tw = get_text_width(device_context, *m_ui_font, confirm_label);
-    const float ok_tx = layout.ok_button_bounds.x +
-                        (layout.ok_button_bounds.width - static_cast<float>(ok_tw)) * 0.5F;
-    draw_text(device_context, *m_ui_font, confirm_label,
-              ok_tx,
+    const float ok_tx =
+        layout.ok_button_bounds.x +
+        (layout.ok_button_bounds.width - static_cast<float>(ok_tw)) * 0.5F;
+    draw_text(device_context, *m_ui_font, confirm_label, ok_tx,
               layout.ok_button_bounds.y + layout.ok_button_bounds.height * 0.5F,
               UI::Theme::Color{255, 255, 255, 255});
   }
@@ -2145,7 +2649,7 @@ void StudioWorkspaceRenderer::render_prompt_modal(HDC device_context,
 
 void StudioWorkspaceRenderer::render_add_item_dialog(
     HDC /*device_context*/, int /*client_width*/, int /*client_height*/,
-    const UI::Theme::StudioTheme &/*theme*/) const {
+    const UI::Theme::StudioTheme & /*theme*/) const {
   // AddNewItemDialog renders as a standalone native Win32 window (HWND)
 }
 
@@ -2156,61 +2660,80 @@ bool StudioWorkspaceRenderer::is_settings_window_visible() const noexcept {
 void StudioWorkspaceRenderer::render_settings_window(
     HDC /*device_context*/, int /*client_width*/, int /*client_height*/,
     const UI::Theme::StudioTheme &theme) const {
-  const_cast<UI::Settings::SettingsWindow &>(m_settings_window).set_theme(theme);
+  const_cast<UI::Settings::SettingsWindow &>(m_settings_window)
+      .set_theme(theme);
 }
 
-std::string StudioWorkspaceRenderer::resolve_font_family_name(const std::string& font_spec) noexcept {
-  if (font_spec.empty()) return "Hack";
+std::string StudioWorkspaceRenderer::resolve_font_family_name(
+    const std::string &font_spec) noexcept {
+  if (font_spec.empty())
+    return "Hack";
 
   std::stringstream ss(font_spec);
   std::string item;
   while (std::getline(ss, item, ',')) {
     const size_t start = item.find_first_not_of(" \t\r\n'\"");
     const size_t end = item.find_last_not_of(" \t\r\n'\"");
-    if (start == std::string::npos) continue;
+    if (start == std::string::npos)
+      continue;
     std::string name = item.substr(start, end - start + 1);
-    if (name == "monospace" || name == "sans-serif" || name == "serif") continue;
+    if (name == "monospace" || name == "sans-serif" || name == "serif")
+      continue;
 
     if (name == "JetBrains Mono" || name == "JetBrainsMono") {
-      if (is_font_available("JetBrainsMonoNL Nerd Font")) return "JetBrainsMonoNL Nerd Font";
-      if (is_font_available("JetBrainsMono Nerd Font")) return "JetBrainsMono Nerd Font";
-      if (is_font_available("JetBrains Mono")) return "JetBrains Mono";
+      if (is_font_available("JetBrainsMonoNL Nerd Font"))
+        return "JetBrainsMonoNL Nerd Font";
+      if (is_font_available("JetBrainsMono Nerd Font"))
+        return "JetBrainsMono Nerd Font";
+      if (is_font_available("JetBrains Mono"))
+        return "JetBrains Mono";
     }
     if (is_font_available(name)) {
       return name;
     }
   }
-  if (is_font_available("Hack")) return "Hack";
-  if (is_font_available("Consolas")) return "Consolas";
+  if (is_font_available("Hack"))
+    return "Hack";
+  if (is_font_available("Consolas"))
+    return "Consolas";
   return "Consolas";
 }
 
-float StudioWorkspaceRenderer::get_editor_line_height(HDC device_context) const noexcept {
-  auto& settings = Settings::SettingsService::instance();
+float StudioWorkspaceRenderer::get_editor_line_height(
+    HDC device_context) const noexcept {
+  auto &settings = Settings::SettingsService::instance();
   const int custom_lh = settings.get<int>("editor.lineHeight");
   if (custom_lh >= 10 && custom_lh <= 60) {
     return static_cast<float>(custom_lh) * m_dpi_scale;
   }
   if (m_editor_font) {
-    return std::max(static_cast<float>(m_editor_font->getHeight(device_context)) + 4.0F * m_dpi_scale, 16.0F * m_dpi_scale);
+    return std::max(
+        static_cast<float>(m_editor_font->getHeight(device_context)) +
+            4.0F * m_dpi_scale,
+        16.0F * m_dpi_scale);
   }
   const int font_sz = settings.get<int>("editor.fontSize");
   const int eff_sz = (font_sz >= 8 && font_sz <= 72) ? font_sz : 14;
-  return std::max(static_cast<float>(eff_sz) * 1.4F * m_dpi_scale, 16.0F * m_dpi_scale);
+  return std::max(static_cast<float>(eff_sz) * 1.4F * m_dpi_scale,
+                  16.0F * m_dpi_scale);
 }
 
 void StudioWorkspaceRenderer::reload_editor_font() {
-  auto& settings = Settings::SettingsService::instance();
+  auto &settings = Settings::SettingsService::instance();
   const int configured_size = settings.get<int>("editor.fontSize");
-  const int effective_size = (configured_size >= 8 && configured_size <= 72) ? configured_size : 14;
+  const int effective_size =
+      (configured_size >= 8 && configured_size <= 72) ? configured_size : 14;
 
-  const std::string configured_font = settings.get<std::string>("editor.fontFamily");
+  const std::string configured_font =
+      settings.get<std::string>("editor.fontFamily");
   if (!configured_font.empty()) {
     m_editor_font_name = resolve_font_family_name(configured_font);
   }
 
   m_editor_font = std::make_unique<AntialiasedFont>(
-      m_editor_font_name, std::max(round_to_int(static_cast<float>(effective_size) * m_dpi_scale), 10));
+      m_editor_font_name,
+      std::max(round_to_int(static_cast<float>(effective_size) * m_dpi_scale),
+               10));
   m_editor_font->setLigaturesEnabled(true);
   m_minimap_font = std::make_unique<AntialiasedFont>(
       m_editor_font_name, std::max(round_to_int(3.0F * m_dpi_scale), 3));
@@ -2221,11 +2744,13 @@ void StudioWorkspaceRenderer::reload_editor_font() {
 }
 
 void StudioWorkspaceRenderer::reload_terminal_font() {
-  auto& settings = Settings::SettingsService::instance();
+  auto &settings = Settings::SettingsService::instance();
   const int configured_size = settings.get<int>("terminal.fontSize");
-  const int effective_size = (configured_size >= 8 && configured_size <= 72) ? configured_size : 14;
+  const int effective_size =
+      (configured_size >= 8 && configured_size <= 72) ? configured_size : 14;
 
-  const std::string configured_font = settings.get<std::string>("terminal.fontFamily");
+  const std::string configured_font =
+      settings.get<std::string>("terminal.fontFamily");
   if (!configured_font.empty()) {
     m_terminal_font_name = resolve_font_family_name(configured_font);
   } else {
@@ -2233,12 +2758,21 @@ void StudioWorkspaceRenderer::reload_terminal_font() {
   }
 
   m_terminal_font = std::make_unique<AntialiasedFont>(
-      m_terminal_font_name, std::max(round_to_int(static_cast<float>(effective_size) * m_dpi_scale), 10));
+      m_terminal_font_name,
+      std::max(round_to_int(static_cast<float>(effective_size) * m_dpi_scale),
+               10));
   m_terminal_font->setLigaturesEnabled(true);
 
   if (m_window_handle) {
     InvalidateRect(m_window_handle, nullptr, FALSE);
   }
+}
+
+void StudioWorkspaceRenderer::update_theme(
+    const UI::Theme::StudioTheme &theme) {
+  m_theme = theme;
+  m_palette = UI::Editor::StudioEditorPalette::from_theme(theme);
+  m_settings_window.set_theme(theme);
 }
 
 } // namespace Zenvra::Platform::Win32::Components

@@ -4,6 +4,7 @@ add_library(ZDEUI
     Components/EditorFolding.cpp
     Components/MenuModel.cpp
     Components/Button.cpp
+    Components/Dropdown.cpp
     Components/Input.cpp
     Components/Modal.cpp
     Components/AboutModal.cpp
@@ -33,6 +34,7 @@ add_library(ZDEUI
     Editor/WorkspaceSourceControlModel.cpp
     "${PROJECT_SOURCE_DIR}/Source/SourceControl/GitRepository.cpp"
     Theme/StudioTheme.cpp
+    Theme/ThemeManager.cpp
     Toolbar/ToolbarLayout.cpp
     Toolbar/StudioMainToolbar.cpp
     Toolbar/Widgets/RunConfigurationWidget.cpp
@@ -51,7 +53,7 @@ target_include_directories(ZDEUI PUBLIC
 target_link_libraries(ZDEUI PUBLIC 
     Zenvra::Core Zenvra::Graphics Zenvra::Language 
     Zenvra::Terminal Zenvra::Media Zenvra::Drivers::Media 
-    Zenvra::Settings lunasvg ZDEUtility PRIVATE Zenvra::Commands)
+    Zenvra::Settings Zenvra::Plugins lunasvg ZDEUtility PRIVATE Zenvra::Commands)
 find_library(ZDE_GIT2_LIBRARY git2)
 if(ZDE_GIT2_LIBRARY)
     target_link_libraries(ZDEUI PUBLIC "${ZDE_GIT2_LIBRARY}")

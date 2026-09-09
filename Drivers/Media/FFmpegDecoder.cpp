@@ -154,6 +154,13 @@ struct FFmpegDecoder::Impl {
     std::string last_error;
     mutable std::mutex decoder_mutex;
 
+    int target_video_w = 0;
+    int target_video_h = 0;
+    bool deband_enabled = false;
+    bool edge_aa_enabled = false;
+    int target_sample_rate = 44100;
+    int target_channels = 2;
+
 #ifdef ZDE_HAS_FFMPEG
     AVFormatInputContextPtr format_ctx;
     AVIOContextPtr avio_ctx;
@@ -165,16 +172,12 @@ struct FFmpegDecoder::Impl {
     SwsContext* sws_ctx = nullptr;
     int current_sws_src_w = 0;
     int current_sws_src_h = 0;
-    int target_video_w = 0;
-    int target_video_h = 0;
     int current_sws_dst_w = 0;
     int current_sws_dst_h = 0;
     AVPixelFormat current_sws_src_fmt = AV_PIX_FMT_NONE;
     AVPixelFormat current_sws_dst_fmt = AV_PIX_FMT_NONE;
     AVColorSpace current_sws_colorspace = AVCOL_SPC_UNSPECIFIED;
     AVColorRange current_sws_color_range = AVCOL_RANGE_UNSPECIFIED;
-    bool deband_enabled = false;
-    bool edge_aa_enabled = false;
     int active_video_stream_idx = -1;
     AVRational video_time_base = {1, 1000};
     int video_rotation = 0;
@@ -184,8 +187,6 @@ struct FFmpegDecoder::Impl {
     SwrContext* swr_ctx = nullptr;
     int active_audio_stream_idx = -1;
     AVRational audio_time_base = {1, 1000};
-    int target_sample_rate = 44100;
-    int target_channels = 2;
 
     // Interleaved Packet Queues
     std::deque<AVPacketPtr> video_packet_queue;

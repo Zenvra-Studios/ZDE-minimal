@@ -29,6 +29,13 @@ struct Color
     };
 }
 
+enum class BackdropEffect : std::uint8_t
+{
+    None = 0,
+    Mica,
+    Acrylic,
+};
+
 struct StudioTheme
 {
     Color window_background;
@@ -44,7 +51,16 @@ struct StudioTheme
     Color command_center_border;
     Color close_hover;
 
+    bool is_dark = true;
+    bool is_modern = false;
+    bool enable_os_blur = false;
+    BackdropEffect backdrop_effect = BackdropEffect::None;
+
     [[nodiscard]] static StudioTheme zenvra_dark() noexcept;
+    [[nodiscard]] static StudioTheme zenvra_light() noexcept;
+    [[nodiscard]] static StudioTheme zenvra_dark_modern() noexcept;
+    [[nodiscard]] static StudioTheme zenvra_light_modern() noexcept;
+    [[nodiscard]] static StudioTheme high_contrast() noexcept;
 };
 
 } // namespace Zenvra::UI::Theme

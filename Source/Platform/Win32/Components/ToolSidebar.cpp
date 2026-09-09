@@ -3553,7 +3553,9 @@ void ToolSidebar::render(
         const bool is_cut = m_model.is_cut_path(item.path);
         const UI::Theme::Color icon_color = is_cut
             ? UI::Theme::Color{140, 140, 140, 120}
-            : (is_selected ? UI::Theme::Color{255, 255, 255, 255} : UI::Theme::Color{225, 230, 240, 255});
+            : (is_selected
+                   ? (surface.m_palette.is_dark ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.accent)
+                   : surface.m_palette.text_muted);
 
         if (item.directory) {
           const int arrow_x = round_to_int(indent_x + 3.0F * scale);
