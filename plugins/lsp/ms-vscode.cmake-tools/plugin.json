@@ -1,0 +1,20 @@
+{
+  "capabilities": [],
+  "category": "lsp",
+  "dependencies": {
+    "plugins": [],
+    "tools": []
+  },
+  "description": "Extended CMake support and language integration for ZDE Studio",
+  "id": "ms-vscode.cmake-tools",
+  "name": "CMake Tools",
+  "platforms": [],
+  "publisher": {
+    "id": "",
+    "name": "ms-vscode"
+  },
+  "version": "1.19.52",
+  "zde": {
+    "minimumVersion": "0.1.0"
+  }
+}

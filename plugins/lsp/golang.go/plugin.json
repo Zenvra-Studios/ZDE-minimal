@@ -1,0 +1,20 @@
+{
+  "capabilities": [],
+  "category": "lsp",
+  "dependencies": {
+    "plugins": [],
+    "tools": []
+  },
+  "description": "Rich Go language support using gopls language server",
+  "id": "golang.go",
+  "name": "Go",
+  "platforms": [],
+  "publisher": {
+    "id": "",
+    "name": "golang"
+  },
+  "version": "0.44.0",
+  "zde": {
+    "minimumVersion": "0.1.0"
+  }
+}
