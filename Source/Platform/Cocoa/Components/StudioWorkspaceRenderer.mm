@@ -874,7 +874,10 @@ bool StudioWorkspaceRenderer::is_activity_bar_point(
 {
     const UI::Editor::StudioEditorLayoutResult layout =
         calculate_layout(client_width, client_height, content_top);
-    return layout.activity_bar_bounds.contains(point_x, point_y);
+    if (!layout.activity_bar_bounds.contains(point_x, point_y)) {
+        return false;
+    }
+    return UI::Editor::hit_test_studio_sidebar(layout, point_x, point_y).has_value();
 }
 
 bool StudioWorkspaceRenderer::is_tab_bar_point(

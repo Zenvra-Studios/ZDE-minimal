@@ -194,18 +194,44 @@ std::optional<ThemeInfo> ThemeManager::find_theme(std::string_view id_or_label) 
     }
 
     // Backwards-compatible aliases
-    if (id_or_label == "Dark" || id_or_label == "dark")
+    if (id_or_label == "Dark" || id_or_label == "dark" ||
+        id_or_label == "Old" || id_or_label == "old" ||
+        id_or_label == "Classic" || id_or_label == "classic" ||
+        id_or_label == "Solid" || id_or_label == "solid" ||
+        id_or_label == "Dark Old" || id_or_label == "Dark Classic" ||
+        id_or_label == "Dark Solid" || id_or_label == "zenvra-dark-classic" ||
+        id_or_label == "Zenvra Dark (Classic)" || id_or_label == "Zenvra Dark (Solid)" ||
+        id_or_label == "Zenvra Dark (Old)")
     {
         for (const auto& t : m_themes)
         {
             if (t.id == "zenvra-dark" || t.label == "Zenvra Dark") return t;
         }
     }
-    if (id_or_label == "Light" || id_or_label == "light")
+    if (id_or_label == "Light" || id_or_label == "light" ||
+        id_or_label == "Light Old" || id_or_label == "Light Classic" ||
+        id_or_label == "Light Solid" || id_or_label == "zenvra-light-classic" ||
+        id_or_label == "Zenvra Light (Classic)" || id_or_label == "Zenvra Light (Solid)" ||
+        id_or_label == "Zenvra Light (Old)")
     {
         for (const auto& t : m_themes)
         {
             if (t.id == "zenvra-light" || t.label == "Zenvra Light") return t;
+        }
+    }
+    if (id_or_label == "Modern" || id_or_label == "modern" ||
+        id_or_label == "Dark Modern" || id_or_label == "dark modern")
+    {
+        for (const auto& t : m_themes)
+        {
+            if (t.id == "zenvra-dark-modern" || t.label == "Zenvra Dark Modern") return t;
+        }
+    }
+    if (id_or_label == "Light Modern" || id_or_label == "light modern")
+    {
+        for (const auto& t : m_themes)
+        {
+            if (t.id == "zenvra-light-modern" || t.label == "Zenvra Light Modern") return t;
         }
     }
 
@@ -241,7 +267,7 @@ StudioTheme ThemeManager::get_current_theme() const
 {
     const std::string active_name = Settings::SettingsService::instance().get<std::string>("theme.current");
     if (active_name.empty() || active_name == "Zenvra Dark Modern" || active_name == "Dark Modern" ||
-        active_name == "Modern" || active_name == "Zenvra Dark" || active_name == "Dark")
+        active_name == "Modern" || active_name == "zenvra-dark-modern")
     {
         return StudioTheme::zenvra_dark_modern();
     }

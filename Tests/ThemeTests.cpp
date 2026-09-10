@@ -347,3 +347,55 @@ TEST_F(ThemeTests, MarketplaceThemeCatalogEntries)
     ASSERT_TRUE(catppuccin.has_value());
     EXPECT_EQ(catppuccin->category, "themes");
 }
+
+TEST_F(ThemeTests, ThemeSwitchingSolidAndModern)
+{
+    auto& tm = ThemeManager::instance();
+    auto& settings = Settings::SettingsService::instance();
+
+    // 1. Default when empty is Modern
+    settings.set("theme.current", "");
+    StudioTheme def_theme = tm.get_current_theme();
+    EXPECT_TRUE(def_theme.is_modern);
+    EXPECT_TRUE(def_theme.enable_os_blur);
+
+    // 2. Explicit Modern Dark
+    settings.set("theme.current", "Zenvra Dark Modern");
+    StudioTheme modern_theme = tm.get_current_theme();
+    EXPECT_TRUE(modern_theme.is_modern);
+    EXPECT_TRUE(modern_theme.enable_os_blur);
+    EXPECT_EQ(modern_theme.backdrop_effect, BackdropEffect::Acrylic);
+
+    // 3. Switch to Solid/Old Dark ("Zenvra Dark")
+    settings.set("theme.current", "Zenvra Dark");
+    StudioTheme solid_theme = tm.get_current_theme();
+    EXPECT_FALSE(solid_theme.is_modern);
+    EXPECT_FALSE(solid_theme.enable_os_blur);
+    EXPECT_EQ(solid_theme.backdrop_effect, BackdropEffect::None);
+    EXPECT_EQ(solid_theme.window_background.red, 30);
+
+    // 4. Aliases for Solid Dark (Dark, Old, Solid, Classic)
+    settings.set("theme.current", "Dark");
+    EXPECT_FALSE(tm.get_current_theme().is_modern);
+    settings.set("theme.current", "Old");
+    EXPECT_FALSE(tm.get_current_theme().is_modern);
+    settings.set("theme.current", "Solid");
+    EXPECT_FALSE(tm.get_current_theme().is_modern);
+    settings.set("theme.current", "Classic");
+    EXPECT_FALSE(tm.get_current_theme().is_modern);
+
+    // 5. Solid Light and Modern Light
+    settings.set("theme.current", "Zenvra Light");
+    StudioTheme solid_light = tm.get_current_theme();
+    EXPECT_FALSE(solid_light.is_modern);
+    EXPECT_FALSE(solid_light.enable_os_blur);
+
+    settings.set("theme.current", "Zenvra Light Modern");
+    StudioTheme modern_light = tm.get_current_theme();
+    EXPECT_TRUE(modern_light.is_modern);
+    EXPECT_TRUE(modern_light.enable_os_blur);
+
+    // Reset back to user's setting or default
+    settings.set("theme.current", "Zenvra Dark");
+}
+

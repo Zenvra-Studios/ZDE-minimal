@@ -36,6 +36,7 @@ void ActivitySidebar::render(
         items.begin(), items.end(), [](const UI::Editor::SidebarItem& item) {
             return item.placement == UI::Editor::SidebarPlacement::Bottom;
         }));
+    const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
 
     for (const UI::Editor::SidebarItem& item : items)
     {
@@ -90,17 +91,20 @@ void ActivitySidebar::render(
                 : UI::Theme::Color{0, 102, 204, 28};
             surface.fill_rounded_rectangle(device_context, box_rect, active_bg, box_radius);
 
-            const UI::Rect pill_rect{
-                layout.activity_bar_bounds.x,
-                center_y - 12.0F * surface.m_dpi_scale,
-                2.5F * surface.m_dpi_scale,
-                24.0F * surface.m_dpi_scale,
-            };
-            surface.fill_rounded_rectangle(
-                device_context,
-                pill_rect,
-                surface.m_palette.is_dark ? surface.m_palette.text_primary : surface.m_palette.accent,
-                1.25F * surface.m_dpi_scale);
+            if (!is_modern)
+            {
+                const UI::Rect pill_rect{
+                    layout.activity_bar_bounds.x,
+                    center_y - 12.0F * surface.m_dpi_scale,
+                    2.5F * surface.m_dpi_scale,
+                    24.0F * surface.m_dpi_scale,
+                };
+                surface.fill_rounded_rectangle(
+                    device_context,
+                    pill_rect,
+                    surface.m_palette.is_dark ? surface.m_palette.text_primary : surface.m_palette.accent,
+                    1.25F * surface.m_dpi_scale);
+            }
         }
         else if (hovered)
         {
@@ -112,7 +116,7 @@ void ActivitySidebar::render(
         draw_icon(surface, device_context, item.icon, center_x, round_to_int(center_y), active, hovered);
     }
 
-    if (!surface.m_palette.is_modern) {
+    if (!is_modern) {
         surface.draw_line(
             device_context,
             round_to_int(layout.activity_bar_bounds.right() - 1.0F),

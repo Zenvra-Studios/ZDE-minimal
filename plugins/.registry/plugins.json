@@ -40,23 +40,23 @@
           "plugins": [],
           "tools": []
         },
-        "description": "C/C++ completion, navigation, diagnostics and semantic tokens via clangd LSP",
+        "description": "C/C++ completion, navigation, and insights",
         "id": "llvm-vs-code-extensions.vscode-clangd",
-        "name": "clangd",
+        "name": "vscode-clangd",
         "platforms": [],
         "publisher": {
-          "id": "",
+          "id": "llvm-vs-code-extensions",
           "name": "llvm-vs-code-extensions"
         },
-        "version": "0.1.33",
+        "version": "0.6.0",
         "zde": {
           "minimumVersion": "0.1.0"
         }
       },
-      "name": "clangd",
+      "name": "vscode-clangd",
       "source": "git",
       "state": "enabled",
-      "version": "0.1.33"
+      "version": "0.6.0"
     },
     "ms-vscode.cmake-tools": {
       "enabled": true,
