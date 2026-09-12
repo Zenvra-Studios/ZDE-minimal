@@ -98,8 +98,18 @@ public:
     [[nodiscard]] std::size_t open_dropped_paths(std::span<const std::filesystem::path> dropped_paths);
     [[nodiscard]] bool create_workspace_buffer();
     [[nodiscard]] bool toggle_terminal() { return m_workspace_renderer.get_terminal_panel().toggle(); }
+    [[nodiscard]] bool execute_in_terminal(std::string_view command, const std::filesystem::path& working_directory = {}) {
+        return m_workspace_renderer.get_terminal_panel().execute_command(command, working_directory);
+    }
+    void show_output_panel() {
+        if (!m_workspace_renderer.get_terminal_panel().is_visible()) {
+            static_cast<void>(m_workspace_renderer.get_terminal_panel().toggle());
+        }
+        m_workspace_renderer.get_terminal_panel().set_active_channel(Components::TerminalPanel::PanelChannel::Output);
+    }
     [[nodiscard]] bool toggle_shader_sandbox() { return m_workspace_renderer.toggle_shader_panel(); }
     [[nodiscard]] bool close_workspace_project() { return m_workspace_renderer.close_project(); }
+    [[nodiscard]] Components::StudioWorkspaceRenderer& get_workspace_renderer() noexcept { return m_workspace_renderer; }
 
     void set_active_target(std::string_view target) { m_run_config_state.active_target_name = std::string(target); }
     void set_active_mode(UI::Toolbar::BuildConfigurationMode mode) { m_run_config_state.active_mode = mode; }

@@ -2839,7 +2839,6 @@ bool LanguageServerManager::is_language_supported(std::string_view language_id) 
 
 void LanguageServerManager::shutdown_all() {
   std::lock_guard<std::mutex> lock(m_clients_mutex);
-  m_diagnostics_callback = nullptr;
   for (auto &[id, client] : m_clients) {
     if (client) {
       client->shutdown();

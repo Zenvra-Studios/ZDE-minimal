@@ -48,7 +48,11 @@ public:
 
     [[nodiscard]] bool open_project_folder() override;
     [[nodiscard]] bool close_project() override;
+
     void toggle_terminal() override;
+    bool execute_in_terminal(std::string_view /*command*/, const std::filesystem::path& /*working_directory*/ = {}) override { return false; }
+    void show_output_panel() override {}
+    void refresh_configurations() override {}
     void toggle_shader_sandbox() override;
 
     // Workspace & Chrome integration

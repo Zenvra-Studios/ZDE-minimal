@@ -21,6 +21,8 @@ struct CMakeBuildOptions
 #endif
     std::string target_name = "ZDE";
     std::string build_directory = "";
+    std::string configuration = "Debug";
+    std::string architecture = "x86_64";
     bool clean_first = false;
 };
 

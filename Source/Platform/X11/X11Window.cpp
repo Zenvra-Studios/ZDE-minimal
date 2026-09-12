@@ -765,6 +765,9 @@ bool X11Window::set_workspace_root(const std::filesystem::path& root) {
     return false;
   }
   Language::LanguageServerManager::instance().set_workspace_root(root);
+  if (m_workspace_changed_callback) {
+    m_workspace_changed_callback(root);
+  }
   if (auto ctx = Utility::MultiContextManager::instance().get_context_by_window(this)) {
     Utility::MultiContextManager::instance().set_workspace_root(ctx->context_id, root);
   }
@@ -3336,6 +3339,9 @@ void X11Window::execute_popup_selection() {
   } else if (command_id == Commands::CommandIds::platform_arm32) {
     m_chrome_renderer.set_active_architecture(
         UI::Toolbar::TargetArchitecture::Arm32);
+  } else if (command_id.starts_with("zde.target.select:")) {
+    const std::string_view target_name = command_id.substr(std::string_view("zde.target.select:").size());
+    m_chrome_renderer.set_active_target(std::string(target_name));
   } else if (command_id == Commands::CommandIds::run_zde) {
     m_chrome_renderer.set_active_target("ZDE");
   } else if (command_id == Commands::CommandIds::run_tests) {
@@ -3905,6 +3911,9 @@ bool X11Window::close_project() {
   if (auto ctx = Utility::MultiContextManager::instance().get_context_by_window(this)) {
     Utility::MultiContextManager::instance().set_workspace_root(ctx->context_id, {});
   }
+  if (m_workspace_changed_callback) {
+    m_workspace_changed_callback({});
+  }
   // Restore base title (Win32 keeps m_window_title separate; X11 previously
   // mutated m_specification.title, so restore from m_base_title instead).
   const std::string base = m_base_title.empty() ? m_specification.title : m_base_title;
@@ -3926,6 +3935,47 @@ bool X11Window::close_project() {
 
 void X11Window::toggle_terminal() {
   static_cast<void>(m_chrome_renderer.toggle_terminal());
+  render();
+}
+
+bool X11Window::execute_in_terminal(std::string_view command, const std::filesystem::path& working_directory) {
+  const bool ok = m_chrome_renderer.execute_in_terminal(command, working_directory.empty() ? get_workspace_root() : working_directory);
+  render();
+  return ok;
+}
+
+void X11Window::show_output_panel() {
+  m_chrome_renderer.show_output_panel();
+  render();
+}
+
+void X11Window::refresh_configurations() {
+  const auto root = get_workspace_root();
+  if (root.empty()) return;
+  const auto detected_targets =
+      Tools::Classification::ProjectToolClassifier::detect_configurations(root);
+  if (!detected_targets.empty()) {
+    auto& state = m_chrome_renderer.get_run_config_state();
+    state.available_targets = detected_targets;
+    bool active_found = false;
+    for (const auto& t : detected_targets) {
+      if (t.name == state.active_target_name) {
+        state.active_classification = t.classification;
+        state.active_icon_asset = t.icon_asset;
+        active_found = true;
+        break;
+      }
+    }
+    if (!active_found) {
+      state.active_target_name = detected_targets.front().name;
+      state.active_classification = detected_targets.front().classification;
+      state.active_icon_asset = detected_targets.front().icon_asset;
+    }
+    UI::Components::set_dynamic_binary_targets(state.available_targets, "GCC");
+  }
+  if (m_workspace_changed_callback) {
+    m_workspace_changed_callback(root);
+  }
   render();
 }
 

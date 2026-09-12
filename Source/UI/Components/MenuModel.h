@@ -1,5 +1,7 @@
 #pragma once
 
+#include "UI/Toolbar/ToolbarTypes.h"
+
 #include <span>
 #include <string_view>
 
@@ -26,5 +28,9 @@ struct Menu
 [[nodiscard]] std::span<const MenuItem> get_binary_menu() noexcept;
 [[nodiscard]] std::span<const MenuItem> get_gear_menu() noexcept;
 [[nodiscard]] std::span<const MenuItem> get_ellipsis_menu() noexcept;
+
+void set_dynamic_binary_targets(
+    std::span<const Toolbar::BinaryTargetProfile> targets,
+    std::string_view toolchain_name = {});
 
 } // namespace Zenvra::UI::Components

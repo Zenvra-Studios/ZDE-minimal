@@ -9,6 +9,8 @@
 namespace Zenvra::Application::ViewModels
 {
 
+class StudioViewModel;
+
 class MainToolbarViewModel
 {
 public:
@@ -18,6 +20,8 @@ public:
 
     [[nodiscard]] UI::Toolbar::StudioMainToolbar& get_toolbar() noexcept { return m_toolbar; }
     [[nodiscard]] const UI::Toolbar::StudioMainToolbar& get_toolbar() const noexcept { return m_toolbar; }
+
+    void sync_with_studio(const StudioViewModel& studio_vm);
 
     void set_active_target(std::string_view target_name);
     void set_active_mode(UI::Toolbar::BuildConfigurationMode mode);

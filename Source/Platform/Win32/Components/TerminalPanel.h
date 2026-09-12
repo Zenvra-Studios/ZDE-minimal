@@ -21,6 +21,8 @@ class StudioWorkspaceRenderer;
 class TerminalPanel {
 public:
   [[nodiscard]] bool toggle();
+  [[nodiscard]] bool execute_command(std::string_view command,
+                                     const std::filesystem::path &working_directory = {});
   [[nodiscard]] bool
   handle_pointer_press(const UI::Editor::StudioEditorLayoutResult &layout,
                        float point_x, float point_y);

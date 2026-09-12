@@ -402,18 +402,11 @@ Win32Window::Win32Window(const WindowSpecification &specification)
   m_run_config_state.active_preset_name =
       HostSystem::get_system_info().default_preset_debug;
 
-  std::error_code ec;
-  const auto cur_path = std::filesystem::current_path(ec);
-  if (!cur_path.empty()) {
-    const auto detected_targets =
-        Tools::Classification::ProjectToolClassifier::detect_configurations(cur_path);
-    if (!detected_targets.empty()) {
-      m_run_config_state.available_targets = detected_targets;
-      m_run_config_state.active_target_name = detected_targets.front().name;
-      m_run_config_state.active_classification = detected_targets.front().classification;
-      m_run_config_state.active_icon_asset = detected_targets.front().icon_asset;
-    }
-  }
+  m_run_config_state.available_targets.clear();
+  m_run_config_state.active_target_name = "No Configuration";
+  m_run_config_state.active_classification = UI::Toolbar::ToolClassification::CMake;
+  m_run_config_state.active_icon_asset = "Assets/icons/gear.svg";
+  UI::Components::set_dynamic_binary_targets({});
 }
 
 Win32Window::~Win32Window() {
@@ -533,6 +526,9 @@ bool Win32Window::initialize() {
     return false;
   }
   m_workspace_renderer.set_window_handle(m_window_handle);
+  m_workspace_renderer.set_workspace_root_request_handler([this](const std::filesystem::path& root) {
+    return set_workspace_root(root);
+  });
   m_workspace_renderer.m_text_editor.set_window_handle(m_window_handle);
   m_workspace_renderer.m_text_editor.set_fullscreen_handler([this](bool enter_fullscreen) {
     if (enter_fullscreen != m_is_fullscreen) {
@@ -783,6 +779,17 @@ bool Win32Window::set_workspace_root(const std::filesystem::path &root) {
     m_run_config_state.active_target_name = detected_targets.front().name;
     m_run_config_state.active_classification = detected_targets.front().classification;
     m_run_config_state.active_icon_asset = detected_targets.front().icon_asset;
+    UI::Components::set_dynamic_binary_targets(m_run_config_state.available_targets, "Clang");
+  } else {
+    m_run_config_state.available_targets.clear();
+    m_run_config_state.active_target_name = "No Configuration";
+    m_run_config_state.active_classification = UI::Toolbar::ToolClassification::CMake;
+    m_run_config_state.active_icon_asset = "Assets/icons/gear.svg";
+    UI::Components::set_dynamic_binary_targets({});
+  }
+
+  if (m_workspace_changed_callback) {
+    m_workspace_changed_callback(root);
   }
 
   if (auto ctx = Utility::MultiContextManager::instance().get_context_by_window(
@@ -853,9 +860,13 @@ bool Win32Window::close_project() {
                                                                 {});
   }
   m_run_config_state.available_targets.clear();
-  m_run_config_state.active_target_name.clear();
+  m_run_config_state.active_target_name = "No Configuration";
   m_run_config_state.active_classification = UI::Toolbar::ToolClassification::CMake;
-  m_run_config_state.active_icon_asset = UI::Toolbar::get_classification_icon(UI::Toolbar::ToolClassification::CMake);
+  m_run_config_state.active_icon_asset = "Assets/icons/gear.svg";
+  UI::Components::set_dynamic_binary_targets({});
+  if (m_workspace_changed_callback) {
+    m_workspace_changed_callback({});
+  }
   m_window_title = utf8_to_wide(m_specification.title);
   if (m_window_handle != nullptr) {
     SetWindowTextW(m_window_handle, m_window_title.c_str());
@@ -874,12 +885,87 @@ void Win32Window::toggle_terminal() {
   }
 }
 
+bool Win32Window::execute_in_terminal(std::string_view command,
+                                      const std::filesystem::path &working_directory) {
+  const bool ok = m_workspace_renderer.get_terminal_panel().execute_command(
+      command, working_directory.empty() ? get_workspace_root() : working_directory);
+  refresh_chrome_layout();
+  if (m_window_handle != nullptr) {
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+  }
+  return ok;
+}
+
+void Win32Window::show_output_panel() {
+  if (!m_workspace_renderer.is_terminal_visible()) {
+    static_cast<void>(m_workspace_renderer.toggle_terminal());
+  }
+  m_workspace_renderer.get_terminal_panel().set_active_channel(
+      Components::TerminalPanel::PanelChannel::Output);
+  refresh_chrome_layout();
+  if (m_window_handle != nullptr) {
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+  }
+}
+
+void Win32Window::refresh_configurations() {
+  const auto root = get_workspace_root();
+  if (root.empty()) return;
+  const auto detected_targets =
+      Tools::Classification::ProjectToolClassifier::detect_configurations(root);
+  if (!detected_targets.empty()) {
+    m_run_config_state.available_targets = detected_targets;
+    bool active_found = false;
+    for (const auto& t : detected_targets) {
+      if (t.name == m_run_config_state.active_target_name) {
+        m_run_config_state.active_classification = t.classification;
+        m_run_config_state.active_icon_asset = t.icon_asset;
+        active_found = true;
+        break;
+      }
+    }
+    if (!active_found) {
+      m_run_config_state.active_target_name = detected_targets.front().name;
+      m_run_config_state.active_classification = detected_targets.front().classification;
+      m_run_config_state.active_icon_asset = detected_targets.front().icon_asset;
+    }
+    UI::Components::set_dynamic_binary_targets(m_run_config_state.available_targets, "Clang");
+  }
+  if (m_workspace_changed_callback) {
+    m_workspace_changed_callback(root);
+  }
+  if (m_window_handle != nullptr) {
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+  }
+}
+
 void Win32Window::toggle_shader_sandbox() {
   static_cast<void>(m_workspace_renderer.toggle_shader_sandbox());
   refresh_chrome_layout();
   if (m_window_handle != nullptr) {
     InvalidateRect(m_window_handle, nullptr, FALSE);
   }
+}
+
+std::string Win32Window::get_active_mode() const {
+  return std::string(UI::Toolbar::to_string(m_run_config_state.active_mode));
+}
+
+std::string Win32Window::get_active_arch() const {
+  switch (m_run_config_state.active_architecture) {
+  case UI::Toolbar::TargetArchitecture::X86:
+    return "x86";
+  case UI::Toolbar::TargetArchitecture::Arm64:
+    return "arm64";
+  case UI::Toolbar::TargetArchitecture::Arm32:
+    return "arm32";
+  default:
+    return "x86_64";
+  }
+}
+
+std::string Win32Window::get_active_target_name() const {
+  return m_run_config_state.active_target_name;
 }
 
 LRESULT CALLBACK Win32Window::window_proc(HWND window_handle, UINT message,
@@ -1694,7 +1780,7 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       }
       if (handled) {
         if (!command_out.empty()) {
-          if (command_out == "zde.project.open") {
+          if (command_out == "zde.project.open" || command_out == "zde.folder.open") {
             static_cast<void>(open_project_folder());
           }
         }
@@ -3341,8 +3427,7 @@ void Win32Window::paint_custom_chrome() {
   // Try the large class icon first (set by RegisterClassExW), then the small
   // icon, then load directly from the resource. This avoids the common case
   // where GCLP_HICONSM is nullptr and the logo falls back to the "Z" glyph.
-  HICON app_icon =
-      reinterpret_cast<HICON>(GetClassLongPtrW(m_window_handle, GCLP_HICON));
+  HICON app_icon = reinterpret_cast<HICON>(GetClassLongPtrW(m_window_handle, GCLP_HICON));
   if (app_icon == nullptr) {
     app_icon = reinterpret_cast<HICON>(
         GetClassLongPtrW(m_window_handle, GCLP_HICONSM));
@@ -3537,16 +3622,20 @@ void Win32Window::paint_custom_chrome() {
     if (m_binary_button_hovered) {
       draw_toolbar_hover(m_chrome_layout.binary_bounds);
     }
+    const bool has_targets = !m_run_config_state.available_targets.empty();
     const int binary_icon_size = std::max(static_cast<int>(16.0F * scale), 14);
-    const std::string target_icon = m_run_config_state.active_icon_asset.empty()
-                                        ? "Assets/icons/material-icon-theme/cmake.svg"
-                                        : m_run_config_state.active_icon_asset;
+    const std::string target_icon = !has_targets
+                                        ? "Assets/icons/gear.svg"
+                                        : (m_run_config_state.active_icon_asset.empty()
+                                               ? "Assets/icons/material-icon-theme/cmake.svg"
+                                               : m_run_config_state.active_icon_asset);
     m_workspace_renderer.draw_svg_icon(
         buffer_context, target_icon,
         static_cast<int>(m_chrome_layout.binary_bounds.x + 16.0F * scale),
         static_cast<int>(m_chrome_layout.binary_bounds.y +
                          m_chrome_layout.binary_bounds.height * 0.5F),
-        binary_icon_size, m_theme.text_primary,
+        binary_icon_size,
+        has_targets ? m_theme.text_primary : m_workspace_renderer.m_palette.text_muted,
         m_binary_button_hovered ? m_theme.hover : m_theme.titlebar_background);
     RECT text_rect = {
         static_cast<LONG>(m_chrome_layout.binary_bounds.x + 36.0F * scale),
@@ -3554,10 +3643,13 @@ void Win32Window::paint_custom_chrome() {
         static_cast<LONG>(m_chrome_layout.binary_bounds.right() -
                           16.0F * scale),
         static_cast<LONG>(m_chrome_layout.binary_bounds.bottom())};
-    std::wstring bin_wstr(m_run_config_state.active_target_name.begin(),
-                          m_run_config_state.active_target_name.end());
+    std::string display_name = has_targets ? m_run_config_state.active_target_name : "No Configuration";
+    if (display_name.empty()) {
+      display_name = "No Configuration";
+    }
+    std::wstring bin_wstr(display_name.begin(), display_name.end());
     draw_centered_text(buffer_context, bin_wstr.c_str(), text_rect,
-                       m_theme.text_primary);
+                       has_targets ? m_theme.text_primary : m_workspace_renderer.m_palette.text_muted);
     const int chevron_x =
         static_cast<int>(m_chrome_layout.binary_bounds.right() - 14.0F * scale);
     const int chevron_y =
@@ -3863,6 +3955,25 @@ void Win32Window::execute_menu_item(std::size_t menu_index,
   } else if (command_id == Commands::CommandIds::platform_arm32) {
     m_run_config_state.active_architecture =
         UI::Toolbar::TargetArchitecture::Arm32;
+  } else if (menu_index == 12 && item_index < m_run_config_state.available_targets.size()) {
+    const auto &t = m_run_config_state.available_targets[item_index];
+    m_run_config_state.active_target_name = t.name;
+    m_run_config_state.active_classification = t.classification;
+    m_run_config_state.active_icon_asset = t.icon_asset;
+    if (m_command_invoked_callback) {
+      const std::string select_cmd = "zde.target.select:" + t.name;
+      m_command_invoked_callback(select_cmd);
+    }
+  } else if (command_id.starts_with("zde.target.select:")) {
+    const std::string_view target_name = command_id.substr(std::string_view("zde.target.select:").size());
+    for (const auto &t : m_run_config_state.available_targets) {
+      if (t.name == target_name) {
+        m_run_config_state.active_target_name = t.name;
+        m_run_config_state.active_classification = t.classification;
+        m_run_config_state.active_icon_asset = t.icon_asset;
+        break;
+      }
+    }
   } else if (command_id == Commands::CommandIds::run_zde) {
     std::string cmake_target = "Project";
     for (const auto &t : m_run_config_state.available_targets) {
@@ -4337,23 +4448,29 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
                 DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     }
 
-    if (m_command_state_query_callback && !item.command_id.empty()) {
-      const auto state = m_command_state_query_callback(item.command_id);
-      if (state.checked) {
-        HPEN check_pen = CreatePen(
-            PS_SOLID, 2,
-            to_color_ref(hovered ? UI::Theme::Color{255, 255, 255, 255}
-                                 : m_theme.text_primary));
-        HGDIOBJ prev_pen = SelectObject(device_context, check_pen);
-        const int check_x = round_to_int(item_bounds.x + 10.0F * scale);
-        const int check_y =
-            round_to_int(item_bounds.y + item_bounds.height * 0.5F);
-        MoveToEx(device_context, check_x, check_y, nullptr);
-        LineTo(device_context, check_x + 3, check_y + 3);
-        LineTo(device_context, check_x + 8, check_y - 3);
-        SelectObject(device_context, prev_pen);
-        DeleteObject(check_pen);
+    bool is_checked = false;
+    if (menu_index == 12) {
+      if (index < m_run_config_state.available_targets.size()) {
+        is_checked = (m_run_config_state.available_targets[index].name == m_run_config_state.active_target_name);
       }
+    } else if (m_command_state_query_callback && !item.command_id.empty()) {
+      is_checked = m_command_state_query_callback(item.command_id).checked;
+    }
+
+    if (is_checked) {
+      HPEN check_pen = CreatePen(
+          PS_SOLID, 2,
+          to_color_ref(hovered ? UI::Theme::Color{255, 255, 255, 255}
+                               : m_theme.text_primary));
+      HGDIOBJ prev_pen = SelectObject(device_context, check_pen);
+      const int check_x = round_to_int(item_bounds.x + 10.0F * scale);
+      const int check_y =
+          round_to_int(item_bounds.y + item_bounds.height * 0.5F);
+      MoveToEx(device_context, check_x, check_y, nullptr);
+      LineTo(device_context, check_x + 3, check_y + 3);
+      LineTo(device_context, check_x + 8, check_y - 3);
+      SelectObject(device_context, prev_pen);
+      DeleteObject(check_pen);
     }
   }
 }

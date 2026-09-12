@@ -53,6 +53,14 @@ public:
         const std::filesystem::path& workspace_root,
         const std::filesystem::path& active_file = {});
 
+    [[nodiscard]] const std::vector<UI::Toolbar::BinaryTargetProfile>& get_available_targets() const noexcept { return m_available_targets; }
+    [[nodiscard]] std::size_t get_selected_target_index() const noexcept { return m_selected_target_index; }
+    [[nodiscard]] const UI::Toolbar::BinaryTargetProfile* get_active_profile() const noexcept;
+
+    bool select_target_by_index(std::size_t index);
+    bool select_target_by_name(std::string_view name);
+    bool select_target_by_classification(UI::Toolbar::ToolClassification classification);
+
     void set_active_target(std::string_view target) { m_active_target = std::string(target); }
     void set_active_mode(std::string_view mode) { m_active_mode = std::string(mode); }
     void set_active_arch(std::string_view arch) { m_active_arch = std::string(arch); }
@@ -63,7 +71,7 @@ public:
     [[nodiscard]] std::string_view get_active_target() const noexcept {
         if (!m_active_target.empty()) return m_active_target;
         if (!m_detected_project_name.empty()) return m_detected_project_name;
-        return "Project";
+        return {};
     }
     [[nodiscard]] std::string_view get_active_mode() const noexcept { return m_active_mode; }
     [[nodiscard]] std::string_view get_active_arch() const noexcept { return m_active_arch; }
@@ -77,6 +85,9 @@ private:
 
     StudioActions m_actions;
     Commands::CommandRegistry m_command_registry;
+    std::filesystem::path m_workspace_root;
+    std::vector<UI::Toolbar::BinaryTargetProfile> m_available_targets;
+    std::size_t m_selected_target_index = 0;
     std::string m_active_target;
     std::string m_detected_project_name;
     std::string m_active_mode = "Debug";

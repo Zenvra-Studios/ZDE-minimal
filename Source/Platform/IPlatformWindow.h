@@ -28,6 +28,7 @@ struct WindowCapabilities
 
 using TitlebarHitTestCallback = std::function<bool(double, double)>;
 using CommandInvokedCallback = std::function<void(std::string_view)>;
+using WorkspaceChangedCallback = std::function<void(const std::filesystem::path&)>;
 
 struct CommandPresentationState
 {
@@ -65,6 +66,7 @@ public:
     virtual void set_titlebar_hit_test_callback(TitlebarHitTestCallback callback) = 0;
     virtual void set_command_invoked_callback(CommandInvokedCallback callback) = 0;
     virtual void set_command_state_query_callback(CommandStateQueryCallback callback) = 0;
+    virtual void set_workspace_changed_callback(WorkspaceChangedCallback callback) { (void)callback; }
 
     /// Prompts the user to select a workspace folder (e.g. "Open Project").
     /// Returns true when the dialog was shown (regardless of the user's
@@ -89,6 +91,15 @@ public:
     /// Toggles the integrated terminal panel visibility.
     virtual void toggle_terminal() {}
 
+    /// Executes a command string in the integrated interactive terminal.
+    virtual bool execute_in_terminal(std::string_view /*command*/, const std::filesystem::path& /*working_directory*/ = {}) { return false; }
+
+    /// Shows the bottom panel on the Output channel for build logs.
+    virtual void show_output_panel() {}
+
+    /// Refreshes discovered binary configurations in the UI.
+    virtual void refresh_configurations() {}
+
     /// Toggles the shader sandbox panel visibility.
     virtual void toggle_shader_sandbox() {}
 
@@ -97,6 +108,15 @@ public:
 
     /// Returns true if a modal is currently open and active.
     [[nodiscard]] virtual bool is_modal_active() const { return false; }
+
+    /// Gets the currently selected build configuration mode (e.g. "Debug" or "Release").
+    [[nodiscard]] virtual std::string get_active_mode() const { return "Debug"; }
+
+    /// Gets the currently selected target architecture (e.g. "x86_64", "x86", "arm64", "arm32").
+    [[nodiscard]] virtual std::string get_active_arch() const { return "x86_64"; }
+
+    /// Gets the currently selected binary target name.
+    [[nodiscard]] virtual std::string get_active_target_name() const { return {}; }
 };
 
 } // namespace Zenvra::Platform

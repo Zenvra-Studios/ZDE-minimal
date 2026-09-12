@@ -1,9 +1,12 @@
 #include "Application/ViewModels/StudioViewModel.h"
 
 #include "Commands/CommandIds.h"
+#include "Language/Toolchain/ToolchainDetector.h"
 #include "Platform/HostSystem.h"
 #include "Tools/Classification/ProjectToolClassifier.h"
+#include "UI/Components/MenuModel.h"
 
+#include <cctype>
 #include <iostream>
 #include <string>
 #include <utility>
@@ -13,6 +16,24 @@ namespace Zenvra::Application::ViewModels
 
 namespace
 {
+
+std::string resolve_toolchain_label(std::string_view preset_name)
+{
+    const auto& tc = Language::Toolchain::ToolchainDetector::instance().get_active_toolchain();
+    if (tc.kind == Language::Toolchain::ToolchainKind::Clang) return "Clang";
+    if (tc.kind == Language::Toolchain::ToolchainKind::MSVC) return "MSVC";
+    if (tc.kind == Language::Toolchain::ToolchainKind::MinGW_GCC || tc.kind == Language::Toolchain::ToolchainKind::Gcc) return "GCC";
+
+    std::string lower_preset;
+    lower_preset.reserve(preset_name.size());
+    for (char c : preset_name) lower_preset.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+
+    if (lower_preset.find("clang") != std::string::npos) return "Clang";
+    if (lower_preset.find("msvc") != std::string::npos) return "MSVC";
+    if (lower_preset.find("gcc") != std::string::npos || lower_preset.find("mingw") != std::string::npos) return "GCC";
+
+    return tc.is_ready() ? tc.name : "Clang";
+}
 
 Commands::Command create_unavailable_command(
     std::string_view command_id,
@@ -46,27 +67,49 @@ StudioViewModel::StudioViewModel(
     {
         configure_for_workspace(workspace_root);
     }
+    else
+    {
+        UI::Components::set_dynamic_binary_targets({});
+    }
 }
 
 void StudioViewModel::configure_for_workspace(
     const std::filesystem::path& workspace_root,
     const std::filesystem::path& active_file)
 {
+    for (const auto& prev_target : m_available_targets)
+    {
+        m_command_registry.unregister_command("zde.target.select:" + prev_target.name);
+    }
+
+    if (!workspace_root.empty())
+    {
+        m_workspace_root = workspace_root;
+    }
+    else
+    {
+        m_workspace_root.clear();
+    }
+
     if (workspace_root.empty() && active_file.empty())
     {
+        m_available_targets.clear();
+        m_selected_target_index = 0;
         m_active_target.clear();
         m_detected_project_name.clear();
         m_active_classification = UI::Toolbar::ToolClassification::CMake;
         m_active_executable_path.clear();
+        UI::Components::set_dynamic_binary_targets({});
         return;
     }
 
-    const auto targets = Tools::Classification::ProjectToolClassifier::detect_configurations(
+    m_available_targets = Tools::Classification::ProjectToolClassifier::detect_configurations(
         workspace_root, active_file);
 
-    if (!targets.empty())
+    if (!m_available_targets.empty())
     {
-        const auto& primary = targets.front();
+        m_selected_target_index = 0;
+        const auto& primary = m_available_targets.front();
         m_active_target = primary.name;
         m_detected_project_name = primary.name;
         m_active_classification = primary.classification;
@@ -74,20 +117,89 @@ void StudioViewModel::configure_for_workspace(
     }
     else if (!workspace_root.empty())
     {
+        m_selected_target_index = 0;
         m_detected_project_name = workspace_root.filename().string();
         m_active_target = m_detected_project_name;
         m_active_classification = UI::Toolbar::ToolClassification::CustomExecutable;
         m_active_executable_path.clear();
     }
+
+    for (const auto& target : m_available_targets)
+    {
+        const std::string cmd_id = "zde.target.select:" + target.name;
+        const std::string tname = target.name;
+        m_command_registry.register_command(Commands::Command{
+            .id = cmd_id,
+            .name = "Select Target " + tname,
+            .description = "Select binary target " + tname,
+            .category = "Run",
+            .shortcut_binding = {},
+            .execute = [this, tname] {
+                select_target_by_name(tname);
+            },
+            .is_enabled = [] { return true; },
+            .is_checked = [this, tname] {
+                return m_active_target == tname;
+            },
+        });
+    }
+
+    const std::string tc_label = resolve_toolchain_label(m_active_preset);
+    UI::Components::set_dynamic_binary_targets(m_available_targets, tc_label);
+}
+
+const UI::Toolbar::BinaryTargetProfile* StudioViewModel::get_active_profile() const noexcept
+{
+    if (m_selected_target_index < m_available_targets.size())
+    {
+        return &m_available_targets[m_selected_target_index];
+    }
+    return nullptr;
+}
+
+bool StudioViewModel::select_target_by_index(std::size_t index)
+{
+    if (index >= m_available_targets.size())
+    {
+        return false;
+    }
+    m_selected_target_index = index;
+    const auto& target = m_available_targets[index];
+    m_active_target = target.name;
+    m_active_classification = target.classification;
+    m_active_executable_path = target.executable_path;
+    return true;
+}
+
+bool StudioViewModel::select_target_by_name(std::string_view name)
+{
+    for (std::size_t i = 0; i < m_available_targets.size(); ++i)
+    {
+        if (m_available_targets[i].name == name)
+        {
+            return select_target_by_index(i);
+        }
+    }
+    m_active_target = std::string(name);
+    return false;
+}
+
+bool StudioViewModel::select_target_by_classification(UI::Toolbar::ToolClassification classification)
+{
+    for (std::size_t i = 0; i < m_available_targets.size(); ++i)
+    {
+        if (m_available_targets[i].classification == classification)
+        {
+            return select_target_by_index(i);
+        }
+    }
+    m_active_classification = classification;
+    return false;
 }
 
 bool StudioViewModel::initialize()
 {
-    if (m_initialized)
-    {
-        return true;
-    }
-
+    m_command_registry = Commands::CommandRegistry{};
     m_initialized = register_available_commands() && register_future_commands();
     if (!m_initialized)
     {
@@ -98,6 +210,12 @@ bool StudioViewModel::initialize()
 
 Commands::CommandExecutionResult StudioViewModel::execute_command(std::string_view command_id) const
 {
+    if (command_id.starts_with("zde.target.select:"))
+    {
+        const std::string_view tname = command_id.substr(std::string_view("zde.target.select:").size());
+        const_cast<StudioViewModel*>(this)->select_target_by_name(tname);
+        return Commands::CommandExecutionResult::Executed;
+    }
     return m_command_registry.execute_command(command_id);
 }
 
@@ -194,6 +312,18 @@ bool StudioViewModel::register_available_commands()
                      .shortcut_binding = {},
                      .execute = m_actions.request_debug,
                      .is_enabled = [this] { return static_cast<bool>(m_actions.request_debug); },
+                     .is_checked = {},
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::run_stop),
+                     .name = "Stop",
+                     .description = "Stop the active running target process.",
+                     .category = "Run",
+                     .shortcut_binding = {},
+                     .execute = m_actions.request_stop,
+                     .is_enabled = [this] { return static_cast<bool>(m_actions.request_stop); },
                      .is_checked = {},
                  }) &&
         registered;
@@ -316,13 +446,24 @@ bool StudioViewModel::register_available_commands()
                      .category = "Run",
                      .shortcut_binding = {},
                      .execute = [this] {
-                         m_active_target = m_detected_project_name.empty() ? "Project" : m_detected_project_name;
-                         m_active_classification = UI::Toolbar::ToolClassification::CMake;
+                         if (!m_available_targets.empty())
+                         {
+                             select_target_by_index(0);
+                         }
+                         else if (!select_target_by_classification(UI::Toolbar::ToolClassification::CMake))
+                         {
+                             m_active_target = m_detected_project_name.empty() ? "Project" : m_detected_project_name;
+                             m_active_classification = UI::Toolbar::ToolClassification::CMake;
+                         }
                      },
                      .is_enabled = [] { return true; },
                      .is_checked = [this] {
+                         if (!m_available_targets.empty())
+                         {
+                             return m_selected_target_index == 0;
+                         }
                          const std::string proj = m_detected_project_name.empty() ? "Project" : m_detected_project_name;
-                         return m_active_target == proj;
+                         return m_active_target == proj || m_active_classification == UI::Toolbar::ToolClassification::CMake;
                      },
                  }) &&
         registered;
@@ -334,15 +475,27 @@ bool StudioViewModel::register_available_commands()
                      .category = "Run",
                      .shortcut_binding = {},
                      .execute = [this] {
+                         for (std::size_t i = 0; i < m_available_targets.size(); ++i)
+                         {
+                             const auto& name = m_available_targets[i].name;
+                             if (name.find("Test") != std::string::npos || name.find("test") != std::string::npos)
+                             {
+                                 select_target_by_index(i);
+                                 return;
+                             }
+                         }
+                         if (m_available_targets.size() > 1)
+                         {
+                             select_target_by_index(1);
+                             return;
+                         }
                          const std::string proj = m_detected_project_name.empty() ? "Project" : m_detected_project_name;
                          m_active_target = (proj == "ZDE") ? "ZDEUnitTests" : (proj + "Tests");
                          m_active_classification = UI::Toolbar::ToolClassification::CMake;
                      },
                      .is_enabled = [] { return true; },
                      .is_checked = [this] {
-                         const std::string proj = m_detected_project_name.empty() ? "Project" : m_detected_project_name;
-                         const std::string test_name = (proj == "ZDE") ? "ZDEUnitTests" : (proj + "Tests");
-                         return m_active_target == test_name;
+                         return m_active_target.find("Test") != std::string::npos || m_active_target.find("test") != std::string::npos;
                      },
                  }) &&
         registered;
@@ -354,9 +507,21 @@ bool StudioViewModel::register_available_commands()
                      .category = "Run",
                      .shortcut_binding = {},
                      .execute = [this] {
-                         m_active_classification = UI::Toolbar::ToolClassification::Python;
-                         if (m_active_target.find(".py") == std::string::npos && m_active_target != m_detected_project_name) {
-                             m_active_target = m_detected_project_name.empty() ? "main.py" : m_detected_project_name;
+                         if (!select_target_by_classification(UI::Toolbar::ToolClassification::Python))
+                         {
+                             const auto targets = Tools::Classification::ProjectToolClassifier::detect_configurations(m_workspace_root);
+                             for (const auto& t : targets) {
+                                 if (t.classification == UI::Toolbar::ToolClassification::Python) {
+                                     m_active_target = t.name;
+                                     m_active_executable_path = t.executable_path;
+                                     m_active_classification = UI::Toolbar::ToolClassification::Python;
+                                     return;
+                                 }
+                             }
+                             m_active_classification = UI::Toolbar::ToolClassification::Python;
+                             if (m_active_target.find(".py") == std::string::npos && m_active_target != m_detected_project_name) {
+                                 m_active_target = m_detected_project_name.empty() ? "main.py" : m_detected_project_name;
+                             }
                          }
                      },
                      .is_enabled = [] { return true; },
@@ -371,9 +536,21 @@ bool StudioViewModel::register_available_commands()
                      .category = "Run",
                      .shortcut_binding = {},
                      .execute = [this] {
-                         m_active_classification = UI::Toolbar::ToolClassification::Java;
-                         if (m_active_target.find(".java") == std::string::npos && m_active_target != m_detected_project_name) {
-                             m_active_target = m_detected_project_name.empty() ? "Java Application" : m_detected_project_name;
+                         if (!select_target_by_classification(UI::Toolbar::ToolClassification::Java))
+                         {
+                             const auto targets = Tools::Classification::ProjectToolClassifier::detect_configurations(m_workspace_root);
+                             for (const auto& t : targets) {
+                                 if (t.classification == UI::Toolbar::ToolClassification::Java) {
+                                     m_active_target = t.name;
+                                     m_active_executable_path = t.executable_path;
+                                     m_active_classification = UI::Toolbar::ToolClassification::Java;
+                                     return;
+                                 }
+                             }
+                             m_active_classification = UI::Toolbar::ToolClassification::Java;
+                             if (m_active_target.find(".java") == std::string::npos && m_active_target != m_detected_project_name) {
+                                 m_active_target = m_detected_project_name.empty() ? "Java Application" : m_detected_project_name;
+                             }
                          }
                      },
                      .is_enabled = [] { return true; },
@@ -388,9 +565,21 @@ bool StudioViewModel::register_available_commands()
                      .category = "Run",
                      .shortcut_binding = {},
                      .execute = [this] {
-                         m_active_classification = UI::Toolbar::ToolClassification::Pascal;
-                         if (m_active_target.find(".pas") == std::string::npos && m_active_target != m_detected_project_name) {
-                             m_active_target = m_detected_project_name.empty() ? "Pascal Program" : m_detected_project_name;
+                         if (!select_target_by_classification(UI::Toolbar::ToolClassification::Pascal))
+                         {
+                             const auto targets = Tools::Classification::ProjectToolClassifier::detect_configurations(m_workspace_root);
+                             for (const auto& t : targets) {
+                                 if (t.classification == UI::Toolbar::ToolClassification::Pascal) {
+                                     m_active_target = t.name;
+                                     m_active_executable_path = t.executable_path;
+                                     m_active_classification = UI::Toolbar::ToolClassification::Pascal;
+                                     return;
+                                 }
+                             }
+                             m_active_classification = UI::Toolbar::ToolClassification::Pascal;
+                             if (m_active_target.find(".pas") == std::string::npos && m_active_target != m_detected_project_name) {
+                                 m_active_target = m_detected_project_name.empty() ? "Pascal Program" : m_detected_project_name;
+                             }
                          }
                      },
                      .is_enabled = [] { return true; },
@@ -405,8 +594,20 @@ bool StudioViewModel::register_available_commands()
                      .category = "Run",
                      .shortcut_binding = {},
                      .execute = [this] {
-                         m_active_classification = UI::Toolbar::ToolClassification::TomlCargo;
-                         m_active_target = m_detected_project_name.empty() ? "Cargo Run" : m_detected_project_name;
+                         if (!select_target_by_classification(UI::Toolbar::ToolClassification::TomlCargo))
+                         {
+                             const auto targets = Tools::Classification::ProjectToolClassifier::detect_configurations(m_workspace_root);
+                             for (const auto& t : targets) {
+                                 if (t.classification == UI::Toolbar::ToolClassification::TomlCargo && t.id.find("test") == std::string::npos) {
+                                     m_active_target = t.name;
+                                     m_active_executable_path = t.executable_path;
+                                     m_active_classification = UI::Toolbar::ToolClassification::TomlCargo;
+                                     return;
+                                 }
+                             }
+                             m_active_classification = UI::Toolbar::ToolClassification::TomlCargo;
+                             m_active_target = m_detected_project_name.empty() ? "Cargo Run" : m_detected_project_name;
+                         }
                      },
                      .is_enabled = [] { return true; },
                      .is_checked = [this] { return m_active_classification == UI::Toolbar::ToolClassification::TomlCargo; },

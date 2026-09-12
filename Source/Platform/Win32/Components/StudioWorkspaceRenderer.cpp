@@ -714,7 +714,11 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     if (sidebar_res.action == SidebarActionKind::OpenFile && sidebar_res.path) {
       if (sidebar_res.path->string() == "::OPEN_FOLDER::") {
         if (const auto folder = Platform::open_folder_dialog()) {
-          set_workspace_root(*folder);
+          if (m_workspace_root_request_handler) {
+            static_cast<void>(m_workspace_root_request_handler(*folder));
+          } else {
+            static_cast<void>(set_workspace_root(*folder));
+          }
         }
         return true;
       }

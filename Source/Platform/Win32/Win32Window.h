@@ -54,6 +54,9 @@ public:
   void set_command_invoked_callback(CommandInvokedCallback callback) override;
   void
   set_command_state_query_callback(CommandStateQueryCallback callback) override;
+  void set_workspace_changed_callback(WorkspaceChangedCallback callback) override {
+    m_workspace_changed_callback = std::move(callback);
+  }
 
   [[nodiscard]] bool open_project_folder() override;
   [[nodiscard]] bool set_workspace_root(const std::filesystem::path &root) override;
@@ -62,9 +65,16 @@ public:
   [[nodiscard]] std::filesystem::path get_workspace_root() const override;
   [[nodiscard]] bool close_project() override;
   void toggle_terminal() override;
+  bool execute_in_terminal(std::string_view command,
+                           const std::filesystem::path &working_directory = {}) override;
+  void show_output_panel() override;
+  void refresh_configurations() override;
   void toggle_shader_sandbox() override;
   void show_about_dialog() override;
   [[nodiscard]] bool is_modal_active() const override;
+  [[nodiscard]] std::string get_active_mode() const override;
+  [[nodiscard]] std::string get_active_arch() const override;
+  [[nodiscard]] std::string get_active_target_name() const override;
 
 private:
   static constexpr std::size_t max_popup_menu_items = 16;
@@ -147,10 +157,13 @@ private:
   bool m_should_close = false;
   bool m_custom_chrome_enabled = false;
   bool m_is_fullscreen = false;
+
   WINDOWPLACEMENT m_saved_placement{};
   TitlebarHitTestCallback m_titlebar_hit_test_callback;
   CommandInvokedCallback m_command_invoked_callback;
   CommandStateQueryCallback m_command_state_query_callback;
+  WorkspaceChangedCallback m_workspace_changed_callback;
+
   Components::Menubar m_menubar;
   Components::StudioWorkspaceRenderer m_workspace_renderer;
   UI::Theme::StudioTheme m_theme = UI::Theme::StudioTheme::zenvra_dark_modern();

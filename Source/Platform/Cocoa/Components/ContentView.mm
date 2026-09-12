@@ -1,4 +1,4 @@
-#import "Platform/Cocoa/Components/ZenvraContentView.h"
+#import "Platform/Cocoa/Components/ContentView.h"
 
 #include "Platform/Cocoa/Components/CocoaChromeRenderer.h"
 #include "Platform/Cocoa/Components/FileDropTarget.h"

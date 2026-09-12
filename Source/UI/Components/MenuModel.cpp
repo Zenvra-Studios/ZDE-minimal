@@ -1,6 +1,8 @@
 #include "UI/Components/MenuModel.h"
 #include "Commands/CommandIds.h"
 #include <array>
+#include <string>
+#include <vector>
 
 namespace Zenvra::UI::Components
 {
@@ -186,7 +188,16 @@ constexpr std::array ellipsis_items{
     MenuItem{"More Tools...", Commands::CommandIds::more_tools, false, ""},
 };
 
-constexpr std::array menus{
+struct DynamicBinaryItemStorage
+{
+    std::string label;
+    std::string command_id;
+};
+
+static std::vector<DynamicBinaryItemStorage> s_dynamic_storage;
+static std::vector<MenuItem> s_dynamic_binary_items;
+
+static std::array<Menu, 15> s_window_menus = {
     Menu{"File", file_items},
     Menu{"Edit", edit_items},
     Menu{"Selection", selection_items},
@@ -207,9 +218,81 @@ constexpr std::array menus{
 
 } // namespace
 
+void set_dynamic_binary_targets(
+    std::span<const Toolbar::BinaryTargetProfile> targets,
+    std::string_view toolchain_name)
+{
+    s_dynamic_storage.clear();
+    s_dynamic_binary_items.clear();
+
+    if (targets.empty())
+    {
+        s_dynamic_storage.push_back({ "No Configurations", "" });
+        s_dynamic_binary_items.push_back(MenuItem{
+            s_dynamic_storage.back().label,
+            s_dynamic_storage.back().command_id,
+            false,
+            {}
+        });
+    }
+    else
+    {
+        for (std::size_t i = 0; i < targets.size(); ++i)
+        {
+            const auto& t = targets[i];
+            std::string prefix;
+            switch (t.classification)
+            {
+            case Toolbar::ToolClassification::CMake:
+                prefix = !toolchain_name.empty() ? ("[" + std::string(toolchain_name) + "/CMake] ") : "[CMake] ";
+                break;
+            case Toolbar::ToolClassification::TomlCargo:
+                prefix = "[Cargo] ";
+                break;
+            case Toolbar::ToolClassification::Python:
+                prefix = "[Python] ";
+                break;
+            case Toolbar::ToolClassification::Java:
+                prefix = "[Java] ";
+                break;
+            case Toolbar::ToolClassification::Pascal:
+                prefix = "[Pascal] ";
+                break;
+            case Toolbar::ToolClassification::CustomExecutable:
+            default:
+                prefix = "[Binary] ";
+                break;
+            }
+
+            std::string label = prefix + t.name;
+            std::string cmd_id = "zde.target.select:" + t.name;
+
+            s_dynamic_storage.push_back({ std::move(label), std::move(cmd_id) });
+            s_dynamic_binary_items.push_back(MenuItem{
+                s_dynamic_storage.back().label,
+                s_dynamic_storage.back().command_id,
+                false,
+                {}
+            });
+        }
+    }
+
+    // Add separator & Edit Configurations...
+    s_dynamic_binary_items.push_back(separator);
+    s_dynamic_storage.push_back({ "Edit Configurations...", std::string(Commands::CommandIds::edit_profiles) });
+    s_dynamic_binary_items.push_back(MenuItem{
+        s_dynamic_storage.back().label,
+        s_dynamic_storage.back().command_id,
+        false,
+        {}
+    });
+
+    s_window_menus[12].items = s_dynamic_binary_items;
+}
+
 std::span<const Menu> get_window_menus() noexcept
 {
-    return menus;
+    return s_window_menus;
 }
 
 std::span<const MenuItem> get_compiler_menu() noexcept
@@ -224,7 +307,7 @@ std::span<const MenuItem> get_platform_menu() noexcept
 
 std::span<const MenuItem> get_binary_menu() noexcept
 {
-    return binary_items;
+    return s_dynamic_binary_items.empty() ? std::span<const MenuItem>(binary_items) : std::span<const MenuItem>(s_dynamic_binary_items);
 }
 
 std::span<const MenuItem> get_gear_menu() noexcept

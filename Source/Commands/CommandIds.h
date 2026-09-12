@@ -97,6 +97,7 @@ inline constexpr std::string_view project_close = "zde.project.close";
 inline constexpr std::string_view build_build_project = "zde.build.buildProject";
 inline constexpr std::string_view run_start = "zde.run.start";
 inline constexpr std::string_view run_debug = "zde.run.debug";
+inline constexpr std::string_view run_stop = "zde.run.stop";
 inline constexpr std::string_view help_welcome = "zde.help.welcome";
 inline constexpr std::string_view help_show_all_commands = "zde.help.showAllCommands";
 inline constexpr std::string_view help_editor_playground = "zde.help.editorPlayground";

@@ -124,6 +124,26 @@ bool TerminalPanel::toggle() {
   return changed;
 }
 
+bool TerminalPanel::execute_command(std::string_view command,
+                                    const std::filesystem::path &working_directory) {
+  if (!m_model.is_visible()) {
+    static_cast<void>(toggle());
+  }
+  set_active_channel(PanelChannel::Terminal);
+  if (m_model.get_sessions().empty()) {
+    const auto dir = working_directory.empty() ? current_terminal_directory(m_working_directory) : working_directory;
+    static_cast<void>(m_model.create_session(dir));
+  }
+  m_model.set_focused(true);
+  Terminal::TerminalSession *session = m_model.get_active_session();
+  if (session == nullptr) {
+    return false;
+  }
+  std::string cmd_str(command);
+  cmd_str += "\r\n";
+  return session->write_input(cmd_str);
+}
+
 bool TerminalPanel::handle_pointer_press(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) {

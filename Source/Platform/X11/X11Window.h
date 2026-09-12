@@ -55,6 +55,9 @@ public:
     void set_titlebar_hit_test_callback(TitlebarHitTestCallback callback) override;
     void set_command_invoked_callback(CommandInvokedCallback callback) override;
     void set_command_state_query_callback(CommandStateQueryCallback callback) override;
+    void set_workspace_changed_callback(WorkspaceChangedCallback callback) override {
+        m_workspace_changed_callback = std::move(callback);
+    }
 
     [[nodiscard]] bool open_project_folder() override;
     [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root) override;
@@ -63,9 +66,26 @@ public:
     [[nodiscard]] std::filesystem::path get_workspace_root() const override;
     [[nodiscard]] bool close_project() override;
     void toggle_terminal() override;
+    bool execute_in_terminal(std::string_view command, const std::filesystem::path& working_directory = {}) override;
+    void show_output_panel() override;
+    void refresh_configurations() override;
     void toggle_shader_sandbox() override;
     void show_about_dialog() override;
     [[nodiscard]] bool is_modal_active() const override;
+    [[nodiscard]] std::string get_active_mode() const override {
+        return std::string(UI::Toolbar::to_string(m_chrome_renderer.get_run_config_state().active_mode));
+    }
+    [[nodiscard]] std::string get_active_arch() const override {
+        switch (m_chrome_renderer.get_run_config_state().active_architecture) {
+        case UI::Toolbar::TargetArchitecture::X86: return "x86";
+        case UI::Toolbar::TargetArchitecture::Arm64: return "arm64";
+        case UI::Toolbar::TargetArchitecture::Arm32: return "arm32";
+        default: return "x86_64";
+        }
+    }
+    [[nodiscard]] std::string get_active_target_name() const override {
+        return m_chrome_renderer.get_run_config_state().active_target_name;
+    }
     [[nodiscard]] Window active_modal_window() const;
     void toggle_fullscreen() override;
     [[nodiscard]] bool is_fullscreen() const override;
@@ -195,6 +215,7 @@ private:
     TitlebarHitTestCallback m_titlebar_hit_test_callback;
     CommandInvokedCallback m_command_invoked_callback;
     CommandStateQueryCallback m_command_state_query_callback;
+    WorkspaceChangedCallback m_workspace_changed_callback;
     UI::Theme::StudioTheme m_theme = UI::Theme::StudioTheme::zenvra_dark_modern();
     UI::Chrome::WindowChromeLayout m_chrome_layout_engine;
     UI::Chrome::WindowChromeLayoutResult m_chrome_layout;

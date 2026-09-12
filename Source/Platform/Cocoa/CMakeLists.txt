@@ -19,7 +19,7 @@ add_library(ZDEPlatformCocoa
     Components/TerminalPanel.mm
     Components/TextEditor.mm
     Components/ToolSidebar.mm
-    Components/ZenvraContentView.mm
+    Components/ContentView.mm
 )
 
 target_include_directories(ZDEPlatformCocoa PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../..")

@@ -54,6 +54,10 @@ public:
     [[nodiscard]] const UI::Theme::StudioTheme& get_theme() const noexcept { return m_theme; }
     [[nodiscard]] bool open_file(const std::filesystem::path& path);
     [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root);
+    using WorkspaceRootRequestHandler = std::function<bool(const std::filesystem::path&)>;
+    void set_workspace_root_request_handler(WorkspaceRootRequestHandler handler) {
+        m_workspace_root_request_handler = std::move(handler);
+    }
     [[nodiscard]] bool close_project();
     [[nodiscard]] std::size_t open_dropped_paths(
         std::span<const std::filesystem::path> dropped_paths);
@@ -415,6 +419,7 @@ private:
     mutable UI::Settings::SettingsWindow m_settings_window;
     mutable ToolSwitcherPopup m_tool_switcher_popup;
     mutable std::unordered_map<std::string, std::vector<std::uint32_t>> m_svg_cache;
+    WorkspaceRootRequestHandler m_workspace_root_request_handler;
     SplitterCornerKind m_active_corner_resizing = SplitterCornerKind::None;
 };
 
