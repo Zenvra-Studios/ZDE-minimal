@@ -1,8 +1,10 @@
 #include "Platform/X11/Components/ActivitySidebar.h"
 #include "Platform/X11/Components/StudioWorkspaceRenderer.h"
+#include "Plugins/PluginManager.h"
 #include "Utility/MathUtil.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 
 namespace Zenvra::Platform::X11::Components
@@ -29,6 +31,8 @@ void ActivitySidebar::render(
             return item.placement == UI::Editor::SidebarPlacement::Bottom;
         }));
         
+    const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+
     for (const UI::Editor::SidebarItem& item : items)
     {
         float center_y = 0.0F;
@@ -67,51 +71,82 @@ void ActivitySidebar::render(
                 ? surface.m_shader_sandbox_panel.is_visible()
                 : surface.m_tool_sidebar.is_active(item.icon);
         const bool hovered = surface.m_tool_sidebar.is_hovered(item.icon);
+        const float item_h = UI::Editor::StudioEditorMetrics::sidebar_item_height * surface.m_dpi_scale;
+        const UI::Rect box_rect{
+            layout.activity_bar_bounds.x + 4.0F * surface.m_dpi_scale,
+            center_y - item_h * 0.5F + 3.0F * surface.m_dpi_scale,
+            layout.activity_bar_bounds.width - 8.0F * surface.m_dpi_scale,
+            item_h - 6.0F * surface.m_dpi_scale,
+        };
+        const float box_radius = 5.0F * surface.m_dpi_scale;
+
+        UI::Theme::Color item_bg = is_modern ? surface.m_palette.workspace_background : surface.m_palette.sidebar_background;
+        const auto bg_px = is_modern ? surface.m_pixels.workspace_background : surface.m_pixels.sidebar_background;
+
         if (active)
         {
-            surface.fill_rectangle(
-                drawable,
-                UI::Rect{
+            if (is_modern)
+            {
+                const UI::Theme::Color active_tint = surface.m_palette.is_dark
+                    ? UI::Theme::Color{255, 255, 255, 28}
+                    : UI::Theme::Color{0, 102, 204, 28};
+                const uint32_t a = active_tint.alpha;
+                const auto& sbg = surface.m_palette.workspace_background;
+                item_bg = UI::Theme::Color{
+                    static_cast<uint8_t>((active_tint.red * a + sbg.red * (255 - a) + 127) / 255),
+                    static_cast<uint8_t>((active_tint.green * a + sbg.green * (255 - a) + 127) / 255),
+                    static_cast<uint8_t>((active_tint.blue * a + sbg.blue * (255 - a) + 127) / 255),
+                    255
+                };
+                surface.fill_rounded_rectangle(
+                    drawable, box_rect, surface.allocate_color(item_bg), box_radius,
+                    bg_px);
+            }
+            else
+            {
+                const UI::Rect pill_rect{
                     layout.activity_bar_bounds.x,
-                    center_y - UI::Editor::StudioEditorMetrics::sidebar_item_height *
-                        0.5F * surface.m_dpi_scale,
-                    layout.activity_bar_bounds.width,
-                    UI::Editor::StudioEditorMetrics::sidebar_item_height * surface.m_dpi_scale,
-                },
-                surface.m_pixels.tab_active_background);
-            surface.fill_rectangle(
-                drawable,
-                UI::Rect{
-                    layout.activity_bar_bounds.x,
-                    center_y - 13.0F * surface.m_dpi_scale,
-                    2.0F * surface.m_dpi_scale,
-                    26.0F * surface.m_dpi_scale,
-                },
-                surface.m_pixels.text_primary);
+                    center_y - 12.0F * surface.m_dpi_scale,
+                    2.5F * surface.m_dpi_scale,
+                    24.0F * surface.m_dpi_scale,
+                };
+                surface.fill_rounded_rectangle(
+                    drawable,
+                    pill_rect,
+                    surface.m_palette.is_dark ? surface.m_pixels.text_primary : surface.m_pixels.accent,
+                    1.25F * surface.m_dpi_scale,
+                    surface.m_pixels.sidebar_background);
+            }
         }
         else if (hovered)
         {
-            surface.fill_rectangle(
-                drawable,
-                UI::Rect{
-                    layout.activity_bar_bounds.x,
-                    center_y - UI::Editor::StudioEditorMetrics::sidebar_item_height *
-                        0.5F * surface.m_dpi_scale,
-                    layout.activity_bar_bounds.width,
-                    UI::Editor::StudioEditorMetrics::sidebar_item_height * surface.m_dpi_scale,
-                },
-                surface.m_pixels.hover_background);
+            const UI::Theme::Color hover_tint = surface.m_palette.is_dark
+                ? UI::Theme::Color{255, 255, 255, 18}
+                : UI::Theme::Color{0, 0, 0, 16};
+            const uint32_t a = hover_tint.alpha;
+            const auto& sbg = is_modern ? surface.m_palette.workspace_background : surface.m_palette.sidebar_background;
+            item_bg = UI::Theme::Color{
+                static_cast<uint8_t>((hover_tint.red * a + sbg.red * (255 - a) + 127) / 255),
+                static_cast<uint8_t>((hover_tint.green * a + sbg.green * (255 - a) + 127) / 255),
+                static_cast<uint8_t>((hover_tint.blue * a + sbg.blue * (255 - a) + 127) / 255),
+                255
+            };
+            surface.fill_rounded_rectangle(
+                drawable, box_rect, surface.allocate_color(item_bg), box_radius,
+                bg_px);
         }
-        draw_icon(surface, drawable, item.icon, center_x, round_to_int(center_y), active, hovered);
+        draw_icon(surface, drawable, item.icon, center_x, round_to_int(center_y), active, hovered, item_bg);
     }
 
-    surface.draw_line(
-        drawable,
-        round_to_int(layout.activity_bar_bounds.right() - 1.0F),
-        round_to_int(layout.activity_bar_bounds.y),
-        round_to_int(layout.activity_bar_bounds.right() - 1.0F),
-        round_to_int(layout.activity_bar_bounds.bottom()),
-        surface.m_pixels.border);
+    if (!is_modern) {
+        surface.draw_line(
+            drawable,
+            round_to_int(layout.activity_bar_bounds.right() - 1.0F),
+            round_to_int(layout.activity_bar_bounds.y),
+            round_to_int(layout.activity_bar_bounds.right() - 1.0F),
+            round_to_int(layout.activity_bar_bounds.bottom()),
+            surface.m_pixels.border);
+    }
 }
 
 /**
@@ -124,7 +159,8 @@ void ActivitySidebar::draw_icon(
     int center_x,
     int center_y,
     bool active,
-    bool hovered) const
+    bool hovered,
+    const UI::Theme::Color& background) const
 {
     const int size = std::max(round_to_int(UI::Editor::StudioEditorMetrics::sidebar_icon_size * surface.m_dpi_scale), 14);
     std::string svg_path;
@@ -145,6 +181,29 @@ void ActivitySidebar::draw_icon(
     case UI::Editor::SidebarIcon::Shader:
         svg_path = "Assets/icons/material-icon-theme/shader.svg";
         break;
+    case UI::Editor::SidebarIcon::ToolPlugin: {
+        auto& pm = Zenvra::Plugins::PluginManager::instance();
+        auto tool = pm.get_active_tool_plugin();
+        std::string tool_name = tool ? tool->get_name() : "";
+        std::string tool_id = tool ? tool->get_id() : "";
+        std::string tool_lower = tool_name;
+        for (char& c : tool_lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+        if (tool_lower.find("docker") != std::string::npos || tool_id.find("docker") != std::string::npos) {
+            svg_path = "Assets/icons/material-icon-theme/docker.svg";
+        } else if (tool_lower.find("qemu") != std::string::npos || tool_id.find("qemu") != std::string::npos) {
+            svg_path = "Assets/icons/vscode-codicons/icons/chip.svg";
+        } else if (tool_lower.find("gdb") != std::string::npos || tool_lower.find("debug") != std::string::npos) {
+            svg_path = "Assets/icons/vscode-codicons/icons/debug-alt.svg";
+        } else if (tool_lower.find("wasm") != std::string::npos) {
+            svg_path = "Assets/icons/vscode-codicons/icons/server.svg";
+        } else if (tool_lower.find("cmake") != std::string::npos || tool_id.find("cmake") != std::string::npos) {
+            svg_path = "Assets/icons/cmake.svg";
+        } else {
+            svg_path = "Assets/icons/vscode-codicons/icons/tools.svg";
+        }
+        break;
+    }
     case UI::Editor::SidebarIcon::Run:
         svg_path = "Assets/icons/play.svg";
         break;
@@ -161,20 +220,22 @@ void ActivitySidebar::draw_icon(
 
     if (!svg_path.empty())
     {
+        // ToolPlugin icons use material-icon-theme SVGs with more internal
+        // padding; scale up to match other sidebar icons (ported from Win32).
+        const int draw_size = (icon == UI::Editor::SidebarIcon::ToolPlugin)
+            ? std::max(round_to_int(UI::Editor::StudioEditorMetrics::sidebar_icon_size * 1.33F * surface.m_dpi_scale), 18)
+            : size;
         const UI::Theme::Color icon_color = active
-            ? UI::Theme::Color{255, 255, 255, 255}
+            ? (surface.m_palette.is_dark ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.accent)
             : (hovered ? surface.m_palette.text_primary : surface.m_palette.text_muted);
-        const UI::Theme::Color bg_color = active
-            ? surface.m_palette.tab_active_background
-            : (hovered ? surface.m_palette.hover_background : surface.m_palette.sidebar_background);
         surface.draw_svg_icon(
             drawable,
             svg_path,
             center_x,
             center_y,
-            size,
+            draw_size,
             icon_color,
-            bg_color,
+            background,
             false);
     }
 }

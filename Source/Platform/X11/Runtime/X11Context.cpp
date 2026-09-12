@@ -1,8 +1,11 @@
 #include "Platform/X11/Runtime/X11Context.h"
 
 #include <cstdlib>
+#include <execinfo.h>
 #include <iostream>
 #include <mutex>
+
+#include <execinfo.h>
 
 namespace
 {
@@ -76,9 +79,12 @@ int X11Context::x11_error_handler(Display* display, XErrorEvent* event)
 {
     char error_text[1024]{};
     XGetErrorText(display, event->error_code, error_text, sizeof(error_text));
-    std::cerr << "X11 error: " << error_text
-              << " (request: " << static_cast<int>(event->request_code)
-              << ", minor: " << static_cast<int>(event->minor_code) << ")\n";
+    // Filter non-fatal GLX / extension probe errors
+    if (event->request_code != 150) {
+        std::cerr << "X11 error: " << error_text
+                  << " (request: " << static_cast<int>(event->request_code)
+                  << ", minor: " << static_cast<int>(event->minor_code) << ")\n";
+    }
     return 0;
 }
 

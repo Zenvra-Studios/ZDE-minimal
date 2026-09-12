@@ -6,8 +6,11 @@
 #include "Platform/X11/Components/TerminalPanel.h"
 #include "Platform/X11/Components/TextEditor.h"
 #include "Platform/X11/Components/ToolSidebar.h"
+#include "Platform/X11/Components/ToolSwitcherPopup.h"
 #include "UI/Components/PromptModal.h"
 #include "UI/Editor/StudioEditorModel.h"
+#include "UI/Settings/SettingsWindow.h"
+#include "Drivers/Graphics/BackdropBlurPipeline.h"
 
 #include <X11/Xlib.h>
 
@@ -106,6 +109,8 @@ public:
         int client_width,
         int client_height,
         float content_top) noexcept;
+    [[nodiscard]] bool is_search_focused() const noexcept;
+    [[nodiscard]] bool handle_search_key(KeySym sym, unsigned int state);
     [[nodiscard]] bool is_editor_focused() const noexcept;
     [[nodiscard]] bool is_terminal_focused() const noexcept;
     [[nodiscard]] bool is_activity_bar_point(
@@ -173,6 +178,15 @@ public:
     void render_prompt_modal(Drawable drawable, int client_width, int client_height) const;
     [[nodiscard]] ToolSidebar& get_tool_sidebar() noexcept { return m_tool_sidebar; }
     [[nodiscard]] const ToolSidebar& get_tool_sidebar() const noexcept { return m_tool_sidebar; }
+    [[nodiscard]] ToolSwitcherPopup& get_tool_switcher_popup() noexcept { return m_tool_switcher_popup; }
+    [[nodiscard]] const ToolSwitcherPopup& get_tool_switcher_popup() const noexcept { return m_tool_switcher_popup; }
+    [[nodiscard]] bool is_settings_window_visible() const noexcept;
+    [[nodiscard]] UI::Settings::SettingsWindow& get_settings_window() const noexcept { return m_settings_window; }
+    void render_settings_window(Drawable drawable, int client_width, int client_height) const;
+    void apply_theme(const UI::Theme::StudioTheme& theme);
+    void set_open_settings_callback(std::function<void()> callback) {
+      m_open_settings_callback = std::move(callback);
+    }
     [[nodiscard]] TerminalPanel& get_terminal_panel() noexcept { return m_terminal_panel; }
     [[nodiscard]] const TerminalPanel& get_terminal_panel() const noexcept { return m_terminal_panel; }
     [[nodiscard]] TextEditor& get_text_editor() noexcept { return m_text_editor; }
@@ -221,6 +235,26 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_shader_panel_resizing() const noexcept;
+    struct ModernCardGeometry {
+        UI::Rect sidebar_card;
+        UI::Rect editor_card;
+        UI::Rect terminal_card;
+        UI::Rect shader_card;
+        float card_radius = 8.0F;
+    };
+
+    [[nodiscard]] ModernCardGeometry get_modern_card_geometry(
+        int client_width, int client_height, float content_top) const noexcept;
+
+    void apply_solid_card_alpha(
+        uint32_t *pixels, int client_width, int client_height,
+        float content_top) const noexcept;
+
+    [[nodiscard]] Graphics::BlurUniforms to_blur_uniforms(
+        int client_width, int client_height, float content_top) const noexcept;
+
+    [[nodiscard]] const UI::Theme::StudioTheme& get_theme() const noexcept { return m_theme; }
+
     [[nodiscard]] bool toggle_shader_panel() noexcept;
     [[nodiscard]] bool is_shader_panel_visible() const noexcept;
     [[nodiscard]] bool toggle_terminal() noexcept;
@@ -241,6 +275,7 @@ private:
     friend class TerminalPanel;
     friend class TextEditor;
     friend class ToolSidebar;
+    friend class ToolSwitcherPopup;
     friend class X11ChromeRenderer;
     friend class ::Zenvra::Platform::X11::X11Window;
 
@@ -351,7 +386,9 @@ private:
     std::unique_ptr<AntialiasedFont> m_large_font;
     std::filesystem::path m_icon_asset_root;
     UI::Editor::StudioEditorLayout m_layout_engine;
-    UI::Editor::StudioEditorPalette m_palette = UI::Editor::StudioEditorPalette::dark();
+    UI::Editor::StudioEditorPalette m_palette = UI::Editor::StudioEditorPalette::dark_modern();
+    UI::Theme::StudioTheme m_theme = UI::Theme::StudioTheme::zenvra_dark_modern();
+    mutable std::vector<UI::Rect> m_clip_stack;
     PalettePixels m_pixels;
     PaletteText m_text;
     PaletteText m_text_dimmed;
@@ -362,6 +399,9 @@ private:
     mutable TerminalPanel m_terminal_panel;
     mutable ShaderSandboxPanel m_shader_sandbox_panel;
     mutable UI::Components::PromptModal m_prompt_modal;
+    mutable ToolSwitcherPopup m_tool_switcher_popup;
+    mutable UI::Settings::SettingsWindow m_settings_window;
+    std::function<void()> m_open_settings_callback;
     static constexpr std::size_t max_image_cache_size = 512;
     void store_cached_image(const std::string& key, XImage* image) const;
     mutable std::unordered_map<std::string, XImage*> m_svg_cache;

@@ -5,6 +5,8 @@
 #include "Platform/X11/Components/X11ChromeRenderer.h"
 #include "Platform/X11/Components/X11PromptDialog.h"
 #include "Platform/X11/Components/X11AddNewItemDialog.h"
+#include "Platform/X11/Components/X11SettingsDialog.h"
+#include "Platform/X11/Utility/Tray.h"
 #include "UI/Chrome/WindowChromeLayout.h"
 #include "UI/Components/AboutModal.h"
 #include "UI/Theme/StudioTheme.h"
@@ -40,6 +42,9 @@ public:
     void restore() override;
     void request_close() override;
 
+    void minimize_to_tray();
+    void restore_from_tray();
+
     [[nodiscard]] bool is_maximized() const override;
     [[nodiscard]] bool is_minimized() const override;
     [[nodiscard]] bool is_focused() const override;
@@ -52,14 +57,20 @@ public:
     void set_command_state_query_callback(CommandStateQueryCallback callback) override;
 
     [[nodiscard]] bool open_project_folder() override;
+    [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root) override;
+    [[nodiscard]] bool open_file(const std::filesystem::path& path) override;
+    [[nodiscard]] bool open_path(const std::filesystem::path& path) override;
+    [[nodiscard]] std::filesystem::path get_workspace_root() const override;
     [[nodiscard]] bool close_project() override;
     void toggle_terminal() override;
     void toggle_shader_sandbox() override;
     void show_about_dialog() override;
     [[nodiscard]] bool is_modal_active() const override;
+    [[nodiscard]] Window active_modal_window() const;
     void toggle_fullscreen() override;
     [[nodiscard]] bool is_fullscreen() const override;
     void reset_layout() override;
+    void apply_theme(const UI::Theme::StudioTheme& theme);
 
 private:
     struct Atoms
@@ -129,9 +140,11 @@ private:
     void execute_popup_selection();
     void show_explorer_context_menu(const std::filesystem::path& target_path, int client_x, int client_y);
     void show_editor_context_menu(int client_x, int client_y);
+    void show_tray_menu(int root_x, int root_y);
     void execute_explorer_command(std::string_view command);
     void copy_to_clipboard(const std::string& text);
     void discard_pointer_events();
+    void on_modal_dialog_closed();
 
     [[nodiscard]] float calculate_dpi_scale() const;
     [[nodiscard]] WorkArea get_work_area() const;
@@ -148,6 +161,7 @@ private:
     int m_screen = 0;
     Window m_window_handle = 0;
     WindowSpecification m_specification;
+    std::string m_base_title;
     WindowCapabilities m_capabilities;
     Atoms m_atoms;
     int m_client_width = 0;
@@ -159,6 +173,7 @@ private:
     bool m_is_focused = false;
     bool m_custom_chrome_enabled = false;
     bool m_pending_render = false;
+    bool m_in_poll_events = false;
     bool m_context_acquired = false;
     bool m_ewmh_move_resize_supported = false;
     bool m_ewmh_maximize_supported = false;
@@ -180,7 +195,7 @@ private:
     TitlebarHitTestCallback m_titlebar_hit_test_callback;
     CommandInvokedCallback m_command_invoked_callback;
     CommandStateQueryCallback m_command_state_query_callback;
-    UI::Theme::StudioTheme m_theme = UI::Theme::StudioTheme::zenvra_dark();
+    UI::Theme::StudioTheme m_theme = UI::Theme::StudioTheme::zenvra_dark_modern();
     UI::Chrome::WindowChromeLayout m_chrome_layout_engine;
     UI::Chrome::WindowChromeLayoutResult m_chrome_layout;
     Components::X11ChromeRenderer m_chrome_renderer;
@@ -203,7 +218,9 @@ private:
     std::string m_clipboard_text;
     Components::X11PromptDialog m_prompt_dialog;
     Components::X11AddNewItemDialog m_add_item_dialog;
+    Components::X11SettingsDialog m_settings_dialog;
     UI::Components::AboutModal m_about_modal;
+    SystemTray m_tray;
     bool m_is_fullscreen = false;
     std::chrono::steady_clock::time_point m_last_animation_frame_time = std::chrono::steady_clock::now();
 

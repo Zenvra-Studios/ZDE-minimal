@@ -67,7 +67,10 @@ void ExplorerHeader::render(
         panel.x, panel.y, panel.width, header_height * scale
     };
     
-    surface.fill_rectangle(drawable, header_bounds, surface.m_pixels.sidebar_background);
+    const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+    if (!is_modern) {
+        surface.fill_rectangle(drawable, header_bounds, surface.m_pixels.sidebar_background);
+    }
     const float center_y = header_bounds.y + header_bounds.height * 0.5F;
     
     // Draw Title

@@ -2,9 +2,11 @@
 
 #include "Platform/X11/Components/ExplorerHeader.h"
 #include "UI/Components/Button.h"
+#include "UI/Components/Input.h"
 #include "UI/Components/ScrollBar.h"
 #include "UI/Editor/ActivityPanelModel.h"
 #include "UI/Editor/StudioEditorModel.h"
+#include "UI/Editor/WorkspaceSearchModel.h"
 
 #include <X11/Xlib.h>
 
@@ -61,8 +63,18 @@ public:
         const UI::Editor::StudioEditorLayoutResult& layout,
         std::ptrdiff_t line_delta) noexcept;
 
+    [[nodiscard]] bool handle_text_input(std::string_view utf8_text);
+    [[nodiscard]] bool handle_key(KeySym sym, unsigned int state);
+    [[nodiscard]] bool is_search_focused() const noexcept;
+    [[nodiscard]] bool is_focused() const noexcept { return m_is_focused; }
+    void set_focused(bool focused) noexcept;
+
     [[nodiscard]] UI::Editor::ActivityPanelModel& get_model() noexcept { return m_model; }
     [[nodiscard]] const UI::Editor::ActivityPanelModel& get_model() const noexcept { return m_model; }
+    [[nodiscard]] UI::Editor::WorkspaceSearchModel& get_search_model() noexcept { return m_search_model; }
+    [[nodiscard]] const UI::Editor::WorkspaceSearchModel& get_search_model() const noexcept { return m_search_model; }
+    [[nodiscard]] UI::Components::Input& get_search_input() noexcept { return m_search_input; }
+    [[nodiscard]] const UI::Components::Input& get_search_input() const noexcept { return m_search_input; }
 
     [[nodiscard]] bool is_visible() const noexcept;
     [[nodiscard]] bool is_active(UI::Editor::SidebarIcon icon) const noexcept;
@@ -111,11 +123,15 @@ private:
     [[nodiscard]] std::vector<std::size_t> get_sticky_items() const;
 
     UI::Editor::ActivityPanelModel m_model;
+    UI::Editor::WorkspaceSearchModel m_search_model;
+    mutable UI::Components::Input m_search_input;
+    bool m_is_focused = false;
     ExplorerHeader m_explorer_header;
     mutable UI::Components::Button m_empty_state_open_btn;
     mutable UI::Components::Button m_empty_state_clone_btn;
     mutable UI::Components::ScrollBar m_project_scrollbar;
     std::optional<std::size_t> m_hovered_row;
+    std::optional<std::size_t> m_hovered_search_row;
     std::optional<std::size_t> m_hovered_sticky_index;
     std::optional<UI::Editor::SidebarIcon> m_hovered_icon;
     bool m_hovered_scrollbar = false;

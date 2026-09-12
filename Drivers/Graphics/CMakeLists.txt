@@ -6,6 +6,7 @@ file(GLOB_RECURSE Graphics_SOURCES CONFIGURE_DEPENDS "*.c" "*.cpp" "*.cc" "*.mm"
 if(Graphics_SOURCES)
     add_library(Graphics STATIC ${Graphics_SOURCES})
     add_library(Zenvra::Graphics ALIAS Graphics)
+    set_target_properties(Graphics PROPERTIES POSITION_INDEPENDENT_CODE ON)
     target_include_directories(Graphics PUBLIC 
         "${CMAKE_SOURCE_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}/../.."

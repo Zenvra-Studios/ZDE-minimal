@@ -204,8 +204,8 @@ void X11PromptDialog::layout_and_create_window(Window parent, int width, int hei
     attrs.background_pixel = alloc_rgb(m_display, m_screen, 30, 31, 36);
     attrs.save_under = True;
     attrs.event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask |
-                       PointerMotionMask | KeyPressMask | LeaveWindowMask |
-                       FocusChangeMask;
+                       PointerMotionMask | KeyPressMask | EnterWindowMask |
+                       LeaveWindowMask | FocusChangeMask;
 
     m_window = XCreateWindow(
         m_display, RootWindow(m_display, m_screen),
@@ -378,8 +378,15 @@ bool X11PromptDialog::open_clone_repository(Window parent,
 void X11PromptDialog::close() {
     if (m_open && m_display != nullptr) {
         if (m_window != 0) {
+            const Window old_w = m_window;
+            XUngrabPointer(m_display, CurrentTime);
+            XUngrabKeyboard(m_display, CurrentTime);
             XDestroyWindow(m_display, m_window);
             m_window = 0;
+            XSync(m_display, False);
+            XEvent ev{};
+            while (XCheckWindowEvent(m_display, old_w, 0xFFFFFFFF, &ev)) {
+            }
         }
         if (m_back_buffer != 0) {
             XFreePixmap(m_display, m_back_buffer);
@@ -391,6 +398,18 @@ void X11PromptDialog::close() {
         }
         m_open = false;
         m_dragging = false;
+        m_close_hovered = false;
+        m_ok_hovered = false;
+        m_cancel_hovered = false;
+        if (m_parent_window != 0) {
+            XSetInputFocus(m_display, m_parent_window, RevertToParent, CurrentTime);
+            XRaiseWindow(m_display, m_parent_window);
+            XFlush(m_display);
+        }
+        m_parent_window = 0;
+        if (m_on_close_callback) {
+            m_on_close_callback();
+        }
     }
 }
 
@@ -407,6 +426,7 @@ void X11PromptDialog::shutdown() {
     }
     m_svg_cache.clear();
     m_display = nullptr;
+    m_parent_window = 0;
 }
 
 void X11PromptDialog::submit() {
@@ -574,7 +594,18 @@ bool X11PromptDialog::handle_event(const XEvent& event) {
         return true;
     }
 
+    case EnterNotify:
+        XSetInputFocus(m_display, m_window, RevertToParent, CurrentTime);
+        return true;
+
+    case FocusIn:
+        render();
+        return true;
+
     case ButtonPress: {
+        XRaiseWindow(m_display, m_window);
+        XSetInputFocus(m_display, m_window, RevertToParent, CurrentTime);
+        XFlush(m_display);
         m_last_input_time = std::chrono::steady_clock::now();
         const float bx = static_cast<float>(event.xbutton.x);
         const float by = static_cast<float>(event.xbutton.y);

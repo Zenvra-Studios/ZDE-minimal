@@ -95,8 +95,7 @@ public:
 
     [[nodiscard]] bool open_workspace_file(const std::filesystem::path& path);
     [[nodiscard]] bool set_workspace_root(const std::filesystem::path& root);
-    [[nodiscard]] std::size_t open_dropped_paths(
-        std::span<const std::filesystem::path> dropped_paths);
+    [[nodiscard]] std::size_t open_dropped_paths(std::span<const std::filesystem::path> dropped_paths);
     [[nodiscard]] bool create_workspace_buffer();
     [[nodiscard]] bool toggle_terminal() { return m_workspace_renderer.get_terminal_panel().toggle(); }
     [[nodiscard]] bool toggle_shader_sandbox() { return m_workspace_renderer.toggle_shader_panel(); }
@@ -164,6 +163,8 @@ public:
         int client_width,
         int client_height,
         float content_top) noexcept;
+    [[nodiscard]] bool is_search_focused() const noexcept;
+    [[nodiscard]] bool handle_search_key(KeySym sym, unsigned int state);
     [[nodiscard]] bool is_editor_focused() const noexcept;
     [[nodiscard]] bool is_terminal_focused() const noexcept;
     [[nodiscard]] bool is_activity_bar_point(
@@ -273,6 +274,7 @@ public:
     [[nodiscard]] const TextEditor& get_text_editor() const noexcept { return m_workspace_renderer.m_text_editor; }
     [[nodiscard]] StudioWorkspaceRenderer& get_workspace_renderer() noexcept { return m_workspace_renderer; }
     [[nodiscard]] const StudioWorkspaceRenderer& get_workspace_renderer() const noexcept { return m_workspace_renderer; }
+    void apply_theme(const UI::Theme::StudioTheme& theme);
 
     [[nodiscard]] std::optional<std::filesystem::path> handle_right_click(
         float point_x,
@@ -319,6 +321,7 @@ public:
     [[nodiscard]] std::optional<std::string> take_popup_command() noexcept;
     void move_popup_selection(int direction);
     void activate_popup_selection();
+    [[nodiscard]] const UI::Theme::StudioTheme& get_theme() const noexcept { return m_theme; }
 
 private:
     struct ThemePixels
@@ -394,6 +397,7 @@ private:
     UI::Theme::Color m_hover_color{};
     UI::Theme::Color m_theme_popup_background{};
     UI::Theme::Color m_theme_popup_border{};
+    UI::Theme::StudioTheme m_theme = UI::Theme::StudioTheme::zenvra_dark_modern();
     StudioWorkspaceRenderer m_workspace_renderer;
 
     struct PopupWindowState
@@ -411,9 +415,16 @@ private:
     };
     PopupWindowState m_popup;
 
+    void ensure_acrylic_backdrop(Window window_handle, unsigned int width, unsigned int height);
+
     Pixmap m_back_buffer = 0;
     unsigned int m_back_buffer_w = 0;
     unsigned int m_back_buffer_h = 0;
+    Pixmap m_acrylic_backdrop_pixmap = 0;
+    unsigned int m_acrylic_backdrop_w = 0;
+    unsigned int m_acrylic_backdrop_h = 0;
+    int m_last_win_x = -9999;
+    int m_last_win_y = -9999;
     UI::Toolbar::RunConfigurationState m_run_config_state;
     Pixmap m_popup_back_buffer = 0;
     unsigned int m_popup_back_buffer_w = 0;

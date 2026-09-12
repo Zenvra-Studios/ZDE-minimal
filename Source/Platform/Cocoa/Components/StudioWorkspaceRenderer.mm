@@ -1623,6 +1623,11 @@ std::filesystem::path StudioWorkspaceRenderer::resolve_icon_path(
     }
 
     // 5. vscode-codicons subdirectory
+    const std::filesystem::path codicon_src = m_icon_asset_root / "vscode-codicons" / "src" / "icons" / filename;
+    if (std::filesystem::is_regular_file(codicon_src, path_error))
+    {
+        return codicon_src;
+    }
     const std::filesystem::path codicon_file = m_icon_asset_root / "vscode-codicons" / "icons" / filename;
     if (std::filesystem::is_regular_file(codicon_file, path_error))
     {

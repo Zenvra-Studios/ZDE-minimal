@@ -6,6 +6,8 @@ if(Media_SOURCES)
     add_library(DriversMedia STATIC ${Media_SOURCES})
     add_library(Zenvra::Drivers::Media ALIAS DriversMedia)
     add_library(Zenvra::Drivers::FFmpeg ALIAS DriversMedia)
+    # Static lib is linked into shared ZDEUI -> needs PIC on Linux.
+    set_target_properties(DriversMedia PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
     target_include_directories(DriversMedia PUBLIC
         "${CMAKE_SOURCE_DIR}"

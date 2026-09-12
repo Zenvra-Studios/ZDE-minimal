@@ -6,6 +6,7 @@ if(Audio_SOURCES)
     add_library(DriversAudio STATIC ${Audio_SOURCES})
     add_library(Zenvra::Drivers::Audio ALIAS DriversAudio)
     add_library(Zenvra::Audio ALIAS DriversAudio)
+    set_target_properties(DriversAudio PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
     target_include_directories(DriversAudio PUBLIC
         "${CMAKE_SOURCE_DIR}"

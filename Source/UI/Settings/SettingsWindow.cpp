@@ -134,6 +134,12 @@ std::filesystem::path resolve_asset_path(const std::string &rel_path) {
 
 } // namespace
 
+} // namespace Zenvra::UI::Settings
+
+#endif // _WIN32 (helpers + Win32 includes)
+
+namespace Zenvra::UI::Settings {
+
 SettingsWindow::SettingsWindow() {
   m_search_input.set_placeholder("Search settings");
   m_active_category = "Commonly Used";
@@ -147,6 +153,7 @@ SettingsWindow::SettingsWindow() {
 
 SettingsWindow::~SettingsWindow() {
   close();
+#ifdef _WIN32
   if (m_regular_font) {
     DeleteObject(m_regular_font);
     m_regular_font = nullptr;
@@ -174,7 +181,10 @@ SettingsWindow::~SettingsWindow() {
     }
   }
   m_icon_cache.clear();
+#endif
 }
+
+#if defined(_WIN32)
 
 void SettingsWindow::refresh_fonts() {
   if (m_regular_font)
@@ -1212,6 +1222,8 @@ LRESULT SettingsWindow::handle_message(HWND hwnd, UINT message, WPARAM w_param,
   return DefWindowProcW(hwnd, message, w_param, l_param);
 }
 
+#endif // _WIN32 Win32 window methods (refresh/open/close/toggle/dialog)
+
 namespace {
 
 struct CodingFontOption {
@@ -1220,7 +1232,7 @@ struct CodingFontOption {
   std::string tag;
 };
 
-static std::string get_primary_font_name(std::string_view font_spec) {
+[[maybe_unused]] static std::string get_primary_font_name(std::string_view font_spec) {
   size_t comma = font_spec.find(',');
   std::string_view primary = (comma != std::string_view::npos)
                                  ? font_spec.substr(0, comma)
@@ -1234,6 +1246,7 @@ static std::string get_primary_font_name(std::string_view font_spec) {
   return std::string(primary);
 }
 
+#ifdef _WIN32
 static int CALLBACK EnumFontFamCheckProc(const LOGFONTW * /*lpelfe*/,
                                          const TEXTMETRICW * /*lpntme*/,
                                          DWORD /*FontType*/, LPARAM lParam) {
@@ -1356,6 +1369,21 @@ static const std::vector<CodingFontOption> &get_installed_coding_fonts() {
 
   return installed_fonts;
 }
+#else
+// Linux/macOS stub: return a static list without Win32 font enumeration.
+// Layout code only needs plausible options for the font dropdown.
+static const std::vector<CodingFontOption> &get_installed_coding_fonts() {
+  static const std::vector<CodingFontOption> installed_fonts = {
+      {"JetBrains Mono", "JetBrains Mono, monospace", "JetBrains Developer Font"},
+      {"Fira Code", "Fira Code, monospace", "Programming Ligatures"},
+      {"DejaVu Sans Mono", "'DejaVu Sans Mono', monospace", "Open Source Monospace"},
+      {"Hack", "Hack, monospace", "Clean Bitstream Monospace"},
+      {"Source Code Pro", "Source Code Pro, monospace", "Adobe Monospace"},
+      {"monospace", "monospace", "System Monospace Fallback"},
+  };
+  return installed_fonts;
+}
+#endif
 
 struct SettingsSectionDef {
   std::string id;
@@ -1429,6 +1457,9 @@ std::vector<SettingsSectionDef> get_all_sections() {
 }
 
 } // namespace
+
+// --- Cross-platform layout / interaction (Windows, Linux, macOS) ---------
+// These methods only use Rect / SettingsService / UI models, no Win32 API.
 
 SettingsWindowLayoutResult
 SettingsWindow::calculate_layout(float width, float height,
@@ -2060,9 +2091,11 @@ bool SettingsWindow::handle_pointer_press(
   if (m_dropdown.is_open()) {
     if (m_dropdown.is_point_inside(x, y)) {
       if (m_dropdown.handle_pointer_press(x, y, 1.0F)) {
+#ifdef _WIN32
         if (m_dropdown.is_dragging_scrollbar() && m_hwnd) {
           SetCapture(m_hwnd);
         }
+#endif
         return true;
       }
     }
@@ -2198,13 +2231,18 @@ bool SettingsWindow::handle_pointer_press(
           if (row.browse_btn_bounds.contains(x, y) ||
               row.thumbnail_bounds.contains(x, y) ||
               row.input_bounds.contains(x, y)) {
+#ifdef _WIN32
             browse_mascot_image();
+#else
+            // TODO(X11): open native file dialog (zenity/kdialog) for mascot image.
+#endif
             return true;
           }
           if (row.reset_btn_bounds.contains(x, y)) {
             Utility::Ascii::AsciiMascotRenderer::clear_bitmap_cache();
             Utility::Ascii::AsciiArtConverter::clear_cache();
             service.reset("workbench.mascot.image", m_active_scope);
+#ifdef _WIN32
             if (m_hwnd) {
               InvalidateRect(m_hwnd, nullptr, FALSE);
               UpdateWindow(m_hwnd);
@@ -2213,6 +2251,7 @@ bool SettingsWindow::handle_pointer_press(
               InvalidateRect(m_parent_hwnd, nullptr, FALSE);
               UpdateWindow(m_parent_hwnd);
             }
+#endif
             return true;
           }
         }
@@ -2224,6 +2263,7 @@ bool SettingsWindow::handle_pointer_press(
             Utility::Ascii::AsciiArtConverter::clear_cache();
             service.set("workbench.mascot.renderMode", std::string("default"),
                         m_active_scope);
+#ifdef _WIN32
             if (m_hwnd) {
               InvalidateRect(m_hwnd, nullptr, FALSE);
               UpdateWindow(m_hwnd);
@@ -2232,6 +2272,7 @@ bool SettingsWindow::handle_pointer_press(
               InvalidateRect(m_parent_hwnd, nullptr, FALSE);
               UpdateWindow(m_parent_hwnd);
             }
+#endif
             return true;
           }
           if (row.switch_ascii_btn_bounds.contains(x, y)) {
@@ -2239,6 +2280,7 @@ bool SettingsWindow::handle_pointer_press(
             Utility::Ascii::AsciiArtConverter::clear_cache();
             service.set("workbench.mascot.renderMode", std::string("ascii"),
                         m_active_scope);
+#ifdef _WIN32
             if (m_hwnd) {
               InvalidateRect(m_hwnd, nullptr, FALSE);
               UpdateWindow(m_hwnd);
@@ -2247,6 +2289,7 @@ bool SettingsWindow::handle_pointer_press(
               InvalidateRect(m_parent_hwnd, nullptr, FALSE);
               UpdateWindow(m_parent_hwnd);
             }
+#endif
             return true;
           }
         }
@@ -2549,6 +2592,10 @@ bool SettingsWindow::handle_char(char32_t codepoint) noexcept {
       utf8_char.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
       utf8_char.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
     }
+    if (!m_editing_setting_id.empty()) {
+      m_editing_text += utf8_char;
+      return true;
+    }
     static_cast<void>(m_search_input.handle_text_input(utf8_char));
     m_scroll_offset = 0.0F;
     return true;
@@ -2557,6 +2604,12 @@ bool SettingsWindow::handle_char(char32_t codepoint) noexcept {
 }
 
 bool SettingsWindow::handle_backspace() noexcept {
+  if (!m_editing_setting_id.empty()) {
+    if (!m_editing_text.empty()) {
+      m_editing_text.pop_back();
+    }
+    return true;
+  }
   const bool res = m_search_input.handle_backspace();
   if (res) {
     m_scroll_offset = 0.0F;
@@ -2565,6 +2618,14 @@ bool SettingsWindow::handle_backspace() noexcept {
 }
 
 bool SettingsWindow::handle_escape() noexcept {
+  if (m_dropdown.is_open()) {
+    m_dropdown.close();
+    return true;
+  }
+  if (!m_editing_setting_id.empty()) {
+    m_editing_setting_id.clear();
+    return true;
+  }
   if (!m_search_input.get_text().empty()) {
     m_search_input.set_text("");
     m_scroll_offset = 0.0F;
@@ -2574,6 +2635,75 @@ bool SettingsWindow::handle_escape() noexcept {
   return true;
 }
 
+bool SettingsWindow::handle_enter() noexcept {
+  if (m_dropdown.is_open()) {
+    for (const auto &entry : m_dropdown.get_layout_items()) {
+      if (entry.is_hovered) {
+        m_dropdown.set_selected_id(entry.item.id);
+        UI::Components::DropdownItem chosen = entry.item;
+        m_dropdown.close();
+        auto &service = Zenvra::Settings::SettingsService::instance();
+        service.set(m_dropdown.get_owner_id(), chosen.id, m_active_scope);
+        return true;
+      }
+    }
+    m_dropdown.close();
+    return true;
+  }
+  if (!m_editing_setting_id.empty()) {
+    auto &service = Zenvra::Settings::SettingsService::instance();
+    const auto *def = service.get_schema().get_setting(m_editing_setting_id);
+    if (def) {
+      try {
+        if (def->type == Zenvra::Settings::SettingType::Integer) {
+          service.set(m_editing_setting_id, std::stoi(m_editing_text), m_active_scope);
+        } else if (def->type == Zenvra::Settings::SettingType::Float) {
+          service.set(m_editing_setting_id, std::stof(m_editing_text), m_active_scope);
+        } else if (def->type == Zenvra::Settings::SettingType::String) {
+          service.set(m_editing_setting_id, m_editing_text, m_active_scope);
+        }
+      } catch (...) {
+        // Ignore parsing errors and keep previous value
+      }
+    }
+    m_editing_setting_id.clear();
+    return true;
+  }
+  return false;
+}
+
+bool SettingsWindow::handle_key(uint32_t key_symbol, float dpi_scale) noexcept {
+  if (m_dropdown.is_open()) {
+    return m_dropdown.handle_key(key_symbol, dpi_scale);
+  }
+  return false;
+}
+
+#ifndef _WIN32
+// Native popup is Win32-only for now; keep layout state consistent.
+void SettingsWindow::open(void* /*parent_hwnd*/) { m_visible = true; }
+void SettingsWindow::close() {
+  m_visible = false;
+  m_close_hovered = false;
+  m_user_tab_hovered = false;
+  m_workspace_tab_hovered = false;
+  m_hovered_category.clear();
+  m_scrollbar_thumb_hovered = false;
+  m_search_clear_hovered = false;
+  m_is_dragging_scrollbar = false;
+  m_is_dragging_sidebar_scrollbar = false;
+  m_dropdown.close();
+}
+void SettingsWindow::toggle(void* parent_hwnd) {
+  if (m_visible) {
+    close();
+  } else {
+    open(parent_hwnd);
+  }
+}
+#endif
+
+#if defined(_WIN32)
 void SettingsWindow::render(HDC device_context,
                             const SettingsWindowLayoutResult &layout,
                             const Theme::StudioTheme &theme,
@@ -3359,6 +3489,6 @@ void SettingsWindow::render(HDC device_context, const Rect &viewport_bounds,
   render(device_context, layout, theme, dpi_scale);
 }
 
-} // namespace Zenvra::UI::Settings
+#endif // defined(_WIN32) render
 
-#endif // defined(_WIN32)
+} // namespace Zenvra::UI::Settings

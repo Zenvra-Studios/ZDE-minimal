@@ -1,6 +1,7 @@
 #include "Application/ViewModels/StudioViewModel.h"
 
 #include "Commands/CommandIds.h"
+#include "Platform/HostSystem.h"
 
 #include <iostream>
 #include <string>
@@ -152,7 +153,7 @@ bool StudioViewModel::register_available_commands()
                      .description = "Select Debug build profile.",
                      .category = "Build",
                      .shortcut_binding = {},
-                     .execute = [this] { m_active_mode = "Debug"; m_active_preset = "macos-debug"; },
+                     .execute = [this] { m_active_mode = "Debug"; m_active_preset = Platform::HostSystem::get_system_info().default_preset_debug; },
                      .is_enabled = [] { return true; },
                      .is_checked = [this] { return m_active_mode == "Debug"; },
                  }) &&
@@ -164,7 +165,7 @@ bool StudioViewModel::register_available_commands()
                      .description = "Select Release build profile.",
                      .category = "Build",
                      .shortcut_binding = {},
-                     .execute = [this] { m_active_mode = "Release"; m_active_preset = "macos-release"; },
+                     .execute = [this] { m_active_mode = "Release"; m_active_preset = Platform::HostSystem::get_system_info().default_preset_release; },
                      .is_enabled = [] { return true; },
                      .is_checked = [this] { return m_active_mode == "Release"; },
                  }) &&

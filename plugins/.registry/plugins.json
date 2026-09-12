@@ -3,7 +3,7 @@
     "golang.go": {
       "enabled": true,
       "id": "golang.go",
-      "installPath": "C:\\Users\\Administrator\\Documents\\Projects\\ZDE-minimal\\plugins\\lsp\\golang.go",
+      "installPath": "/home/ahmadzanisy/Projects/ZDE-minimal/plugins/lsp/golang.go",
       "manifest": {
         "capabilities": [],
         "category": "lsp",
@@ -29,39 +29,10 @@
       "state": "enabled",
       "version": "0.44.0"
     },
-    "llvm-vs-code-extensions.vscode-clangd": {
-      "enabled": true,
-      "id": "llvm-vs-code-extensions.vscode-clangd",
-      "installPath": "C:\\Users\\Administrator\\Documents\\Projects\\ZDE-minimal\\plugins\\lsp\\llvm-vs-code-extensions.vscode-clangd",
-      "manifest": {
-        "capabilities": [],
-        "category": "lsp",
-        "dependencies": {
-          "plugins": [],
-          "tools": []
-        },
-        "description": "C/C++ completion, navigation, and insights",
-        "id": "llvm-vs-code-extensions.vscode-clangd",
-        "name": "vscode-clangd",
-        "platforms": [],
-        "publisher": {
-          "id": "llvm-vs-code-extensions",
-          "name": "llvm-vs-code-extensions"
-        },
-        "version": "0.6.0",
-        "zde": {
-          "minimumVersion": "0.1.0"
-        }
-      },
-      "name": "vscode-clangd",
-      "source": "git",
-      "state": "enabled",
-      "version": "0.6.0"
-    },
     "ms-vscode.cmake-tools": {
       "enabled": true,
       "id": "ms-vscode.cmake-tools",
-      "installPath": "C:\\Users\\Administrator\\Documents\\Projects\\ZDE-minimal\\plugins\\lsp\\ms-vscode.cmake-tools",
+      "installPath": "/home/ahmadzanisy/Projects/ZDE-minimal/plugins/lsp/ms-vscode.cmake-tools",
       "manifest": {
         "capabilities": [],
         "category": "lsp",

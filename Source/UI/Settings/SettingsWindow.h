@@ -8,7 +8,9 @@
 #include "UI/Settings/SettingsControl.h"
 #include "UI/Theme/StudioTheme.h"
 
+#ifdef _WIN32
 #include <windows.h>
+#endif
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -84,6 +86,7 @@ public:
     SettingsWindow(const SettingsWindow &) = delete;
     SettingsWindow &operator=(const SettingsWindow &) = delete;
 
+#ifdef _WIN32
     void open(HWND parent_hwnd = nullptr);
     void close();
     void toggle(HWND parent_hwnd = nullptr);
@@ -92,6 +95,16 @@ public:
         return m_hwnd != nullptr && IsWindow(m_hwnd);
     }
     [[nodiscard]] HWND get_hwnd() const noexcept { return m_hwnd; }
+#else
+    // Cross-platform stubs: native popup is Win32-only for now.
+    // Layout / interaction API below stays fully functional on Linux/macOS.
+    void open(void* parent_hwnd = nullptr);
+    void close();
+    void toggle(void* parent_hwnd = nullptr);
+
+    [[nodiscard]] bool is_visible() const noexcept { return m_visible; }
+    [[nodiscard]] void* get_hwnd() const noexcept { return nullptr; }
+#endif
 
     [[nodiscard]] SettingsWindowLayoutResult calculate_layout(
         float width,
@@ -131,7 +144,10 @@ public:
     bool handle_char(char32_t codepoint) noexcept;
     bool handle_backspace() noexcept;
     bool handle_escape() noexcept;
+    bool handle_enter() noexcept;
+    bool handle_key(uint32_t key_symbol, float dpi_scale = 1.0F) noexcept;
 
+#ifdef _WIN32
     void render(
         HDC device_context,
         const SettingsWindowLayoutResult& layout,
@@ -143,15 +159,39 @@ public:
         const Rect& viewport_bounds,
         float dpi_scale,
         const Theme::StudioTheme& theme) const;
+#endif
 
     [[nodiscard]] const std::string& get_search_query() const noexcept { return m_search_input.get_text(); }
     [[nodiscard]] const std::string& get_active_category() const noexcept { return m_active_category; }
     [[nodiscard]] Zenvra::Settings::SettingsScope get_active_scope() const noexcept { return m_active_scope; }
 
+    // Cross-platform read-only access for non-Win32 renderers (e.g. X11).
+    [[nodiscard]] const UI::Components::Dropdown& get_dropdown() const noexcept { return m_dropdown; }
+    [[nodiscard]] const std::string& get_editing_setting_id() const noexcept { return m_editing_setting_id; }
+    [[nodiscard]] const std::string& get_editing_text() const noexcept { return m_editing_text; }
+    [[nodiscard]] bool is_caret_visible() const noexcept { return m_caret_visible; }
+    [[nodiscard]] bool is_dragging_scrollbar() const noexcept { return m_is_dragging_scrollbar; }
+    [[nodiscard]] bool is_dragging_sidebar_scrollbar() const noexcept { return m_is_dragging_sidebar_scrollbar; }
+    [[nodiscard]] const UI::Components::Input& get_search_input() const noexcept { return m_search_input; }
+    [[nodiscard]] UI::Components::Input& get_search_input_mut() noexcept { return m_search_input; }
+    [[nodiscard]] bool tick() noexcept {
+        bool changed = m_search_input.tick();
+        if (!m_editing_setting_id.empty()) {
+            const auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - m_last_setting_blink_toggle).count() >= 530) {
+                m_last_setting_blink_toggle = now;
+                m_caret_visible = !m_caret_visible;
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
     void set_theme(const Theme::StudioTheme& theme) noexcept { m_theme = theme; }
     [[nodiscard]] const Theme::StudioTheme& get_theme() const noexcept { return m_theme; }
 
 private:
+#ifdef _WIN32
     static LRESULT CALLBACK dialog_proc(HWND hwnd, UINT message, WPARAM w_param, LPARAM l_param);
     LRESULT handle_message(HWND hwnd, UINT message, WPARAM w_param, LPARAM l_param);
 
@@ -178,6 +218,9 @@ private:
         int height = 0;
     };
     mutable std::unordered_map<std::string, CachedBitmap> m_icon_cache;
+#else
+    bool m_visible = false;
+#endif
 
     Theme::StudioTheme m_theme = Theme::StudioTheme::zenvra_dark();
 
@@ -201,6 +244,7 @@ private:
     float m_drag_start_sidebar_scroll_offset = 0.0F;
 
     bool m_caret_visible = true;
+    std::chrono::steady_clock::time_point m_last_setting_blink_toggle = std::chrono::steady_clock::now();
 
     mutable bool m_close_hovered = false;
     mutable bool m_user_tab_hovered = false;

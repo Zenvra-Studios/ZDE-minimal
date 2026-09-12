@@ -1207,6 +1207,18 @@ void test_graphics_driver_and_ui_modal()
            approximately_equal(uniforms.saturation, 1.15F) &&
            approximately_equal(uniforms.noise_opacity, 0.035F),
         "BlurUniforms default parameters must match design tokens");
+    expect(std::string_view(Shaders::BlurFragmentShader).find("uExplorerCard") != std::string_view::npos,
+        "BlurFragmentShader must support uExplorerCard uniform");
+    expect(std::string_view(Shaders::BlurFragmentShader).find("uEditorCard") != std::string_view::npos,
+        "BlurFragmentShader must support uEditorCard uniform");
+    expect(std::string_view(Shaders::BlurFragmentShader).find("uTerminalCard") != std::string_view::npos,
+        "BlurFragmentShader must support uTerminalCard uniform");
+    expect(std::string_view(Shaders::BlurFragmentShader).find("uShaderCard") != std::string_view::npos,
+        "BlurFragmentShader must support uShaderCard uniform");
+    expect(std::string_view(Shaders::BlurFragmentShader).find("uEnableBlur") != std::string_view::npos,
+        "BlurFragmentShader must support uEnableBlur uniform trigger");
+    expect(approximately_equal(uniforms.card_radius, 8.0F) && uniforms.enable_blur == 1,
+        "BlurUniforms default card parameters must match design tokens");
 
     // 2. UI Modal Component Initialization & Defaults
     Modal modal("Project Settings", "Configure your project build options.");

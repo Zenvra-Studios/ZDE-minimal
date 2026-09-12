@@ -565,16 +565,19 @@ void TerminalPanel::render(
     {
         return;
     }
-    surface.fill_rectangle(drawable, layout.terminal_panel_bounds, surface.m_pixels.editor_background);
-    surface.fill_rectangle(drawable, layout.terminal_header_bounds, surface.m_pixels.tab_background);
-    surface.draw_line(drawable,
-        round_to_int(layout.terminal_header_bounds.x), round_to_int(layout.terminal_header_bounds.bottom()) - 1,
-        round_to_int(layout.terminal_header_bounds.right()), round_to_int(layout.terminal_header_bounds.bottom()) - 1,
-        surface.m_pixels.border);
-    surface.draw_line(drawable,
-        round_to_int(layout.terminal_panel_bounds.x), round_to_int(layout.terminal_panel_bounds.y),
-        round_to_int(layout.terminal_panel_bounds.right()), round_to_int(layout.terminal_panel_bounds.y),
-        surface.m_pixels.border);
+    const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+    if (!is_modern) {
+        surface.fill_rectangle(drawable, layout.terminal_panel_bounds, surface.m_pixels.editor_background);
+        surface.fill_rectangle(drawable, layout.terminal_header_bounds, surface.m_pixels.tab_background);
+        surface.draw_line(drawable,
+            round_to_int(layout.terminal_header_bounds.x), round_to_int(layout.terminal_header_bounds.bottom()) - 1,
+            round_to_int(layout.terminal_header_bounds.right()), round_to_int(layout.terminal_header_bounds.bottom()) - 1,
+            surface.m_pixels.border);
+        surface.draw_line(drawable,
+            round_to_int(layout.terminal_panel_bounds.x), round_to_int(layout.terminal_panel_bounds.y),
+            round_to_int(layout.terminal_panel_bounds.right()), round_to_int(layout.terminal_panel_bounds.y),
+            surface.m_pixels.border);
+    }
     if (m_resize_model.is_hovered() || m_resize_model.is_resizing())
     {
         surface.fill_rectangle(drawable,

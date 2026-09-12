@@ -1,5 +1,11 @@
 #pragma once
 
+#ifdef None
+#pragma push_macro("None")
+#undef None
+#define ZDE_PUSHED_SEARCH_NONE_MACRO
+#endif
+
 #include <atomic>
 #include <chrono>
 #include <cstddef>
@@ -198,3 +204,8 @@ private:
 };
 
 } // namespace Zenvra::UI::Editor
+
+#ifdef ZDE_PUSHED_SEARCH_NONE_MACRO
+#pragma pop_macro("None")
+#undef ZDE_PUSHED_SEARCH_NONE_MACRO
+#endif

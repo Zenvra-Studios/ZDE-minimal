@@ -50,25 +50,112 @@ bool ToolSidebar::initialize() {
   m_hovered_icon.reset();
   m_hovered_scrollbar = false;
   m_project_scrollbar.reset();
+
+  m_search_input.set_placeholder("Search files...");
+  m_search_input.set_on_text_changed([this](std::string_view text) {
+    m_search_model.set_search_query(text);
+    if (text.empty()) {
+      m_search_model.clear_results();
+    } else {
+      m_search_model.execute_search();
+    }
+  });
+
   return m_model.initialize();
 }
 
 bool ToolSidebar::set_workspace_root(const std::filesystem::path &root) {
   m_hovered_row.reset();
+  m_hovered_search_row.reset();
   m_hovered_scrollbar = false;
+  m_search_model.set_workspace_root(root);
   return m_model.initialize(root);
 }
 
 void ToolSidebar::clear_workspace() noexcept {
   m_hovered_row.reset();
+  m_hovered_search_row.reset();
   m_hovered_scrollbar = false;
+  m_search_model.set_workspace_root({});
+  m_search_model.clear_results();
+  m_search_input.set_text("");
   m_model.clear_workspace();
 }
 
 bool ToolSidebar::activate(UI::Editor::SidebarIcon icon) noexcept {
   m_hovered_row.reset();
+  m_hovered_search_row.reset();
   m_hovered_scrollbar = false;
+  if (icon != UI::Editor::SidebarIcon::Search) {
+    m_search_input.set_focused(false);
+    m_is_focused = false;
+  }
   return m_model.activate(icon);
+}
+
+bool ToolSidebar::is_search_focused() const noexcept {
+  return m_model.get_active_icon() == UI::Editor::SidebarIcon::Search &&
+         m_search_input.get_state().focused;
+}
+
+void ToolSidebar::set_focused(bool focused) noexcept {
+  m_is_focused = focused;
+  if (!focused) {
+    m_search_input.set_focused(false);
+  }
+}
+
+bool ToolSidebar::handle_text_input(std::string_view utf8_text) {
+  if (is_search_focused()) {
+    return m_search_input.handle_text_input(utf8_text);
+  }
+  return false;
+}
+
+bool ToolSidebar::handle_key(KeySym sym, unsigned int state) {
+  if (!is_search_focused()) {
+    return false;
+  }
+  const bool ctrl = (state & ControlMask) != 0;
+  const bool shift = (state & ShiftMask) != 0;
+
+  if (ctrl && (sym == XK_a || sym == XK_A)) {
+    m_search_input.select_all();
+    return true;
+  }
+  if (sym == XK_BackSpace) {
+    return m_search_input.handle_backspace();
+  }
+  if (sym == XK_Delete || sym == XK_KP_Delete) {
+    return m_search_input.handle_delete();
+  }
+  if (sym == XK_Left || sym == XK_KP_Left) {
+    return m_search_input.handle_left(shift);
+  }
+  if (sym == XK_Right || sym == XK_KP_Right) {
+    return m_search_input.handle_right(shift);
+  }
+  if (sym == XK_Home || sym == XK_KP_Home) {
+    return m_search_input.handle_home(shift);
+  }
+  if (sym == XK_End || sym == XK_KP_End) {
+    return m_search_input.handle_end(shift);
+  }
+  if (sym == XK_Escape) {
+    if (m_search_input.has_selection()) {
+      m_search_input.clear_selection();
+    } else if (!m_search_input.get_text().empty()) {
+      m_search_input.set_text("");
+    } else {
+      m_search_input.set_focused(false);
+    }
+    return true;
+  }
+  if (sym == XK_Return || sym == XK_KP_Enter) {
+    m_search_model.execute_search();
+    return true;
+  }
+  return false;
 }
 
 SidebarPressResult ToolSidebar::handle_pointer_press(
@@ -177,6 +264,60 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
     }
     return SidebarPressResult{.handled = action.handled};
   }
+
+  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Search) {
+    const float scale = layout.dpi_scale;
+    const UI::Rect panel = layout.tool_sidebar_bounds;
+    const float content_y = panel.y + (header_height + 22.0F) * scale;
+    const UI::Rect search_bounds{
+        panel.x + 12.0F * scale,
+        content_y,
+        std::max(panel.width - 24.0F * scale, 0.0F),
+        28.0F * scale,
+    };
+    m_search_input.set_bounds(search_bounds);
+    if (search_bounds.contains(point_x, point_y)) {
+      m_is_focused = true;
+      m_search_input.set_focused(true);
+      m_search_input.reset_blink();
+      auto text_w_fn = [](std::string_view s) -> float {
+        return static_cast<float>(s.size()) * 7.2F;
+      };
+      static_cast<void>(m_search_input.handle_pointer_press(point_x, point_y, text_w_fn));
+      return SidebarPressResult{.handled = true};
+    } else {
+      m_search_input.set_focused(false);
+    }
+
+    const float results_y = search_bounds.bottom() + 12.0F * scale;
+    const float tree_start_y = results_y + 20.0F * scale;
+    if (point_y >= tree_start_y) {
+      const auto visible_rows = m_search_model.get_visible_rows();
+      if (!visible_rows.empty()) {
+        const float r_height = row_height * scale;
+        const std::size_t row_idx = static_cast<std::size_t>((point_y - tree_start_y) / r_height);
+        if (row_idx < visible_rows.size()) {
+          const auto& vrow = visible_rows[row_idx];
+          if (vrow.kind == UI::Editor::SearchRowKind::FileHeader) {
+            m_search_model.toggle_file_expanded(vrow.file_index);
+            return SidebarPressResult{.handled = true};
+          } else {
+            const auto target = m_search_model.activate_visible_row(row_idx);
+            if (target) {
+              return SidebarPressResult{
+                  .handled = true,
+                  .action = SidebarActionKind::OpenFile,
+                  .path = target->path,
+                  .line = target->line,
+                  .column = target->column,
+              };
+            }
+          }
+        }
+      }
+    }
+  }
+
   return SidebarPressResult{.handled = true};
 }
 
@@ -237,6 +378,25 @@ bool ToolSidebar::handle_pointer_move(
         m_model.get_project_items().size() > viewport_row_count(layout);
   }
 
+  std::optional<std::size_t> next_search_row;
+  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Search) {
+    const float scale = layout.dpi_scale;
+    const UI::Rect panel = layout.tool_sidebar_bounds;
+    const float content_y = panel.y + (header_height + 22.0F) * scale;
+    const float search_bottom = content_y + 28.0F * scale;
+    const float tree_start_y = search_bottom + 32.0F * scale;
+    if (point_y >= tree_start_y) {
+      const auto visible_rows = m_search_model.get_visible_rows();
+      if (!visible_rows.empty()) {
+        const float r_height = row_height * scale;
+        const std::size_t idx = static_cast<std::size_t>((point_y - tree_start_y) / r_height);
+        if (idx < visible_rows.size()) {
+          next_search_row = idx;
+        }
+      }
+    }
+  }
+
   bool next_resize_hovered = is_resize_handle_point(layout, point_x, point_y);
   bool header_changed = false;
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
@@ -254,12 +414,14 @@ bool ToolSidebar::handle_pointer_move(
   }
 
   const bool changed = next_row != m_hovered_row ||
+                       next_search_row != m_hovered_search_row ||
                        next_sticky_hover != m_hovered_sticky_index ||
                        next_icon != m_hovered_icon ||
                        next_scrollbar != m_hovered_scrollbar ||
                        next_resize_hovered != m_resize_hovered ||
                        header_changed || empty_btn_changed;
   m_hovered_row = next_row;
+  m_hovered_search_row = next_search_row;
   m_hovered_sticky_index = next_sticky_hover;
   m_hovered_icon = next_icon;
   m_hovered_scrollbar = next_scrollbar;
@@ -395,17 +557,29 @@ bool ToolSidebar::handle_pointer_release() noexcept {
 }
 
 bool ToolSidebar::tick_animations() noexcept {
+  bool changed = false;
+  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Search) {
+    if (m_search_input.tick()) {
+      changed = true;
+    }
+    if (m_search_model.tick()) {
+      changed = true;
+    }
+  }
+
   if (!is_visible() || m_model.get_workspace_root().empty()) {
-    return false;
+    return changed;
   }
   const auto now = std::chrono::steady_clock::now();
   if (std::chrono::duration_cast<std::chrono::milliseconds>(now -
                                                             m_last_refresh_time)
           .count() >= 1000) {
     m_last_refresh_time = now;
-    return m_model.refresh();
+    if (m_model.refresh()) {
+      changed = true;
+    }
   }
-  return false;
+  return changed;
 }
 
 void ToolSidebar::render(
@@ -429,7 +603,10 @@ void ToolSidebar::render(
     return;
   }
 
-  surface.fill_rectangle(drawable, panel, surface.m_pixels.sidebar_background);
+  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+  if (!is_modern) {
+    surface.fill_rectangle(drawable, panel, surface.m_pixels.sidebar_background);
+  }
 
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
     const bool show_actions = !m_model.get_project_items().empty();
@@ -449,10 +626,10 @@ void ToolSidebar::render(
         std::max(round_to_int(15.0F * scale), 11), surface.m_palette.text_muted,
         surface.m_palette.sidebar_background);
     surface.draw_line(drawable, round_to_int(panel.x),
-                      round_to_int(panel.y + header_height * scale),
-                      round_to_int(panel.right()),
-                      round_to_int(panel.y + header_height * scale),
-                      surface.m_pixels.border);
+                        round_to_int(panel.y + header_height * scale),
+                        round_to_int(panel.right()),
+                        round_to_int(panel.y + header_height * scale),
+                        surface.m_pixels.border);
   }
 
   if (m_model.get_active_icon() != UI::Editor::SidebarIcon::Project) {
@@ -464,35 +641,146 @@ void ToolSidebar::render(
           std::max(panel.width - 24.0F * scale, 0.0F),
           28.0F * scale,
       };
+      m_search_input.set_bounds(search_bounds);
       surface.fill_rectangle(drawable, search_bounds,
                              surface.m_pixels.editor_background);
-      surface.draw_rectangle(drawable, search_bounds, surface.m_pixels.border);
+
+      const auto border_color = m_search_input.get_state().focused
+                                    ? surface.m_pixels.accent
+                                    : surface.m_pixels.border;
+      surface.draw_rectangle(drawable, search_bounds, border_color);
+
       surface.draw_svg_icon(
           drawable, "Assets/icons/search.svg",
           round_to_int(search_bounds.x + 13.0F * scale),
           round_to_int(search_bounds.y + search_bounds.height * 0.5F),
           std::max(round_to_int(13.0F * scale), 10),
-          surface.m_palette.text_muted, surface.m_palette.editor_background);
-      surface.draw_text(drawable, *surface.m_small_font, "Search files...",
-                        search_bounds.x + 25.0F * scale,
-                        search_bounds.y + search_bounds.height * 0.5F,
+          m_search_input.get_state().focused ? surface.m_palette.accent : surface.m_palette.text_muted,
+          surface.m_palette.editor_background);
+
+      const float text_left = search_bounds.x + 26.0F * scale;
+      const float text_baseline_y = search_bounds.y + search_bounds.height * 0.5F;
+
+      if (m_search_input.get_text().empty()) {
+        surface.draw_text(drawable, *surface.m_small_font, m_search_input.get_placeholder(),
+                          text_left, text_baseline_y,
+                          surface.m_text.muted);
+        if (m_search_input.is_caret_visible()) {
+          const int cx = round_to_int(text_left);
+          const int c_top = round_to_int(search_bounds.y + 6.0F * scale);
+          const int c_bot = round_to_int(search_bounds.bottom() - 6.0F * scale);
+          surface.draw_line(drawable, cx, c_top, cx, c_bot, surface.m_pixels.text_primary);
+        }
+      } else {
+        if (m_search_input.has_selection() && surface.m_small_font) {
+          const auto s_min = std::min(m_search_input.get_state().selection_start,
+                                       m_search_input.get_state().selection_end);
+          const auto s_max = std::max(m_search_input.get_state().selection_start,
+                                       m_search_input.get_state().selection_end);
+          const std::string before_sel = std::string{m_search_input.get_text().substr(0, s_min)};
+          const std::string sel_txt = std::string{m_search_input.get_text().substr(s_min, s_max - s_min)};
+          const int w_before = surface.m_small_font->getTextWidth(before_sel);
+          const int w_sel = surface.m_small_font->getTextWidth(sel_txt);
+          const UI::Rect sel_rect{
+              text_left + static_cast<float>(w_before),
+              search_bounds.y + 4.0F * scale,
+              static_cast<float>(w_sel),
+              search_bounds.height - 8.0F * scale,
+          };
+          surface.fill_rectangle(drawable, sel_rect, surface.m_pixels.accent);
+        }
+
+        surface.draw_text(drawable, *surface.m_small_font, m_search_input.get_text(),
+                          text_left, text_baseline_y,
+                          surface.m_text.primary);
+
+        if (m_search_input.is_caret_visible() && surface.m_small_font) {
+          const std::string_view prefix = m_search_input.get_text_before_cursor();
+          const int prefix_w = surface.m_small_font->getTextWidth(std::string{prefix});
+          const int cx = round_to_int(text_left + static_cast<float>(prefix_w));
+          const int c_top = round_to_int(search_bounds.y + 6.0F * scale);
+          const int c_bot = round_to_int(search_bounds.bottom() - 6.0F * scale);
+          surface.draw_line(drawable, cx, c_top, cx, c_bot, surface.m_pixels.text_primary);
+        }
+      }
+
+      const float results_y = search_bounds.bottom() + 12.0F * scale;
+      if (m_search_input.get_text().empty()) {
+        surface.draw_text(drawable, *surface.m_ui_font, "Search across workspace",
+                          panel.x + 14.0F * scale, results_y, surface.m_text.primary);
+        const std::string detail = ellipsize(
+            *surface.m_small_font, "Search results will appear here.",
+            std::max(round_to_int(panel.width - 28.0F * scale), 1));
+        surface.draw_text(drawable, *surface.m_small_font, detail,
+                          panel.x + 14.0F * scale, results_y + 20.0F * scale,
+                          surface.m_text.muted);
+      } else if (m_search_model.is_searching()) {
+        surface.draw_text(drawable, *surface.m_small_font, "Searching files...",
+                          panel.x + 14.0F * scale, results_y, surface.m_text.muted);
+      } else {
+        const auto visible_rows = m_search_model.get_visible_rows();
+        const auto& results = m_search_model.get_results();
+        const std::size_t match_count = m_search_model.get_total_match_count();
+        const std::size_t file_count = m_search_model.get_total_file_count();
+
+        std::string summary = std::to_string(match_count) + " results in " +
+                              std::to_string(file_count) + " files";
+        surface.draw_text(drawable, *surface.m_small_font, summary,
+                          panel.x + 14.0F * scale, results_y, surface.m_text.muted);
+
+        float row_y = results_y + 20.0F * scale;
+        const float max_row_y = panel.bottom() - 10.0F * scale;
+        for (std::size_t i = 0; i < visible_rows.size() && row_y < max_row_y; ++i) {
+          const auto& vrow = visible_rows[i];
+          const UI::Rect row_rect{
+              panel.x + 8.0F * scale,
+              row_y - 2.0F * scale,
+              panel.width - 16.0F * scale,
+              row_height * scale,
+          };
+          if (m_hovered_search_row && *m_hovered_search_row == i) {
+            surface.fill_rectangle(drawable, row_rect, surface.m_pixels.hover_background);
+          }
+
+          if (vrow.kind == UI::Editor::SearchRowKind::FileHeader) {
+            if (vrow.file_index < results.size()) {
+              const auto& fres = results[vrow.file_index];
+              const std::string header_str = (fres.expanded ? "v " : "> ") + fres.file_name;
+              surface.draw_text(drawable, *surface.m_small_font, header_str,
+                                row_rect.x + 6.0F * scale,
+                                row_rect.y + row_rect.height * 0.5F,
+                                surface.m_text.primary);
+            }
+          } else {
+            if (vrow.file_index < results.size() &&
+                vrow.match_index < results[vrow.file_index].matches.size()) {
+              const auto& m = results[vrow.file_index].matches[vrow.match_index];
+              const std::string match_str = "  " + std::to_string(m.line_number) + ": " + m.line_content;
+              const std::string ellip_match = ellipsize(
+                  *surface.m_small_font, match_str,
+                  std::max(round_to_int(row_rect.width - 12.0F * scale), 1));
+              surface.draw_text(drawable, *surface.m_small_font, ellip_match,
+                                row_rect.x + 10.0F * scale,
+                                row_rect.y + row_rect.height * 0.5F,
+                                surface.m_text.muted);
+            }
+          }
+          row_y += row_height * scale;
+        }
+      }
+    } else {
+      const float message_y = content_y;
+      surface.draw_text(drawable, *surface.m_ui_font,
+                        m_model.get_content_heading(), panel.x + 14.0F * scale,
+                        message_y, surface.m_text.primary);
+      const std::string detail =
+          ellipsize(*surface.m_small_font,
+                    std::string{m_model.get_content_detail()},
+                    std::max(round_to_int(panel.width - 28.0F * scale), 1));
+      surface.draw_text(drawable, *surface.m_small_font, detail,
+                        panel.x + 14.0F * scale, message_y + 24.0F * scale,
                         surface.m_text.muted);
     }
-    const float message_y =
-        content_y +
-        (m_model.get_active_icon() == UI::Editor::SidebarIcon::Search ? 50.0F
-                                                                      : 0.0F) *
-            scale;
-    surface.draw_text(drawable, *surface.m_ui_font,
-                      m_model.get_content_heading(), panel.x + 14.0F * scale,
-                      message_y, surface.m_text.primary);
-    const std::string detail =
-        ellipsize(*surface.m_small_font,
-                  std::string{m_model.get_content_detail()},
-                  std::max(round_to_int(panel.width - 28.0F * scale), 1));
-    surface.draw_text(drawable, *surface.m_small_font, detail,
-                      panel.x + 14.0F * scale, message_y + 24.0F * scale,
-                      surface.m_text.muted);
   } else {
     const std::span<const UI::Editor::ProjectTreeItem> items =
         m_model.get_project_items();
@@ -655,6 +943,7 @@ void ToolSidebar::render(
         : (is_hovered ? surface.m_palette.hover_background
                       : surface.m_palette.sidebar_background);
 
+    const bool is_cut = m_model.is_cut_path(item.path);
     const UI::Theme::Color icon_color = is_cut
         ? UI::Theme::Color{130, 130, 130, 120}
         : (is_selected ? UI::Theme::Color{220, 230, 250, 255} : UI::Theme::Color{175, 185, 200, 255});
@@ -833,11 +1122,15 @@ void ToolSidebar::render(
   }
 
   // Draw right border
-  surface.draw_line(
-      drawable, round_to_int(panel.right() - 1.0F), round_to_int(panel.y),
-      round_to_int(panel.right() - 1.0F), round_to_int(panel.bottom()),
-      surface.m_pixels.border);
-  if (m_resize_hovered || m_resizing) {
+  const bool show_accent = m_resize_hovered || m_resizing;
+  if (!is_modern || show_accent) {
+    const unsigned long splitter_color = show_accent ? surface.m_pixels.accent : surface.m_pixels.border;
+    surface.draw_line(
+        drawable, round_to_int(panel.right() - 1.0F), round_to_int(panel.y),
+        round_to_int(panel.right() - 1.0F), round_to_int(panel.bottom()),
+        splitter_color);
+  }
+  if (show_accent) {
     surface.fill_rectangle(
         drawable,
         UI::Rect{panel.right() - 1.0F * scale, panel.y, 2.0F * scale, panel.height},

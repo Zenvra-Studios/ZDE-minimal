@@ -69,25 +69,25 @@ TEST_F(ThemeTests, BuiltinThemesRegistered)
     ASSERT_TRUE(light_alias.has_value());
     EXPECT_EQ(light_alias->label, "Zenvra Light");
 
-    // 3. Zenvra Dark Modern (with OS Blur)
+    // 3. Zenvra Dark Modern (Solid)
     auto dark_mod = tm.find_theme("Zenvra Dark Modern");
     ASSERT_TRUE(dark_mod.has_value());
     EXPECT_TRUE(dark_mod->is_builtin);
     EXPECT_TRUE(dark_mod->theme_data.is_dark);
     EXPECT_TRUE(dark_mod->theme_data.is_modern);
-    EXPECT_TRUE(dark_mod->theme_data.enable_os_blur);
-    EXPECT_EQ(dark_mod->theme_data.backdrop_effect, BackdropEffect::Acrylic);
-    EXPECT_LT(dark_mod->theme_data.titlebar_background.alpha, 255);
+    EXPECT_FALSE(dark_mod->theme_data.enable_os_blur);
+    EXPECT_EQ(dark_mod->theme_data.backdrop_effect, BackdropEffect::None);
+    EXPECT_EQ(dark_mod->theme_data.titlebar_background.alpha, 255);
 
-    // 4. Zenvra Light Modern (with OS Blur)
+    // 4. Zenvra Light Modern (Solid)
     auto light_mod = tm.find_theme("Zenvra Light Modern");
     ASSERT_TRUE(light_mod.has_value());
     EXPECT_TRUE(light_mod->is_builtin);
     EXPECT_FALSE(light_mod->theme_data.is_dark);
     EXPECT_TRUE(light_mod->theme_data.is_modern);
-    EXPECT_TRUE(light_mod->theme_data.enable_os_blur);
-    EXPECT_EQ(light_mod->theme_data.backdrop_effect, BackdropEffect::Acrylic);
-    EXPECT_LT(light_mod->theme_data.titlebar_background.alpha, 255);
+    EXPECT_FALSE(light_mod->theme_data.enable_os_blur);
+    EXPECT_EQ(light_mod->theme_data.backdrop_effect, BackdropEffect::None);
+    EXPECT_EQ(light_mod->theme_data.titlebar_background.alpha, 255);
 
     // 5. High Contrast
     auto hc = tm.find_theme("High Contrast");
@@ -118,21 +118,20 @@ TEST_F(ThemeTests, ModernThemesAndEditorPalette)
     // Light Modern palette test
     auto light_mod_theme = StudioTheme::zenvra_light_modern();
     EXPECT_TRUE(light_mod_theme.is_modern);
-    EXPECT_TRUE(light_mod_theme.enable_os_blur);
-    EXPECT_LT(light_mod_theme.titlebar_background.alpha, 255); // Frosted blur titlebar
-    EXPECT_EQ(light_mod_theme.window_background.alpha, 255);   // Solid remaining window
+    EXPECT_FALSE(light_mod_theme.enable_os_blur);
+    EXPECT_EQ(light_mod_theme.titlebar_background.alpha, 255); // Solid titlebar
+    EXPECT_EQ(light_mod_theme.window_background.alpha, 255);   // Solid window backdrop
     EXPECT_EQ(light_mod_theme.titlebar_border.alpha, 255);     // Solid border
     auto light_mod_palette = UI::Editor::StudioEditorPalette::from_theme(light_mod_theme);
     EXPECT_TRUE(light_mod_palette.is_modern);
-    EXPECT_EQ(light_mod_palette.workspace_background.alpha, 255); // Solid workspace
     EXPECT_EQ(light_mod_palette.border.alpha, 255);               // Solid border
 
     // Dark Modern palette test
     auto dark_mod_theme = StudioTheme::zenvra_dark_modern();
     EXPECT_TRUE(dark_mod_theme.is_modern);
-    EXPECT_TRUE(dark_mod_theme.enable_os_blur);
-    EXPECT_LT(dark_mod_theme.titlebar_background.alpha, 255); // Frosted blur titlebar
-    EXPECT_EQ(dark_mod_theme.window_background.alpha, 255);   // Solid remaining window
+    EXPECT_FALSE(dark_mod_theme.enable_os_blur);
+    EXPECT_EQ(dark_mod_theme.titlebar_background.alpha, 255); // Solid titlebar
+    EXPECT_EQ(dark_mod_theme.window_background.alpha, 255);   // Solid window backdrop
     EXPECT_EQ(dark_mod_theme.titlebar_border.alpha, 255);     // Solid border
     auto dark_mod_palette = UI::Editor::StudioEditorPalette::from_theme(dark_mod_theme);
     EXPECT_TRUE(dark_mod_palette.is_modern);
@@ -357,14 +356,14 @@ TEST_F(ThemeTests, ThemeSwitchingSolidAndModern)
     settings.set("theme.current", "");
     StudioTheme def_theme = tm.get_current_theme();
     EXPECT_TRUE(def_theme.is_modern);
-    EXPECT_TRUE(def_theme.enable_os_blur);
+    EXPECT_FALSE(def_theme.enable_os_blur);
 
     // 2. Explicit Modern Dark
     settings.set("theme.current", "Zenvra Dark Modern");
     StudioTheme modern_theme = tm.get_current_theme();
     EXPECT_TRUE(modern_theme.is_modern);
-    EXPECT_TRUE(modern_theme.enable_os_blur);
-    EXPECT_EQ(modern_theme.backdrop_effect, BackdropEffect::Acrylic);
+    EXPECT_FALSE(modern_theme.enable_os_blur);
+    EXPECT_EQ(modern_theme.backdrop_effect, BackdropEffect::None);
 
     // 3. Switch to Solid/Old Dark ("Zenvra Dark")
     settings.set("theme.current", "Zenvra Dark");
@@ -393,7 +392,7 @@ TEST_F(ThemeTests, ThemeSwitchingSolidAndModern)
     settings.set("theme.current", "Zenvra Light Modern");
     StudioTheme modern_light = tm.get_current_theme();
     EXPECT_TRUE(modern_light.is_modern);
-    EXPECT_TRUE(modern_light.enable_os_blur);
+    EXPECT_FALSE(modern_light.enable_os_blur);
 
     // Reset back to user's setting or default
     settings.set("theme.current", "Zenvra Dark");

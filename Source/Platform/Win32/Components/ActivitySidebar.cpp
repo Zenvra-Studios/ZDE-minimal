@@ -13,12 +13,7 @@
 namespace Zenvra::Platform::Win32::Components
 {
 
-namespace
-{
-
-using Zenvra::Utility::round_to_int;
-
-} // namespace
+    using Zenvra::Utility::round_to_int;
 
 /**
  * 

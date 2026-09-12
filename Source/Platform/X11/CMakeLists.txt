@@ -20,17 +20,21 @@ add_library(ZDEPlatformX11
     Components/TerminalPanel.cpp
     Components/TextEditor.cpp
     Components/ToolSidebar.cpp
+    Components/ToolSwitcherPopup.cpp
     Components/ExplorerHeader.cpp
     Components/X11ChromeRenderer.cpp
     Components/X11PromptDialog.cpp
     Components/X11AddNewItemDialog.cpp
+    Components/X11SettingsDialog.cpp
     Runtime/X11Context.cpp
+    Runtime/DesktopNotification.cpp
     Utility/X11Dialogs.cpp
+    Utility/Tray.cpp
 )
 
 target_include_directories(ZDEPlatformX11 PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 target_link_libraries(ZDEPlatformX11
     PUBLIC Zenvra::Core Zenvra::PlatformHost X11::X11
-    PRIVATE Zenvra::UI Zenvra::Terminal Zenvra::Services X11::Xft X11::Xext lunasvg ZDEUtility
+    PRIVATE Zenvra::UI Zenvra::Terminal Zenvra::Services Zenvra::Plugins X11::Xft X11::Xext lunasvg ZDEUtility ${CMAKE_DL_LIBS}
 )
 zde_enable_warnings(ZDEPlatformX11)

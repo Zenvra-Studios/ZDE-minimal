@@ -264,26 +264,31 @@ void ShaderSandboxPanel::render(
   }
 
   // Draw background
-  surface.fill_rectangle(drawable, layout.shader_panel_bounds,
-                         surface.m_pixels.sidebar_background);
+  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+  if (!is_modern) {
+    surface.fill_rectangle(drawable, layout.shader_panel_bounds,
+                           surface.m_pixels.sidebar_background);
+  }
 
   render_header(surface, drawable, layout);
   render_viewport(surface, drawable, layout);
   render_controls(surface, drawable, layout);
 
   // Draw Splitter border on the left edge with blue accent highlight when hovered or resizing
-  const bool show_accent = m_hover_splitter || m_is_resizing;
-  const unsigned long splitter_color = show_accent
-      ? surface.m_pixels.accent
-      : surface.m_pixels.border;
-
   const float splitter_x = layout.shader_panel_bounds.x;
-  surface.draw_line(drawable,
-                    round_to_int(splitter_x),
-                    round_to_int(layout.shader_panel_bounds.y),
-                    round_to_int(splitter_x),
-                    round_to_int(layout.shader_panel_bounds.bottom()),
-                    splitter_color);
+  const bool show_accent = m_hover_splitter || m_is_resizing;
+  if (!is_modern || show_accent) {
+    const unsigned long splitter_color = show_accent
+        ? surface.m_pixels.accent
+        : surface.m_pixels.border;
+
+    surface.draw_line(drawable,
+                      round_to_int(splitter_x),
+                      round_to_int(layout.shader_panel_bounds.y),
+                      round_to_int(splitter_x),
+                      round_to_int(layout.shader_panel_bounds.bottom()),
+                      splitter_color);
+  }
 
   if (show_accent) {
     surface.fill_rectangle(
@@ -303,11 +308,14 @@ void ShaderSandboxPanel::render_header(
   const float scale = layout.dpi_scale;
 
   // Header background & bottom border
-  surface.fill_rectangle(drawable, header, surface.m_pixels.tab_background);
-  surface.draw_line(
-      drawable, round_to_int(header.x), round_to_int(header.bottom() - 1.0F),
-      round_to_int(header.right()), round_to_int(header.bottom() - 1.0F),
-      surface.m_pixels.border);
+  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+  if (!is_modern) {
+    surface.fill_rectangle(drawable, header, surface.m_pixels.tab_background);
+    surface.draw_line(
+        drawable, round_to_int(header.x), round_to_int(header.bottom() - 1.0F),
+        round_to_int(header.right()), round_to_int(header.bottom() - 1.0F),
+        surface.m_pixels.border);
+  }
 
   // Status Dot indicator (Green = Running, Yellow = Paused, Red = Error, Cyan =
   // Compiling)

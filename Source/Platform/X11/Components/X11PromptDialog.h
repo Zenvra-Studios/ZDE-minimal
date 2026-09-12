@@ -46,7 +46,10 @@ public:
 
     void close();
     void shutdown();
-    [[nodiscard]] bool is_open() const noexcept { return m_open; }
+    void set_on_close_callback(std::function<void()> callback) {
+        m_on_close_callback = std::move(callback);
+    }
+    [[nodiscard]] bool is_open() const noexcept { return m_open && m_window != 0; }
     [[nodiscard]] Window window() const noexcept { return m_window; }
 
     bool handle_event(const XEvent& event);
@@ -107,6 +110,7 @@ private:
 
     std::function<void(const std::string&)> m_on_confirm_string;
     std::function<void()> m_on_confirm_void;
+    std::function<void()> m_on_close_callback;
 };
 
 } // namespace Zenvra::Platform::X11::Components

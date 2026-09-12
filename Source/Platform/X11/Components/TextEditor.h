@@ -32,10 +32,15 @@ namespace Zenvra::Platform::X11::Components
 {
 
 class StudioWorkspaceRenderer;
+class StudioWorkspaceRenderer;
 
 class TextEditor
 {
 public:
+    void draw_tab_strip(
+        const StudioWorkspaceRenderer& surface,
+        Drawable drawable,
+        const UI::Editor::StudioEditorLayoutResult& layout) const;
     [[nodiscard]] bool open_file(const std::filesystem::path& path);
     [[nodiscard]] bool open_file_at_location(
         const std::filesystem::path& path,
@@ -139,6 +144,10 @@ public:
         const StudioWorkspaceRenderer& surface,
         Drawable drawable,
         const UI::Editor::StudioEditorLayoutResult& layout) const;
+    void render_overlays(
+        const StudioWorkspaceRenderer& surface,
+        Drawable drawable,
+        const UI::Editor::StudioEditorLayoutResult& layout) const;
 
 private:
     static constexpr std::size_t max_visible_tabs = 128;
@@ -176,10 +185,6 @@ private:
         float anchor_y = 0.0F;
     };
 
-    void draw_tab_strip(
-        const StudioWorkspaceRenderer& surface,
-        Drawable drawable,
-        const UI::Editor::StudioEditorLayoutResult& layout) const;
     void draw_editor_header(
         const StudioWorkspaceRenderer& surface,
         Drawable drawable,
@@ -290,6 +295,11 @@ private:
     mutable float m_max_tab_scroll = 0.0F;
     float m_text_scroll_offset = 0.0F;
     mutable float m_max_text_scroll = 0.0F;
+    mutable UI::Rect m_text_hscrollbar_bounds{};
+    mutable bool m_hovered_text_hscrollbar = false;
+    bool m_dragging_text_hscrollbar = false;
+    float m_text_hscroll_drag_start_x = 0.0F;
+    float m_text_hscroll_drag_initial_offset = 0.0F;
     mutable UI::Editor::BraceAnimationModel m_brace_animation;
     mutable UI::Editor::BraceAnimationModel m_split_brace_animation;
     mutable UI::Components::Button m_empty_state_open_btn;

@@ -4,6 +4,7 @@
 #include "Language/LanguageServerManager.h"
 #include "Language/Protocol/LspProtocolSerializer.h"
 #include "Platform/X11/Components/StudioWorkspaceRenderer.h"
+#include "Settings/SettingsService.h"
 #include "UI/Editor/FileIconModel.h"
 #include "Utility/Flex.h"
 #include "Utility/Fonts.h"
@@ -492,8 +493,13 @@ void TextEditor::draw_editor_header(
   }
 
   // Background for editor header
-  surface.fill_rectangle(drawable, header_bounds,
-                         surface.m_pixels.editor_background);
+  const bool is_modern = surface.m_palette.is_modern ||
+                         surface.m_theme.is_modern ||
+                         surface.m_theme.enable_os_blur;
+  if (!is_modern) {
+    surface.fill_rectangle(drawable, header_bounds,
+                           surface.m_pixels.editor_background);
+  }
 
   const float btn_w = 22.0F * scale;
   const float btn_h = 22.0F * scale;
@@ -2723,7 +2729,11 @@ const UI::Editor::TextDocumentModel *TextEditor::get_document() const noexcept {
 void TextEditor::render(
     const StudioWorkspaceRenderer &surface, Drawable drawable,
     const UI::Editor::StudioEditorLayoutResult &layout) const {
-  draw_tab_strip(surface, drawable, layout);
+  const bool tabs_are_in_titlebar =
+      layout.tab_bar_bounds.bottom() <= layout.activity_bar_bounds.y;
+  if (!tabs_are_in_titlebar) {
+    draw_tab_strip(surface, drawable, layout);
+  }
   if (!layout.editor_header_bounds.is_empty() &&
       layout.editor_header_bounds.height > 2.0F) {
     draw_editor_header(surface, drawable, layout);
@@ -2919,7 +2929,14 @@ void TextEditor::render(
                                     divider_total_h},
                            divider_col);
   }
+}
 
+void TextEditor::render_overlays(
+    const StudioWorkspaceRenderer &surface, Drawable drawable,
+    const UI::Editor::StudioEditorLayoutResult &layout) const {
+  if (layout.editor_bounds.is_empty() || layout.editor_bounds.height <= 2.0F) {
+    return;
+  }
   draw_split_drop_overlay(surface, drawable, layout);
   draw_diagnostic_hover_overlay(surface, drawable, layout);
   draw_signature_help(surface, drawable, layout);
@@ -2993,6 +3010,10 @@ void TextEditor::draw_tab_strip(
     std::erase_if(m_tab_animated_offset_x, [&](const auto &item) { return !active_ids.contains(item.first); });
   }
 
+  const bool is_modern = surface.m_palette.is_modern ||
+                         surface.m_theme.is_modern ||
+                         surface.m_theme.enable_os_blur;
+
   auto draw_single_tab = [&](std::size_t tab_index) {
     const std::size_t index = tab_index;
     const auto &document = documents[index].text;
@@ -3011,82 +3032,142 @@ void TextEditor::draw_tab_strip(
     const bool is_dragging_this = m_tab_drag_drop.is_dragging() &&
                                   m_tab_drag_drop.get_dragged_index() == index;
 
-    if (is_dragging_this) {
-      const UI::Rect shadow_rect{bounds.x + 2.0F * scale,
-                                 bounds.y + 2.0F * scale, bounds.width,
-                                 bounds.height};
-      surface.fill_rounded_rectangle(
-          drawable, shadow_rect,
-          surface.allocate_color(UI::Theme::Color{20, 22, 28, 255}),
-          4.0F * scale, surface.m_pixels.tab_background);
-    }
+    if (is_modern) {
+      const float v_pad = std::round(4.0F * scale);
+      const float h_pad = std::round(2.0F * scale);
+      const UI::Rect pill_bounds{
+          bounds.x + h_pad,
+          bounds.y + v_pad,
+          std::max(0.0F, bounds.width - h_pad * 2.0F),
+          std::max(0.0F, bounds.height - v_pad * 2.0F),
+      };
+      const float pill_radius =
+          std::max(std::round(6.0F * scale), 5.0F);
 
-    const int tab_left =
-        std::max(round_to_int(bounds.x), round_to_int(layout.tab_bar_bounds.x));
-    const int tab_right = std::min(round_to_int(bounds.right()) - 1,
-                                   round_to_int(right_limit) - 1);
-    if (tab_left >= tab_right) {
-      return;
-    }
-    const int tab_top = round_to_int(bounds.y);
-    const int tab_bottom = round_to_int(bounds.bottom()) - 1;
-
-    const UI::Rect visible_bounds{static_cast<float>(tab_left), bounds.y,
-                                  static_cast<float>(tab_right - tab_left + 1),
-                                  bounds.height};
-
-    surface.fill_rectangle(
-        drawable, visible_bounds,
-        is_dragging_this
-            ? surface.allocate_color(UI::Theme::Color{38, 42, 50, 255})
-            : (active ? surface.m_pixels.tab_active_background
-                      : (tab_hovered ? surface.m_pixels.hover_background
-                                     : surface.m_pixels.tab_background)));
-
-    if (active && !is_dragging_this) {
-      // 1. Top accent bar (Atas)
-      const float bar_h = std::max(2.0F * scale, 2.0F);
-      const UI::Rect active_top_bar{
-          static_cast<float>(tab_left), static_cast<float>(tab_top),
-          static_cast<float>(tab_right - tab_left + 1), bar_h};
-      surface.fill_rectangle(drawable, active_top_bar, surface.m_pixels.accent);
-
-      // 2. Left border (Kiri)
-      if (bounds.x >= layout.tab_bar_bounds.x) {
-        surface.draw_line(drawable, tab_left, tab_top, tab_left, tab_bottom,
-                          surface.m_pixels.border);
+      if (is_dragging_this) {
+        const UI::Rect shadow_rect{pill_bounds.x + 2.0F * scale,
+                                   pill_bounds.y + 2.0F * scale,
+                                   pill_bounds.width, pill_bounds.height};
+        surface.fill_rounded_rectangle(drawable, shadow_rect,
+                                       surface.allocate_color(UI::Theme::Color{0, 0, 0, 90}),
+                                       pill_radius, surface.m_pixels.workspace_background);
+        surface.fill_rounded_rectangle(drawable, pill_bounds,
+                                       surface.allocate_color(UI::Theme::Color{45, 48, 56, 255}),
+                                       pill_radius, surface.m_pixels.workspace_background);
+        surface.draw_rounded_rectangle(drawable, pill_bounds,
+                                       surface.allocate_color(UI::Theme::Color{53, 132, 228, 230}),
+                                       pill_radius);
+      } else if (active) {
+        // JetBrains New UI active tab: solid dark pill floating on titlebar
+        const UI::Theme::Color active_bg = surface.m_theme.is_dark
+            ? UI::Theme::Color{36, 38, 44, 255}
+            : UI::Theme::Color{255, 255, 255, 255};
+        surface.fill_rounded_rectangle(drawable, pill_bounds,
+                                       surface.allocate_color(active_bg), pill_radius,
+                                       surface.m_pixels.workspace_background);
+        // Subtle outline border
+        const UI::Theme::Color border_col = surface.m_theme.is_dark
+            ? UI::Theme::Color{68, 72, 84, 255}
+            : UI::Theme::Color{210, 213, 220, 255};
+        surface.draw_rounded_rectangle(drawable, pill_bounds,
+                                       surface.allocate_color(border_col), pill_radius);
+      } else if (tab_hovered) {
+        // JetBrains inactive hover pill
+        const UI::Theme::Color hover_tint = surface.m_theme.is_dark
+            ? UI::Theme::Color{255, 255, 255, 20}
+            : UI::Theme::Color{0, 0, 0, 15};
+        const uint32_t a = hover_tint.alpha;
+        const auto& tbg = surface.m_palette.workspace_background;
+        const UI::Theme::Color blended_hover_bg{
+            static_cast<uint8_t>((hover_tint.red * a + tbg.red * (255 - a) + 127) / 255),
+            static_cast<uint8_t>((hover_tint.green * a + tbg.green * (255 - a) + 127) / 255),
+            static_cast<uint8_t>((hover_tint.blue * a + tbg.blue * (255 - a) + 127) / 255),
+            255
+        };
+        surface.fill_rounded_rectangle(drawable, pill_bounds,
+                                       surface.allocate_color(blended_hover_bg), pill_radius,
+                                       surface.m_pixels.workspace_background);
       }
-      // 3. Right border (Kanan)
-      if (bounds.right() <= right_limit) {
-        surface.draw_line(drawable, tab_right, tab_top, tab_right, tab_bottom,
-                          surface.m_pixels.border);
-      }
-      // 4. Bottom (Bawah): terbuka / menyatu langsung ke editor, tidak digambar garis
     } else {
-      const unsigned long tab_edge_color =
-          is_dragging_this ? surface.m_pixels.accent : surface.m_pixels.border;
+      if (is_dragging_this) {
+        const UI::Rect shadow_rect{bounds.x + 2.0F * scale,
+                                   bounds.y + 2.0F * scale, bounds.width,
+                                   bounds.height};
+        surface.fill_rounded_rectangle(
+            drawable, shadow_rect,
+            surface.allocate_color(UI::Theme::Color{20, 22, 28, 255}),
+            4.0F * scale, surface.m_pixels.tab_background);
+      }
 
-      // Inactive tab: top rule
-      surface.draw_line(drawable, tab_left, tab_top, tab_right, tab_top,
-                        tab_edge_color);
-      // Vertical side separators
-      if (bounds.x >= layout.tab_bar_bounds.x) {
-        surface.draw_line(drawable, tab_left, tab_top, tab_left, tab_bottom,
+      const int tab_left =
+          std::max(round_to_int(bounds.x), round_to_int(layout.tab_bar_bounds.x));
+      const int tab_right = std::min(round_to_int(bounds.right()) - 1,
+                                     round_to_int(right_limit) - 1);
+      if (tab_left >= tab_right) {
+        return;
+      }
+      const int tab_top = round_to_int(bounds.y);
+      const int tab_bottom = round_to_int(bounds.bottom()) - 1;
+
+      const UI::Rect visible_bounds{static_cast<float>(tab_left), bounds.y,
+                                    static_cast<float>(tab_right - tab_left + 1),
+                                    bounds.height};
+
+      surface.fill_rectangle(
+          drawable, visible_bounds,
+          is_dragging_this
+              ? surface.allocate_color(UI::Theme::Color{38, 42, 50, 255})
+              : (active ? surface.m_pixels.tab_active_background
+                        : (tab_hovered ? surface.m_pixels.hover_background
+                                       : surface.m_pixels.tab_background)));
+
+      if (active && !is_dragging_this) {
+        // 1. Top accent bar (Atas)
+        const float bar_h = std::max(2.0F * scale, 2.0F);
+        const UI::Rect active_top_bar{
+            static_cast<float>(tab_left), static_cast<float>(tab_top),
+            static_cast<float>(tab_right - tab_left + 1), bar_h};
+        surface.fill_rectangle(drawable, active_top_bar, surface.m_pixels.accent);
+
+        // 2. Left border (Kiri)
+        if (bounds.x >= layout.tab_bar_bounds.x) {
+          surface.draw_line(drawable, tab_left, tab_top, tab_left, tab_bottom,
+                            surface.m_pixels.border);
+        }
+        // 3. Right border (Kanan)
+        if (bounds.right() <= right_limit) {
+          surface.draw_line(drawable, tab_right, tab_top, tab_right, tab_bottom,
+                            surface.m_pixels.border);
+        }
+        // 4. Bottom (Bawah): terbuka / menyatu langsung ke editor, tidak digambar garis
+      } else {
+        const unsigned long tab_edge_color =
+            is_dragging_this ? surface.m_pixels.accent : surface.m_pixels.border;
+
+        // Inactive tab: top rule
+        surface.draw_line(drawable, tab_left, tab_top, tab_right, tab_top,
+                          tab_edge_color);
+        // Vertical side separators
+        if (bounds.x >= layout.tab_bar_bounds.x) {
+          surface.draw_line(drawable, tab_left, tab_top, tab_left, tab_bottom,
+                            tab_edge_color);
+        }
+        if (bounds.right() <= right_limit) {
+          surface.draw_line(drawable, tab_right, tab_top, tab_right, tab_bottom,
+                            tab_edge_color);
+        }
+        // Bottom rule (inactive tab closed at bottom)
+        surface.draw_line(drawable, tab_left, tab_bottom, tab_right, tab_bottom,
                           tab_edge_color);
       }
-      if (bounds.right() <= right_limit) {
-        surface.draw_line(drawable, tab_right, tab_top, tab_right, tab_bottom,
-                          tab_edge_color);
-      }
-      // Bottom rule (inactive tab closed at bottom)
-      surface.draw_line(drawable, tab_left, tab_bottom, tab_right, tab_bottom,
-                        tab_edge_color);
     }
 
-    const UI::Theme::Color &tab_bg_color =
-        active ? surface.m_palette.tab_active_background
-               : (tab_hovered ? surface.m_palette.hover_background
-                              : surface.m_palette.tab_background);
+    const UI::Theme::Color tab_bg_color = is_modern
+        ? (active ? (surface.m_theme.is_dark ? UI::Theme::Color{36, 38, 44, 255} : UI::Theme::Color{255, 255, 255, 255})
+                  : surface.m_theme.window_background)
+        : (active ? surface.m_palette.tab_active_background
+                  : (tab_hovered ? surface.m_palette.hover_background
+                                 : surface.m_palette.tab_background));
 
     const std::string icon_asset =
         UI::Editor::file_icon_asset_for_path(document.get_file_name());
@@ -3171,28 +3252,30 @@ void TextEditor::draw_tab_strip(
     draw_single_tab(m_tab_drag_drop.get_dragged_index());
   }
 
-  const int tab_bar_bottom = round_to_int(layout.tab_bar_bounds.bottom()) - 1;
-  const int tab_bar_left = round_to_int(layout.tab_bar_bounds.x);
-  const int tab_bar_right = round_to_int(layout.tab_bar_bounds.right());
+  if (!is_modern) {
+    const int tab_bar_bottom = round_to_int(layout.tab_bar_bounds.bottom()) - 1;
+    const int tab_bar_left = round_to_int(layout.tab_bar_bounds.x);
+    const int tab_bar_right = round_to_int(layout.tab_bar_bounds.right());
 
-  if (active_index && *active_index < m_tab_count) {
-    const UI::Rect &active_bounds = m_tab_bounds[*active_index];
-    const int active_left =
-        std::clamp(round_to_int(active_bounds.x), tab_bar_left, tab_bar_right);
-    const int active_right = std::clamp(round_to_int(active_bounds.right()) - 1,
-                                        tab_bar_left, tab_bar_right);
+    if (active_index && *active_index < m_tab_count) {
+      const UI::Rect &active_bounds = m_tab_bounds[*active_index];
+      const int active_left =
+          std::clamp(round_to_int(active_bounds.x), tab_bar_left, tab_bar_right);
+      const int active_right = std::clamp(round_to_int(active_bounds.right()) - 1,
+                                          tab_bar_left, tab_bar_right);
 
-    if (active_left > tab_bar_left) {
-      surface.draw_line(drawable, tab_bar_left, tab_bar_bottom, active_left,
+      if (active_left > tab_bar_left) {
+        surface.draw_line(drawable, tab_bar_left, tab_bar_bottom, active_left,
+                          tab_bar_bottom, surface.m_pixels.border);
+      }
+      if (active_right < tab_bar_right) {
+        surface.draw_line(drawable, active_right, tab_bar_bottom, tab_bar_right,
+                          tab_bar_bottom, surface.m_pixels.border);
+      }
+    } else {
+      surface.draw_line(drawable, tab_bar_left, tab_bar_bottom, tab_bar_right,
                         tab_bar_bottom, surface.m_pixels.border);
     }
-    if (active_right < tab_bar_right) {
-      surface.draw_line(drawable, active_right, tab_bar_bottom, tab_bar_right,
-                        tab_bar_bottom, surface.m_pixels.border);
-    }
-  } else {
-    surface.draw_line(drawable, tab_bar_left, tab_bar_bottom, tab_bar_right,
-                      tab_bar_bottom, surface.m_pixels.border);
   }
 
   surface.pop_clip();
@@ -3223,9 +3306,13 @@ void TextEditor::draw_document(
   const auto *document = get_focused_document();
 
   if (document == nullptr) {
-    // Empty state
-    surface.fill_rectangle(drawable, layout.editor_bounds,
-                           surface.m_pixels.editor_background);
+    const bool is_modern = surface.m_palette.is_modern ||
+                           surface.m_theme.is_modern ||
+                           surface.m_theme.enable_os_blur;
+    if (!is_modern) {
+      surface.fill_rectangle(drawable, layout.editor_bounds,
+                             surface.m_pixels.editor_background);
+    }
 
     m_empty_state_open_btn.set_bounds(UI::Rect{});
     m_empty_state_clone_btn.set_bounds(UI::Rect{});
@@ -3362,10 +3449,15 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
     return;
 
   const float scale = surface.m_dpi_scale;
-  surface.fill_rectangle(drawable, gutter_rect,
-                         surface.m_pixels.editor_background);
-  surface.fill_rectangle(drawable, code_rect,
-                         surface.m_pixels.editor_background);
+  const bool is_modern = surface.m_palette.is_modern ||
+                         surface.m_theme.is_modern ||
+                         surface.m_theme.enable_os_blur;
+  if (!is_modern) {
+    surface.fill_rectangle(drawable, gutter_rect,
+                           surface.m_pixels.editor_background);
+    surface.fill_rectangle(drawable, code_rect,
+                           surface.m_pixels.editor_background);
+  }
 
   const float line_h = 20.0F * scale;
   const auto &folding = is_split_pane ? m_split_folding : m_folding;
@@ -3516,7 +3608,6 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
                         is_active ? surface.m_pixels.accent
                                   : surface.m_pixels.border);
     }
-  }
   }
 
   // Pass 1: Gutter background, line numbers, diagnostics dot, fold markers,

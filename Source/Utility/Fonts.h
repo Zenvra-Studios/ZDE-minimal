@@ -574,6 +574,9 @@ public:
     if (text.empty() || !m_font || !m_display || drawable == 0) {
       return;
     }
+    if (clip && (clip->width == 0 || clip->height == 0)) {
+      return;
+    }
 
     XftColor *color = getColor(color_name);
     if (!color) {

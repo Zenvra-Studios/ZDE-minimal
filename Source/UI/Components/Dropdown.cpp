@@ -316,12 +316,17 @@ bool Dropdown::handle_key(std::uintptr_t key, float dpi_scale) noexcept {
   if (!m_open)
     return false;
 
-#if defined(_WIN32)
-  if (key == VK_ESCAPE) {
+  // Support both Windows VK_* and X11 XK_* key constants
+  const bool is_escape = (key == 0x1B || key == 0xff1b);
+  const bool is_return = (key == 0x0D || key == 0xff0d || key == 0xff8d);
+  const bool is_up = (key == 0x26 || key == 0xff52);
+  const bool is_down = (key == 0x28 || key == 0xff54);
+
+  if (is_escape) {
     close();
     return true;
   }
-  if (key == VK_RETURN) {
+  if (is_return) {
     if (!m_hovered_id.empty()) {
       for (const auto &entry : m_layout_items) {
         if (entry.item.id == m_hovered_id) {
@@ -338,22 +343,55 @@ bool Dropdown::handle_key(std::uintptr_t key, float dpi_scale) noexcept {
     close();
     return true;
   }
-  if (key == VK_UP) {
+  if (is_up) {
+    // Navigate hovered item up or scroll
+    if (!m_layout_items.empty()) {
+      for (std::size_t i = 0; i < m_layout_items.size(); ++i) {
+        if (m_layout_items[i].item.id == m_hovered_id) {
+          if (i > 0) {
+            m_hovered_id = m_layout_items[i - 1].item.id;
+          }
+          break;
+        }
+      }
+      if (m_hovered_id.empty() && !m_layout_items.empty()) {
+        m_hovered_id = m_layout_items.front().item.id;
+      }
+      for (auto &entry : m_layout_items) {
+        entry.is_hovered = (entry.item.id == m_hovered_id);
+      }
+    }
     if (m_max_scroll > 0.0F) {
       m_scroll_offset = std::max(0.0F, m_scroll_offset - 30.0F * dpi_scale);
       calculate_layout(m_anchor_bounds, m_container_bounds, dpi_scale);
-      return true;
     }
+    return true;
   }
-  if (key == VK_DOWN) {
+  if (is_down) {
+    // Navigate hovered item down or scroll
+    if (!m_layout_items.empty()) {
+      for (std::size_t i = 0; i < m_layout_items.size(); ++i) {
+        if (m_layout_items[i].item.id == m_hovered_id) {
+          if (i + 1 < m_layout_items.size()) {
+            m_hovered_id = m_layout_items[i + 1].item.id;
+          }
+          break;
+        }
+      }
+      if (m_hovered_id.empty() && !m_layout_items.empty()) {
+        m_hovered_id = m_layout_items.front().item.id;
+      }
+      for (auto &entry : m_layout_items) {
+        entry.is_hovered = (entry.item.id == m_hovered_id);
+      }
+    }
     if (m_max_scroll > 0.0F) {
       m_scroll_offset =
           std::min(m_max_scroll, m_scroll_offset + 30.0F * dpi_scale);
       calculate_layout(m_anchor_bounds, m_container_bounds, dpi_scale);
-      return true;
     }
+    return true;
   }
-#endif
 
   return false;
 }

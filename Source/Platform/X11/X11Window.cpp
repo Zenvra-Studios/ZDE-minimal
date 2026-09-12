@@ -10,8 +10,11 @@
 #include "Platform/X11/Components/TextEditor.h"
 #include "Platform/X11/Components/ToolSidebar.h"
 #include "Platform/X11/Runtime/X11Context.h"
+#include "Settings/SettingsService.h"
 #include "UI/Components/MenuModel.h"
+#include "UI/Theme/ThemeManager.h"
 #include "Utility/IcoDecoder.h"
+#include "Utility/MultiContext.h"
 
 #include <X11/Xatom.h>
 #include <X11/Xresource.h>
@@ -83,8 +86,7 @@ std::vector<unsigned char> downsample_rgba(const unsigned char *source,
       const float x_start = static_cast<float>(x) * scale_x;
       const float x_end = static_cast<float>(x + 1) * scale_x;
       const int sx_min = std::max(static_cast<int>(std::floor(x_start)), 0);
-      const int sx_max =
-          std::min(static_cast<int>(std::ceil(x_end)), source_width);
+      const int sx_max = std::min(static_cast<int>(std::ceil(x_end)), source_width);
 
       float total_weight = 0.0F;
       float acc_r = 0.0F;
@@ -156,6 +158,8 @@ struct EventTarget {
   Window popup_window;
   Window prompt_dialog_window;
   Window add_item_dialog_window;
+  Window settings_dialog_window;
+  Window tray_window;
 };
 
 Bool event_matches_window(Display *display, XEvent *event,
@@ -170,6 +174,9 @@ Bool event_matches_window(Display *display, XEvent *event,
                                                                    : False;
   }
   const Window w = event->xany.window;
+  if (w == 0) {
+    return False;
+  }
   if (w == target->main_window) {
     return True;
   }
@@ -183,6 +190,13 @@ Bool event_matches_window(Display *display, XEvent *event,
       w == target->add_item_dialog_window) {
     return True;
   }
+  if (target->settings_dialog_window != 0 &&
+      w == target->settings_dialog_window) {
+    return True;
+  }
+  if (target->tray_window != 0 && w == target->tray_window) {
+    return True;
+  }
   return False;
 }
 
@@ -190,6 +204,7 @@ Bool event_matches_window(Display *display, XEvent *event,
 
 X11Window::X11Window(const WindowSpecification &specification)
     : m_specification(specification),
+      m_base_title(specification.title),
       m_client_width(static_cast<int>(specification.width)),
       m_client_height(static_cast<int>(specification.height)) {
   m_capabilities.custom_chrome = true;
@@ -220,6 +235,7 @@ bool X11Window::initialize() {
   }
 
   m_screen = DefaultScreen(m_display);
+  m_theme = UI::Theme::ThemeManager::instance().get_current_theme();
   m_dpi_scale = calculate_dpi_scale();
   const Window root_window = RootWindow(m_display, m_screen);
 
@@ -305,9 +321,23 @@ bool X11Window::initialize() {
   static_cast<void>(
       m_prompt_dialog.initialize(m_display, m_screen, m_dpi_scale,
                                  m_chrome_renderer.get_icon_asset_root()));
+  m_prompt_dialog.set_on_close_callback([this]() { on_modal_dialog_closed(); });
   static_cast<void>(
       m_add_item_dialog.initialize(m_display, m_screen, m_dpi_scale,
                                    m_chrome_renderer.get_icon_asset_root()));
+  m_add_item_dialog.set_on_close_callback([this]() { on_modal_dialog_closed(); });
+  static_cast<void>(
+      m_settings_dialog.initialize(m_display, m_screen, m_dpi_scale,
+                                   m_chrome_renderer.get_icon_asset_root()));
+  m_settings_dialog.set_on_close_callback([this]() { on_modal_dialog_closed(); });
+  m_chrome_renderer.get_workspace_renderer().set_open_settings_callback(
+      [this]() {
+        if (m_settings_dialog.is_open()) {
+          m_settings_dialog.close();
+        } else {
+          m_settings_dialog.open(m_window_handle);
+        }
+      });
 
   Language::LanguageServerManager::instance().set_diagnostics_callback(
       [this](const std::string &uri,
@@ -323,6 +353,13 @@ bool X11Window::initialize() {
       .get_terminal_panel()
       .set_copy_callback(
           [this](const std::string &text) { copy_to_clipboard(text); });
+
+  static_cast<void>(Settings::SettingsService::instance().subscribe(
+      "theme.current",
+      [this](const Settings::SettingsChangedEvent &) {
+        apply_theme(UI::Theme::ThemeManager::instance().get_current_theme());
+      }));
+  apply_theme(UI::Theme::ThemeManager::instance().get_current_theme());
 
   apply_window_icon();
   refresh_chrome_layout();
@@ -344,11 +381,15 @@ void X11Window::poll_events() {
     return;
   }
 
+  m_in_poll_events = true;
+
   EventTarget target{
       m_window_handle,
       m_chrome_renderer.popup_window(),
       m_prompt_dialog.is_open() ? m_prompt_dialog.window() : 0,
       m_add_item_dialog.is_open() ? m_add_item_dialog.window() : 0,
+      m_settings_dialog.is_open() ? m_settings_dialog.window() : 0,
+      m_tray.window(),
   };
 
   XEvent event{};
@@ -389,15 +430,50 @@ void X11Window::poll_events() {
     }
     if (m_prompt_dialog.is_open()) {
       if (event.xany.window == m_prompt_dialog.window()) {
+        const bool was_open = m_prompt_dialog.is_open();
         m_prompt_dialog.handle_event(event);
+        if (was_open && !m_prompt_dialog.is_open()) {
+          target.prompt_dialog_window = 0;
+          on_modal_dialog_closed();
+        }
         continue;
       }
     }
     if (m_add_item_dialog.is_open()) {
       if (event.xany.window == m_add_item_dialog.window()) {
+        const bool was_open = m_add_item_dialog.is_open();
         m_add_item_dialog.handle_event(event);
+        if (was_open && !m_add_item_dialog.is_open()) {
+          target.add_item_dialog_window = 0;
+          on_modal_dialog_closed();
+        }
         continue;
       }
+    }
+    if (m_settings_dialog.is_open()) {
+      if (event.xany.window == m_settings_dialog.window()) {
+        const bool was_open = m_settings_dialog.is_open();
+        m_settings_dialog.handle_event(event);
+        if (was_open && !m_settings_dialog.is_open()) {
+          target.settings_dialog_window = 0;
+          on_modal_dialog_closed();
+        }
+        continue;
+      }
+    }
+    if (m_tray.window() != 0 && event.xany.window == m_tray.window()) {
+      const auto action = m_tray.handle_event(event);
+      if (action == SystemTray::ClickAction::Activate) {
+        restore_from_tray();
+      } else if (action == SystemTray::ClickAction::ContextMenu) {
+        int rx = 0, ry = 0;
+        if (event.type == ButtonPress) {
+          rx = event.xbutton.x_root;
+          ry = event.xbutton.y_root;
+        }
+        show_tray_menu(rx, ry);
+      }
+      continue;
     }
     if (target.popup_window != 0 && event.xany.window == target.popup_window &&
         event.type != MappingNotify) {
@@ -411,8 +487,28 @@ void X11Window::poll_events() {
         m_menu_pointer_tracking = false;
         render();
         if (!command->empty()) {
-          if (command->starts_with("zde.explorer.")) {
+          if (*command == "zde.tray.show") {
+            restore_from_tray();
+          } else if (*command == "zde.tray.hide") {
+            minimize_to_tray();
+          } else if (*command == "zde.tray.exit") {
+            request_close();
+          } else if (*command == "zde.tray.openFolder") {
+            static_cast<void>(open_project_folder());
+            render();
+          } else if (*command == "zde.tray.newFile") {
+            restore_from_tray();
+            static_cast<void>(
+                m_chrome_renderer.get_workspace_renderer().create_buffer());
+            render();
+          } else if (command->starts_with("zde.explorer.")) {
             execute_explorer_command(*command);
+          } else if (*command == Commands::CommandIds::open_settings) {
+            if (m_settings_dialog.is_open()) {
+              m_settings_dialog.close();
+            } else {
+              m_settings_dialog.open(m_window_handle);
+            }
           } else {
             const std::optional<bool> editor_result =
                 m_chrome_renderer.handle_editor_command(*command);
@@ -426,10 +522,13 @@ void X11Window::poll_events() {
           }
         }
       }
-    } else {
+    } else if (event.xany.window == m_window_handle ||
+               event.type == MappingNotify) {
       handle_event(event);
     }
   }
+
+  m_in_poll_events = false;
 
   if (m_pending_render) {
     m_pending_render = false;
@@ -452,6 +551,12 @@ void X11Window::poll_events() {
     }
     if (m_prompt_dialog.is_open()) {
       m_prompt_dialog.render();
+    }
+    if (m_add_item_dialog.is_open() && m_add_item_dialog.tick_animations()) {
+      m_add_item_dialog.render();
+    }
+    if (m_settings_dialog.is_open() && m_settings_dialog.tick_animations()) {
+      m_settings_dialog.render();
     }
   }
 
@@ -487,6 +592,57 @@ void X11Window::minimize() {
     XIconifyWindow(m_display, m_window_handle, m_screen);
     XFlush(m_display);
   }
+}
+
+void X11Window::minimize_to_tray() {
+  if (m_display == nullptr || m_window_handle == 0) {
+    return;
+  }
+  // Prefer real tray docking (mirrors Win32 ShowWindow(SW_HIDE) + balloon).
+  // Falls back to plain iconify when no systray host is running.
+  if (m_tray.create(m_display, m_screen)) {
+    XWithdrawWindow(m_display, m_window_handle, m_screen);
+    XFlush(m_display);
+    m_tray.show_notification(
+        "ZDE", "ZDE is running in the background. Click the tray icon to restore.");
+  } else {
+    minimize();
+  }
+}
+
+void X11Window::restore_from_tray() {
+  if (m_display == nullptr || m_window_handle == 0) {
+    return;
+  }
+  XMapWindow(m_display, m_window_handle);
+  XRaiseWindow(m_display, m_window_handle);
+  XSetInputFocus(m_display, m_window_handle, RevertToParent, CurrentTime);
+  XFlush(m_display);
+  m_tray.destroy();
+  refresh_chrome_layout();
+  render();
+}
+
+void X11Window::show_tray_menu(int root_x, int root_y) {
+  if (m_display == nullptr) {
+    return;
+  }
+  using Components::PopupMenuItem;
+  const std::vector<PopupMenuItem> items = {
+      {.text = "Open ZDE", .command_id = "zde.tray.show"},
+      {.separator = true},
+      {.text = "New File", .command_id = "zde.tray.newFile"},
+      {.text = "Open Folder...", .command_id = "zde.tray.openFolder"},
+      {.separator = true},
+      {.text = "Minimize to Tray", .command_id = "zde.tray.hide"},
+      {.separator = true},
+      {.text = "Exit ZDE", .command_id = "zde.tray.exit"},
+  };
+  // Anchor a 1px box at the click point in root coordinates (open_popup
+  // translates parent+anchor to root, so root+click is identity).
+  const UI::Rect anchor{static_cast<float>(root_x), static_cast<float>(root_y), 1.0F, 1.0F};
+  static_cast<void>(m_chrome_renderer.open_popup(
+      RootWindow(m_display, m_screen), anchor, items));
 }
 
 void X11Window::maximize() {
@@ -597,31 +753,74 @@ bool X11Window::open_project_folder() {
   if (!selected || selected->empty()) {
     return true;
   }
-  if (!m_chrome_renderer.set_workspace_root(*selected)) {
-    std::cerr << "Could not open workspace folder: " << selected->string()
-              << '\n';
-    return true;
+  return set_workspace_root(*selected);
+}
+
+bool X11Window::set_workspace_root(const std::filesystem::path& root) {
+  if (root.empty()) {
+    return false;
   }
-  Language::LanguageServerManager::instance().set_workspace_root(*selected);
+  if (!m_chrome_renderer.set_workspace_root(root)) {
+    std::cerr << "Could not open workspace folder: " << root.string() << '\n';
+    return false;
+  }
+  Language::LanguageServerManager::instance().set_workspace_root(root);
+  if (auto ctx = Utility::MultiContextManager::instance().get_context_by_window(this)) {
+    Utility::MultiContextManager::instance().set_workspace_root(ctx->context_id, root);
+  }
 
   std::error_code path_error;
   const std::filesystem::path canonical =
-      std::filesystem::weakly_canonical(*selected, path_error);
-  const std::filesystem::path display_root = path_error ? *selected : canonical;
+      std::filesystem::weakly_canonical(root, path_error);
+  const std::filesystem::path display_root = path_error ? root : canonical;
   const std::string folder_name = display_root.filename().empty()
                                       ? display_root.string()
                                       : display_root.filename().string();
-  const std::string window_title = folder_name + " - " + m_specification.title;
-  m_specification.title = window_title;
-  XStoreName(m_display, m_window_handle, m_specification.title.c_str());
-  XChangeProperty(
-      m_display, m_window_handle, m_atoms.net_wm_name, m_atoms.utf8_string, 8,
-      PropModeReplace,
-      reinterpret_cast<const unsigned char *>(m_specification.title.data()),
-      static_cast<int>(m_specification.title.size()));
-  XSetIconName(m_display, m_window_handle, m_specification.title.c_str());
+  const std::string base = m_base_title.empty() ? m_specification.title : m_base_title;
+  m_specification.title = folder_name + " - " + base;
+  if (m_display != nullptr && m_window_handle != 0) {
+    XStoreName(m_display, m_window_handle, m_specification.title.c_str());
+    if (m_atoms.net_wm_name != None && m_atoms.utf8_string != None) {
+      XChangeProperty(
+          m_display, m_window_handle, m_atoms.net_wm_name, m_atoms.utf8_string, 8,
+          PropModeReplace,
+          reinterpret_cast<const unsigned char *>(m_specification.title.data()),
+          static_cast<int>(m_specification.title.size()));
+    }
+    XSetIconName(m_display, m_window_handle, m_specification.title.c_str());
+  }
   render();
   return true;
+}
+
+bool X11Window::open_file(const std::filesystem::path& path) {
+  const bool res = m_chrome_renderer.open_workspace_file(path);
+  if (res) {
+    render();
+  }
+  return res;
+}
+
+bool X11Window::open_path(const std::filesystem::path& path) {
+  std::error_code ec;
+  if (std::filesystem::is_directory(path, ec)) {
+    return set_workspace_root(path);
+  }
+  if (std::filesystem::is_regular_file(path, ec)) {
+    const auto proj_root = UI::Editor::EditorFileSystem::find_project_root(path);
+    if (proj_root && get_workspace_root().empty()) {
+      static_cast<void>(set_workspace_root(*proj_root));
+    }
+    return open_file(path);
+  }
+  return false;
+}
+
+std::filesystem::path X11Window::get_workspace_root() const {
+  return m_chrome_renderer.get_workspace_renderer()
+      .get_tool_sidebar()
+      .get_model()
+      .get_workspace_root();
 }
 
 void X11Window::discard_pointer_events() {
@@ -637,6 +836,70 @@ void X11Window::discard_pointer_events() {
   m_last_workspace_click_time = 0;
   m_workspace_click_count = 0;
   m_last_titlebar_click_time = 0;
+}
+
+void X11Window::on_modal_dialog_closed() {
+  if (m_display == nullptr || m_window_handle == 0) {
+    return;
+  }
+
+  // 1. Ensure the window is not marked as minimized from unmap events of closed dialogs
+  m_is_minimized = false;
+  m_is_focused = true;
+  m_interaction_state.focused = true;
+
+  // 2. Clear any lingering interaction, menu, or hover states
+  m_interaction_state.pressed_control = UI::Chrome::WindowControl::NoControl;
+  m_interaction_state.hovered_control = UI::Chrome::WindowControl::NoControl;
+  m_interaction_state.open_menu_index.reset();
+  m_interaction_state.overflow_menu_open = false;
+  m_interaction_state.hovered_popup_item_index.reset();
+  m_interaction_state.hovered_overflow_menu_index.reset();
+  m_pressed_popup_item_index.reset();
+  m_menu_pointer_tracking = false;
+
+  // 3. Close popups and in-workspace settings window
+  m_chrome_renderer.close_popup();
+  m_chrome_renderer.get_workspace_renderer().get_settings_window().close();
+
+  // 4. Drain any stale mouse/pointer events queued while modal was active
+  discard_pointer_events();
+
+  // 5. Release any pointer/keyboard grab and refocus the main window
+  XUngrabPointer(m_display, CurrentTime);
+  XUngrabKeyboard(m_display, CurrentTime);
+  XSetInputFocus(m_display, m_window_handle, RevertToParent, CurrentTime);
+  XRaiseWindow(m_display, m_window_handle);
+
+  // 6. Query current pointer position and dispatch motion to immediately restore hover
+  Window root_ret = 0, child_ret = 0;
+  int root_x = 0, root_y = 0;
+  int win_x = 0, win_y = 0;
+  unsigned int mask_ret = 0;
+  if (XQueryPointer(m_display, m_window_handle, &root_ret, &child_ret,
+                    &root_x, &root_y, &win_x, &win_y, &mask_ret)) {
+    if (win_x >= 0 && win_x < m_client_width && win_y >= 0 && win_y < m_client_height) {
+      XMotionEvent motion_ev{};
+      motion_ev.type = MotionNotify;
+      motion_ev.window = m_window_handle;
+      motion_ev.x = win_x;
+      motion_ev.y = win_y;
+      motion_ev.x_root = root_x;
+      motion_ev.y_root = root_y;
+      motion_ev.state = mask_ret;
+      motion_ev.time = CurrentTime;
+      handle_motion(motion_ev);
+    } else {
+      static_cast<void>(m_chrome_renderer.handle_workspace_pointer_move(
+          -10000.0F, -10000.0F, m_client_width, m_client_height,
+          m_chrome_layout.titlebar_bounds.bottom()));
+    }
+  }
+
+  XFlush(m_display);
+
+  // 7. Trigger a full refresh render of the workspace
+  render();
 }
 
 void X11Window::initialize_atoms() {
@@ -721,6 +984,8 @@ void X11Window::release_native_resources() {
   m_file_drop_target.shutdown();
   m_prompt_dialog.shutdown();
   m_add_item_dialog.shutdown();
+  m_settings_dialog.shutdown();
+  m_tray.destroy();
   m_chrome_renderer.shutdown();
   Language::LanguageServerManager::instance().stop_all();
   for (Cursor &cursor : m_move_resize_cursors) {
@@ -943,9 +1208,9 @@ void X11Window::render(std::optional<UI::Rect> dirty_rect) {
     return;
   }
 
-  // If there are pending input events still queued in the X connection,
-  // defer rendering until all queued events are processed to prevent lag backlog
-  if (XPending(m_display) > 0) {
+  // If we are currently processing events in poll_events(), defer rendering
+  // until the event batch completes to coalesce rapid input updates.
+  if (m_in_poll_events) {
     m_pending_render = true;
     return;
   }
@@ -954,6 +1219,25 @@ void X11Window::render(std::optional<UI::Rect> dirty_rect) {
   if (!m_custom_chrome_enabled) {
     XClearWindow(m_display, m_window_handle);
     return;
+  }
+
+  // Synchronize actual window geometry from X11 to prevent any mismatch with tiling compositors (Hyprland, Sway, etc.)
+  Window root_return{};
+  int x_return = 0;
+  int y_return = 0;
+  unsigned int width_return = 0;
+  unsigned int height_return = 0;
+  unsigned int border_width_return = 0;
+  unsigned int depth_return = 0;
+  if (XGetGeometry(m_display, m_window_handle, &root_return, &x_return, &y_return,
+                   &width_return, &height_return, &border_width_return, &depth_return)) {
+    if (width_return > 0 && height_return > 0 &&
+        (static_cast<int>(width_return) != m_client_width ||
+         static_cast<int>(height_return) != m_client_height)) {
+      m_client_width = static_cast<int>(width_return);
+      m_client_height = static_cast<int>(height_return);
+      refresh_chrome_layout();
+    }
   }
 
   m_interaction_state.maximized = m_is_maximized;
@@ -969,6 +1253,12 @@ void X11Window::render(std::optional<UI::Rect> dirty_rect) {
 }
 
 void X11Window::handle_event(XEvent &event) {
+  if (event.type != MappingNotify &&
+      event.xany.window != m_window_handle &&
+      !(event.type == ConfigureNotify && event.xconfigure.window == m_window_handle)) {
+    return;
+  }
+
   switch (event.type) {
   case Expose: {
     XEvent next_expose{};
@@ -981,6 +1271,9 @@ void X11Window::handle_event(XEvent &event) {
   }
 
   case ConfigureNotify:
+    if (event.xconfigure.window != m_window_handle) {
+      break;
+    }
     if (event.xconfigure.width != m_client_width ||
         event.xconfigure.height != m_client_height) {
       m_client_width = event.xconfigure.width;
@@ -1001,11 +1294,17 @@ void X11Window::handle_event(XEvent &event) {
       }
 
       refresh_chrome_layout();
+      if (const Window modal_w = active_modal_window(); modal_w != 0) {
+        XRaiseWindow(m_display, modal_w);
+      }
       render();
     }
     break;
 
   case ClientMessage:
+    if (event.xclient.window != m_window_handle) {
+      break;
+    }
     if (m_file_drop_target.handle_client_message(event.xclient)) {
       break;
     }
@@ -1026,11 +1325,17 @@ void X11Window::handle_event(XEvent &event) {
     break;
 
   case DestroyNotify:
+    if (event.xdestroywindow.window != m_window_handle) {
+      break;
+    }
     m_window_handle = 0;
     m_should_close = true;
     break;
 
   case PropertyNotify:
+    if (event.xproperty.window != m_window_handle) {
+      break;
+    }
     if (event.xproperty.atom == m_atoms.net_wm_state) {
       refresh_window_state();
       render();
@@ -1038,21 +1343,46 @@ void X11Window::handle_event(XEvent &event) {
     break;
 
   case MapNotify:
+    if (event.xmap.window != m_window_handle) {
+      break;
+    }
     m_is_minimized = false;
     refresh_window_state();
+    if (const Window modal_w = active_modal_window(); modal_w != 0) {
+      XMapRaised(m_display, modal_w);
+      XSetInputFocus(m_display, modal_w, RevertToParent, CurrentTime);
+      XFlush(m_display);
+    }
     render();
     break;
 
   case UnmapNotify:
+    if (event.xunmap.window != m_window_handle) {
+      break;
+    }
     m_is_minimized = true;
+    if (const Window modal_w = active_modal_window(); modal_w != 0) {
+      XUnmapWindow(m_display, modal_w);
+    }
     break;
 
   case FocusIn:
+    if (event.xfocus.window != m_window_handle) {
+      break;
+    }
     m_is_focused = true;
+    if (const Window modal_w = active_modal_window(); modal_w != 0) {
+      XRaiseWindow(m_display, modal_w);
+      XSetInputFocus(m_display, modal_w, RevertToParent, CurrentTime);
+      XFlush(m_display);
+    }
     render();
     break;
 
   case FocusOut:
+    if (event.xfocus.window != m_window_handle) {
+      break;
+    }
     m_is_focused = false;
     m_chrome_renderer.close_popup();
     m_interaction_state.open_menu_index.reset();
@@ -1066,20 +1396,58 @@ void X11Window::handle_event(XEvent &event) {
     break;
 
   case MotionNotify:
+    if (active_modal_window() != 0) {
+      break;
+    }
     if (m_custom_chrome_enabled) {
       handle_motion(event.xmotion);
     }
     break;
 
   case ButtonPress:
+    if (const Window modal_w = active_modal_window(); modal_w != 0) {
+      if (m_settings_dialog.is_open()) {
+        m_settings_dialog.close();
+        break;
+      }
+      XRaiseWindow(m_display, modal_w);
+      XSetInputFocus(m_display, modal_w, RevertToParent, CurrentTime);
+      XBell(m_display, 0);
+      XFlush(m_display);
+      break;
+    }
     if (m_custom_chrome_enabled) {
       handle_button_press(event.xbutton);
     }
     break;
 
   case ButtonRelease:
+    if (active_modal_window() != 0) {
+      break;
+    }
     if (m_custom_chrome_enabled) {
       handle_button_release(event.xbutton);
+    }
+    break;
+
+  case EnterNotify:
+    if (event.xcrossing.window != m_window_handle) {
+      break;
+    }
+    if (active_modal_window() != 0) {
+      break;
+    }
+    if (m_custom_chrome_enabled) {
+      XMotionEvent motion_ev{};
+      motion_ev.type = MotionNotify;
+      motion_ev.window = m_window_handle;
+      motion_ev.x = event.xcrossing.x;
+      motion_ev.y = event.xcrossing.y;
+      motion_ev.x_root = event.xcrossing.x_root;
+      motion_ev.y_root = event.xcrossing.y_root;
+      motion_ev.state = event.xcrossing.state;
+      motion_ev.time = event.xcrossing.time;
+      handle_motion(motion_ev);
     }
     break;
 
@@ -1104,6 +1472,31 @@ void X11Window::handle_event(XEvent &event) {
     break;
 
   case KeyPress:
+    if (const Window modal_w = active_modal_window(); modal_w != 0) {
+      XRaiseWindow(m_display, modal_w);
+      XSetInputFocus(m_display, modal_w, RevertToParent, CurrentTime);
+      event.xkey.window = modal_w;
+      if (m_prompt_dialog.is_open()) {
+        const bool was_open = m_prompt_dialog.is_open();
+        m_prompt_dialog.handle_event(event);
+        if (was_open && !m_prompt_dialog.is_open()) {
+          on_modal_dialog_closed();
+        }
+      } else if (m_add_item_dialog.is_open()) {
+        const bool was_open = m_add_item_dialog.is_open();
+        m_add_item_dialog.handle_event(event);
+        if (was_open && !m_add_item_dialog.is_open()) {
+          on_modal_dialog_closed();
+        }
+      } else if (m_settings_dialog.is_open()) {
+        const bool was_open = m_settings_dialog.is_open();
+        m_settings_dialog.handle_event(event);
+        if (was_open && !m_settings_dialog.is_open()) {
+          on_modal_dialog_closed();
+        }
+      }
+      break;
+    }
     handle_key_press(event.xkey);
     break;
 
@@ -1325,6 +1718,16 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
         XPutBackEvent(m_display, &next_ev);
         break;
       }
+    }
+
+    if (m_chrome_renderer.get_workspace_renderer().is_settings_window_visible()) {
+      std::string command_out;
+      if (m_chrome_renderer.handle_workspace_scroll(
+              point_x, point_y, command_out, delta, horizontal, m_client_width,
+              m_client_height, content_top)) {
+        render();
+      }
+      return;
     }
 
     if (over_tool_sidebar &&
@@ -1553,6 +1956,10 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
   }
 
   if (m_chrome_layout.is_gear_button(point_x, point_y)) {
+    if (m_settings_dialog.is_open()) {
+      m_settings_dialog.close();
+      return;
+    }
     open_or_close_overlay(gear_menu_index);
     return;
   }
@@ -1884,6 +2291,45 @@ void X11Window::handle_key_press(XKeyEvent &event) {
       render();
       return;
     }
+    if (key_symbol == XK_Delete) {
+      static_cast<void>(m_chrome_renderer.get_workspace_renderer()
+                            .get_prompt_modal()
+                            .handle_delete());
+      render();
+      return;
+    }
+    if (key_symbol == XK_Left) {
+      const bool shift = (event.state & ShiftMask) != 0;
+      static_cast<void>(m_chrome_renderer.get_workspace_renderer()
+                            .get_prompt_modal()
+                            .handle_left(shift));
+      render();
+      return;
+    }
+    if (key_symbol == XK_Right) {
+      const bool shift = (event.state & ShiftMask) != 0;
+      static_cast<void>(m_chrome_renderer.get_workspace_renderer()
+                            .get_prompt_modal()
+                            .handle_right(shift));
+      render();
+      return;
+    }
+    if (key_symbol == XK_Home) {
+      const bool shift = (event.state & ShiftMask) != 0;
+      static_cast<void>(m_chrome_renderer.get_workspace_renderer()
+                            .get_prompt_modal()
+                            .handle_home(shift));
+      render();
+      return;
+    }
+    if (key_symbol == XK_End) {
+      const bool shift = (event.state & ShiftMask) != 0;
+      static_cast<void>(m_chrome_renderer.get_workspace_renderer()
+                            .get_prompt_modal()
+                            .handle_end(shift));
+      render();
+      return;
+    }
     char buf[32]{};
     KeySym sym{};
     int len = XLookupString(&event, buf, sizeof(buf), &sym, nullptr);
@@ -1892,6 +2338,41 @@ void X11Window::handle_key_press(XKeyEvent &event) {
                             .get_prompt_modal()
                             .handle_char(static_cast<char32_t>(
                                 static_cast<unsigned char>(buf[0]))));
+      render();
+      return;
+    }
+    return;
+  }
+
+  if (m_chrome_renderer.get_workspace_renderer().is_settings_window_visible()) {
+    auto &settings =
+        m_chrome_renderer.get_workspace_renderer().get_settings_window();
+    if (key_symbol == XK_Escape) {
+      settings.handle_escape();
+      render();
+      return;
+    }
+    if (key_symbol == XK_Return || key_symbol == XK_KP_Enter) {
+      settings.handle_enter();
+      render();
+      return;
+    }
+    if (key_symbol == XK_BackSpace) {
+      settings.handle_backspace();
+      render();
+      return;
+    }
+    if (key_symbol == XK_Up || key_symbol == XK_Down) {
+      settings.handle_key(static_cast<uint32_t>(key_symbol), m_dpi_scale);
+      render();
+      return;
+    }
+    char buf[32]{};
+    KeySym sym{};
+    int len = XLookupString(&event, buf, sizeof(buf), &sym, nullptr);
+    if (len > 0 && !std::iscntrl(static_cast<unsigned char>(buf[0]))) {
+      settings.handle_char(
+          static_cast<char32_t>(static_cast<unsigned char>(buf[0])));
       render();
       return;
     }
@@ -2085,6 +2566,14 @@ void X11Window::handle_key_press(XKeyEvent &event) {
   }
 
   auto dispatch_shortcut_command = [&](std::string_view cmd_id) -> bool {
+    if (cmd_id == Commands::CommandIds::open_settings) {
+      if (m_settings_dialog.is_open()) {
+        m_settings_dialog.close();
+      } else {
+        m_settings_dialog.open(m_window_handle);
+      }
+      return true;
+    }
     const std::optional<bool> editor_result =
         m_chrome_renderer.handle_editor_command(cmd_id);
     if (!editor_result && m_command_invoked_callback) {
@@ -2255,6 +2744,59 @@ void X11Window::handle_key_press(XKeyEvent &event) {
     default:
       break;
     }
+  }
+
+  if (!m_interaction_state.open_menu_index &&
+      !m_interaction_state.overflow_menu_open &&
+      m_chrome_renderer.is_search_focused()) {
+    const bool ctrl = (event.state & ControlMask) != 0;
+    if (ctrl && (key_symbol == XK_v || key_symbol == XK_V)) {
+      if (!m_clipboard_text.empty()) {
+        static_cast<void>(m_chrome_renderer.handle_text_input(m_clipboard_text));
+        render();
+        return;
+      }
+    }
+    if (ctrl && (key_symbol == XK_c || key_symbol == XK_C)) {
+      const auto &input = m_chrome_renderer.get_workspace_renderer()
+                              .get_tool_sidebar()
+                              .get_search_input();
+      if (input.has_selection()) {
+        copy_to_clipboard(input.get_selected_text());
+      } else if (!input.get_text().empty()) {
+        copy_to_clipboard(input.get_text());
+      }
+      return;
+    }
+    if (ctrl && (key_symbol == XK_x || key_symbol == XK_X)) {
+      auto &input = m_chrome_renderer.get_workspace_renderer()
+                        .get_tool_sidebar()
+                        .get_search_input();
+      if (input.has_selection()) {
+        copy_to_clipboard(input.get_selected_text());
+        static_cast<void>(input.handle_delete());
+        render();
+      }
+      return;
+    }
+    if (m_chrome_renderer.handle_search_key(key_symbol, event.state)) {
+      render();
+      return;
+    }
+    if ((event.state & ControlMask) == 0) {
+      char text[64]{};
+      KeySym input_symbol = NoSymbol;
+      const int text_length = XLookupString(
+          &event, text, static_cast<int>(sizeof(text)), &input_symbol, nullptr);
+      if (text_length > 0 && static_cast<unsigned char>(text[0]) >= 0x20U &&
+          static_cast<unsigned char>(text[0]) != 0x7FU &&
+          m_chrome_renderer.handle_text_input(
+              std::string_view{text, static_cast<std::size_t>(text_length)})) {
+        render();
+        return;
+      }
+    }
+    return;
   }
 
   if (!m_interaction_state.open_menu_index &&
@@ -2745,6 +3287,14 @@ void X11Window::execute_popup_selection() {
   m_pressed_popup_item_index.reset();
   render();
   if (command_id.empty()) {
+    return;
+  }
+  if (command_id == Commands::CommandIds::open_settings) {
+    if (m_settings_dialog.is_open()) {
+      m_settings_dialog.close();
+    } else {
+      m_settings_dialog.open(m_window_handle);
+    }
     return;
   }
   if (command_id == Commands::CommandIds::help_about) {
@@ -3355,8 +3905,21 @@ bool X11Window::close_project() {
   if (auto ctx = Utility::MultiContextManager::instance().get_context_by_window(this)) {
     Utility::MultiContextManager::instance().set_workspace_root(ctx->context_id, {});
   }
-  m_window_title = m_specification.title;
-  update_net_wm_name(m_window_title);
+  // Restore base title (Win32 keeps m_window_title separate; X11 previously
+  // mutated m_specification.title, so restore from m_base_title instead).
+  const std::string base = m_base_title.empty() ? m_specification.title : m_base_title;
+  m_specification.title = base;
+  if (m_display != nullptr && m_window_handle != 0) {
+    XStoreName(m_display, m_window_handle, m_specification.title.c_str());
+    if (m_atoms.net_wm_name != None && m_atoms.utf8_string != None) {
+      XChangeProperty(
+          m_display, m_window_handle, m_atoms.net_wm_name, m_atoms.utf8_string, 8,
+          PropModeReplace,
+          reinterpret_cast<const unsigned char *>(m_specification.title.data()),
+          static_cast<int>(m_specification.title.size()));
+    }
+    XSetIconName(m_display, m_window_handle, m_specification.title.c_str());
+  }
   render();
   return res;
 }
@@ -3376,9 +3939,21 @@ void X11Window::show_about_dialog() {
   render();
 }
 
+Window X11Window::active_modal_window() const {
+  if (m_prompt_dialog.is_open() && m_prompt_dialog.window() != 0) {
+    return m_prompt_dialog.window();
+  }
+  if (m_add_item_dialog.is_open() && m_add_item_dialog.window() != 0) {
+    return m_add_item_dialog.window();
+  }
+  if (m_settings_dialog.is_open() && m_settings_dialog.window() != 0) {
+    return m_settings_dialog.window();
+  }
+  return 0;
+}
+
 bool X11Window::is_modal_active() const {
-  return m_prompt_dialog.is_open() || m_add_item_dialog.is_open() ||
-         m_about_modal.is_visible();
+  return active_modal_window() != 0 || m_about_modal.is_visible();
 }
 
 void X11Window::toggle_fullscreen() {
@@ -3404,6 +3979,42 @@ bool X11Window::is_fullscreen() const { return m_is_fullscreen; }
 
 void X11Window::reset_layout() {
   m_chrome_renderer.get_workspace_renderer().reset_layout();
+  render();
+}
+
+void X11Window::apply_theme(const UI::Theme::StudioTheme &theme) {
+  m_theme = theme;
+  m_chrome_renderer.apply_theme(theme);
+  m_settings_dialog.apply_theme(theme);
+  if (m_display != nullptr && m_window_handle != 0) {
+    XColor bg_xcolor{};
+    bg_xcolor.red =
+        static_cast<unsigned short>(m_theme.window_background.red * 257U);
+    bg_xcolor.green =
+        static_cast<unsigned short>(m_theme.window_background.green * 257U);
+    bg_xcolor.blue =
+        static_cast<unsigned short>(m_theme.window_background.blue * 257U);
+    bg_xcolor.flags = DoRed | DoGreen | DoBlue;
+    unsigned long bg_pixel = BlackPixel(m_display, m_screen);
+    if (XAllocColor(m_display, DefaultColormap(m_display, m_screen),
+                    &bg_xcolor) != 0) {
+      bg_pixel = bg_xcolor.pixel;
+    }
+    XSetWindowBackground(m_display, m_window_handle, bg_pixel);
+
+    // Communicate OS blur request to Linux compositors (KWin, Picom, Compiz)
+    Atom blur_atom = XInternAtom(m_display, "_KDE_NET_WM_BLUR_BEHIND_REGION", False);
+    if (blur_atom != None) {
+      if (theme.enable_os_blur) {
+        unsigned long dummy = 0;
+        XChangeProperty(m_display, m_window_handle, blur_atom, XA_CARDINAL, 32,
+                        PropModeReplace,
+                        reinterpret_cast<const unsigned char *>(&dummy), 0);
+      } else {
+        XDeleteProperty(m_display, m_window_handle, blur_atom);
+      }
+    }
+  }
   render();
 }
 
@@ -3674,7 +4285,7 @@ void X11Window::draw_about_modal(Drawable drawable, int client_width,
                       scale, &layout.base_layout.dialog_bounds, dialog_radius);
 
   // 2. Modal container card (Dark theme matching Studio)
-  const UI::Theme::Color dialog_bg{28, 29, 36, 255};
+  const UI::Theme::Color dialog_bg = m_theme.panel_background;
   surface.fill_rounded_rectangle(
       drawable, layout.base_layout.dialog_bounds,
       surface.allocate_color(dialog_bg), dialog_radius,

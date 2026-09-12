@@ -2,6 +2,7 @@
 #include "Language/LanguageServerManager.h"
 #include "Language/Syntax/GrammarRegistry.h"
 #include "Language/Toolchain/ToolchainDetector.h"
+#include "Platform/HostSystem.h"
 #include "Platform/PlatformWindowFactory.h"
 #include "Plugins/PluginManager.h"
 #include "UI/Theme/ThemeManager.h"
@@ -167,7 +168,7 @@ Platform::IPlatformWindow* Application::create_new_window(
         },
         .request_toggle_shader = [win_ptr] { win_ptr->toggle_shader_sandbox(); },
         .request_build = [this, win_ptr, view_model_holder] {
-            std::string preset = (*view_model_holder) ? std::string((*view_model_holder)->get_active_preset()) : "macos-debug";
+            std::string preset = (*view_model_holder) ? std::string((*view_model_holder)->get_active_preset()) : Platform::HostSystem::get_system_info().default_preset_debug;
             std::string target = (*view_model_holder) ? std::string((*view_model_holder)->get_active_target()) : "ZDE";
             std::filesystem::path ws_root = win_ptr->get_workspace_root();
             if (ws_root.empty()) {
@@ -188,12 +189,25 @@ Platform::IPlatformWindow* Application::create_new_window(
         },
         .request_run = [this, win_ptr, view_model_holder] {
             std::string target = (*view_model_holder) ? std::string((*view_model_holder)->get_active_target()) : "ZDE";
-            std::string exec_path = (target == "ZDEUnitTests") ? "bin/Debug/ZDEUnitTests" : "bin/Debug/ZDE.app/Contents/MacOS/ZDE";
+            std::string preset = (*view_model_holder) ? std::string((*view_model_holder)->get_active_preset()) : Platform::HostSystem::get_system_info().default_preset_debug;
+            const std::string config = (preset.find("release") != std::string::npos || preset.find("Release") != std::string::npos) ? "Release" : "Debug";
             std::filesystem::path ws_root = win_ptr->get_workspace_root();
             if (ws_root.empty()) {
                 std::error_code ec;
                 ws_root = std::filesystem::current_path(ec);
             }
+            std::filesystem::path exec_path;
+#if defined(__APPLE__)
+            if (target == "ZDEUnitTests") {
+                exec_path = ws_root / "build" / preset / "bin" / config / "ZDEUnitTests";
+            } else {
+                exec_path = ws_root / "build" / preset / "bin" / config / "ZDE.app" / "Contents" / "MacOS" / "ZDE";
+            }
+#elif defined(_WIN32)
+            exec_path = ws_root / "build" / preset / "bin" / config / (target + ".exe");
+#else
+            exec_path = ws_root / "build" / preset / "bin" / config / target;
+#endif
             Tools::Runner::ProcessExecutionOptions opts{
                 .executable_path = exec_path,
                 .working_directory = ws_root,

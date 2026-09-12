@@ -14,6 +14,22 @@ struct BlurUniforms {
     float noise_opacity = 0.035F;
     float texel_width = 1.0F / 1920.0F;
     float texel_height = 1.0F / 1080.0F;
+
+    // Modern card geometry (x, y, width, height in window pixels)
+    std::array<float, 4> explorer_card = {0.0F, 0.0F, 0.0F, 0.0F};
+    std::array<float, 4> editor_card = {0.0F, 0.0F, 0.0F, 0.0F};
+    std::array<float, 4> terminal_card = {0.0F, 0.0F, 0.0F, 0.0F};
+    std::array<float, 4> shader_card = {0.0F, 0.0F, 0.0F, 0.0F};
+    std::array<float, 4> popup_card = {0.0F, 0.0F, 0.0F, 0.0F};
+    float card_radius = 8.0F;
+
+    // Optional solid card colors (RGBA)
+    std::array<float, 4> explorer_color = {0.0F, 0.0F, 0.0F, 0.0F};
+    std::array<float, 4> editor_color = {0.0F, 0.0F, 0.0F, 0.0F};
+    std::array<float, 4> terminal_color = {0.0F, 0.0F, 0.0F, 0.0F};
+    std::array<float, 4> shader_color = {0.0F, 0.0F, 0.0F, 0.0F};
+
+    int enable_blur = 1; // 1 = blur triggered, 0 = pass-through
 };
 
 class BackdropBlurPipeline {
@@ -26,6 +42,16 @@ public:
 
     /// Binds the blur shader and applies uniform parameters.
     void apply_uniforms(const BlurUniforms& uniforms, int texture_unit = 0);
+
+    /// Updates the solid card geometries (Explorer, Editor, Terminal, Shader Sandbox) to exclude from blur
+    void set_card_regions(const std::array<float, 4>& explorer,
+                          const std::array<float, 4>& editor,
+                          const std::array<float, 4>& terminal,
+                          const std::array<float, 4>& shader,
+                          float card_radius = 8.0F);
+
+    /// Toggles whether backdrop blur is active (triggered) or bypassed
+    void set_blur_enabled(bool enabled);
 
     /// Render a textured quad representing the backdrop blur region.
     void render_quad(float x, float y, float width, float height);

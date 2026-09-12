@@ -13,6 +13,7 @@ add_executable(ZDEUnitTests
     VimModeTests.cpp
     ThemeTests.cpp
     DropdownTests.cpp
+    InputComponentTests.cpp
     # SourceControlTests.cpp
 )
 

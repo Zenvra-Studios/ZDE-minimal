@@ -29,7 +29,8 @@ private:
         int center_x,
         int center_y,
         bool active,
-        bool hovered) const;
+        bool hovered,
+        const UI::Theme::Color& background) const;
 };
 
 } // namespace Zenvra::Platform::X11::Components

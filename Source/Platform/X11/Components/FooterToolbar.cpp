@@ -38,15 +38,17 @@ void FooterToolbar::render(
     const UI::Editor::StudioEditorLayoutResult &layout,
     std::span<const UI::Editor::BreadcrumbItem> breadcrumbs,
     const UI::Editor::FooterEditorStatus &status) const {
-  surface.fill_rectangle(drawable, layout.status_bar_bounds,
-                         surface.m_pixels.status_background);
-  surface.draw_line(drawable, 0, round_to_int(layout.status_bar_bounds.y),
-                    round_to_int(layout.status_bar_bounds.right()),
-                    round_to_int(layout.status_bar_bounds.y),
-                    surface.m_pixels.border);
+  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+  if (!is_modern) {
+    surface.fill_rectangle(drawable, layout.status_bar_bounds,
+                           surface.m_pixels.status_background);
+    surface.draw_line(drawable, 0, round_to_int(layout.status_bar_bounds.y),
+                      round_to_int(layout.status_bar_bounds.right()),
+                      round_to_int(layout.status_bar_bounds.y),
+                      surface.m_pixels.border);
+  }
   const float scale = surface.m_dpi_scale;
-  const float center_y =
-      layout.status_bar_bounds.y + layout.status_bar_bounds.height * 0.5F;
+  const float center_y = layout.status_bar_bounds.y + layout.status_bar_bounds.height * 0.5F;
   const std::string status_text =
       status.line > 0
           ? ("Ln " + std::to_string(status.line) + ", Col " + std::to_string(status.column) +
@@ -54,12 +56,33 @@ void FooterToolbar::render(
              std::string{status.encoding} + "    " +
              std::to_string(status.indent_width) + " spaces")
           : "UTF-8    Ready";
+
+  float right_offset = 12.0F * scale;
+  if (!status.vim_mode.empty()) {
+    const int mode_w = surface.m_small_font
+        ? surface.m_small_font->getTextWidth(std::string{status.vim_mode})
+        : static_cast<int>(status.vim_mode.size() * 7.0F * scale);
+    const float badge_w = static_cast<float>(mode_w) + 16.0F * scale;
+    const float badge_h = 16.0F * scale;
+    const float badge_x = layout.status_bar_bounds.right() - right_offset - badge_w;
+    const UI::Rect badge_rect{badge_x, center_y - badge_h * 0.5F, badge_w, badge_h};
+    surface.fill_rounded_rectangle(drawable, badge_rect,
+                                   surface.m_pixels.selection_background,
+                                   3.0F * scale);
+    if (surface.m_small_font) {
+      surface.draw_text(drawable, *surface.m_small_font, status.vim_mode,
+                        badge_x + 8.0F * scale, center_y,
+                        surface.m_text.accent);
+    }
+    right_offset += badge_w + 12.0F * scale;
+  }
+
   const float status_x =
       layout.status_bar_bounds.right() -
       (surface.m_small_font
           ? static_cast<float>(surface.m_small_font->getTextWidth(status_text))
           : static_cast<float>(status_text.size()) * 7.0F * scale) -
-      12.0F * scale;
+      right_offset;
   if (surface.m_small_font) {
     surface.draw_text(drawable, *surface.m_small_font, status_text, status_x,
                       center_y, surface.m_text.muted);

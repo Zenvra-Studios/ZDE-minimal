@@ -81,8 +81,14 @@ public:
 
     [[nodiscard]] bool handle_char(char32_t codepoint) noexcept;
     [[nodiscard]] bool handle_backspace() noexcept;
+    [[nodiscard]] bool handle_delete() noexcept;
+    [[nodiscard]] bool handle_left(bool select = false) noexcept;
+    [[nodiscard]] bool handle_right(bool select = false) noexcept;
+    [[nodiscard]] bool handle_home(bool select = false) noexcept;
+    [[nodiscard]] bool handle_end(bool select = false) noexcept;
     [[nodiscard]] bool handle_escape() noexcept;
     [[nodiscard]] bool handle_enter() noexcept;
+    [[nodiscard]] bool tick() noexcept { return m_visible ? m_input.tick() : false; }
 
     [[nodiscard]] bool is_close_hovered() const noexcept { return m_close_hovered; }
     [[nodiscard]] bool is_ok_hovered() const noexcept { return m_ok_hovered; }

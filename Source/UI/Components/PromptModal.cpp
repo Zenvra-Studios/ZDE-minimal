@@ -169,6 +169,7 @@ PromptModalLayoutResult PromptModal::calculate_layout(const Rect& viewport_bound
             dialog_w - 44.0F * dpi_scale,
             32.0F * dpi_scale
         };
+        const_cast<Input&>(m_input).set_bounds(layout.input_bounds);
         layout.ok_button_bounds = Rect{};
         layout.cancel_button_bounds = Rect{};
     }
@@ -197,8 +198,7 @@ bool PromptModal::handle_pointer_press(float x, float y, const PromptModalLayout
     }
     if (layout.is_input(x, y))
     {
-        m_input.set_focused(true);
-        return true;
+        return m_input.handle_pointer_press(x, y);
     }
 
     if (!layout.is_inside_dialog(x, y))
@@ -255,34 +255,43 @@ bool PromptModal::handle_pointer_release(float x, float y, const PromptModalLayo
 bool PromptModal::handle_char(char32_t codepoint) noexcept
 {
     if (!m_visible || m_mode == PromptMode::ConfirmDelete) return false;
-
-    if (codepoint >= 32)
-    {
-        std::string utf8_char;
-        if (codepoint <= 0x7F)
-        {
-            utf8_char += static_cast<char>(codepoint);
-        }
-        else if (codepoint <= 0x7FF)
-        {
-            utf8_char += static_cast<char>(0xC0 | ((codepoint >> 6) & 0x1F));
-            utf8_char += static_cast<char>(0x80 | (codepoint & 0x3F));
-        }
-        else
-        {
-            utf8_char += static_cast<char>(0xE0 | ((codepoint >> 12) & 0x0F));
-            utf8_char += static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F));
-            utf8_char += static_cast<char>(0x80 | (codepoint & 0x3F));
-        }
-        return m_input.handle_text_input(utf8_char);
-    }
-    return false;
+    return m_input.handle_char(codepoint);
 }
 
 bool PromptModal::handle_backspace() noexcept
 {
     if (!m_visible || m_mode == PromptMode::ConfirmDelete) return false;
     return m_input.handle_backspace();
+}
+
+bool PromptModal::handle_delete() noexcept
+{
+    if (!m_visible || m_mode == PromptMode::ConfirmDelete) return false;
+    return m_input.handle_delete();
+}
+
+bool PromptModal::handle_left(bool select) noexcept
+{
+    if (!m_visible || m_mode == PromptMode::ConfirmDelete) return false;
+    return m_input.handle_left(select);
+}
+
+bool PromptModal::handle_right(bool select) noexcept
+{
+    if (!m_visible || m_mode == PromptMode::ConfirmDelete) return false;
+    return m_input.handle_right(select);
+}
+
+bool PromptModal::handle_home(bool select) noexcept
+{
+    if (!m_visible || m_mode == PromptMode::ConfirmDelete) return false;
+    return m_input.handle_home(select);
+}
+
+bool PromptModal::handle_end(bool select) noexcept
+{
+    if (!m_visible || m_mode == PromptMode::ConfirmDelete) return false;
+    return m_input.handle_end(select);
 }
 
 bool PromptModal::handle_escape() noexcept

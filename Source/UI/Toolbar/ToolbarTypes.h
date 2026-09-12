@@ -63,12 +63,28 @@ struct RunConfigurationState
     std::string active_target_name = "ZDE";
     BuildConfigurationMode active_mode = BuildConfigurationMode::Debug;
     TargetArchitecture active_architecture = TargetArchitecture::HostDefault;
+#if defined(__APPLE__)
     std::string active_preset_name = "macos-debug";
     ExecutionState execution_state = ExecutionState::Idle;
     std::vector<BinaryTargetProfile> available_targets = {
-        {"zde", "ZDE", "bin/Debug/ZDE.app/Contents/MacOS/ZDE", true},
-        {"tests", "ZDEUnitTests", "bin/Debug/ZDEUnitTests", false}
+        {"zde", "ZDE", "build/macos-debug/bin/Debug/ZDE.app/Contents/MacOS/ZDE", true},
+        {"tests", "ZDEUnitTests", "build/macos-debug/bin/Debug/ZDEUnitTests", false}
     };
+#elif defined(_WIN32)
+    std::string active_preset_name = "windows-ninja-debug";
+    ExecutionState execution_state = ExecutionState::Idle;
+    std::vector<BinaryTargetProfile> available_targets = {
+        {"zde", "ZDE", "build/windows-ninja-debug/bin/Debug/ZDE.exe", true},
+        {"tests", "ZDEUnitTests", "build/windows-ninja-debug/bin/Debug/ZDEUnitTests.exe", false}
+    };
+#else
+    std::string active_preset_name = "linux-debug";
+    ExecutionState execution_state = ExecutionState::Idle;
+    std::vector<BinaryTargetProfile> available_targets = {
+        {"zde", "ZDE", "build/linux-debug/bin/Debug/ZDE", true},
+        {"tests", "ZDEUnitTests", "build/linux-debug/bin/Debug/ZDEUnitTests", false}
+    };
+#endif
 };
 
 [[nodiscard]] constexpr std::string_view to_string(BuildConfigurationMode mode) noexcept

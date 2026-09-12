@@ -10,6 +10,7 @@
 
 #include <lunasvg.h>
 
+#include <X11/Xatom.h>
 #include <X11/Xutil.h>
 
 namespace Zenvra::Platform::X11::Components {
@@ -510,6 +511,12 @@ void X11AddNewItemDialog::open(Window parent_window,
                                const std::filesystem::path &target_folder,
                                const std::string &project_name,
                                CreateCallback callback) {
+  if (m_open && m_window != 0) {
+    XRaiseWindow(m_display, m_window);
+    XSetInputFocus(m_display, m_window, RevertToParent, CurrentTime);
+    render();
+    return;
+  }
   close();
 
   m_parent_window = parent_window;
@@ -551,8 +558,8 @@ void X11AddNewItemDialog::open(Window parent_window,
   attrs.background_pixel = alloc_rgb(m_display, m_screen, 30, 31, 34);
   attrs.save_under = True;
   attrs.event_mask = ExposureMask | ButtonPressMask | ButtonReleaseMask |
-                     PointerMotionMask | KeyPressMask | LeaveWindowMask |
-                     FocusChangeMask;
+                     PointerMotionMask | KeyPressMask | EnterWindowMask |
+                     LeaveWindowMask | FocusChangeMask;
 
   m_window = XCreateWindow(
       m_display, RootWindow(m_display, m_screen), m_win_x, m_win_y,
@@ -560,6 +567,40 @@ void X11AddNewItemDialog::open(Window parent_window,
       0, DefaultDepth(m_display, m_screen), InputOutput,
       DefaultVisual(m_display, m_screen),
       CWOverrideRedirect | CWBackPixel | CWSaveUnder | CWEventMask, &attrs);
+
+  if (parent_window != 0) {
+    XSetTransientForHint(m_display, m_window, parent_window);
+  }
+
+  struct MotifHints {
+    unsigned long flags;
+    unsigned long functions;
+    unsigned long decorations;
+    long inputMode;
+    unsigned long status;
+  };
+  Atom motif_atom = XInternAtom(m_display, "_MOTIF_WM_HINTS", False);
+  MotifHints hints{
+      .flags = (1UL << 1U), // MWM_HINTS_DECORATIONS
+      .functions = 0,
+      .decorations = 0,     // 0 = borderless custom titlebar
+      .inputMode = 0,
+      .status = 0
+  };
+  XChangeProperty(m_display, m_window, motif_atom, motif_atom, 32, PropModeReplace,
+                  reinterpret_cast<const unsigned char*>(&hints), 5);
+
+  Atom net_wm_type = XInternAtom(m_display, "_NET_WM_WINDOW_TYPE", False);
+  Atom net_wm_type_dialog = XInternAtom(m_display, "_NET_WM_WINDOW_TYPE_DIALOG", False);
+  XChangeProperty(m_display, m_window, net_wm_type, XA_ATOM, 32, PropModeReplace,
+                  reinterpret_cast<const unsigned char*>(&net_wm_type_dialog), 1);
+
+  Atom net_wm_state = XInternAtom(m_display, "_NET_WM_STATE", False);
+  Atom net_wm_state_modal = XInternAtom(m_display, "_NET_WM_STATE_MODAL", False);
+  XChangeProperty(m_display, m_window, net_wm_state, XA_ATOM, 32, PropModeReplace,
+                  reinterpret_cast<const unsigned char*>(&net_wm_state_modal), 1);
+
+  XStoreName(m_display, m_window, "New Item");
 
   m_back_buffer = XCreatePixmap(
       m_display, m_window, static_cast<unsigned int>(m_width),
@@ -596,21 +637,40 @@ void X11AddNewItemDialog::open(Window parent_window,
                        26.0F * scale};
 
   m_open = true;
+  m_dragging_titlebar = false;
   m_close_hovered = false;
   m_add_hovered = false;
   m_cancel_hovered = false;
   m_name_input_focused = true;
+  m_caret_blink.reset();
+  m_hovered_category_index.reset();
+  m_hovered_template_index.reset();
 
   XMapRaised(m_display, m_window);
   XSetInputFocus(m_display, m_window, RevertToParent, CurrentTime);
+  XFlush(m_display);
   render();
+}
+
+bool X11AddNewItemDialog::tick_animations() noexcept {
+  if (!m_open) {
+    return false;
+  }
+  return m_name_input_focused ? m_caret_blink.tick() : false;
 }
 
 void X11AddNewItemDialog::close() {
   if (m_open && m_display != nullptr) {
     if (m_window != 0) {
+      const Window old_w = m_window;
+      XUngrabPointer(m_display, CurrentTime);
+      XUngrabKeyboard(m_display, CurrentTime);
       XDestroyWindow(m_display, m_window);
       m_window = 0;
+      XSync(m_display, False);
+      XEvent ev{};
+      while (XCheckWindowEvent(m_display, old_w, 0xFFFFFFFF, &ev)) {
+      }
     }
     if (m_back_buffer != 0) {
       XFreePixmap(m_display, m_back_buffer);
@@ -621,6 +681,19 @@ void X11AddNewItemDialog::close() {
       m_gc = nullptr;
     }
     m_open = false;
+    m_dragging_titlebar = false;
+    m_close_hovered = false;
+    m_add_hovered = false;
+    m_cancel_hovered = false;
+    if (m_parent_window != 0) {
+      XSetInputFocus(m_display, m_parent_window, RevertToParent, CurrentTime);
+      XRaiseWindow(m_display, m_parent_window);
+      XFlush(m_display);
+    }
+    m_parent_window = 0;
+    if (m_on_close_callback) {
+      m_on_close_callback();
+    }
   }
 }
 
@@ -637,6 +710,7 @@ void X11AddNewItemDialog::shutdown() {
   }
   m_svg_cache.clear();
   m_display = nullptr;
+  m_parent_window = 0;
 }
 
 void X11AddNewItemDialog::submit() {
@@ -812,7 +886,8 @@ void X11AddNewItemDialog::render() {
 
   const unsigned long input_bg = alloc_rgb(m_display, m_screen, 24, 25, 28);
   const unsigned long input_border =
-      alloc_rgb(m_display, m_screen, 53, 132, 228);
+      m_name_input_focused ? alloc_rgb(m_display, m_screen, 53, 132, 228)
+                           : alloc_rgb(m_display, m_screen, 60, 64, 72);
 
   // 1. Fill whole dialog background
   XSetForeground(m_display, m_gc, bg_col);
@@ -1130,14 +1205,16 @@ void X11AddNewItemDialog::render() {
     m_ui_font->drawString(m_back_buffer, "#e1e4eb", text_x, text_y,
                           m_filename_input);
 
-    // Caret
-    const int text_w = m_ui_font->getTextWidth(m_filename_input);
-    const int caret_x = text_x + text_w;
-    XSetForeground(m_display, m_gc,
-                   alloc_rgb(m_display, m_screen, 255, 255, 255));
-    XDrawLine(m_display, m_back_buffer, m_gc, caret_x,
-              static_cast<int>(m_name_input_rect.y + 4.0F * scale), caret_x,
-              static_cast<int>(m_name_input_rect.bottom() - 4.0F * scale));
+    // Blinking Caret
+    if (m_name_input_focused && m_caret_blink.is_visible()) {
+      const int text_w = m_ui_font->getTextWidth(m_filename_input);
+      const int caret_x = text_x + text_w;
+      XSetForeground(m_display, m_gc,
+                     alloc_rgb(m_display, m_screen, 255, 255, 255));
+      XDrawLine(m_display, m_back_buffer, m_gc, caret_x,
+                static_cast<int>(m_name_input_rect.y + 4.0F * scale), caret_x,
+                static_cast<int>(m_name_input_rect.bottom() - 4.0F * scale));
+    }
   }
 
   // Location label & value
@@ -1228,6 +1305,14 @@ bool X11AddNewItemDialog::handle_event(const XEvent &event) {
     render();
     return true;
 
+  case EnterNotify:
+    XSetInputFocus(m_display, m_window, RevertToParent, CurrentTime);
+    return true;
+
+  case FocusIn:
+    render();
+    return true;
+
   case MotionNotify: {
     const float mx = static_cast<float>(event.xmotion.x);
     const float my = static_cast<float>(event.xmotion.y);
@@ -1276,6 +1361,10 @@ bool X11AddNewItemDialog::handle_event(const XEvent &event) {
   }
 
   case ButtonPress: {
+    XRaiseWindow(m_display, m_window);
+    XSetInputFocus(m_display, m_window, RevertToParent, CurrentTime);
+    XFlush(m_display);
+
     const float bx = static_cast<float>(event.xbutton.x);
     const float by = static_cast<float>(event.xbutton.y);
 
@@ -1317,6 +1406,13 @@ bool X11AddNewItemDialog::handle_event(const XEvent &event) {
       }
     }
 
+    if (m_name_input_rect.contains(bx, by)) {
+      m_name_input_focused = true;
+      m_caret_blink.reset();
+      render();
+      return true;
+    }
+
     // Titlebar dragging
     if (m_titlebar_rect.contains(bx, by)) {
       m_dragging_titlebar = true;
@@ -1346,8 +1442,13 @@ bool X11AddNewItemDialog::handle_event(const XEvent &event) {
     if (sym == XK_BackSpace) {
       if (!m_filename_input.empty()) {
         m_filename_input.pop_back();
+        m_caret_blink.reset();
         render();
       }
+      return true;
+    }
+    if (sym == XK_Delete) {
+      m_caret_blink.reset();
       return true;
     }
 
@@ -1356,6 +1457,7 @@ bool X11AddNewItemDialog::handle_event(const XEvent &event) {
                             sizeof(buf), nullptr, nullptr);
     if (len > 0 && !std::iscntrl(static_cast<unsigned char>(buf[0]))) {
       m_filename_input.append(buf, len);
+      m_caret_blink.reset();
       render();
       return true;
     }

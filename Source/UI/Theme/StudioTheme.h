@@ -1,5 +1,15 @@
 #pragma once
 
+// X11 headers define `None` as a macro (0L) which collides with
+// `BackdropEffect::None`. Guard here so this header parses correctly
+// whether or not <X11/Xlib.h> was included first; restore afterwards
+// so X11 code using `None` keeps working.
+#ifdef None
+#pragma push_macro("None")
+#undef None
+#define ZDE_PUSHED_NONE_MACRO
+#endif
+
 #include <cstdint>
 
 namespace Zenvra::UI::Theme
@@ -64,3 +74,8 @@ struct StudioTheme
 };
 
 } // namespace Zenvra::UI::Theme
+
+#ifdef ZDE_PUSHED_NONE_MACRO
+#pragma pop_macro("None")
+#undef ZDE_PUSHED_NONE_MACRO
+#endif

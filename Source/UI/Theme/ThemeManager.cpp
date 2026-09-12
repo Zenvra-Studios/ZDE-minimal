@@ -573,6 +573,12 @@ void ThemeManager::sync_with_settings_service()
     options.push_back({.label = "Zenvra Dark Modern", .value = "Zenvra Dark Modern"});
     options.push_back({.label = "Zenvra Light Modern", .value = "Zenvra Light Modern"});
     options.push_back({.label = "High Contrast", .value = "High Contrast"});
+    options.push_back({.label = "Dark", .value = "Dark"});
+    options.push_back({.label = "Old", .value = "Old"});
+    options.push_back({.label = "Solid", .value = "Solid"});
+    options.push_back({.label = "Classic", .value = "Classic"});
+    options.push_back({.label = "Light", .value = "Light"});
+    options.push_back({.label = "Modern", .value = "Modern"});
 
     // Add all registered themes
     for (const auto& t : m_themes)

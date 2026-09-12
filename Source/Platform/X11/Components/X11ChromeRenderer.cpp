@@ -85,8 +85,7 @@ bool X11ChromeRenderer::initialize(Display *display, int screen,
         m_display, RootWindow(m_display, m_screen), m_popup_visual, AllocNone);
 
     // Create a 1x1 32-bit pixmap just to create the GC
-    Pixmap temp_pm =
-        XCreatePixmap(m_display, RootWindow(m_display, m_screen), 1, 1, 32);
+    Pixmap temp_pm = XCreatePixmap(m_display, RootWindow(m_display, m_screen), 1, 1, 32);
     m_popup_graphics_context = XCreateGC(m_display, temp_pm, 0, nullptr);
     XFreePixmap(m_display, temp_pm);
 
@@ -99,6 +98,7 @@ bool X11ChromeRenderer::initialize(Display *display, int screen,
     m_popup_graphics_context = nullptr;
   }
 
+  m_theme = theme;
   m_colors.window_background = allocate_color(theme.window_background);
   m_titlebar_background_color = theme.titlebar_background;
   m_hover_color = theme.hover;
@@ -109,8 +109,7 @@ bool X11ChromeRenderer::initialize(Display *display, int screen,
   m_colors.hover = allocate_color(theme.hover);
   m_colors.pressed = allocate_color(theme.pressed);
   m_colors.accent = allocate_color(theme.accent);
-  m_colors.command_center_background =
-      allocate_color(theme.command_center_background);
+  m_colors.command_center_background = allocate_color(theme.command_center_background);
   m_colors.command_center_border = allocate_color(theme.command_center_border);
   m_colors.close_hover = allocate_color(theme.close_hover);
   m_colors.popup_background = allocate_color(theme.panel_background);
@@ -124,12 +123,50 @@ bool X11ChromeRenderer::initialize(Display *display, int screen,
     shutdown();
     return false;
   }
+  m_workspace_renderer.apply_theme(theme);
   return true;
+}
+
+void X11ChromeRenderer::apply_theme(const UI::Theme::StudioTheme &theme) {
+  m_theme = theme;
+  m_colors.window_background = allocate_color(theme.window_background);
+  m_titlebar_background_color = theme.titlebar_background;
+  m_hover_color = theme.hover;
+  m_colors.titlebar_background = allocate_color(theme.titlebar_background);
+  m_colors.titlebar_border = allocate_color(theme.titlebar_border);
+  m_colors.text_primary = allocate_color(theme.text_primary);
+  m_colors.text_secondary = allocate_color(theme.text_secondary);
+  m_colors.hover = allocate_color(theme.hover);
+  m_colors.pressed = allocate_color(theme.pressed);
+  m_colors.accent = allocate_color(theme.accent);
+  m_colors.command_center_background = allocate_color(theme.command_center_background);
+  m_colors.command_center_border = allocate_color(theme.command_center_border);
+  m_colors.close_hover = allocate_color(theme.close_hover);
+  m_colors.popup_background = allocate_color(theme.panel_background);
+  m_colors.popup_border = allocate_color(theme.titlebar_border);
+  m_theme_popup_background = theme.panel_background;
+  m_theme_popup_border = theme.titlebar_border;
+  m_text_colors.primary = to_xft_color(theme.text_primary);
+  m_text_colors.secondary = to_xft_color(theme.text_secondary);
+  m_text_colors.white = "#ffffff";
+  if (m_display != nullptr && m_acrylic_backdrop_pixmap != 0) {
+    XFreePixmap(m_display, m_acrylic_backdrop_pixmap);
+    m_acrylic_backdrop_pixmap = 0;
+    m_acrylic_backdrop_w = 0;
+    m_acrylic_backdrop_h = 0;
+  }
+  m_workspace_renderer.apply_theme(theme);
 }
 
 void X11ChromeRenderer::shutdown() {
   close_popup();
   m_workspace_renderer.shutdown();
+  if (m_display != nullptr && m_acrylic_backdrop_pixmap != 0) {
+    XFreePixmap(m_display, m_acrylic_backdrop_pixmap);
+    m_acrylic_backdrop_pixmap = 0;
+    m_acrylic_backdrop_w = 0;
+    m_acrylic_backdrop_h = 0;
+  }
   if (m_display != nullptr && m_back_buffer != 0) {
     XFreePixmap(m_display, m_back_buffer);
     m_back_buffer = 0;
@@ -278,6 +315,14 @@ bool X11ChromeRenderer::handle_tool_sidebar_scroll(std::ptrdiff_t line_delta,
       line_delta, client_width, client_height, content_top);
 }
 
+bool X11ChromeRenderer::is_search_focused() const noexcept {
+  return m_workspace_renderer.is_search_focused();
+}
+
+bool X11ChromeRenderer::handle_search_key(KeySym sym, unsigned int state) {
+  return m_workspace_renderer.handle_search_key(sym, state);
+}
+
 bool X11ChromeRenderer::is_editor_focused() const noexcept {
   return m_workspace_renderer.is_editor_focused();
 }
@@ -414,6 +459,10 @@ bool X11ChromeRenderer::tick_animations() noexcept {
   return m_workspace_renderer.tick_animations();
 }
 
+void X11ChromeRenderer::ensure_acrylic_backdrop(Window /*window_handle*/, unsigned int /*width*/, unsigned int /*height*/) {
+  // Solid presentation requested: blur and desktop capture disabled
+}
+
 void X11ChromeRenderer::render(
     Window window_handle, int client_width, int client_height,
     const UI::Chrome::WindowChromeLayoutResult &chrome_layout,
@@ -450,33 +499,57 @@ void X11ChromeRenderer::render(
 
   Pixmap back_buffer = m_back_buffer;
 
+  // Always compute or synchronize layout to actual client_width
+  UI::Chrome::WindowChromeLayoutResult effective_layout = chrome_layout;
+  if (std::abs(chrome_layout.titlebar_bounds.width - static_cast<float>(client_width)) > 1.0F ||
+      effective_layout.titlebar_bounds.width <= 0.0F) {
+    UI::Chrome::WindowChromeLayout layout_engine;
+    effective_layout = layout_engine.calculate(
+        static_cast<float>(client_width), m_dpi_scale,
+        UI::Chrome::WindowChromeLayoutOptions{
+            .show_window_controls = true,
+            .hamburger_only = true,
+        });
+  }
+
+  const bool is_modern = m_theme.is_modern || m_theme.enable_os_blur;
+  const UI::Theme::Color unhovered_chrome_bg =
+      is_modern ? m_theme.window_background : m_titlebar_background_color;
+  const unsigned long unhovered_chrome_px =
+      is_modern ? m_colors.window_background : m_colors.titlebar_background;
+
+  // 1. Solid window background and titlebar background fill
   fill_rectangle(back_buffer,
                  UI::Rect{0.0F, 0.0F, static_cast<float>(client_width),
                           static_cast<float>(client_height)},
                  m_colors.window_background);
-  fill_rectangle(back_buffer, chrome_layout.titlebar_bounds,
-                 m_colors.titlebar_background);
+  if (!is_modern) {
+    fill_rectangle(back_buffer, effective_layout.titlebar_bounds,
+                   m_colors.titlebar_background);
+  }
 
-  // 1. Render workspace (editor, tabs, sidebar, terminal)
+  // 2. Render workspace (editor, tabs, sidebar, terminal)
   m_workspace_renderer.render(back_buffer, client_width, client_height,
-                              chrome_layout.titlebar_bounds.bottom());
+                              effective_layout.titlebar_bounds.bottom());
 
-  // 2. Draw Left Titlebar Chrome (Logo, Hamburger/Menus) with background fill to cover scrolled tabs
-  const float left_chrome_w = chrome_layout.file_buffer_bounds.x > 0.0F
-                                  ? chrome_layout.file_buffer_bounds.x
-                                  : chrome_layout.logo_bounds.right() + 48.0F * m_dpi_scale;
-  fill_rectangle(back_buffer,
-                 UI::Rect{0.0F, 0.0F, left_chrome_w,
-                          chrome_layout.titlebar_bounds.height},
-                 m_colors.titlebar_background);
+  // 3. Draw Left Titlebar Chrome (Logo, Hamburger/Menus) with background fill
+  if (!is_modern) {
+    const float left_chrome_w = effective_layout.file_buffer_bounds.x > 0.0F
+                                    ? effective_layout.file_buffer_bounds.x
+                                    : effective_layout.logo_bounds.right() + 48.0F * m_dpi_scale;
+    fill_rectangle(back_buffer,
+                   UI::Rect{0.0F, 0.0F, left_chrome_w,
+                            effective_layout.titlebar_bounds.height},
+                   m_colors.titlebar_background);
+  }
 
-  const float scale = chrome_layout.dpi_scale;
+  const float scale = effective_layout.dpi_scale;
   const float logo_size = 22.0F * scale;
   const UI::Rect logo_bounds{
-      chrome_layout.logo_bounds.x +
-          (chrome_layout.logo_bounds.width - logo_size) * 0.5F,
-      chrome_layout.logo_bounds.y +
-          (chrome_layout.logo_bounds.height - logo_size) * 0.5F,
+      effective_layout.logo_bounds.x +
+          (effective_layout.logo_bounds.width - logo_size) * 0.5F,
+      effective_layout.logo_bounds.y +
+          (effective_layout.logo_bounds.height - logo_size) * 0.5F,
       logo_size,
       logo_size,
   };
@@ -484,7 +557,7 @@ void X11ChromeRenderer::render(
           back_buffer, "Assets/icons/zenvra_logo48x48.ico",
           round_to_int(logo_bounds.x + logo_bounds.width * 0.5F),
           round_to_int(logo_bounds.y + logo_bounds.height * 0.5F),
-          round_to_int(logo_size), m_titlebar_background_color)) {
+          round_to_int(logo_size), unhovered_chrome_bg)) {
     fill_rectangle(back_buffer, logo_bounds, m_colors.accent,
                    static_cast<int>(logo_size * 0.25F));
     draw_centered_text(back_buffer, "Z", logo_bounds, m_text_colors.white);
@@ -493,9 +566,9 @@ void X11ChromeRenderer::render(
   const std::span<const UI::Components::Menu> menus =
       UI::Components::get_window_menus();
   for (std::size_t region_index = 0;
-       region_index < chrome_layout.visible_menu_count; ++region_index) {
+       region_index < effective_layout.visible_menu_count; ++region_index) {
     const UI::Chrome::MenuRegion &region =
-        chrome_layout.menu_regions[region_index];
+        effective_layout.menu_regions[region_index];
     const bool hovered =
         interaction_state.hovered_menu_index == region.menu_index ||
         interaction_state.open_menu_index == region.menu_index;
@@ -504,7 +577,7 @@ void X11ChromeRenderer::render(
       hover_bounds.y += 4.0F * m_dpi_scale;
       hover_bounds.height -= 8.0F * m_dpi_scale;
       fill_rectangle(back_buffer, hover_bounds, m_colors.hover, 4,
-                     m_colors.titlebar_background);
+                     unhovered_chrome_px);
     }
     if (region.menu_index < menus.size()) {
       draw_centered_text(back_buffer, menus[region.menu_index].label,
@@ -512,28 +585,28 @@ void X11ChromeRenderer::render(
     }
   }
 
-  if (chrome_layout.has_overflow_menu()) {
+  if (effective_layout.has_overflow_menu()) {
     const bool hidden_menu_open = interaction_state.open_menu_index &&
                                   *interaction_state.open_menu_index >=
-                                      chrome_layout.first_overflow_menu_index;
+                                      effective_layout.first_overflow_menu_index;
     if (interaction_state.overflow_menu_hovered ||
         interaction_state.overflow_menu_open || hidden_menu_open) {
-      UI::Rect hover_bounds = chrome_layout.overflow_menu_bounds;
+      UI::Rect hover_bounds = effective_layout.overflow_menu_bounds;
       hover_bounds.x += 2.0F * m_dpi_scale;
       hover_bounds.width -= 4.0F * m_dpi_scale;
       hover_bounds.y += 4.0F * m_dpi_scale;
       hover_bounds.height -= 8.0F * m_dpi_scale;
       fill_rectangle(back_buffer, hover_bounds, m_colors.hover, 4,
-                     m_colors.titlebar_background);
+                     unhovered_chrome_px);
     }
     const int line_half_width = std::max(round_to_int(6.0F * m_dpi_scale), 4);
     const int line_gap = std::max(round_to_int(4.0F * m_dpi_scale), 3);
     const int center_x =
-        round_to_int(chrome_layout.overflow_menu_bounds.x +
-                     chrome_layout.overflow_menu_bounds.width * 0.5F);
+        round_to_int(effective_layout.overflow_menu_bounds.x +
+                     effective_layout.overflow_menu_bounds.width * 0.5F);
     const int center_y =
-        round_to_int(chrome_layout.overflow_menu_bounds.y +
-                     chrome_layout.overflow_menu_bounds.height * 0.5F);
+        round_to_int(effective_layout.overflow_menu_bounds.y +
+                     effective_layout.overflow_menu_bounds.height * 0.5F);
     XSetForeground(m_display, m_graphics_context, m_colors.text_primary);
     const int line_thickness = std::max(1, round_to_int(m_dpi_scale));
     XSetLineAttributes(m_display, m_graphics_context, line_thickness, LineSolid,
@@ -547,31 +620,35 @@ void X11ChromeRenderer::render(
                        JoinMiter);
   }
 
-  // 3. Draw Right Titlebar Controls (Toolbar, Configuration dropdowns, Window Controls) with background fill
-  const float right_toolbar_start = chrome_layout.file_buffer_bounds.right() > 0.0F
-                                        ? chrome_layout.file_buffer_bounds.right()
-                                        : (static_cast<float>(client_width) - 600.0F * scale);
-  fill_rectangle(back_buffer,
-                 UI::Rect{right_toolbar_start, 0.0F,
-                          static_cast<float>(client_width) - right_toolbar_start,
-                          chrome_layout.titlebar_bounds.height},
-                 m_colors.titlebar_background);
+  // 4. Draw Right Titlebar Controls (Toolbar, Configuration dropdowns, Window Controls) with solid background fill
+  if (!is_modern) {
+    const float right_toolbar_start = effective_layout.file_buffer_bounds.right() > 0.0F
+                                          ? effective_layout.file_buffer_bounds.right()
+                                          : (static_cast<float>(client_width) - 600.0F * scale);
+    fill_rectangle(back_buffer,
+                   UI::Rect{right_toolbar_start, 0.0F,
+                            static_cast<float>(client_width) - right_toolbar_start,
+                            effective_layout.titlebar_bounds.height},
+                   m_colors.titlebar_background);
+  }
 
-  // Draw titlebar top border & bottom separator border across full width with proper z-index above content
-  const int titlebar_bottom_y =
-      round_to_int(chrome_layout.titlebar_bounds.bottom()) - 1;
+  // Draw titlebar top border & bottom separator border across full width
   XSetForeground(m_display, m_graphics_context, m_colors.titlebar_border);
   XDrawLine(m_display, back_buffer, m_graphics_context, 0, 0,
             client_width, 0);
-  XDrawLine(m_display, back_buffer, m_graphics_context, 0, titlebar_bottom_y,
-            client_width, titlebar_bottom_y);
+  if (!is_modern) {
+    const int titlebar_bottom_y =
+        round_to_int(effective_layout.titlebar_bounds.bottom()) - 1;
+    XDrawLine(m_display, back_buffer, m_graphics_context, 0, titlebar_bottom_y,
+              client_width, titlebar_bottom_y);
+  }
 
-  draw_window_control(back_buffer, chrome_layout.minimize_bounds,
+  draw_window_control(back_buffer, effective_layout.minimize_bounds,
                       UI::Chrome::WindowControl::Minimize, interaction_state);
-  draw_window_control(back_buffer, chrome_layout.maximize_bounds,
+  draw_window_control(back_buffer, effective_layout.maximize_bounds,
                       UI::Chrome::WindowControl::MaximizeRestore,
                       interaction_state);
-  draw_window_control(back_buffer, chrome_layout.close_bounds,
+  draw_window_control(back_buffer, effective_layout.close_bounds,
                       UI::Chrome::WindowControl::Close, interaction_state);
 
   auto draw_toolbar_hover = [&](const UI::Rect &bounds) {
@@ -581,189 +658,189 @@ void X11ChromeRenderer::render(
     hover_bounds.x += 2.0F * scale;
     hover_bounds.width -= 4.0F * scale;
     fill_rectangle(back_buffer, hover_bounds, m_colors.hover, 4,
-                   m_colors.titlebar_background);
+                   unhovered_chrome_px);
   };
 
-  if (!chrome_layout.build_bounds.is_empty()) {
+  if (!effective_layout.build_bounds.is_empty()) {
     if (interaction_state.build_button_hovered) {
-      draw_toolbar_hover(chrome_layout.build_bounds);
+      draw_toolbar_hover(effective_layout.build_bounds);
     }
-    const int center_x = round_to_int(chrome_layout.build_bounds.x +
-                                      chrome_layout.build_bounds.width * 0.5F);
-    const int center_y = round_to_int(chrome_layout.build_bounds.y +
-                                      chrome_layout.build_bounds.height * 0.5F);
+    const int center_x = round_to_int(effective_layout.build_bounds.x +
+                                      effective_layout.build_bounds.width * 0.5F);
+    const int center_y = round_to_int(effective_layout.build_bounds.y +
+                                      effective_layout.build_bounds.height * 0.5F);
     const int icon_size = std::max(round_to_int(16.0F * scale), 14);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/build.svg", center_x, center_y, icon_size,
         m_workspace_renderer.m_palette.text_primary,
         interaction_state.build_button_hovered ? m_hover_color
-                                               : m_titlebar_background_color);
+                                               : unhovered_chrome_bg);
   }
 
-  if (!chrome_layout.run_bounds.is_empty()) {
+  if (!effective_layout.run_bounds.is_empty()) {
     if (interaction_state.run_button_hovered) {
-      draw_toolbar_hover(chrome_layout.run_bounds);
+      draw_toolbar_hover(effective_layout.run_bounds);
     }
-    const int center_x = round_to_int(chrome_layout.run_bounds.x +
-                                      chrome_layout.run_bounds.width * 0.5F);
-    const int center_y = round_to_int(chrome_layout.run_bounds.y +
-                                      chrome_layout.run_bounds.height * 0.5F);
+    const int center_x = round_to_int(effective_layout.run_bounds.x +
+                                      effective_layout.run_bounds.width * 0.5F);
+    const int center_y = round_to_int(effective_layout.run_bounds.y +
+                                      effective_layout.run_bounds.height * 0.5F);
     const int icon_size = std::max(round_to_int(20.0F * scale), 14);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/play.svg", center_x, center_y, icon_size,
         m_workspace_renderer.m_palette.success,
         interaction_state.run_button_hovered ? m_hover_color
-                                             : m_titlebar_background_color);
+                                             : unhovered_chrome_bg);
   }
 
-  if (!chrome_layout.debug_bounds.is_empty()) {
+  if (!effective_layout.debug_bounds.is_empty()) {
     if (interaction_state.debug_button_hovered) {
-      draw_toolbar_hover(chrome_layout.debug_bounds);
+      draw_toolbar_hover(effective_layout.debug_bounds);
     }
-    const int center_x = round_to_int(chrome_layout.debug_bounds.x +
-                                      chrome_layout.debug_bounds.width * 0.5F);
-    const int center_y = round_to_int(chrome_layout.debug_bounds.y +
-                                      chrome_layout.debug_bounds.height * 0.5F);
+    const int center_x = round_to_int(effective_layout.debug_bounds.x +
+                                      effective_layout.debug_bounds.width * 0.5F);
+    const int center_y = round_to_int(effective_layout.debug_bounds.y +
+                                      effective_layout.debug_bounds.height * 0.5F);
     const int icon_size = std::max(round_to_int(18.0F * scale), 14);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/bug.svg", center_x, center_y, icon_size,
         m_workspace_renderer.m_palette.warning,
         interaction_state.debug_button_hovered ? m_hover_color
-                                               : m_titlebar_background_color);
+                                               : unhovered_chrome_bg);
   }
 
-  if (!chrome_layout.gear_bounds.is_empty()) {
+  if (!effective_layout.gear_bounds.is_empty()) {
     if (interaction_state.gear_button_hovered) {
-      draw_toolbar_hover(chrome_layout.gear_bounds);
+      draw_toolbar_hover(effective_layout.gear_bounds);
     }
-    const int center_x = round_to_int(chrome_layout.gear_bounds.x +
-                                      chrome_layout.gear_bounds.width * 0.5F);
-    const int center_y = round_to_int(chrome_layout.gear_bounds.y +
-                                      chrome_layout.gear_bounds.height * 0.5F);
+    const int center_x = round_to_int(effective_layout.gear_bounds.x +
+                                      effective_layout.gear_bounds.width * 0.5F);
+    const int center_y = round_to_int(effective_layout.gear_bounds.y +
+                                      effective_layout.gear_bounds.height * 0.5F);
     const int icon_size = std::max(round_to_int(16.0F * scale), 14);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/gear.svg", center_x, center_y, icon_size,
         m_workspace_renderer.m_palette.text_primary,
         interaction_state.gear_button_hovered ? m_hover_color
-                                              : m_titlebar_background_color);
+                                              : unhovered_chrome_bg);
   }
 
-  if (!chrome_layout.ellipsis_bounds.is_empty()) {
+  if (!effective_layout.ellipsis_bounds.is_empty()) {
     if (interaction_state.ellipsis_button_hovered) {
-      draw_toolbar_hover(chrome_layout.ellipsis_bounds);
+      draw_toolbar_hover(effective_layout.ellipsis_bounds);
     }
     const int center_x =
-        round_to_int(chrome_layout.ellipsis_bounds.x +
-                     chrome_layout.ellipsis_bounds.width * 0.5F);
+        round_to_int(effective_layout.ellipsis_bounds.x +
+                     effective_layout.ellipsis_bounds.width * 0.5F);
     const int center_y =
-        round_to_int(chrome_layout.ellipsis_bounds.y +
-                     chrome_layout.ellipsis_bounds.height * 0.5F);
+        round_to_int(effective_layout.ellipsis_bounds.y +
+                     effective_layout.ellipsis_bounds.height * 0.5F);
     const int icon_size = std::max(round_to_int(16.0F * scale), 14);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/ellipsis.svg", center_x, center_y, icon_size,
         m_workspace_renderer.m_palette.text_primary,
         interaction_state.ellipsis_button_hovered
             ? m_hover_color
-            : m_titlebar_background_color);
+            : unhovered_chrome_bg);
   }
 
   // Build toolbar: Compiler | Binary | Mode
-  if (!chrome_layout.compiler_bounds.is_empty()) {
+  if (!effective_layout.compiler_bounds.is_empty()) {
     if (interaction_state.compiler_button_hovered) {
-      draw_toolbar_hover(chrome_layout.compiler_bounds);
+      draw_toolbar_hover(effective_layout.compiler_bounds);
     }
     const UI::Rect text_rect{
-        chrome_layout.compiler_bounds.x + 10.0F * scale,
-        chrome_layout.compiler_bounds.y,
-        std::max(0.0F, chrome_layout.compiler_bounds.width - 22.0F * scale),
-        chrome_layout.compiler_bounds.height};
+        effective_layout.compiler_bounds.x + 10.0F * scale,
+        effective_layout.compiler_bounds.y,
+        std::max(0.0F, effective_layout.compiler_bounds.width - 22.0F * scale),
+        effective_layout.compiler_bounds.height};
     draw_centered_text(back_buffer, UI::Toolbar::to_string(m_run_config_state.active_mode), text_rect, m_text_colors.primary);
     const int chevron_x =
-        round_to_int(chrome_layout.compiler_bounds.right() - 10.0F * scale);
+        round_to_int(effective_layout.compiler_bounds.right() - 10.0F * scale);
     const int chevron_y =
-        round_to_int(chrome_layout.compiler_bounds.y +
-                     chrome_layout.compiler_bounds.height * 0.5F);
+        round_to_int(effective_layout.compiler_bounds.y +
+                     effective_layout.compiler_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
         std::max(static_cast<int>(10.0F * scale), 8),
         m_workspace_renderer.m_palette.text_muted,
         interaction_state.compiler_button_hovered
             ? m_hover_color
-            : m_titlebar_background_color);
+            : unhovered_chrome_bg);
   }
 
-  if (!chrome_layout.platform_bounds.is_empty()) {
+  if (!effective_layout.platform_bounds.is_empty()) {
     if (interaction_state.platform_button_hovered) {
-      draw_toolbar_hover(chrome_layout.platform_bounds);
+      draw_toolbar_hover(effective_layout.platform_bounds);
     }
     const UI::Rect text_rect{
-        chrome_layout.platform_bounds.x + 10.0F * scale,
-        chrome_layout.platform_bounds.y,
-        std::max(0.0F, chrome_layout.platform_bounds.width - 22.0F * scale),
-        chrome_layout.platform_bounds.height};
+        effective_layout.platform_bounds.x + 10.0F * scale,
+        effective_layout.platform_bounds.y,
+        std::max(0.0F, effective_layout.platform_bounds.width - 22.0F * scale),
+        effective_layout.platform_bounds.height};
     draw_centered_text(back_buffer, UI::Toolbar::to_string(m_run_config_state.active_architecture), text_rect, m_text_colors.primary);
     const int chevron_x =
-        round_to_int(chrome_layout.platform_bounds.right() - 10.0F * scale);
+        round_to_int(effective_layout.platform_bounds.right() - 10.0F * scale);
     const int chevron_y =
-        round_to_int(chrome_layout.platform_bounds.y +
-                     chrome_layout.platform_bounds.height * 0.5F);
+        round_to_int(effective_layout.platform_bounds.y +
+                     effective_layout.platform_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
         std::max(static_cast<int>(10.0F * scale), 8),
         m_workspace_renderer.m_palette.text_muted,
         interaction_state.platform_button_hovered
             ? m_hover_color
-            : m_titlebar_background_color);
+            : unhovered_chrome_bg);
   }
 
-  if (!chrome_layout.binary_bounds.is_empty()) {
+  if (!effective_layout.binary_bounds.is_empty()) {
     if (interaction_state.binary_button_hovered) {
-      draw_toolbar_hover(chrome_layout.binary_bounds);
+      draw_toolbar_hover(effective_layout.binary_bounds);
     }
     const int binary_icon_size = std::max(round_to_int(16.0F * scale), 14);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/terminal.svg",
-        round_to_int(chrome_layout.binary_bounds.x + 16.0F * scale),
-        round_to_int(chrome_layout.binary_bounds.y +
-                     chrome_layout.binary_bounds.height * 0.5F),
+        round_to_int(effective_layout.binary_bounds.x + 16.0F * scale),
+        round_to_int(effective_layout.binary_bounds.y +
+                     effective_layout.binary_bounds.height * 0.5F),
         binary_icon_size, m_workspace_renderer.m_palette.text_primary,
         interaction_state.binary_button_hovered ? m_hover_color
-                                                : m_titlebar_background_color);
+                                                : unhovered_chrome_bg);
     const UI::Rect text_rect{
-        chrome_layout.binary_bounds.x + 36.0F * scale,
-        chrome_layout.binary_bounds.y,
-        std::max(0.0F, chrome_layout.binary_bounds.width - 52.0F * scale),
-        chrome_layout.binary_bounds.height};
+        effective_layout.binary_bounds.x + 36.0F * scale,
+        effective_layout.binary_bounds.y,
+        std::max(0.0F, effective_layout.binary_bounds.width - 52.0F * scale),
+        effective_layout.binary_bounds.height};
     draw_centered_text(back_buffer, m_run_config_state.active_target_name, text_rect, m_text_colors.primary);
     const int chevron_x =
-        round_to_int(chrome_layout.binary_bounds.right() - 14.0F * scale);
+        round_to_int(effective_layout.binary_bounds.right() - 14.0F * scale);
     const int chevron_y =
-        round_to_int(chrome_layout.binary_bounds.y +
-                     chrome_layout.binary_bounds.height * 0.5F);
+        round_to_int(effective_layout.binary_bounds.y +
+                     effective_layout.binary_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
         std::max(round_to_int(12.0F * scale), 10),
         m_workspace_renderer.m_palette.text_muted,
         interaction_state.binary_button_hovered ? m_hover_color
-                                                : m_titlebar_background_color);
+                                                : unhovered_chrome_bg);
   }
 
-  if (!chrome_layout.mode_bounds.is_empty()) {
+  if (!effective_layout.mode_bounds.is_empty()) {
     if (interaction_state.mode_button_hovered) {
-      draw_toolbar_hover(chrome_layout.mode_bounds);
+      draw_toolbar_hover(effective_layout.mode_bounds);
     }
-    draw_text(back_buffer, "Debug", chrome_layout.mode_bounds, 8.0F * scale,
+    draw_text(back_buffer, "Debug", effective_layout.mode_bounds, 8.0F * scale,
               m_text_colors.primary);
     const int chevron_x =
-        round_to_int(chrome_layout.mode_bounds.right() - 14.0F * scale);
-    const int chevron_y = round_to_int(chrome_layout.mode_bounds.y +
-                                       chrome_layout.mode_bounds.height * 0.5F);
+        round_to_int(effective_layout.mode_bounds.right() - 14.0F * scale);
+    const int chevron_y = round_to_int(effective_layout.mode_bounds.y +
+                                       effective_layout.mode_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
         std::max(round_to_int(12.0F * scale), 10),
         m_workspace_renderer.m_palette.text_muted,
         interaction_state.mode_button_hovered ? m_hover_color
-                                              : m_titlebar_background_color);
+                                              : unhovered_chrome_bg);
   }
 
   if (!interaction_state.maximized) {
@@ -772,14 +849,13 @@ void X11ChromeRenderer::render(
                    pixmap_width - 1, pixmap_height - 1);
   }
 
-  draw_overflow_menu(back_buffer, chrome_layout, interaction_state);
-  draw_popup_menu(back_buffer, chrome_layout, interaction_state,
+  draw_overflow_menu(back_buffer, effective_layout, interaction_state);
+  draw_popup_menu(back_buffer, effective_layout, interaction_state,
                   command_state_query_callback);
 
   if (overlay_callback) {
     overlay_callback(back_buffer);
   }
-
 
   if (dirty_rect && !dirty_rect->is_empty()) {
     const int src_x = std::clamp(round_to_int(dirty_rect->x), 0,
@@ -1497,8 +1573,13 @@ void X11ChromeRenderer::destroy_popup_window() noexcept {
     m_popup_back_buffer_h = 0;
   }
   if (m_display != nullptr && m_popup.window != 0) {
+    const Window old_w = m_popup.window;
     XDestroyWindow(m_display, m_popup.window);
-    XFlush(m_display);
+    m_popup.window = 0;
+    XSync(m_display, False);
+    XEvent ev{};
+    while (XCheckWindowEvent(m_display, old_w, 0xFFFFFFFF, &ev)) {
+    }
   }
 }
 

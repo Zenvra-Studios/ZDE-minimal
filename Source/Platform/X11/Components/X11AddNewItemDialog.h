@@ -1,5 +1,6 @@
 #pragma once
 
+#include "UI/Editor/CaretBlinkModel.h"
 #include "UI/Geometry.h"
 #include <X11/Xlib.h>
 #include <filesystem>
@@ -52,11 +53,15 @@ public:
             const std::string &project_name, CreateCallback callback);
   void close();
   void shutdown();
-  [[nodiscard]] bool is_open() const noexcept { return m_open; }
+  void set_on_close_callback(std::function<void()> callback) {
+    m_on_close_callback = std::move(callback);
+  }
+  [[nodiscard]] bool is_open() const noexcept { return m_open && m_window != 0; }
   [[nodiscard]] Window window() const noexcept { return m_window; }
 
   bool handle_event(const XEvent &event);
   void render();
+  [[nodiscard]] bool tick_animations() noexcept;
 
 private:
   void init_default_templates();
@@ -105,6 +110,7 @@ private:
   std::optional<std::size_t> m_hovered_category_index;
   std::optional<std::size_t> m_hovered_template_index;
   bool m_name_input_focused = true;
+  UI::Editor::CaretBlinkModel m_caret_blink;
 
   bool m_dragging_titlebar = false;
   int m_drag_start_root_x = 0;
@@ -126,6 +132,7 @@ private:
   UI::Rect m_add_btn_rect{};
   UI::Rect m_cancel_btn_rect{};
 
+  std::function<void()> m_on_close_callback;
   mutable std::unordered_map<std::string, XImage *> m_svg_cache;
 };
 

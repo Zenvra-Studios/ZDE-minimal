@@ -51,11 +51,11 @@ StudioTheme StudioTheme::zenvra_dark_modern() noexcept
 {
     auto theme = zenvra_dark();
     theme.is_modern = true;
-    theme.enable_os_blur = true;
-    theme.backdrop_effect = BackdropEffect::Acrylic;
-    // Deep dark frosted glass OS blur for titlebar & activity bar; remaining window is solid
+    theme.enable_os_blur = false;
+    theme.backdrop_effect = BackdropEffect::None;
+    // Canonical dark neutral charcoal slate for solid window & titlebar presentation
     theme.window_background = {24, 25, 28, 255};
-    theme.titlebar_background = {12, 13, 16, 175};
+    theme.titlebar_background = {18, 19, 22, 255};
     theme.titlebar_border = {50, 52, 60, 255};
     theme.panel_background = {22, 23, 26, 255};
     theme.command_center_background = {30, 31, 35, 255};
@@ -67,11 +67,11 @@ StudioTheme StudioTheme::zenvra_light_modern() noexcept
 {
     auto theme = zenvra_light();
     theme.is_modern = true;
-    theme.enable_os_blur = true;
-    theme.backdrop_effect = BackdropEffect::Acrylic;
-    // Frosted glass OS blur for titlebar & activity bar; remaining window is solid
+    theme.enable_os_blur = false;
+    theme.backdrop_effect = BackdropEffect::None;
+    // Solid light neutral presentation
     theme.window_background = {255, 255, 255, 255};
-    theme.titlebar_background = {245, 245, 250, 130};
+    theme.titlebar_background = {245, 245, 250, 255};
     theme.titlebar_border = {220, 222, 226, 255};
     theme.panel_background = {248, 249, 250, 255};
     theme.command_center_background = {235, 237, 240, 255};

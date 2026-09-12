@@ -37,6 +37,10 @@ set(ZDE_PACKAGE_TARGETS
 
 foreach(target_name IN LISTS ZDE_PACKAGE_TARGETS)
     if(TARGET ${target_name})
+        get_target_property(aliased_target ${target_name} ALIASED_TARGET)
+        if(aliased_target)
+            continue()
+        endif()
         get_target_property(target_type ${target_name} TYPE)
         if(target_type STREQUAL "EXECUTABLE")
             install(TARGETS ${target_name}

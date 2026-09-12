@@ -50,6 +50,11 @@ public:
     // Clear internal bitmap cache
     static void clear_bitmap_cache();
 #endif
+#ifndef _WIN32
+    // No-op stub on non-Windows so cross-platform UI code (e.g.
+    // SettingsControl) can call this unconditionally without #ifdef.
+    static void clear_bitmap_cache() {}
+#endif
 };
 
 } // namespace Zenvra::Utility::Ascii
