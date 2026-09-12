@@ -3624,29 +3624,55 @@ bool TextEditor::handle_input(UI::Editor::EditorInputCommand command,
             InvalidateRect(m_window_handle, nullptr, FALSE);
           return true;
         }
-      } else if (m_input_router.get_vim_mode() &&
-                 (m_input_router.get_vim_mode()->get_state().search_active ||
-                  m_input_router.get_vim_mode()->get_state().mode == Editors::VimMode::Command)) {
+      } else if (!m_input_router.is_insert_mode()) {
         if (command == UI::Editor::EditorInputCommand::InsertNewLine) {
           Editors::EditorKeyEvent ev;
           ev.character = '\r';
           if (m_input_router.handle_key(ev, *doc, m_controller)) {
             m_reveal_caret_pending = true;
+            m_caret_blink.reset();
             if (m_window_handle)
               InvalidateRect(m_window_handle, nullptr, FALSE);
-            return true;
           }
+          return true; // Never let InsertNewLine mutate text in non-insert mode
         } else if (command == UI::Editor::EditorInputCommand::DeleteBackward) {
           Editors::EditorKeyEvent ev;
           ev.character = '\b';
           if (m_input_router.handle_key(ev, *doc, m_controller)) {
             m_reveal_caret_pending = true;
+            m_caret_blink.reset();
             if (m_window_handle)
               InvalidateRect(m_window_handle, nullptr, FALSE);
-            return true;
           }
+          return true; // Never let DeleteBackward mutate text in non-insert mode
+        } else if (command == UI::Editor::EditorInputCommand::DeleteForward) {
+          Editors::EditorKeyEvent ev;
+          ev.character = 'x';
+          if (m_input_router.handle_key(ev, *doc, m_controller)) {
+            m_reveal_caret_pending = true;
+            m_caret_blink.reset();
+            if (m_window_handle)
+              InvalidateRect(m_window_handle, nullptr, FALSE);
+          }
+          return true; // Never let DeleteForward mutate text in non-insert mode
+        } else if (command == UI::Editor::EditorInputCommand::InsertTab) {
+          Editors::EditorKeyEvent ev;
+          ev.character = '\t';
+          if (m_input_router.handle_key(ev, *doc, m_controller)) {
+            m_reveal_caret_pending = true;
+            m_caret_blink.reset();
+            if (m_window_handle)
+              InvalidateRect(m_window_handle, nullptr, FALSE);
+          }
+          return true; // Never let InsertTab mutate text in non-insert mode
         }
-        return true; // Prevent editor commands from modifying text while in Command/Search mode
+
+        // In Command/Search mode, block all other editor commands from modifying text
+        if (m_input_router.get_vim_mode() &&
+            (m_input_router.get_vim_mode()->get_state().search_active ||
+             m_input_router.get_vim_mode()->get_state().mode == Editors::VimMode::Command)) {
+          return true;
+        }
       }
     }
   }
@@ -3989,12 +4015,14 @@ bool TextEditor::handle_text_input(std::string_view utf8_text) {
   }
 
   if (m_input_router.is_vim_active()) {
-    if (m_input_router.handle_text_input(utf8_text, *doc, m_controller)) {
-      m_reveal_caret_pending = true;
-      m_caret_blink.reset();
+    if (!m_input_router.is_insert_mode()) {
+      if (m_input_router.handle_text_input(utf8_text, *doc, m_controller)) {
+        m_reveal_caret_pending = true;
+        m_caret_blink.reset();
+      }
       if (m_window_handle)
         InvalidateRect(m_window_handle, nullptr, FALSE);
-      return true;
+      return true; // Never leak text input in non-insert mode
     }
   }
 

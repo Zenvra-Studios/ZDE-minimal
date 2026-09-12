@@ -1,0 +1,40 @@
+{
+  "capabilities": [
+    "lsp"
+  ],
+  "category": "lsp",
+  "dependencies": {
+    "plugins": [],
+    "tools": []
+  },
+  "description": "Professional PHP tooling, fast code completion, parameter assistance, code navigation and formatting via Intelephense LSP",
+  "id": "bmewburn.vscode-intelephense-client",
+  "lsp": {
+    "args": [
+      "--stdio"
+    ],
+    "executable": "intelephense",
+    "extensions": [
+      ".php",
+      ".phtml",
+      ".php4",
+      ".php5",
+      ".php7",
+      ".php8",
+      ".phps",
+      ".blade.php",
+      ".blade"
+    ],
+    "language": "php"
+  },
+  "name": "PHP Intelephense",
+  "platforms": [],
+  "publisher": {
+    "id": "",
+    "name": "Ben Mewburn"
+  },
+  "version": "1.12.6",
+  "zde": {
+    "minimumVersion": "0.1.0"
+  }
+}

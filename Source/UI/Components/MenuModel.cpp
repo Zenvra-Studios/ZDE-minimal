@@ -162,8 +162,14 @@ constexpr std::array platform_items{
 };
 
 constexpr std::array binary_items{
-    MenuItem{"ZDE", Commands::CommandIds::run_zde},
-    MenuItem{"Tests", Commands::CommandIds::run_tests},
+    MenuItem{"[CMake] ZDE", Commands::CommandIds::run_zde},
+    MenuItem{"[CMake] Tests", Commands::CommandIds::run_tests},
+    MenuItem{"[Python] Script / Project", Commands::CommandIds::run_target_python},
+    MenuItem{"[Java] Application", Commands::CommandIds::run_target_java},
+    MenuItem{"[Pascal] Program", Commands::CommandIds::run_target_pascal},
+    MenuItem{"[Cargo/TOML] Cargo Run", Commands::CommandIds::run_target_cargo},
+    separator,
+    MenuItem{"Edit Configurations...", Commands::CommandIds::edit_profiles},
 };
 
 constexpr std::array gear_items{

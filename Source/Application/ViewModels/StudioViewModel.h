@@ -4,7 +4,9 @@
 #include "Platform/HostSystem.h"
 #include "UI/Toolbar/ToolbarTypes.h"
 
+#include <filesystem>
 #include <functional>
+#include <string>
 #include <string_view>
 
 namespace Zenvra::Application::ViewModels
@@ -39,21 +41,35 @@ struct StudioActions
 class StudioViewModel
 {
 public:
-    explicit StudioViewModel(StudioActions actions);
+    explicit StudioViewModel(
+        StudioActions actions,
+        const std::filesystem::path& workspace_root = {});
 
     [[nodiscard]] bool initialize();
     [[nodiscard]] Commands::CommandExecutionResult execute_command(std::string_view command_id) const;
     [[nodiscard]] const Commands::CommandRegistry& get_command_registry() const noexcept;
 
+    void configure_for_workspace(
+        const std::filesystem::path& workspace_root,
+        const std::filesystem::path& active_file = {});
+
     void set_active_target(std::string_view target) { m_active_target = std::string(target); }
     void set_active_mode(std::string_view mode) { m_active_mode = std::string(mode); }
     void set_active_arch(std::string_view arch) { m_active_arch = std::string(arch); }
     void set_active_preset(std::string_view preset) { m_active_preset = std::string(preset); }
+    void set_active_classification(UI::Toolbar::ToolClassification classification) { m_active_classification = classification; }
+    void set_active_executable_path(std::string_view path) { m_active_executable_path = std::string(path); }
 
-    [[nodiscard]] std::string_view get_active_target() const noexcept { return m_active_target; }
+    [[nodiscard]] std::string_view get_active_target() const noexcept {
+        if (!m_active_target.empty()) return m_active_target;
+        if (!m_detected_project_name.empty()) return m_detected_project_name;
+        return "Project";
+    }
     [[nodiscard]] std::string_view get_active_mode() const noexcept { return m_active_mode; }
     [[nodiscard]] std::string_view get_active_arch() const noexcept { return m_active_arch; }
     [[nodiscard]] std::string_view get_active_preset() const noexcept { return m_active_preset; }
+    [[nodiscard]] UI::Toolbar::ToolClassification get_active_classification() const noexcept { return m_active_classification; }
+    [[nodiscard]] std::string_view get_active_executable_path() const noexcept { return m_active_executable_path; }
 
 private:
     [[nodiscard]] bool register_available_commands();
@@ -61,10 +77,13 @@ private:
 
     StudioActions m_actions;
     Commands::CommandRegistry m_command_registry;
-    std::string m_active_target = "ZDE";
+    std::string m_active_target;
+    std::string m_detected_project_name;
     std::string m_active_mode = "Debug";
     std::string m_active_arch = std::string(Platform::HostSystem::to_string(Platform::HostSystem::get_native_architecture()));
     std::string m_active_preset = Platform::HostSystem::get_system_info().default_preset_debug;
+    UI::Toolbar::ToolClassification m_active_classification = UI::Toolbar::ToolClassification::CMake;
+    std::string m_active_executable_path;
     bool m_initialized = false;
 };
 

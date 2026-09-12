@@ -129,6 +129,8 @@ public:
   [[nodiscard]] bool check_external_file_changes();
   [[nodiscard]] const UI::Editor::TextDocumentModel *
   get_document() const noexcept;
+  [[nodiscard]] std::string get_active_document_uri() const;
+  [[nodiscard]] std::string get_active_document_filename() const;
 
   void set_window_handle(HWND hwnd) noexcept { m_window_handle = hwnd; }
   [[nodiscard]] HWND get_window_handle() const noexcept {
@@ -225,8 +227,6 @@ private:
                       HDC device_context,
                       const UI::Editor::StudioEditorLayoutResult &layout,
                       float point_x, float point_y) const;
-  [[nodiscard]] std::string get_active_document_uri() const;
-  [[nodiscard]] std::string get_active_document_filename() const;
 
   UI::Editor::EditorController m_controller;
   mutable Editors::EditorInputRouter m_input_router;

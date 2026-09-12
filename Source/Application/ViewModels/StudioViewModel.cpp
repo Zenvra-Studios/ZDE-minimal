@@ -2,6 +2,7 @@
 
 #include "Commands/CommandIds.h"
 #include "Platform/HostSystem.h"
+#include "Tools/Classification/ProjectToolClassifier.h"
 
 #include <iostream>
 #include <string>
@@ -36,9 +37,48 @@ Commands::Command create_unavailable_command(
 
 } // namespace
 
-StudioViewModel::StudioViewModel(StudioActions actions)
+StudioViewModel::StudioViewModel(
+    StudioActions actions,
+    const std::filesystem::path& workspace_root)
     : m_actions(std::move(actions))
 {
+    if (!workspace_root.empty())
+    {
+        configure_for_workspace(workspace_root);
+    }
+}
+
+void StudioViewModel::configure_for_workspace(
+    const std::filesystem::path& workspace_root,
+    const std::filesystem::path& active_file)
+{
+    if (workspace_root.empty() && active_file.empty())
+    {
+        m_active_target.clear();
+        m_detected_project_name.clear();
+        m_active_classification = UI::Toolbar::ToolClassification::CMake;
+        m_active_executable_path.clear();
+        return;
+    }
+
+    const auto targets = Tools::Classification::ProjectToolClassifier::detect_configurations(
+        workspace_root, active_file);
+
+    if (!targets.empty())
+    {
+        const auto& primary = targets.front();
+        m_active_target = primary.name;
+        m_detected_project_name = primary.name;
+        m_active_classification = primary.classification;
+        m_active_executable_path = primary.executable_path;
+    }
+    else if (!workspace_root.empty())
+    {
+        m_detected_project_name = workspace_root.filename().string();
+        m_active_target = m_detected_project_name;
+        m_active_classification = UI::Toolbar::ToolClassification::CustomExecutable;
+        m_active_executable_path.clear();
+    }
 }
 
 bool StudioViewModel::initialize()
@@ -142,6 +182,18 @@ bool StudioViewModel::register_available_commands()
                      .shortcut_binding = {},
                      .execute = m_actions.request_run,
                      .is_enabled = [this] { return static_cast<bool>(m_actions.request_run); },
+                     .is_checked = {},
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::run_debug),
+                     .name = "Debug",
+                     .description = "Debug the active target application.",
+                     .category = "Run",
+                     .shortcut_binding = {},
+                     .execute = m_actions.request_debug,
+                     .is_enabled = [this] { return static_cast<bool>(m_actions.request_debug); },
                      .is_checked = {},
                  }) &&
         registered;
@@ -259,13 +311,19 @@ bool StudioViewModel::register_available_commands()
     // Active Binary Targets
     registered = m_command_registry.register_command(Commands::Command{
                      .id = std::string(Commands::CommandIds::run_zde),
-                     .name = "Run ZDE",
-                     .description = "Launch ZDE target.",
+                     .name = "Run Primary Target",
+                     .description = "Launch primary project target.",
                      .category = "Run",
                      .shortcut_binding = {},
-                     .execute = [this] { m_active_target = "ZDE"; },
+                     .execute = [this] {
+                         m_active_target = m_detected_project_name.empty() ? "Project" : m_detected_project_name;
+                         m_active_classification = UI::Toolbar::ToolClassification::CMake;
+                     },
                      .is_enabled = [] { return true; },
-                     .is_checked = [this] { return m_active_target == "ZDE"; },
+                     .is_checked = [this] {
+                         const std::string proj = m_detected_project_name.empty() ? "Project" : m_detected_project_name;
+                         return m_active_target == proj;
+                     },
                  }) &&
         registered;
 
@@ -275,9 +333,83 @@ bool StudioViewModel::register_available_commands()
                      .description = "Launch test target.",
                      .category = "Run",
                      .shortcut_binding = {},
-                     .execute = [this] { m_active_target = "ZDEUnitTests"; },
+                     .execute = [this] {
+                         const std::string proj = m_detected_project_name.empty() ? "Project" : m_detected_project_name;
+                         m_active_target = (proj == "ZDE") ? "ZDEUnitTests" : (proj + "Tests");
+                         m_active_classification = UI::Toolbar::ToolClassification::CMake;
+                     },
                      .is_enabled = [] { return true; },
-                     .is_checked = [this] { return m_active_target == "ZDEUnitTests"; },
+                     .is_checked = [this] {
+                         const std::string proj = m_detected_project_name.empty() ? "Project" : m_detected_project_name;
+                         const std::string test_name = (proj == "ZDE") ? "ZDEUnitTests" : (proj + "Tests");
+                         return m_active_target == test_name;
+                     },
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::run_target_python),
+                     .name = "Python Target",
+                     .description = "Launch Python script/project.",
+                     .category = "Run",
+                     .shortcut_binding = {},
+                     .execute = [this] {
+                         m_active_classification = UI::Toolbar::ToolClassification::Python;
+                         if (m_active_target.find(".py") == std::string::npos && m_active_target != m_detected_project_name) {
+                             m_active_target = m_detected_project_name.empty() ? "main.py" : m_detected_project_name;
+                         }
+                     },
+                     .is_enabled = [] { return true; },
+                     .is_checked = [this] { return m_active_classification == UI::Toolbar::ToolClassification::Python; },
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::run_target_java),
+                     .name = "Java Target",
+                     .description = "Launch Java application.",
+                     .category = "Run",
+                     .shortcut_binding = {},
+                     .execute = [this] {
+                         m_active_classification = UI::Toolbar::ToolClassification::Java;
+                         if (m_active_target.find(".java") == std::string::npos && m_active_target != m_detected_project_name) {
+                             m_active_target = m_detected_project_name.empty() ? "Java Application" : m_detected_project_name;
+                         }
+                     },
+                     .is_enabled = [] { return true; },
+                     .is_checked = [this] { return m_active_classification == UI::Toolbar::ToolClassification::Java; },
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::run_target_pascal),
+                     .name = "Pascal Target",
+                     .description = "Launch Pascal application.",
+                     .category = "Run",
+                     .shortcut_binding = {},
+                     .execute = [this] {
+                         m_active_classification = UI::Toolbar::ToolClassification::Pascal;
+                         if (m_active_target.find(".pas") == std::string::npos && m_active_target != m_detected_project_name) {
+                             m_active_target = m_detected_project_name.empty() ? "Pascal Program" : m_detected_project_name;
+                         }
+                     },
+                     .is_enabled = [] { return true; },
+                     .is_checked = [this] { return m_active_classification == UI::Toolbar::ToolClassification::Pascal; },
+                 }) &&
+        registered;
+
+    registered = m_command_registry.register_command(Commands::Command{
+                     .id = std::string(Commands::CommandIds::run_target_cargo),
+                     .name = "Cargo Target",
+                     .description = "Launch Cargo target.",
+                     .category = "Run",
+                     .shortcut_binding = {},
+                     .execute = [this] {
+                         m_active_classification = UI::Toolbar::ToolClassification::TomlCargo;
+                         m_active_target = m_detected_project_name.empty() ? "Cargo Run" : m_detected_project_name;
+                     },
+                     .is_enabled = [] { return true; },
+                     .is_checked = [this] { return m_active_classification == UI::Toolbar::ToolClassification::TomlCargo; },
                  }) &&
         registered;
 

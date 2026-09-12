@@ -5,6 +5,7 @@
 #include "Platform/IPlatformWindow.h"
 #include "Services/Build/BuildService.h"
 #include "Services/Execution/ExecutionService.h"
+#include "Tools/Debugger/DebuggerEngine.h"
 #include "Utility/MultiContext.h"
 
 #include <filesystem>
@@ -50,6 +51,7 @@ private:
     std::vector<std::unique_ptr<WindowContext>> m_windows;
     std::shared_ptr<Services::Build::BuildService> m_build_service;
     std::shared_ptr<Services::Execution::ExecutionService> m_execution_service;
+    std::shared_ptr<Tools::Debugger::DebuggerEngine> m_debugger_engine;
 };
 
 } // namespace Zenvra::Application

@@ -409,8 +409,22 @@ bool VimEditorMode::handle_normal_key(char c, const EditorKeyEvent& /*event*/, T
         m_state.clear_count();
         return true;
     case 'l':
+    case ' ':
         VimMotions::move_right(doc, count);
         m_state.clear_count();
+        return true;
+    case '\r':
+    case '\n':
+        VimMotions::move_down(doc, count);
+        VimMotions::move_first_non_blank(doc);
+        m_state.clear_count();
+        return true;
+    case '\b':
+    case 127:
+        VimMotions::move_left(doc, count);
+        m_state.clear_count();
+        return true;
+    case '\t':
         return true;
 
     // Word motions

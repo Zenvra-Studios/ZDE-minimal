@@ -5,6 +5,8 @@
 #include "Platform/HostSystem.h"
 #include "Platform/PlatformWindowFactory.h"
 #include "Plugins/PluginManager.h"
+#include "Services/Output/OutputLogManager.h"
+#include "Tools/Classification/ProjectToolClassifier.h"
 #include "UI/Theme/ThemeManager.h"
 #include "Utility/MultiContext.h"
 
@@ -21,6 +23,7 @@ Application::Application(ApplicationSpecification specification)
     : m_specification(std::move(specification))
     , m_build_service(std::make_shared<Services::Build::BuildService>())
     , m_execution_service(std::make_shared<Services::Execution::ExecutionService>())
+    , m_debugger_engine(std::make_shared<Tools::Debugger::DebuggerEngine>())
 {
 }
 
@@ -128,6 +131,14 @@ Platform::IPlatformWindow* Application::create_new_window(
 
     auto view_model_holder = std::make_shared<ViewModels::StudioViewModel*>(nullptr);
 
+    std::filesystem::path ws_init;
+    if (initial_path && !initial_path->empty()) {
+        ws_init = *initial_path;
+    } else {
+        std::error_code ec;
+        ws_init = std::filesystem::current_path(ec);
+    }
+
     auto view_model = std::make_unique<ViewModels::StudioViewModel>(ViewModels::StudioActions{
         .request_close = [this, win_ptr] { close_window(win_ptr); },
         .show_about = [this, win_ptr] { show_about(win_ptr); },
@@ -168,13 +179,14 @@ Platform::IPlatformWindow* Application::create_new_window(
         },
         .request_toggle_shader = [win_ptr] { win_ptr->toggle_shader_sandbox(); },
         .request_build = [this, win_ptr, view_model_holder] {
-            std::string preset = (*view_model_holder) ? std::string((*view_model_holder)->get_active_preset()) : Platform::HostSystem::get_system_info().default_preset_debug;
-            std::string target = (*view_model_holder) ? std::string((*view_model_holder)->get_active_target()) : "ZDE";
             std::filesystem::path ws_root = win_ptr->get_workspace_root();
             if (ws_root.empty()) {
                 std::error_code ec;
                 ws_root = std::filesystem::current_path(ec);
             }
+            const std::string default_target = ws_root.filename().empty() ? "Project" : ws_root.filename().string();
+            std::string preset = (*view_model_holder) ? std::string((*view_model_holder)->get_active_preset()) : Platform::HostSystem::get_system_info().default_preset_debug;
+            std::string target = (*view_model_holder) ? std::string((*view_model_holder)->get_active_target()) : default_target;
             Tools::Builder::CMakeBuildOptions opts{
                 .workspace_root = ws_root,
                 .preset_name = preset,
@@ -188,41 +200,77 @@ Platform::IPlatformWindow* Application::create_new_window(
             });
         },
         .request_run = [this, win_ptr, view_model_holder] {
-            std::string target = (*view_model_holder) ? std::string((*view_model_holder)->get_active_target()) : "ZDE";
-            std::string preset = (*view_model_holder) ? std::string((*view_model_holder)->get_active_preset()) : Platform::HostSystem::get_system_info().default_preset_debug;
-            const std::string config = (preset.find("release") != std::string::npos || preset.find("Release") != std::string::npos) ? "Release" : "Debug";
             std::filesystem::path ws_root = win_ptr->get_workspace_root();
             if (ws_root.empty()) {
                 std::error_code ec;
                 ws_root = std::filesystem::current_path(ec);
             }
-            std::filesystem::path exec_path;
-#if defined(__APPLE__)
-            if (target == "ZDEUnitTests") {
-                exec_path = ws_root / "build" / preset / "bin" / config / "ZDEUnitTests";
-            } else {
-                exec_path = ws_root / "build" / preset / "bin" / config / "ZDE.app" / "Contents" / "MacOS" / "ZDE";
-            }
-#elif defined(_WIN32)
-            exec_path = ws_root / "build" / preset / "bin" / config / (target + ".exe");
-#else
-            exec_path = ws_root / "build" / preset / "bin" / config / target;
-#endif
+            const std::string default_target = ws_root.filename().empty() ? "Project" : ws_root.filename().string();
+            std::string target = (*view_model_holder) ? std::string((*view_model_holder)->get_active_target()) : default_target;
+            std::string preset = (*view_model_holder) ? std::string((*view_model_holder)->get_active_preset()) : Platform::HostSystem::get_system_info().default_preset_debug;
+            UI::Toolbar::ToolClassification classification = (*view_model_holder) ? (*view_model_holder)->get_active_classification() : UI::Toolbar::ToolClassification::CMake;
+            std::string exec_or_script = (*view_model_holder) ? std::string((*view_model_holder)->get_active_executable_path()) : "";
+            const std::string config = (preset.find("release") != std::string::npos || preset.find("Release") != std::string::npos) ? "Release" : "Debug";
+
+            UI::Toolbar::BinaryTargetProfile profile;
+            profile.name = target;
+            profile.classification = classification;
+            profile.executable_path = exec_or_script;
+
+            const auto cmd = Tools::Classification::ProjectToolClassifier::create_run_command(profile, ws_root, preset, config);
+            std::clog << "[ZDE Runner] [" << UI::Toolbar::to_string(classification) << "] Running '" << cmd.program << "' for target '" << target << "'...\n";
+            Services::Output::OutputLogManager::instance().append_line(
+                Services::Output::OutputCategory::Runner,
+                "[Run: " + std::string(UI::Toolbar::to_string(classification)) + "] Executing " + cmd.program + " for " + target);
+
             Tools::Runner::ProcessExecutionOptions opts{
-                .executable_path = exec_path,
-                .working_directory = ws_root,
+                .executable_path = cmd.program,
+                .arguments = cmd.arguments,
+                .working_directory = cmd.working_directory,
                 .run_in_background = true
             };
-            std::clog << "[ZDE Run] Launching executable '" << exec_path << "'...\n";
-            m_execution_service->run_target_async(opts);
+            m_execution_service->run_target_async(opts, [](std::string_view log) {
+                Services::Output::OutputLogManager::instance().append_text(Services::Output::OutputCategory::Runner, log);
+            });
         },
-        .request_debug = [] {
-            std::clog << "[ZDE Debug] Debug session requested\n";
+        .request_debug = [this, win_ptr, view_model_holder] {
+            std::filesystem::path ws_root = win_ptr->get_workspace_root();
+            if (ws_root.empty()) {
+                std::error_code ec;
+                ws_root = std::filesystem::current_path(ec);
+            }
+            const std::string default_target = ws_root.filename().empty() ? "Project" : ws_root.filename().string();
+            std::string target = (*view_model_holder) ? std::string((*view_model_holder)->get_active_target()) : default_target;
+            std::string preset = (*view_model_holder) ? std::string((*view_model_holder)->get_active_preset()) : Platform::HostSystem::get_system_info().default_preset_debug;
+            UI::Toolbar::ToolClassification classification = (*view_model_holder) ? (*view_model_holder)->get_active_classification() : UI::Toolbar::ToolClassification::CMake;
+            std::string exec_or_script = (*view_model_holder) ? std::string((*view_model_holder)->get_active_executable_path()) : "";
+            const std::string config = (preset.find("release") != std::string::npos || preset.find("Release") != std::string::npos) ? "Release" : "Debug";
+
+            UI::Toolbar::BinaryTargetProfile profile;
+            profile.name = target;
+            profile.classification = classification;
+            profile.executable_path = exec_or_script;
+
+            const auto cmd = Tools::Classification::ProjectToolClassifier::create_debug_command(profile, ws_root, preset, config);
+            std::clog << "[ZDE Debug] [" << UI::Toolbar::to_string(classification) << "] Starting debug session with '" << cmd.program << "' for target '" << target << "'...\n";
+            Services::Output::OutputLogManager::instance().append_line(
+                Services::Output::OutputCategory::Runner,
+                "[Debug: " + std::string(UI::Toolbar::to_string(classification)) + "] Starting " + cmd.program + " for " + target);
+
+            Tools::Debugger::DebugSessionOptions dbg_opts{
+                .target_binary = cmd.program,
+                .target_arguments = cmd.arguments,
+                .working_directory = cmd.working_directory,
+                .backend = Tools::Debugger::DebuggerBackend::LLDB
+            };
+            m_debugger_engine->start_session(dbg_opts, [](std::string_view msg) {
+                Services::Output::OutputLogManager::instance().append_line(Services::Output::OutputCategory::Runner, msg);
+            });
         },
         .request_stop = [this] {
             m_execution_service->stop();
         },
-    });
+    }, ws_init);
 
     *view_model_holder = view_model.get();
 

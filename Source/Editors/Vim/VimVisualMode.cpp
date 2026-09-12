@@ -104,6 +104,7 @@ bool handle_visual_key(TextDocumentModel& doc, VimState& state, char key)
         state.clear_count();
         return true;
     case 'l':
+    case ' ':
         VimMotions::move_right(doc, count, true);
         state.clear_count();
         return true;
@@ -114,6 +115,19 @@ bool handle_visual_key(TextDocumentModel& doc, VimState& state, char key)
     case 'k':
         VimMotions::move_up(doc, count, true);
         state.clear_count();
+        return true;
+    case '\r':
+    case '\n':
+        VimMotions::move_down(doc, count, true);
+        VimMotions::move_first_non_blank(doc, true);
+        state.clear_count();
+        return true;
+    case '\b':
+    case 127:
+        VimMotions::move_left(doc, count, true);
+        state.clear_count();
+        return true;
+    case '\t':
         return true;
     case 'w':
         VimMotions::move_word_forward(doc, count, true);

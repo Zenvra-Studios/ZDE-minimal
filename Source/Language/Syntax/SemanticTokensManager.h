@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <mutex>
 #include <span>
 #include <string>
 #include <vector>
@@ -28,6 +29,9 @@ class SemanticTokensManager
 public:
     SemanticTokensManager() = default;
     ~SemanticTokensManager() = default;
+
+    SemanticTokensManager(const SemanticTokensManager&) = delete;
+    SemanticTokensManager& operator=(const SemanticTokensManager&) = delete;
 
     /// Decodes flat LSP 5-tuple integer array into structured SemanticTokenSpan objects.
     [[nodiscard]] static std::vector<SemanticTokenSpan> decode_lsp_tokens(
@@ -55,6 +59,7 @@ public:
         const UI::Editor::StudioEditorPalette& palette) noexcept;
 
 private:
+    mutable std::mutex m_mutex;
     // uri -> line number -> list of spans on that line
     std::map<std::string, std::map<std::size_t, std::vector<SemanticTokenSpan>>> m_document_tokens;
 };

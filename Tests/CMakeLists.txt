@@ -14,6 +14,7 @@ add_executable(ZDEUnitTests
     ThemeTests.cpp
     DropdownTests.cpp
     InputComponentTests.cpp
+    ProjectToolClassifierTests.cpp
     # SourceControlTests.cpp
 )
 

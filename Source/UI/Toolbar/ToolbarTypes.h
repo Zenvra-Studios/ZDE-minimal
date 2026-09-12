@@ -50,41 +50,42 @@ enum class ToolbarSegment : std::uint8_t
     Right
 };
 
+enum class ToolClassification : std::uint8_t
+{
+    CMake,
+    TomlCargo,
+    Pascal,
+    Java,
+    Python,
+    CustomExecutable
+};
+
 struct BinaryTargetProfile
 {
     std::string id;
     std::string name;
     std::string executable_path;
+    ToolClassification classification = ToolClassification::CMake;
+    std::string icon_asset = "Assets/icons/material-icon-theme/cmake.svg";
     bool is_default = false;
 };
 
 struct RunConfigurationState
 {
-    std::string active_target_name = "ZDE";
+    std::string active_target_name;
     BuildConfigurationMode active_mode = BuildConfigurationMode::Debug;
     TargetArchitecture active_architecture = TargetArchitecture::HostDefault;
+    ToolClassification active_classification = ToolClassification::CMake;
+    std::string active_icon_asset = "Assets/icons/material-icon-theme/cmake.svg";
 #if defined(__APPLE__)
     std::string active_preset_name = "macos-debug";
-    ExecutionState execution_state = ExecutionState::Idle;
-    std::vector<BinaryTargetProfile> available_targets = {
-        {"zde", "ZDE", "build/macos-debug/bin/Debug/ZDE.app/Contents/MacOS/ZDE", true},
-        {"tests", "ZDEUnitTests", "build/macos-debug/bin/Debug/ZDEUnitTests", false}
-    };
 #elif defined(_WIN32)
     std::string active_preset_name = "windows-ninja-debug";
-    ExecutionState execution_state = ExecutionState::Idle;
-    std::vector<BinaryTargetProfile> available_targets = {
-        {"zde", "ZDE", "build/windows-ninja-debug/bin/Debug/ZDE.exe", true},
-        {"tests", "ZDEUnitTests", "build/windows-ninja-debug/bin/Debug/ZDEUnitTests.exe", false}
-    };
 #else
     std::string active_preset_name = "linux-debug";
-    ExecutionState execution_state = ExecutionState::Idle;
-    std::vector<BinaryTargetProfile> available_targets = {
-        {"zde", "ZDE", "build/linux-debug/bin/Debug/ZDE", true},
-        {"tests", "ZDEUnitTests", "build/linux-debug/bin/Debug/ZDEUnitTests", false}
-    };
 #endif
+    ExecutionState execution_state = ExecutionState::Idle;
+    std::vector<BinaryTargetProfile> available_targets;
 };
 
 [[nodiscard]] constexpr std::string_view to_string(BuildConfigurationMode mode) noexcept
@@ -111,6 +112,34 @@ struct RunConfigurationState
     case TargetArchitecture::Universal: return "Universal";
     }
     return "x86_64";
+}
+
+[[nodiscard]] constexpr std::string_view to_string(ToolClassification classification) noexcept
+{
+    switch (classification)
+    {
+    case ToolClassification::CMake: return "CMake";
+    case ToolClassification::TomlCargo: return "Cargo / TOML";
+    case ToolClassification::Pascal: return "Pascal";
+    case ToolClassification::Java: return "Java";
+    case ToolClassification::Python: return "Python";
+    case ToolClassification::CustomExecutable: return "Executable";
+    }
+    return "Tools";
+}
+
+[[nodiscard]] inline std::string get_classification_icon(ToolClassification classification)
+{
+    switch (classification)
+    {
+    case ToolClassification::CMake: return "Assets/icons/material-icon-theme/cmake.svg";
+    case ToolClassification::TomlCargo: return "Assets/icons/material-icon-theme/toml.svg";
+    case ToolClassification::Pascal: return "Assets/icons/material-icon-theme/pascal.svg";
+    case ToolClassification::Java: return "Assets/icons/material-icon-theme/java.svg";
+    case ToolClassification::Python: return "Assets/icons/material-icon-theme/python.svg";
+    case ToolClassification::CustomExecutable: return "Assets/icons/terminal.svg";
+    }
+    return "Assets/icons/terminal.svg";
 }
 
 } // namespace Zenvra::UI::Toolbar

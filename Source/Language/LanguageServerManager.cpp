@@ -2775,8 +2775,9 @@ void LanguageServerManager::request_semantic_tokens(
     return;
   }
 
+  const auto legend = client->get_semantic_token_legend();
   client->request_semantic_tokens(
-      uri, [this, client, uri, callback = std::move(callback)](
+      uri, [this, uri, legend, callback = std::move(callback)](
                std::optional<Protocol::SemanticTokens> tokens) {
         if (!tokens.has_value() || tokens->data.empty()) {
           if (callback)
@@ -2784,7 +2785,6 @@ void LanguageServerManager::request_semantic_tokens(
           return;
         }
 
-        const auto legend = client->get_semantic_token_legend();
         auto spans = Syntax::SemanticTokensManager::decode_lsp_tokens(
             tokens->data, legend);
         m_semantic_tokens_manager.update_document_tokens(uri, spans);
@@ -2806,7 +2806,7 @@ void LanguageServerManager::set_diagnostics_callback(
 std::vector<Protocol::Diagnostic>
 LanguageServerManager::get_diagnostics_for_document(
     const std::string &uri) const {
-  std::lock_guard<std::mutex> lock(const_cast<std::mutex &>(m_clients_mutex));
+  std::lock_guard<std::mutex> lock(m_clients_mutex);
   if (const auto it = m_document_diagnostics.find(uri);
       it != m_document_diagnostics.end()) {
     return it->second;

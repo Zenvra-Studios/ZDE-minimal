@@ -1,5 +1,6 @@
 add_library(ZDETools
     Builder/CMakeBuilder.cpp
+    Classification/ProjectToolClassifier.cpp
     Runner/ProcessRunner.cpp
     Debugger/DebuggerEngine.cpp
 )

@@ -8,6 +8,7 @@
 #include "Settings/SettingsService.h"
 #include "Platform/Win32/Event/ScrollEvent.h"
 #include "Platform/Win32/WinRT/WinRTContext.h"
+#include "Tools/Classification/ProjectToolClassifier.h"
 #include "UI/Components/MenuModel.h"
 #include "UI/Theme/ThemeManager.h"
 #include "Utility/Antialiasing.h"
@@ -400,6 +401,19 @@ Win32Window::Win32Window(const WindowSpecification &specification)
   }
   m_run_config_state.active_preset_name =
       HostSystem::get_system_info().default_preset_debug;
+
+  std::error_code ec;
+  const auto cur_path = std::filesystem::current_path(ec);
+  if (!cur_path.empty()) {
+    const auto detected_targets =
+        Tools::Classification::ProjectToolClassifier::detect_configurations(cur_path);
+    if (!detected_targets.empty()) {
+      m_run_config_state.available_targets = detected_targets;
+      m_run_config_state.active_target_name = detected_targets.front().name;
+      m_run_config_state.active_classification = detected_targets.front().classification;
+      m_run_config_state.active_icon_asset = detected_targets.front().icon_asset;
+    }
+  }
 }
 
 Win32Window::~Win32Window() {
@@ -762,6 +776,15 @@ bool Win32Window::set_workspace_root(const std::filesystem::path &root) {
 
   Language::LanguageServerManager::instance().set_workspace_root(root);
 
+  const auto detected_targets =
+      Tools::Classification::ProjectToolClassifier::detect_configurations(root);
+  if (!detected_targets.empty()) {
+    m_run_config_state.available_targets = detected_targets;
+    m_run_config_state.active_target_name = detected_targets.front().name;
+    m_run_config_state.active_classification = detected_targets.front().classification;
+    m_run_config_state.active_icon_asset = detected_targets.front().icon_asset;
+  }
+
   if (auto ctx = Utility::MultiContextManager::instance().get_context_by_window(
           this)) {
     Utility::MultiContextManager::instance().set_workspace_root(ctx->context_id,
@@ -829,6 +852,10 @@ bool Win32Window::close_project() {
     Utility::MultiContextManager::instance().set_workspace_root(ctx->context_id,
                                                                 {});
   }
+  m_run_config_state.available_targets.clear();
+  m_run_config_state.active_target_name.clear();
+  m_run_config_state.active_classification = UI::Toolbar::ToolClassification::CMake;
+  m_run_config_state.active_icon_asset = UI::Toolbar::get_classification_icon(UI::Toolbar::ToolClassification::CMake);
   m_window_title = utf8_to_wide(m_specification.title);
   if (m_window_handle != nullptr) {
     SetWindowTextW(m_window_handle, m_window_title.c_str());
@@ -1555,9 +1582,9 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
       if (m_chrome_layout.is_debug_button(point_x, point_y)) {
         const std::optional<bool> editor_result =
             m_workspace_renderer.handle_editor_command(
-                Commands::CommandIds::view_problems);
+                Commands::CommandIds::run_debug);
         if (!editor_result && m_command_invoked_callback) {
-          m_command_invoked_callback(Commands::CommandIds::view_problems);
+          m_command_invoked_callback(Commands::CommandIds::run_debug);
         }
         InvalidateRect(window_handle, nullptr, FALSE);
         return 0;
@@ -3511,8 +3538,11 @@ void Win32Window::paint_custom_chrome() {
       draw_toolbar_hover(m_chrome_layout.binary_bounds);
     }
     const int binary_icon_size = std::max(static_cast<int>(16.0F * scale), 14);
+    const std::string target_icon = m_run_config_state.active_icon_asset.empty()
+                                        ? "Assets/icons/material-icon-theme/cmake.svg"
+                                        : m_run_config_state.active_icon_asset;
     m_workspace_renderer.draw_svg_icon(
-        buffer_context, "Assets/icons/terminal.svg",
+        buffer_context, target_icon,
         static_cast<int>(m_chrome_layout.binary_bounds.x + 16.0F * scale),
         static_cast<int>(m_chrome_layout.binary_bounds.y +
                          m_chrome_layout.binary_bounds.height * 0.5F),
@@ -3834,9 +3864,104 @@ void Win32Window::execute_menu_item(std::size_t menu_index,
     m_run_config_state.active_architecture =
         UI::Toolbar::TargetArchitecture::Arm32;
   } else if (command_id == Commands::CommandIds::run_zde) {
-    m_run_config_state.active_target_name = "ZDE";
+    std::string cmake_target = "Project";
+    for (const auto &t : m_run_config_state.available_targets) {
+      if (t.classification == UI::Toolbar::ToolClassification::CMake &&
+          t.id.find("test") == std::string::npos) {
+        cmake_target = t.name;
+        break;
+      }
+    }
+    m_run_config_state.active_target_name = cmake_target;
+    m_run_config_state.active_classification = UI::Toolbar::ToolClassification::CMake;
+    m_run_config_state.active_icon_asset = UI::Toolbar::get_classification_icon(UI::Toolbar::ToolClassification::CMake);
   } else if (command_id == Commands::CommandIds::run_tests) {
-    m_run_config_state.active_target_name = "ZDEUnitTests";
+    std::string test_target = "Tests";
+    for (const auto &t : m_run_config_state.available_targets) {
+      if (t.classification == UI::Toolbar::ToolClassification::CMake &&
+          t.id.find("test") != std::string::npos) {
+        test_target = t.name;
+        break;
+      }
+    }
+    m_run_config_state.active_target_name = test_target;
+    m_run_config_state.active_classification = UI::Toolbar::ToolClassification::CMake;
+    m_run_config_state.active_icon_asset = UI::Toolbar::get_classification_icon(UI::Toolbar::ToolClassification::CMake);
+  } else if (command_id == Commands::CommandIds::run_target_python) {
+    const std::string active_doc = m_workspace_renderer.m_text_editor.get_active_document_filename();
+    const std::filesystem::path p(active_doc);
+    std::string py_target;
+    if (p.extension() == ".py" || p.extension() == ".pyw") {
+      py_target = p.filename().string();
+    } else {
+      for (const auto &t : m_run_config_state.available_targets) {
+        if (t.classification == UI::Toolbar::ToolClassification::Python) {
+          py_target = t.name;
+          break;
+        }
+      }
+      if (py_target.empty()) {
+        py_target = "main.py";
+      }
+    }
+    m_run_config_state.active_target_name = py_target;
+    m_run_config_state.active_classification = UI::Toolbar::ToolClassification::Python;
+    m_run_config_state.active_icon_asset = UI::Toolbar::get_classification_icon(UI::Toolbar::ToolClassification::Python);
+  } else if (command_id == Commands::CommandIds::run_target_java) {
+    const std::string active_doc = m_workspace_renderer.m_text_editor.get_active_document_filename();
+    const std::filesystem::path p(active_doc);
+    std::string java_target;
+    if (p.extension() == ".java") {
+      java_target = p.filename().string();
+    } else {
+      for (const auto &t : m_run_config_state.available_targets) {
+        if (t.classification == UI::Toolbar::ToolClassification::Java) {
+          java_target = t.name;
+          break;
+        }
+      }
+      if (java_target.empty()) {
+        java_target = "Java Application";
+      }
+    }
+    m_run_config_state.active_target_name = java_target;
+    m_run_config_state.active_classification = UI::Toolbar::ToolClassification::Java;
+    m_run_config_state.active_icon_asset = UI::Toolbar::get_classification_icon(UI::Toolbar::ToolClassification::Java);
+  } else if (command_id == Commands::CommandIds::run_target_pascal) {
+    const std::string active_doc = m_workspace_renderer.m_text_editor.get_active_document_filename();
+    const std::filesystem::path p(active_doc);
+    std::string pas_target;
+    if (p.extension() == ".pas" || p.extension() == ".pp" || p.extension() == ".dpr") {
+      pas_target = p.filename().string();
+    } else {
+      for (const auto &t : m_run_config_state.available_targets) {
+        if (t.classification == UI::Toolbar::ToolClassification::Pascal) {
+          pas_target = t.name;
+          break;
+        }
+      }
+      if (pas_target.empty()) {
+        pas_target = "Pascal Program";
+      }
+    }
+    m_run_config_state.active_target_name = pas_target;
+    m_run_config_state.active_classification = UI::Toolbar::ToolClassification::Pascal;
+    m_run_config_state.active_icon_asset = UI::Toolbar::get_classification_icon(UI::Toolbar::ToolClassification::Pascal);
+  } else if (command_id == Commands::CommandIds::run_target_cargo) {
+    std::string cargo_target;
+    for (const auto &t : m_run_config_state.available_targets) {
+      if (t.classification == UI::Toolbar::ToolClassification::TomlCargo &&
+          t.id.find("test") == std::string::npos) {
+        cargo_target = t.name;
+        break;
+      }
+    }
+    if (cargo_target.empty()) {
+      cargo_target = "Cargo Run";
+    }
+    m_run_config_state.active_target_name = cargo_target;
+    m_run_config_state.active_classification = UI::Toolbar::ToolClassification::TomlCargo;
+    m_run_config_state.active_icon_asset = UI::Toolbar::get_classification_icon(UI::Toolbar::ToolClassification::TomlCargo);
   }
 
   if (!command_id.empty()) {

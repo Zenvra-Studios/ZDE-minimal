@@ -98,7 +98,7 @@ private:
     std::filesystem::path m_workspace_root;
     Syntax::SemanticTokensManager m_semantic_tokens_manager;
 
-    std::mutex m_clients_mutex;
+    mutable std::mutex m_clients_mutex;
     std::unordered_map<std::string, std::unique_ptr<Client::LanguageClient>> m_clients; // language_id -> client
     std::unordered_set<std::string> m_unavailable_languages;
     std::unordered_map<std::string, std::vector<Protocol::Diagnostic>> m_document_diagnostics; // uri -> diagnostics

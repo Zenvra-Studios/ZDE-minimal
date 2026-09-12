@@ -322,8 +322,10 @@ TEST_F(VimModeTest, ForwardAndBackwardSearch)
 TEST_F(VimModeTest, SettingsIntegration)
 {
     auto& settings = Settings::SettingsService::instance();
-    settings.set("editor.interactionMode", "default");
-    settings.set("vim.enabled", false);
+    settings.set("editor.interactionMode", "default", Settings::SettingsScope::User);
+    settings.set("vim.enabled", false, Settings::SettingsScope::User);
+    settings.set("editor.interactionMode", "default", Settings::SettingsScope::Workspace);
+    settings.set("vim.enabled", false, Settings::SettingsScope::Workspace);
 
     // 1. Default Mode settings verification
     EXPECT_EQ(settings.get<std::string>("editor.interactionMode"), "default");
@@ -521,4 +523,54 @@ TEST_F(VimModeTest, CommandLineMode)
     type_keys(":%s/line/row/g\r");
     EXPECT_EQ(doc.get_line(0), "row 1");
     EXPECT_EQ(doc.get_line(3), "row 4");
+}
+
+TEST_F(VimModeTest, NormalModeSpaceAndEnterDoNotMutateText)
+{
+    doc.insert_text("first line\n    second line\nthird line");
+    doc.set_caret(0, 0);
+
+    // Initial state check
+    EXPECT_EQ(doc.get_line_count(), 3u);
+    EXPECT_EQ(doc.get_caret_line(), 0u);
+    EXPECT_EQ(doc.get_caret_column(), 0u);
+
+    // Space moves cursor right by 1 without inserting ' '
+    type_keys(" ");
+    EXPECT_EQ(doc.get_caret_line(), 0u);
+    EXPECT_EQ(doc.get_caret_column(), 1u);
+    EXPECT_EQ(doc.get_line(0), "first line");
+
+    // Space with count (e.g. 3<Space>) moves cursor right by 3
+    type_keys("3 ");
+    EXPECT_EQ(doc.get_caret_line(), 0u);
+    EXPECT_EQ(doc.get_caret_column(), 4u);
+    EXPECT_EQ(doc.get_line(0), "first line");
+
+    // Enter ('\r') moves cursor to first non-blank char of next line without inserting newline
+    type_keys("\r");
+    EXPECT_EQ(doc.get_line_count(), 3u);
+    EXPECT_EQ(doc.get_caret_line(), 1u);
+    EXPECT_EQ(doc.get_caret_column(), 4u); // "    second line" starts at column 4
+    EXPECT_EQ(doc.get_line(1), "    second line");
+
+    // '\n' also behaves like Enter
+    type_keys("\n");
+    EXPECT_EQ(doc.get_line_count(), 3u);
+    EXPECT_EQ(doc.get_caret_line(), 2u);
+    EXPECT_EQ(doc.get_caret_column(), 0u); // "third line" starts at column 0
+    EXPECT_EQ(doc.get_line(2), "third line");
+
+    // Visual mode: Space and Enter move cursor with selection without mutating text
+    doc.set_caret(0, 0);
+    type_keys("v ");
+    EXPECT_TRUE(doc.has_selection());
+    EXPECT_EQ(doc.get_caret_column(), 1u);
+    EXPECT_EQ(doc.get_line(0), "first line");
+
+    type_keys("\r");
+    EXPECT_TRUE(doc.has_selection());
+    EXPECT_EQ(doc.get_caret_line(), 1u);
+    EXPECT_EQ(doc.get_caret_column(), 4u);
+    EXPECT_EQ(doc.get_line_count(), 3u);
 }

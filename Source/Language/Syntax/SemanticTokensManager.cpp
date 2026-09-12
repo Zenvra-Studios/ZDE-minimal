@@ -11,51 +11,64 @@ std::vector<SemanticTokenSpan> SemanticTokensManager::decode_lsp_tokens(
     std::span<const std::string> /*legend_modifiers*/) noexcept
 {
     std::vector<SemanticTokenSpan> result;
-    if (raw_data.empty() || raw_data.size() % 5 != 0)
+    try
     {
-        return result;
+        if (raw_data.empty() || raw_data.size() % 5 != 0)
+        {
+            return result;
+        }
+
+        // Sanity limit to avoid abnormal memory allocation if LSP packet is malformed
+        if (raw_data.size() > 1000000)
+        {
+            return result;
+        }
+
+        result.reserve(raw_data.size() / 5);
+
+        std::size_t current_line = 0;
+        std::size_t current_char = 0;
+
+        for (std::size_t i = 0; i < raw_data.size(); i += 5)
+        {
+            const uint32_t delta_line = raw_data[i];
+            const uint32_t delta_start = raw_data[i + 1];
+            const uint32_t length = raw_data[i + 2];
+            const uint32_t token_type_index = raw_data[i + 3];
+            const uint32_t token_modifiers = raw_data[i + 4];
+
+            if (delta_line > 0)
+            {
+                current_line += delta_line;
+                current_char = delta_start;
+            }
+            else
+            {
+                current_char += delta_start;
+            }
+
+            SemanticTokenType token_type = SemanticTokenType::Custom;
+            if (!legend_types.empty() && token_type_index < legend_types.size())
+            {
+                token_type = string_to_semantic_token_type(legend_types[token_type_index]);
+            }
+            else if (token_type_index < static_cast<uint32_t>(SemanticTokenType::Count))
+            {
+                token_type = static_cast<SemanticTokenType>(token_type_index);
+            }
+
+            result.push_back(SemanticTokenSpan{
+                .line = current_line,
+                .start_column = current_char,
+                .length = static_cast<std::size_t>(length),
+                .type = token_type,
+                .modifiers = token_modifiers
+            });
+        }
     }
-
-    result.reserve(raw_data.size() / 5);
-
-    std::size_t current_line = 0;
-    std::size_t current_char = 0;
-
-    for (std::size_t i = 0; i < raw_data.size(); i += 5)
+    catch (...)
     {
-        const uint32_t delta_line = raw_data[i];
-        const uint32_t delta_start = raw_data[i + 1];
-        const uint32_t length = raw_data[i + 2];
-        const uint32_t token_type_index = raw_data[i + 3];
-        const uint32_t token_modifiers = raw_data[i + 4];
-
-        if (delta_line > 0)
-        {
-            current_line += delta_line;
-            current_char = delta_start;
-        }
-        else
-        {
-            current_char += delta_start;
-        }
-
-        SemanticTokenType token_type = SemanticTokenType::Custom;
-        if (!legend_types.empty() && token_type_index < legend_types.size())
-        {
-            token_type = string_to_semantic_token_type(legend_types[token_type_index]);
-        }
-        else if (token_type_index < static_cast<uint32_t>(SemanticTokenType::Count))
-        {
-            token_type = static_cast<SemanticTokenType>(token_type_index);
-        }
-
-        result.push_back(SemanticTokenSpan{
-            .line = current_line,
-            .start_column = current_char,
-            .length = static_cast<std::size_t>(length),
-            .type = token_type,
-            .modifiers = token_modifiers
-        });
+        result.clear();
     }
 
     return result;
@@ -79,6 +92,7 @@ void SemanticTokensManager::update_document_tokens(
         });
     }
 
+    std::lock_guard<std::mutex> lock(m_mutex);
     m_document_tokens[uri] = std::move(line_map);
 }
 
@@ -86,6 +100,7 @@ std::vector<SemanticTokenSpan> SemanticTokensManager::get_tokens_for_line(
     const std::string& uri,
     std::size_t line) const
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     const auto doc_it = m_document_tokens.find(uri);
     if (doc_it == m_document_tokens.end())
     {
@@ -103,12 +118,14 @@ std::vector<SemanticTokenSpan> SemanticTokensManager::get_tokens_for_line(
 
 bool SemanticTokensManager::has_tokens(const std::string& uri) const noexcept
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     const auto it = m_document_tokens.find(uri);
     return it != m_document_tokens.end() && !it->second.empty();
 }
 
 void SemanticTokensManager::clear_document_tokens(const std::string& uri) noexcept
 {
+    std::lock_guard<std::mutex> lock(m_mutex);
     m_document_tokens.erase(uri);
 }
 
