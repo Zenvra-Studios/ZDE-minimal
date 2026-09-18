@@ -125,6 +125,8 @@ public:
         int client_width,
         int client_height,
         float content_top) const noexcept;
+    void set_file_buffer_bounds(const UI::Rect& bounds) noexcept { m_file_buffer_bounds = bounds; }
+    [[nodiscard]] const std::optional<UI::Rect>& get_file_buffer_bounds() const noexcept { return m_file_buffer_bounds; }
     [[nodiscard]] bool is_tab_bar_area_point(
         float point_x,
         float point_y,
@@ -405,6 +407,7 @@ private:
     static constexpr std::size_t max_image_cache_size = 512;
     void store_cached_image(const std::string& key, XImage* image) const;
     mutable std::unordered_map<std::string, XImage*> m_svg_cache;
+    std::optional<UI::Rect> m_file_buffer_bounds;
 };
 
 } // namespace Zenvra::Platform::X11::Components

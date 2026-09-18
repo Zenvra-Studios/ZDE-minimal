@@ -57,8 +57,20 @@ enum class ToolClassification : std::uint8_t
     Pascal,
     Java,
     Python,
-    CustomExecutable
+    CustomExecutable,
+    JavaScript,
+    TypeScript,
+    PHP,
+    Web
 };
+
+[[nodiscard]] constexpr bool is_web_interpreter_category(ToolClassification classification) noexcept
+{
+    return classification == ToolClassification::JavaScript ||
+           classification == ToolClassification::TypeScript ||
+           classification == ToolClassification::PHP ||
+           classification == ToolClassification::Web;
+}
 
 struct BinaryTargetProfile
 {
@@ -124,6 +136,10 @@ struct RunConfigurationState
     case ToolClassification::Java: return "Java";
     case ToolClassification::Python: return "Python";
     case ToolClassification::CustomExecutable: return "Executable";
+    case ToolClassification::JavaScript: return "JavaScript";
+    case ToolClassification::TypeScript: return "TypeScript";
+    case ToolClassification::PHP: return "PHP";
+    case ToolClassification::Web: return "Web";
     }
     return "Tools";
 }
@@ -138,6 +154,10 @@ struct RunConfigurationState
     case ToolClassification::Java: return "Assets/icons/material-icon-theme/java.svg";
     case ToolClassification::Python: return "Assets/icons/material-icon-theme/python.svg";
     case ToolClassification::CustomExecutable: return "Assets/icons/terminal.svg";
+    case ToolClassification::JavaScript: return "Assets/icons/material-icon-theme/javascript.svg";
+    case ToolClassification::TypeScript: return "Assets/icons/material-icon-theme/typescript.svg";
+    case ToolClassification::PHP: return "Assets/icons/material-icon-theme/php.svg";
+    case ToolClassification::Web: return "Assets/icons/material-icon-theme/html.svg";
     }
     return "Assets/icons/terminal.svg";
 }

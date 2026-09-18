@@ -815,7 +815,12 @@ bool Win32Window::set_workspace_root(const std::filesystem::path &root) {
 }
 
 bool Win32Window::open_file(const std::filesystem::path &path) {
-  return m_workspace_renderer.open_file(path);
+  const bool res = m_workspace_renderer.open_file(path);
+  refresh_chrome_layout();
+  if (m_window_handle != nullptr) {
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+  }
+  return res;
 }
 
 bool Win32Window::open_path(const std::filesystem::path &path) {
@@ -3794,9 +3799,28 @@ void Win32Window::refresh_chrome_layout() {
                              : (m_run_config_state.active_target_name.empty()
                                     ? "No Configuration"
                                     : m_run_config_state.active_target_name);
+
+  const auto root = get_workspace_root();
+  const auto *active_doc = m_workspace_renderer.get_text_editor().get_document();
+
+  std::filesystem::path active_file;
+
+  if (active_doc != nullptr) {
+    active_file = active_doc->get_file_name();
+  }
+
+  const bool is_web_interpreter =
+      Tools::Classification::ProjectToolClassifier::is_web_or_interpreter(
+          root, active_file) ||
+      UI::Toolbar::is_web_interpreter_category(
+          m_run_config_state.active_classification);
+
+  options.show_build_tools = !is_web_interpreter;
+
   m_chrome_layout = m_chrome_layout_engine.calculate(
       static_cast<float>(client_bounds.right - client_bounds.left),
       static_cast<float>(m_dpi) / 96.0F, options);
+  m_workspace_renderer.set_file_buffer_bounds(m_chrome_layout.file_buffer_bounds);
 }
 
 void Win32Window::update_dwm_border_color(bool force) {

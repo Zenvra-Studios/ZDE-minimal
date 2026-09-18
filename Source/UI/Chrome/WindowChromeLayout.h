@@ -58,6 +58,7 @@ struct WindowChromeLayoutOptions
     float left_padding = 0.0F;
     float titlebar_height = 0.0F; // 0 = platform default
     std::string binary_label; // Active target / binary / interpreter name for responsive width
+    bool show_build_tools = true; // False for web/interpreter (keeps only gear & ellipsis)
 };
 
 struct WindowChromeLayoutResult

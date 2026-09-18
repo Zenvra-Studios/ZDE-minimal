@@ -232,7 +232,15 @@ UI::Editor::StudioEditorLayoutResult StudioWorkspaceRenderer::calculate_layout(
     int client_width, int client_height, float content_top) const noexcept
 {
     const std::size_t line_count = m_text_editor.get_active_document_line_count();
-    return m_layout_engine.calculate(
+    const std::optional<float> custom_nav =
+        m_file_buffer_bounds.has_value()
+            ? std::optional<float>(m_file_buffer_bounds->x)
+            : std::optional<float>(m_animated_titlebar_left_offset);
+    const std::optional<float> custom_tab_w =
+        m_file_buffer_bounds.has_value()
+            ? std::optional<float>(m_file_buffer_bounds->width)
+            : std::nullopt;
+    auto result = m_layout_engine.calculate(
         static_cast<float>(client_width),
         static_cast<float>(client_height),
         content_top,
@@ -244,8 +252,14 @@ UI::Editor::StudioEditorLayoutResult StudioWorkspaceRenderer::calculate_layout(
         m_tool_sidebar.get_width(),
         m_shader_sandbox_panel.is_visible(),
         m_shader_sandbox_panel.get_width(),
-        m_animated_titlebar_left_offset,
-        line_count);
+        custom_nav,
+        line_count,
+        custom_tab_w);
+    if (m_file_buffer_bounds.has_value() && !m_file_buffer_bounds->is_empty()) {
+        result.tab_bar_bounds.x = m_file_buffer_bounds->x;
+        result.tab_bar_bounds.width = m_file_buffer_bounds->width;
+    }
+    return result;
 }
 
 void StudioWorkspaceRenderer::sync_shader_sandbox() const

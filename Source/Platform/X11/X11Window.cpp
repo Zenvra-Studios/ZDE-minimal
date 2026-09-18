@@ -11,6 +11,7 @@
 #include "Platform/X11/Components/ToolSidebar.h"
 #include "Platform/X11/Runtime/X11Context.h"
 #include "Settings/SettingsService.h"
+#include "Tools/Classification/ProjectToolClassifier.h"
 #include "UI/Components/MenuModel.h"
 #include "UI/Theme/ThemeManager.h"
 #include "Utility/IcoDecoder.h"
@@ -1147,13 +1148,29 @@ void X11Window::apply_size_hints() const {
 }
 
 void X11Window::refresh_chrome_layout() {
+  const auto root = get_workspace_root();
+  const auto *active_doc =
+      m_workspace_renderer.get_text_editor().get_document();
+  std::filesystem::path active_file;
+  if (active_doc != nullptr) {
+    active_file = active_doc->get_file_name();
+  }
+
+  const bool is_web_interpreter =
+      Tools::Classification::ProjectToolClassifier::is_web_or_interpreter(
+          root, active_file) ||
+      UI::Toolbar::is_web_interpreter_category(
+          m_chrome_renderer.get_run_config_state().active_classification);
+
   m_chrome_layout = m_chrome_layout_engine.calculate(
       static_cast<float>(m_client_width), m_dpi_scale,
       UI::Chrome::WindowChromeLayoutOptions{
           .show_window_controls = m_custom_chrome_enabled,
           .hamburger_only = true,
+          .show_build_tools = !is_web_interpreter,
           .binary_label = m_chrome_renderer.get_run_config_state().active_target_name,
       });
+  m_workspace_renderer.set_file_buffer_bounds(m_chrome_layout.file_buffer_bounds);
 }
 
 void X11Window::refresh_window_state() {

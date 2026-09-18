@@ -226,7 +226,8 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
     bool tool_sidebar_visible, float tool_sidebar_width,
     bool shader_panel_visible, float shader_panel_width,
     std::optional<float> custom_nav_width,
-    std::size_t line_count) const noexcept {
+    std::size_t line_count,
+    std::optional<float> custom_tab_width) const noexcept {
   const float safe_width = std::max(client_width, 0.0F);
   const float safe_height = std::max(client_height, 0.0F);
   const float safe_scale = std::max(dpi_scale, 0.5F);
@@ -306,13 +307,13 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
   const float integrated_tab_x = std::min(nav_width, safe_width);
   const float min_center_drag_gap = (safe_top > 0.0F && nav_width > 0.0F) ? (160.0F * safe_scale) : 0.0F;
   const float max_tab_width_ratio = safe_width * 0.46F;
-  const float available_for_tabs =
-      std::max(0.0F, safe_width - integrated_tab_x - ctrl_width - min_center_drag_gap);
-  const float effective_tab_width =
-      (safe_top > 0.0F)
-          ? ((nav_width > 0.0F) ? std::max(0.0F, std::min(available_for_tabs, max_tab_width_ratio))
-                                : std::max(0.0F, available_for_tabs))
-          : std::max(0.0F, safe_width - integrated_tab_x);
+  const float available_for_tabs = std::max(0.0F, safe_width - integrated_tab_x - ctrl_width - min_center_drag_gap);
+  const float effective_tab_width = custom_tab_width.has_value()
+      ? std::max(0.0F, *custom_tab_width)
+      : ((safe_top > 0.0F)
+             ? ((nav_width > 0.0F) ? std::max(0.0F, std::min(available_for_tabs, max_tab_width_ratio))
+                                   : std::max(0.0F, available_for_tabs))
+             : std::max(0.0F, safe_width - integrated_tab_x));
 
   const UI::Rect tab_bounds{
       integrated_tab_x,

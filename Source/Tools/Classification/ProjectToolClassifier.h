@@ -24,6 +24,10 @@ public:
         const std::filesystem::path& workspace_root,
         const std::filesystem::path& active_file = {});
 
+    [[nodiscard]] static bool is_web_or_interpreter(
+        const std::filesystem::path& workspace_root,
+        const std::filesystem::path& active_file = {});
+
     [[nodiscard]] static std::optional<UI::Toolbar::ToolClassification> classify_file(
         const std::filesystem::path& file_path);
 

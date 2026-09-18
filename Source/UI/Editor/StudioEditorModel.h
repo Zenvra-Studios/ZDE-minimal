@@ -240,7 +240,8 @@ public:
         bool shader_panel_visible = false,
         float shader_panel_width = 380.0F,
         std::optional<float> custom_nav_width = std::nullopt,
-        std::size_t line_count = 1) const noexcept;
+        std::size_t line_count = 1,
+        std::optional<float> custom_tab_width = std::nullopt) const noexcept;
 };
 
 [[nodiscard]] std::span<const SidebarItem> get_studio_sidebar_items() noexcept;

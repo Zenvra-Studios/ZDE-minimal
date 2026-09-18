@@ -3,6 +3,7 @@
 #include "Language/LanguageServerManager.h"
 #include "Platform/Cocoa/CocoaWindow.h"
 #include "Settings/SettingsService.h"
+#include "Tools/Classification/ProjectToolClassifier.h"
 #include "UI/Theme/ThemeManager.h"
 
 #include "Platform/Cocoa/Runtime/CocoaContext.h"
@@ -500,6 +501,21 @@ void CocoaWindow::refresh_chrome_layout()
     options.show_titlebar = m_custom_chrome_enabled;
     options.hamburger_only = false;
     options.binary_label = m_renderer.get_run_config_state().active_target_name;
+
+    const auto root = get_workspace_root();
+    const auto* active_doc = m_workspace_renderer.get_text_editor().get_document();
+    std::filesystem::path active_file;
+    if (active_doc != nullptr) {
+        active_file = active_doc->get_file_name();
+    }
+
+    const bool is_web_interpreter =
+        Tools::Classification::ProjectToolClassifier::is_web_or_interpreter(
+            root, active_file) ||
+        UI::Toolbar::is_web_interpreter_category(
+            m_renderer.get_run_config_state().active_classification);
+
+    options.show_build_tools = !is_web_interpreter;
     options.chrome_style = m_custom_chrome_enabled ? UI::Chrome::ChromeStyle::FullCustom : UI::Chrome::ChromeStyle::NativeMacOS;
     if (m_custom_chrome_enabled) {
         options.titlebar_height = 36.0F; // Taller custom strip; traffic lights are re-centered below
@@ -517,6 +533,7 @@ void CocoaWindow::refresh_chrome_layout()
         }
     }
     m_chrome_layout = m_chrome_layout_engine.calculate(client_width, dpi_scale, options);
+    m_workspace_renderer.set_file_buffer_bounds(m_chrome_layout.file_buffer_bounds);
 
     if (m_content_view != nullptr)
     {

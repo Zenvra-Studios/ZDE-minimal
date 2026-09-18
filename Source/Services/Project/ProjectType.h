@@ -18,14 +18,19 @@ enum class ProjectType : std::uint8_t
     Pascal,
     PlainCpp,
     PlainJava,
-    PlainRust
+    PlainRust,
+    JavaScript,
+    TypeScript,
+    PHP,
+    Web
 };
 
 enum class ExecutionModel : std::uint8_t
 {
     CompiledBinary,
     InterpreterScript,
-    CustomCommand
+    CustomCommand,
+    WebInterpreter
 };
 
 [[nodiscard]] constexpr std::string_view to_string(ProjectType type) noexcept
@@ -42,6 +47,10 @@ enum class ExecutionModel : std::uint8_t
     case ProjectType::PlainCpp: return "C/C++";
     case ProjectType::PlainJava: return "Java";
     case ProjectType::PlainRust: return "Rust";
+    case ProjectType::JavaScript: return "JavaScript";
+    case ProjectType::TypeScript: return "TypeScript";
+    case ProjectType::PHP: return "PHP";
+    case ProjectType::Web: return "Web";
     case ProjectType::Unknown: return "Unknown";
     }
     return "Unknown";
@@ -54,6 +63,7 @@ enum class ExecutionModel : std::uint8_t
     case ExecutionModel::CompiledBinary: return "CompiledBinary";
     case ExecutionModel::InterpreterScript: return "InterpreterScript";
     case ExecutionModel::CustomCommand: return "CustomCommand";
+    case ExecutionModel::WebInterpreter: return "WebInterpreter";
     }
     return "CustomCommand";
 }

@@ -18,6 +18,10 @@ ProjectType to_service_type(UI::Toolbar::ToolClassification classification)
     case UI::Toolbar::ToolClassification::Python: return ProjectType::Python;
     case UI::Toolbar::ToolClassification::Java: return ProjectType::PlainJava;
     case UI::Toolbar::ToolClassification::Pascal: return ProjectType::Pascal;
+    case UI::Toolbar::ToolClassification::JavaScript: return ProjectType::JavaScript;
+    case UI::Toolbar::ToolClassification::TypeScript: return ProjectType::TypeScript;
+    case UI::Toolbar::ToolClassification::PHP: return ProjectType::PHP;
+    case UI::Toolbar::ToolClassification::Web: return ProjectType::Web;
     case UI::Toolbar::ToolClassification::CustomExecutable: return ProjectType::Unknown;
     }
     return ProjectType::Unknown;
@@ -29,6 +33,11 @@ ExecutionModel to_execution_model(ProjectType type)
     {
     case ProjectType::Python:
         return ExecutionModel::InterpreterScript;
+    case ProjectType::JavaScript:
+    case ProjectType::TypeScript:
+    case ProjectType::PHP:
+    case ProjectType::Web:
+        return ExecutionModel::WebInterpreter;
     case ProjectType::CMake:
     case ProjectType::Cargo:
     case ProjectType::Pascal:

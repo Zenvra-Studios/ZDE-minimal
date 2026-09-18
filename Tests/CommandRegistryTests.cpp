@@ -258,6 +258,24 @@ void test_window_chrome_layout_is_responsive_and_dpi_aware()
     expect(
         long_layout.binary_bounds.width > short_layout.binary_bounds.width,
         "binary combo button width must adapt responsively to active target label length");
+
+    WindowChromeLayoutOptions web_opt{};
+    web_opt.show_build_tools = false;
+    const WindowChromeLayoutResult web_layout = layout_engine.calculate(1200.0F, 1.0F, web_opt);
+
+    WindowChromeLayoutOptions build_opt{};
+    build_opt.show_build_tools = true;
+    const WindowChromeLayoutResult build_layout = layout_engine.calculate(1200.0F, 1.0F, build_opt);
+
+    expect(
+        web_layout.file_buffer_bounds.width > build_layout.file_buffer_bounds.width,
+        "file buffer layout must expand responsively to fill the titlebar when build toolbars are hidden");
+    expect(
+        web_layout.build_bounds.is_empty() && web_layout.run_bounds.is_empty() && web_layout.debug_bounds.is_empty(),
+        "build toolbars must be absent when show_build_tools is false");
+    expect(
+        !web_layout.gear_bounds.is_empty() && !web_layout.ellipsis_bounds.is_empty(),
+        "settings gear and overflow ellipsis must remain visible when build toolbars are hidden");
 }
 
 void test_window_menu_model_matches_chrome_contract()
@@ -354,6 +372,11 @@ void test_studio_editor_layout_and_tokenization()
     expect(fullscreen_layout.tab_bar_bounds.x == 0.0F &&
             fullscreen_layout.tab_bar_bounds.width == 860.0F - 664.0F,
         "fullscreen buffer bar must align to the far left x=0 edge and expand available width");
+
+    const StudioEditorLayoutResult custom_tab_layout = layout_engine.calculate(
+        1200.0F, 800.0F, 35.0F, 1.0F, false, 218.0F, false, false, 260.0F, false, 380.0F, 80.0F, 1, 950.0F);
+    expect(custom_tab_layout.tab_bar_bounds.width == 950.0F,
+        "studio editor layout must honor custom responsive tab width when provided");
 
     ActivityPanelModel activity_panel;
     const std::optional<std::filesystem::path> activity_project_root =

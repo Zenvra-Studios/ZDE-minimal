@@ -24,6 +24,69 @@ std::string to_lower_ascii(std::string str)
 
 } // namespace
 
+bool ProjectToolClassifier::is_web_or_interpreter(
+    const std::filesystem::path& workspace_root,
+    const std::filesystem::path& active_file)
+{
+    // 1. Contextual active file check
+    if (!active_file.empty())
+    {
+        const std::string ext = to_lower_ascii(active_file.extension().string());
+        const std::string fn = to_lower_ascii(active_file.filename().string());
+        if (ext == ".js" || ext == ".mjs" || ext == ".cjs" || ext == ".jsx" ||
+            ext == ".ts" || ext == ".mts" || ext == ".cts" || ext == ".tsx" ||
+            ext == ".php" || ext == ".phtml" || ext == ".php3" || ext == ".php4" ||
+            ext == ".php5" || ext == ".php7" || ext == ".php8" || ext == ".phps" ||
+            ext == ".blade.php" || ext == ".html" || ext == ".htm" || ext == ".xhtml" ||
+            ext == ".css" || ext == ".scss" || ext == ".sass" || ext == ".less" ||
+            ext == ".vue" || ext == ".svelte" || ext == ".astro" ||
+            fn == "package.json" || fn == "tsconfig.json" || fn == "jsconfig.json" ||
+            fn == "composer.json" || fn == "composer.lock")
+        {
+            return true;
+        }
+    }
+
+    // 2. Workspace root inspection
+    if (!workspace_root.empty() && std::filesystem::exists(workspace_root))
+    {
+        std::error_code ec;
+        const bool has_cmake = std::filesystem::exists(workspace_root / "CMakeLists.txt", ec);
+        const bool has_cargo = std::filesystem::exists(workspace_root / "Cargo.toml", ec);
+        const bool has_gradle = std::filesystem::exists(workspace_root / "build.gradle", ec) ||
+                                std::filesystem::exists(workspace_root / "build.gradle.kts", ec);
+        const bool has_maven = std::filesystem::exists(workspace_root / "pom.xml", ec);
+
+        // If it has a recognized compiled build system, do not consider the whole workspace purely web
+        if (!has_cmake && !has_cargo && !has_gradle && !has_maven)
+        {
+            const bool has_npm = std::filesystem::exists(workspace_root / "package.json", ec);
+            const bool has_ts = std::filesystem::exists(workspace_root / "tsconfig.json", ec) ||
+                                std::filesystem::exists(workspace_root / "jsconfig.json", ec);
+            const bool has_composer = std::filesystem::exists(workspace_root / "composer.json", ec);
+
+            if (has_npm || has_ts || has_composer)
+            {
+                return true;
+            }
+
+            for (const auto& entry : std::filesystem::directory_iterator(workspace_root, ec))
+            {
+                if (entry.is_regular_file())
+                {
+                    const auto e = to_lower_ascii(entry.path().extension().string());
+                    if (e == ".js" || e == ".ts" || e == ".php" || e == ".html" || e == ".css")
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
 std::optional<UI::Toolbar::ToolClassification> ProjectToolClassifier::classify_file(
     const std::filesystem::path& file_path)
 {
@@ -72,7 +135,37 @@ std::optional<UI::Toolbar::ToolClassification> ProjectToolClassifier::classify_f
         return UI::Toolbar::ToolClassification::Pascal;
     }
 
-    // 6. Generic TOML configuration
+    // 6. TypeScript
+    if (ext == ".ts" || ext == ".mts" || ext == ".cts" || ext == ".tsx" ||
+        filename == "tsconfig.json")
+    {
+        return UI::Toolbar::ToolClassification::TypeScript;
+    }
+
+    // 7. JavaScript
+    if (ext == ".js" || ext == ".mjs" || ext == ".cjs" || ext == ".jsx" ||
+        filename == "package.json" || filename == "jsconfig.json")
+    {
+        return UI::Toolbar::ToolClassification::JavaScript;
+    }
+
+    // 8. PHP
+    if (ext == ".php" || ext == ".phtml" || ext == ".php3" || ext == ".php4" ||
+        ext == ".php5" || ext == ".php7" || ext == ".php8" || ext == ".phps" ||
+        ext == ".blade.php" || filename == "composer.json" || filename == "composer.lock")
+    {
+        return UI::Toolbar::ToolClassification::PHP;
+    }
+
+    // 9. Web & Markup
+    if (ext == ".html" || ext == ".htm" || ext == ".xhtml" || ext == ".css" ||
+        ext == ".scss" || ext == ".sass" || ext == ".less" || ext == ".vue" ||
+        ext == ".svelte" || ext == ".astro")
+    {
+        return UI::Toolbar::ToolClassification::Web;
+    }
+
+    // 10. Generic TOML configuration
     if (ext == ".toml")
     {
         return UI::Toolbar::ToolClassification::TomlCargo;
@@ -1037,14 +1130,17 @@ std::vector<UI::Toolbar::BinaryTargetProfile> ProjectToolClassifier::detect_conf
 
     std::vector<UI::Toolbar::BinaryTargetProfile> targets;
 
-    // 1. Contextual active file if classified
+    // 1. Contextual active file if classified (excluding web/interpreter categories)
     if (!active_file.empty())
     {
         if (const auto classification = classify_file(active_file))
         {
-            auto profile = create_profile_for_file(active_file);
-            profile.is_default = true;
-            targets.push_back(std::move(profile));
+            if (!UI::Toolbar::is_web_interpreter_category(*classification))
+            {
+                auto profile = create_profile_for_file(active_file);
+                profile.is_default = true;
+                targets.push_back(std::move(profile));
+            }
         }
     }
 

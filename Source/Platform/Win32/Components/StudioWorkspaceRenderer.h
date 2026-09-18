@@ -134,6 +134,8 @@ public:
         int client_width,
         int client_height,
         float content_top) const noexcept;
+    void set_file_buffer_bounds(const UI::Rect& bounds) noexcept { m_file_buffer_bounds = bounds; }
+    [[nodiscard]] const std::optional<UI::Rect>& get_file_buffer_bounds() const noexcept { return m_file_buffer_bounds; }
     [[nodiscard]] bool is_editor_point(
         float point_x,
         float point_y,
@@ -421,6 +423,7 @@ private:
     mutable std::unordered_map<std::string, std::vector<std::uint32_t>> m_svg_cache;
     WorkspaceRootRequestHandler m_workspace_root_request_handler;
     SplitterCornerKind m_active_corner_resizing = SplitterCornerKind::None;
+    std::optional<UI::Rect> m_file_buffer_bounds;
 };
 
 } // namespace Zenvra::Platform::Win32::Components

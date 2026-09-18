@@ -202,9 +202,11 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(
   // The right-side toolbar (ellipsis | gear | debug | run | build | binary |
   // platform | compiler) has a responsive width. Reserve it up front so the menus
   // never extend underneath it and the elements never collide.
-  const float right_toolbar_width = 5.0F * button_width + binary_width +
-                                    platform_width + compiler_width +
-                                    7.0F * toolbar_gap;
+  const float right_toolbar_width =
+      options.show_build_tools
+          ? (5.0F * button_width + binary_width + platform_width +
+             compiler_width + 7.0F * toolbar_gap)
+          : (2.0F * button_width + 2.0F * toolbar_gap);
   const float menu_limit =
       options.force_all_menus
           ? controls_start
@@ -286,19 +288,22 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(
 
   place_right(button_width, result.ellipsis_bounds);
   place_right(button_width, result.gear_bounds);
-  place_right(button_width, result.debug_bounds);
-  place_right(button_width, result.run_bounds);
-  place_right(button_width, result.build_bounds);
-  place_right(binary_width, result.binary_bounds);
-  place_right(platform_width, result.platform_bounds);
-  place_right(compiler_width, result.compiler_bounds);
+
+  if (options.show_build_tools) {
+    place_right(button_width, result.debug_bounds);
+    place_right(button_width, result.run_bounds);
+    place_right(button_width, result.build_bounds);
+    place_right(binary_width, result.binary_bounds);
+    place_right(platform_width, result.platform_bounds);
+    place_right(compiler_width, result.compiler_bounds);
+  }
 
   if (current_right > left_edge) {
     const float available_space = current_right - left_edge;
-    const float min_center_drag_gap = 160.0F * safe_scale;
-    const float max_buffer_width =
-        std::max(0.0F, std::min(available_space - min_center_drag_gap,
-                                client_width * 0.46F));
+    const float drag_gap = options.show_build_tools ? (48.0F * safe_scale) : (20.0F * safe_scale);
+    const float max_buffer_width = options.show_build_tools
+        ? std::max(0.0F, std::min(available_space - drag_gap, client_width * 0.50F))
+        : std::max(0.0F, available_space - drag_gap);
     result.command_center_bounds = {};
     result.file_buffer_bounds = {left_edge, 0.0F, max_buffer_width,
                                  titlebar_height};
