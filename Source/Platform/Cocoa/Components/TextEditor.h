@@ -129,6 +129,10 @@ public:
         const StudioWorkspaceRenderer& surface,
         CGContextRef context,
         const UI::Editor::StudioEditorLayoutResult& layout) const;
+    void draw_tab_strip(
+        const StudioWorkspaceRenderer& surface,
+        CGContextRef context,
+        const UI::Editor::StudioEditorLayoutResult& layout) const;
 
 private:
     static constexpr std::size_t max_visible_tabs = 128;
@@ -158,10 +162,6 @@ private:
         std::optional<std::size_t> hovered_index;
     };
 
-    void draw_tab_strip(
-        const StudioWorkspaceRenderer& surface,
-        CGContextRef context,
-        const UI::Editor::StudioEditorLayoutResult& layout) const;
     void draw_editor_header(
         const StudioWorkspaceRenderer& surface,
         CGContextRef context,

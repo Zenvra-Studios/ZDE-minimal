@@ -68,7 +68,10 @@ void ExplorerHeader::render(
         panel.x, panel.y, panel.width, header_height * scale
     };
     
-    surface.fill_rectangle(context, header_bounds, surface.m_colors.sidebar_background);
+    const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+    if (!is_modern) {
+        surface.fill_rectangle(context, header_bounds, surface.m_colors.sidebar_background);
+    }
     const float center_y = header_bounds.y + header_bounds.height * 0.5F;
     
     // Draw Title
@@ -115,12 +118,14 @@ void ExplorerHeader::render(
         draw_icon(ActionIcon::NewFile, "Assets/icons/new-file.svg", current_x);
     }
 
-    surface.draw_line(context,
-        round_to_int(header_bounds.x),
-        round_to_int(header_bounds.bottom() - 1.0F),
-        round_to_int(header_bounds.right()),
-        round_to_int(header_bounds.bottom() - 1.0F),
-        surface.m_colors.border);
+    if (!is_modern) {
+        surface.draw_line(context,
+            round_to_int(header_bounds.x),
+            round_to_int(header_bounds.bottom() - 1.0F),
+            round_to_int(header_bounds.right()),
+            round_to_int(header_bounds.bottom() - 1.0F),
+            surface.m_colors.border);
+    }
 }
 
 bool ExplorerHeader::handle_pointer_move(

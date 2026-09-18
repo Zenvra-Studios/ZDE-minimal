@@ -5,8 +5,8 @@
 namespace Zenvra::Graphics {
 
 /// Modern card geometry configuration for the backdrop blur shader mask.
-/// Excludes solid UI card regions (Explorer, Text Editor, Terminal, Shader Sandbox)
-/// matching the Windows 11 / modern acrylic backdrop blur behavior.
+/// Excludes solid UI card regions (Text Editor, Terminal, Shader Sandbox)
+/// while Titlebar, Sidebar, and Footer seamlessly float on the frosted backdrop blur.
 struct ModernCardBlurMask {
     std::array<float, 4> explorer_card = {0.0F, 0.0F, 0.0F, 0.0F};
     std::array<float, 4> editor_card = {0.0F, 0.0F, 0.0F, 0.0F};

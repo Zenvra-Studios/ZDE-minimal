@@ -183,7 +183,18 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(
   const bool is_ultra_compact = client_width < (760.0F * safe_scale);
 
   const float button_width = is_ultra_compact ? (28.0F * safe_scale) : (is_compact ? (32.0F * safe_scale) : (36.0F * safe_scale));
-  const float binary_width = is_ultra_compact ? (90.0F * safe_scale) : (is_compact ? (108.0F * safe_scale) : (128.0F * safe_scale));
+
+  const std::string_view bin_name = options.binary_label.empty()
+                                        ? std::string_view{"No Configuration"}
+                                        : std::string_view{options.binary_label};
+  // Base padding: icon (16px) + icon margins (16px + 4px) + gap to chevron (8px) + chevron (12px) + right margin (14px) = 54px
+  const float base_padding = (is_ultra_compact ? 44.0F : 54.0F) * safe_scale;
+  const float char_w = (is_ultra_compact ? 7.2F : 8.2F) * safe_scale;
+  const float needed_binary_w = static_cast<float>(bin_name.size()) * char_w + base_padding;
+  const float min_binary_w = is_ultra_compact ? (88.0F * safe_scale) : (is_compact ? (110.0F * safe_scale) : (128.0F * safe_scale));
+  const float max_binary_w = is_ultra_compact ? (180.0F * safe_scale) : (is_compact ? (260.0F * safe_scale) : (360.0F * safe_scale));
+  const float binary_width = std::clamp(needed_binary_w, min_binary_w, max_binary_w);
+
   const float platform_width = is_ultra_compact ? (68.0F * safe_scale) : (is_compact ? (78.0F * safe_scale) : (88.0F * safe_scale));
   const float compiler_width = is_ultra_compact ? (68.0F * safe_scale) : (is_compact ? (78.0F * safe_scale) : (88.0F * safe_scale));
   const float toolbar_gap = is_ultra_compact ? (4.0F * safe_scale) : (is_compact ? (6.0F * safe_scale) : (8.0F * safe_scale));

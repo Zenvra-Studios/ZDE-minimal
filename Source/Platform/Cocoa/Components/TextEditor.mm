@@ -1969,7 +1969,13 @@ const UI::Editor::TextDocumentModel *TextEditor::get_document() const noexcept {
 void TextEditor::render(
     const StudioWorkspaceRenderer &surface, CGContextRef context,
     const UI::Editor::StudioEditorLayoutResult &layout) const {
-  draw_tab_strip(surface, context, layout);
+  const bool is_modern =
+      surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+  const bool tabs_are_in_titlebar =
+      layout.tab_bar_bounds.bottom() <= layout.activity_bar_bounds.y;
+  if (!tabs_are_in_titlebar && !is_modern) {
+    draw_tab_strip(surface, context, layout);
+  }
   if (!layout.editor_header_bounds.is_empty() &&
       layout.editor_header_bounds.height > 2.0F) {
     draw_editor_header(surface, context, layout);

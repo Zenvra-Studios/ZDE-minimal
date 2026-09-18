@@ -116,12 +116,14 @@ void ExplorerHeader::render(
         draw_icon(ActionIcon::NewFile, "Assets/icons/new-file.svg", current_x);
     }
 
-    surface.draw_line(drawable,
-        round_to_int(header_bounds.x),
-        round_to_int(header_bounds.bottom() - 1.0F),
-        round_to_int(header_bounds.right()),
-        round_to_int(header_bounds.bottom() - 1.0F),
-        surface.m_pixels.border);
+    if (!is_modern) {
+        surface.draw_line(drawable,
+            round_to_int(header_bounds.x),
+            round_to_int(header_bounds.bottom() - 1.0F),
+            round_to_int(header_bounds.right()),
+            round_to_int(header_bounds.bottom() - 1.0F),
+            surface.m_pixels.border);
+    }
 }
 
 bool ExplorerHeader::handle_pointer_move(

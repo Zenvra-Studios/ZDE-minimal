@@ -40,7 +40,8 @@ void FooterToolbar::render(
     const UI::Editor::StudioEditorLayoutResult &layout,
     std::span<const UI::Editor::BreadcrumbItem> breadcrumbs,
     const UI::Editor::FooterEditorStatus &status) const {
-  if (surface.m_palette.is_modern) {
+  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+  if (is_modern) {
     // Modern mode: unified seamless window surface (blurred or solid), no top border
   } else {
     surface.fill_rectangle(device_context, layout.status_bar_bounds,

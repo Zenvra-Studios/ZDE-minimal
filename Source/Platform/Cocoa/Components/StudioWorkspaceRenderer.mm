@@ -1072,6 +1072,83 @@ void StudioWorkspaceRenderer::shutdown()
     m_icon_asset_root.clear();
 }
 
+StudioWorkspaceRenderer::ModernCardGeometry
+StudioWorkspaceRenderer::get_modern_card_geometry(
+    int client_width, int client_height, float content_top) const noexcept
+{
+    const UI::Editor::StudioEditorLayoutResult layout =
+        calculate_layout(client_width, client_height, content_top);
+    const float scale = layout.dpi_scale;
+    const float sep_gap = std::max(std::round(6.0F * scale), 6.0F);
+    const float outer_gap = std::max(std::round(5.0F * scale), 4.0F);
+    const float card_radius = std::max(std::round(8.0F * scale), 8.0F);
+
+    ModernCardGeometry geom;
+    geom.card_radius = card_radius;
+
+    const bool has_sidebar =
+        m_tool_sidebar.is_visible() && !layout.tool_sidebar_bounds.is_empty();
+    // In modern blurred style, the sidebar seamlessly floats on the blurred window
+    // surface rather than being enclosed in an opaque solid card.
+    geom.sidebar_card = UI::Rect{};
+
+    const float editor_col_left =
+        has_sidebar ? (layout.tool_sidebar_bounds.right() + sep_gap * 0.5F)
+                    : (layout.activity_bar_bounds.right() + outer_gap);
+
+    const float shader_split_x =
+        layout.shader_splitter_bounds.x + layout.shader_splitter_bounds.width * 0.5F;
+    const float editor_col_right =
+        layout.shader_panel_visible
+            ? (shader_split_x - sep_gap * 0.5F)
+            : (layout.workspace_bounds.right() - outer_gap);
+
+    const float editor_col_top = (layout.editor_header_bounds.is_empty()
+                                      ? layout.gutter_bounds.y
+                                      : layout.editor_header_bounds.y) +
+                                 outer_gap;
+    const float editor_col_bottom = layout.status_bar_bounds.y - outer_gap;
+
+    const bool has_terminal = m_terminal_panel.is_visible() &&
+                              !layout.terminal_panel_bounds.is_empty();
+
+    const float editor_card_bottom =
+        has_terminal ? (layout.terminal_panel_bounds.y - sep_gap * 0.5F)
+                     : editor_col_bottom;
+    geom.editor_card = UI::Rect{
+        editor_col_left,
+        editor_col_top,
+        std::max(0.0F, editor_col_right - editor_col_left),
+        std::max(0.0F, editor_card_bottom - editor_col_top),
+    };
+
+    if (has_terminal)
+    {
+        const float term_top = layout.terminal_panel_bounds.y + sep_gap * 0.5F;
+        geom.terminal_card = UI::Rect{
+            editor_col_left,
+            term_top,
+            std::max(0.0F, editor_col_right - editor_col_left),
+            std::max(0.0F, editor_col_bottom - term_top),
+        };
+    }
+
+    const bool has_shader = m_shader_sandbox_panel.is_visible() &&
+                            !layout.shader_panel_bounds.is_empty();
+    if (has_shader)
+    {
+        const float shader_left = shader_split_x + sep_gap * 0.5F;
+        geom.shader_card = UI::Rect{
+            shader_left,
+            layout.shader_panel_bounds.y + outer_gap,
+            std::max(0.0F, layout.shader_panel_bounds.right() - outer_gap - shader_left),
+            std::max(0.0F, layout.shader_panel_bounds.height - outer_gap * 2.0F),
+        };
+    }
+
+    return geom;
+}
+
 void StudioWorkspaceRenderer::render(
     CGContextRef context,
     int client_width, int client_height,
@@ -1084,24 +1161,137 @@ void StudioWorkspaceRenderer::render(
     }
     const UI::Editor::StudioEditorLayoutResult layout =
         calculate_layout(client_width, client_height, content_top);
-    fill_rectangle(context, layout.workspace_bounds, m_colors.workspace_background);
-    fill_rectangle(context, layout.tab_bar_bounds, m_colors.tab_background);
-    fill_rectangle(context, layout.activity_bar_bounds, m_colors.sidebar_background);
-    fill_rectangle(context, layout.tool_sidebar_bounds, m_colors.sidebar_background);
-    fill_rectangle(context, layout.editor_header_bounds, m_colors.editor_background);
-    fill_rectangle(context, layout.gutter_bounds, m_colors.editor_background);
-    fill_rectangle(context, layout.editor_bounds, m_colors.editor_background);
-    fill_rectangle(context, layout.status_bar_bounds, m_colors.status_background);
-    draw_line(context, 0, round_to_int(layout.status_bar_bounds.y),
-              round_to_int(layout.status_bar_bounds.right()),
-              round_to_int(layout.status_bar_bounds.y),
-              m_colors.border);
 
-    m_text_editor.render(*this, context, layout);
-    m_terminal_panel.render(*this, context, layout);
-    m_tool_sidebar.render(*this, context, layout);
-    m_shader_sandbox_panel.render(*this, context, layout);
-    m_activity_sidebar.render(*this, context, layout);
+    const bool is_modern_style =
+        m_palette.is_modern || m_theme.is_modern || m_theme.enable_os_blur;
+
+    if (!is_modern_style)
+    {
+        fill_rectangle(context, layout.workspace_bounds, m_colors.workspace_background);
+        fill_rectangle(context, layout.tab_bar_bounds, m_colors.tab_background);
+        fill_rectangle(context, layout.activity_bar_bounds, m_colors.sidebar_background);
+        fill_rectangle(context, layout.tool_sidebar_bounds, m_colors.sidebar_background);
+        fill_rectangle(context, layout.editor_header_bounds, m_colors.editor_background);
+        fill_rectangle(context, layout.gutter_bounds, m_colors.editor_background);
+        fill_rectangle(context, layout.editor_bounds, m_colors.editor_background);
+        fill_rectangle(context, layout.status_bar_bounds, m_colors.status_background);
+        draw_line(context, 0, round_to_int(layout.status_bar_bounds.y),
+                  round_to_int(layout.status_bar_bounds.right()),
+                  round_to_int(layout.status_bar_bounds.y),
+                  m_colors.border);
+
+        m_text_editor.render(*this, context, layout);
+        m_terminal_panel.render(*this, context, layout);
+        m_tool_sidebar.render(*this, context, layout);
+        m_shader_sandbox_panel.render(*this, context, layout);
+        m_activity_sidebar.render(*this, context, layout);
+    }
+    else
+    {
+        // ----------------- Modern Style (Seamless Floating Cards over Blurred Backdrop) -----------------
+        const auto geom = get_modern_card_geometry(client_width, client_height, content_top);
+        const float card_radius = geom.card_radius;
+
+        // In modern mode, if OS blur is disabled, fill the unified backdrop.
+        // If OS blur is enabled, the NSVisualEffectView provides the blurred backdrop.
+        if (!m_theme.enable_os_blur && !m_theme.is_modern)
+        {
+            fill_rectangle(context, layout.workspace_bounds, m_colors.workspace_background);
+        }
+
+        // Tabs float directly in titlebar or tab bar area
+        m_text_editor.draw_tab_strip(*this, context, layout);
+
+        // Activity Sidebar icons rendered directly on unified backdrop
+        m_activity_sidebar.render(*this, context, layout);
+
+        // Tool Sidebar (Explorer) rendered directly on blurred surface without opaque card wrapper
+        if (!geom.sidebar_card.is_empty())
+        {
+            fill_rounded_rectangle(context, geom.sidebar_card, m_colors.sidebar_background, card_radius);
+            push_clip(context, geom.sidebar_card);
+            m_tool_sidebar.render(*this, context, layout);
+            pop_clip(context);
+            draw_rounded_rectangle(context, geom.sidebar_card, m_colors.border, card_radius);
+        }
+        else
+        {
+            m_tool_sidebar.render(*this, context, layout);
+        }
+
+        // Text Editor Floating Solid Card
+        if (!geom.editor_card.is_empty())
+        {
+            fill_rounded_rectangle(context, geom.editor_card, m_colors.editor_background, card_radius);
+
+            CGContextSaveGState(context);
+            CGRect cg_rect = CGRectMake(
+                static_cast<CGFloat>(geom.editor_card.x),
+                static_cast<CGFloat>(geom.editor_card.y),
+                static_cast<CGFloat>(geom.editor_card.width),
+                static_cast<CGFloat>(geom.editor_card.height));
+            CGPathRef clip_path = CGPathCreateWithRoundedRect(
+                cg_rect, static_cast<CGFloat>(card_radius), static_cast<CGFloat>(card_radius), nullptr);
+            CGContextAddPath(context, clip_path);
+            CGContextClip(context);
+            CGPathRelease(clip_path);
+
+            m_text_editor.render(*this, context, layout);
+
+            CGContextRestoreGState(context);
+
+            draw_rounded_rectangle(context, geom.editor_card, m_colors.border, card_radius);
+        }
+
+        // Terminal Panel Card (when visible)
+        if (!geom.terminal_card.is_empty())
+        {
+            fill_rounded_rectangle(context, geom.terminal_card, m_colors.editor_background, card_radius);
+
+            CGContextSaveGState(context);
+            CGRect cg_rect = CGRectMake(
+                static_cast<CGFloat>(geom.terminal_card.x),
+                static_cast<CGFloat>(geom.terminal_card.y),
+                static_cast<CGFloat>(geom.terminal_card.width),
+                static_cast<CGFloat>(geom.terminal_card.height));
+            CGPathRef clip_path = CGPathCreateWithRoundedRect(
+                cg_rect, static_cast<CGFloat>(card_radius), static_cast<CGFloat>(card_radius), nullptr);
+            CGContextAddPath(context, clip_path);
+            CGContextClip(context);
+            CGPathRelease(clip_path);
+
+            m_terminal_panel.render(*this, context, layout);
+
+            CGContextRestoreGState(context);
+
+            draw_rounded_rectangle(context, geom.terminal_card, m_colors.border, card_radius);
+        }
+
+        // Shader Sandbox Card (when visible)
+        if (!geom.shader_card.is_empty())
+        {
+            fill_rounded_rectangle(context, geom.shader_card, m_colors.editor_background, card_radius);
+
+            CGContextSaveGState(context);
+            CGRect cg_rect = CGRectMake(
+                static_cast<CGFloat>(geom.shader_card.x),
+                static_cast<CGFloat>(geom.shader_card.y),
+                static_cast<CGFloat>(geom.shader_card.width),
+                static_cast<CGFloat>(geom.shader_card.height));
+            CGPathRef clip_path = CGPathCreateWithRoundedRect(
+                cg_rect, static_cast<CGFloat>(card_radius), static_cast<CGFloat>(card_radius), nullptr);
+            CGContextAddPath(context, clip_path);
+            CGContextClip(context);
+            CGPathRelease(clip_path);
+
+            m_shader_sandbox_panel.render(*this, context, layout);
+
+            CGContextRestoreGState(context);
+
+            draw_rounded_rectangle(context, geom.shader_card, m_colors.border, card_radius);
+        }
+    }
+
     if (const UI::Editor::TextDocumentModel* document = m_text_editor.get_document())
     {
         m_footer_toolbar.render(
@@ -1392,6 +1582,32 @@ void StudioWorkspaceRenderer::draw_rectangle(
         static_cast<CGFloat>(rectangle.y),
         static_cast<CGFloat>(rectangle.width),
         static_cast<CGFloat>(rectangle.height)));
+}
+
+void StudioWorkspaceRenderer::draw_rounded_rectangle(
+    CGContextRef context,
+    const UI::Rect& rectangle,
+    const CGFloat* rgba,
+    float radius) const
+{
+    if (rectangle.is_empty())
+    {
+        return;
+    }
+    CGContextSetRGBStrokeColor(context, rgba[0], rgba[1], rgba[2], rgba[3]);
+    CGContextSetLineWidth(context, 1.0);
+    CGRect cg_rect = CGRectMake(
+        static_cast<CGFloat>(rectangle.x),
+        static_cast<CGFloat>(rectangle.y),
+        static_cast<CGFloat>(rectangle.width),
+        static_cast<CGFloat>(rectangle.height));
+    CGPathRef path = CGPathCreateWithRoundedRect(
+        cg_rect, static_cast<CGFloat>(radius), static_cast<CGFloat>(radius),
+        nullptr);
+    CGContextBeginPath(context);
+    CGContextAddPath(context, path);
+    CGContextStrokePath(context);
+    CGPathRelease(path);
 }
 
 void StudioWorkspaceRenderer::draw_line(
@@ -1870,6 +2086,7 @@ void StudioWorkspaceRenderer::draw_svg_icon(
 
 void StudioWorkspaceRenderer::update_theme(const UI::Theme::StudioTheme& theme)
 {
+    m_theme = theme;
     m_palette = UI::Editor::StudioEditorPalette::from_theme(theme);
     color_to_rgba(m_palette.workspace_background, m_colors.workspace_background);
     color_to_rgba(m_palette.tab_background, m_colors.tab_background);

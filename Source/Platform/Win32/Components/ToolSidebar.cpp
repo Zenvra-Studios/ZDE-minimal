@@ -1884,11 +1884,14 @@ void ToolSidebar::render_search_panel(
                         m_hover_search_refresh ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
                         surface.m_palette.sidebar_background);
 
-  surface.draw_line(device_context, round_to_int(panel.x),
-                    round_to_int(panel.y + header_height * scale),
-                    round_to_int(panel.right()),
-                    round_to_int(panel.y + header_height * scale),
-                    surface.m_palette.border);
+  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+  if (!is_modern) {
+    surface.draw_line(device_context, round_to_int(panel.x),
+                      round_to_int(panel.y + header_height * scale),
+                      round_to_int(panel.right()),
+                      round_to_int(panel.y + header_height * scale),
+                      surface.m_palette.border);
+  }
 
   // 2. Search Box & Replace Row
   const float input_top = panel.y + header_height * scale + 8.0F * scale;
@@ -2345,6 +2348,7 @@ void ToolSidebar::render_extensions_panel(
     const UI::Editor::StudioEditorLayoutResult &layout) const {
   const UI::Rect panel = layout.tool_sidebar_bounds;
   const float scale = layout.dpi_scale;
+  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
 
   // 1. Header: "Plugins" with Action Buttons (Refresh, More/Ellipsis)
   surface.draw_text(device_context, *surface.m_ui_font, "Plugins",
@@ -2380,11 +2384,13 @@ void ToolSidebar::render_extensions_panel(
                         surface.m_palette.sidebar_background);
 
   // Bottom border line for header
-  surface.draw_line(device_context, round_to_int(panel.x),
-                    round_to_int(panel.y + header_height * scale),
-                    round_to_int(panel.right()),
-                    round_to_int(panel.y + header_height * scale),
-                    surface.m_palette.border);
+  if (!is_modern) {
+    surface.draw_line(device_context, round_to_int(panel.x),
+                      round_to_int(panel.y + header_height * scale),
+                      round_to_int(panel.right()),
+                      round_to_int(panel.y + header_height * scale),
+                      surface.m_palette.border);
+  }
 
   // 2. Search Box
   const float search_top = panel.y + header_height * scale + 8.0F * scale;
@@ -2958,6 +2964,7 @@ void ToolSidebar::render_tool_plugin_panel(
     const UI::Editor::StudioEditorLayoutResult &layout) const {
   const UI::Rect panel = layout.tool_sidebar_bounds;
   const float scale = layout.dpi_scale;
+  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
 
   auto& pm = Zenvra::Plugins::PluginManager::instance();
   auto tool = pm.get_active_tool_plugin();
@@ -3011,11 +3018,13 @@ void ToolSidebar::render_tool_plugin_panel(
                         surface.m_palette.sidebar_background);
 
   // Bottom border line for header
-  surface.draw_line(device_context, round_to_int(panel.x),
-                    round_to_int(panel.y + header_height * scale),
-                    round_to_int(panel.right()),
-                    round_to_int(panel.y + header_height * scale),
-                    surface.m_palette.border);
+  if (!is_modern) {
+    surface.draw_line(device_context, round_to_int(panel.x),
+                      round_to_int(panel.y + header_height * scale),
+                      round_to_int(panel.right()),
+                      round_to_int(panel.y + header_height * scale),
+                      surface.m_palette.border);
+  }
 
   float cur_y = panel.y + header_height * scale + 12.0F * scale;
   const float content_left = panel.x + 12.0F * scale;
@@ -3316,8 +3325,11 @@ void ToolSidebar::render(
     return;
   }
 
-  surface.fill_rectangle(device_context, panel,
-                         surface.m_palette.sidebar_background);
+  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+  if (!is_modern) {
+    surface.fill_rectangle(device_context, panel,
+                           surface.m_palette.sidebar_background);
+  }
   
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Search) {
     render_search_panel(surface, device_context, layout);
@@ -3350,11 +3362,13 @@ void ToolSidebar::render(
         device_context, "ellipsis.svg", more_center_x, header_center_y,
         std::max(round_to_int(15.0F * scale), 11), surface.m_palette.text_muted,
         surface.m_palette.sidebar_background);
-    surface.draw_line(device_context, round_to_int(panel.x),
-                      round_to_int(panel.y + header_height * scale),
-                      round_to_int(panel.right()),
-                      round_to_int(panel.y + header_height * scale),
-                      surface.m_palette.border);
+    if (!is_modern) {
+      surface.draw_line(device_context, round_to_int(panel.x),
+                        round_to_int(panel.y + header_height * scale),
+                        round_to_int(panel.right()),
+                        round_to_int(panel.y + header_height * scale),
+                        surface.m_palette.border);
+    }
   }
 
   if (m_model.get_active_icon() != UI::Editor::SidebarIcon::Project) {
@@ -3727,29 +3741,32 @@ void ToolSidebar::render(
     }
   }
 
-  // Draw Right Border separating sidebar from editor with blue accent highlight when hovered or resizing
+  // Draw Right Border separating sidebar from editor with blue accent highlight when hovered or resizing.
+  // In modern blurred mode, the sidebar seamlessly floats borderless without a right edge line.
   const bool show_accent = m_resize_hovered || m_resizing;
-  const UI::Theme::Color splitter_color = show_accent
-      ? surface.m_palette.accent
-      : surface.m_palette.border;
+  if (!is_modern || show_accent) {
+    const UI::Theme::Color splitter_color = show_accent
+        ? surface.m_palette.accent
+        : surface.m_palette.border;
 
-  const float splitter_x = panel.right() - scale;
-  surface.draw_line(device_context,
-                    round_to_int(splitter_x),
-                    round_to_int(panel.y),
-                    round_to_int(splitter_x),
-                    round_to_int(panel.bottom()),
-                    splitter_color);
+    const float splitter_x = panel.right() - scale;
+    surface.draw_line(device_context,
+                      round_to_int(splitter_x),
+                      round_to_int(panel.y),
+                      round_to_int(splitter_x),
+                      round_to_int(panel.bottom()),
+                      splitter_color);
 
-  if (show_accent) {
-    surface.fill_rectangle(
-        device_context,
-        UI::Rect{
-            splitter_x - 1.0F * scale,
-            panel.y,
-            2.0F * scale,
-            panel.height},
-        surface.m_palette.accent);
+    if (show_accent) {
+      surface.fill_rectangle(
+          device_context,
+          UI::Rect{
+              splitter_x - 1.0F * scale,
+              panel.y,
+              2.0F * scale,
+              panel.height},
+          surface.m_palette.accent);
+    }
   }
 }
 

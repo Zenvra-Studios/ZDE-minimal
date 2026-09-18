@@ -585,7 +585,14 @@ void SettingsWindow::open(HWND parent_hwnd) {
     DwmSetWindowAttribute(m_hwnd, dwm_corner_preference_attr, &dwm_corner_round,
                           sizeof(dwm_corner_round));
 
-    // 3. Extend frame margins into client area for hardware dropshadow
+    // 3. Extend frame margins into client area for hardware dropshadow and blur
+    const bool blur_active = m_theme.enable_os_blur || m_theme.is_modern;
+    if (blur_active) {
+      constexpr DWORD dwm_backdrop_type_attr = 38;
+      constexpr DWORD dwmsbt_transient = 3; // Acrylic
+      DwmSetWindowAttribute(m_hwnd, dwm_backdrop_type_attr, &dwmsbt_transient,
+                            sizeof(dwmsbt_transient));
+    }
     const MARGINS frame_margins{0, 0, 0, 0};
     DwmExtendFrameIntoClientArea(m_hwnd, &frame_margins);
 
@@ -2714,20 +2721,24 @@ void SettingsWindow::render(HDC device_context,
   const COLORREF bg_col = to_color_ref(theme.window_background);
   draw_rect_solid(device_context, layout.dialog_bounds, bg_col);
 
-  // 2. Custom Titlebar Header matching StudioTheme
-  const COLORREF titlebar_bg = to_color_ref(theme.titlebar_background);
+  // 2. Custom Titlebar Header matching window interior
+  const bool is_modern = theme.is_modern || theme.enable_os_blur;
+  const COLORREF titlebar_bg =
+      is_modern ? bg_col : to_color_ref(theme.titlebar_background);
   draw_rect_solid(device_context, layout.header_bounds, titlebar_bg);
 
-  // Titlebar separator (1px crisp border under titlebar)
-  HPEN title_sep_pen =
-      CreatePen(PS_SOLID, 1, to_color_ref(theme.titlebar_border));
-  HGDIOBJ prev_title_sep = SelectObject(device_context, title_sep_pen);
-  MoveToEx(device_context, 0,
-           static_cast<int>(layout.header_bounds.bottom() - 1), nullptr);
-  LineTo(device_context, static_cast<int>(layout.header_bounds.right()),
-         static_cast<int>(layout.header_bounds.bottom() - 1));
-  SelectObject(device_context, prev_title_sep);
-  DeleteObject(title_sep_pen);
+  // Titlebar separator (1px crisp border under titlebar, omitted in modern mode for seamless blend)
+  if (!is_modern) {
+    HPEN title_sep_pen =
+        CreatePen(PS_SOLID, 1, to_color_ref(theme.titlebar_border));
+    HGDIOBJ prev_title_sep = SelectObject(device_context, title_sep_pen);
+    MoveToEx(device_context, 0,
+             static_cast<int>(layout.header_bounds.bottom() - 1), nullptr);
+    LineTo(device_context, static_cast<int>(layout.header_bounds.right()),
+           static_cast<int>(layout.header_bounds.bottom() - 1));
+    SelectObject(device_context, prev_title_sep);
+    DeleteObject(title_sep_pen);
+  }
 
   // Gear Icon + "Settings" text
   const int title_icon_size = static_cast<int>(15.0F * dpi_scale);

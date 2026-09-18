@@ -1955,7 +1955,10 @@ void ToolSidebar::render(
     const UI::Rect panel = layout.tool_sidebar_bounds;
 
     // Background
-    surface.fill_rectangle(context, panel, surface.m_colors.sidebar_background);
+    const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+    if (!is_modern) {
+        surface.fill_rectangle(context, panel, surface.m_colors.sidebar_background);
+    }
 
     if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Search)
     {
@@ -2312,24 +2315,27 @@ void ToolSidebar::render(
 
     // Border (matches X11/Win32: accent when resize-hovered or resizing)
     const bool resize_active = m_resize_hovered || m_resizing;
-    const auto& border_color = resize_active ? surface.m_colors.accent
-                                             : surface.m_colors.border;
-    surface.draw_line(context,
-        round_to_int(layout.tool_sidebar_bounds.right() - scale),
-        round_to_int(layout.tool_sidebar_bounds.y),
-        round_to_int(layout.tool_sidebar_bounds.right() - scale),
-        round_to_int(layout.tool_sidebar_bounds.bottom()),
-        border_color);
-    if (resize_active) {
-        CGFloat accent_rgba[4];
-        StudioWorkspaceRenderer::color_to_rgba(surface.m_palette.accent, accent_rgba);
-        surface.fill_rectangle(context,
-            UI::Rect{
-                layout.tool_sidebar_bounds.right() - scale - scale,
-                layout.tool_sidebar_bounds.y,
-                std::max(2.0F * scale, 2.0F),
-                layout.tool_sidebar_bounds.height},
-            accent_rgba);
+    const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+    if (!is_modern || resize_active) {
+        const auto& border_color = resize_active ? surface.m_colors.accent
+                                                 : surface.m_colors.border;
+        surface.draw_line(context,
+            round_to_int(layout.tool_sidebar_bounds.right() - scale),
+            round_to_int(layout.tool_sidebar_bounds.y),
+            round_to_int(layout.tool_sidebar_bounds.right() - scale),
+            round_to_int(layout.tool_sidebar_bounds.bottom()),
+            border_color);
+        if (resize_active) {
+            CGFloat accent_rgba[4];
+            StudioWorkspaceRenderer::color_to_rgba(surface.m_palette.accent, accent_rgba);
+            surface.fill_rectangle(context,
+                UI::Rect{
+                    layout.tool_sidebar_bounds.right() - scale - scale,
+                    layout.tool_sidebar_bounds.y,
+                    std::max(2.0F * scale, 2.0F),
+                    layout.tool_sidebar_bounds.height},
+                accent_rgba);
+        }
     }
 }
 

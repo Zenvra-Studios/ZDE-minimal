@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include "UI/Geometry.h"
 #include "UI/Toolbar/ToolbarTypes.h"
 
@@ -13,8 +14,9 @@ struct ToolbarLayoutMetrics
     float padding_horizontal = 8.0F;
     float button_size = 28.0F;
     float target_combo_min_width = 160.0F;
-    float target_combo_max_width = 300.0F;
+    float target_combo_max_width = 360.0F;
     float search_pill_width = 220.0F;
+    std::string target_label;
 };
 
 struct ToolbarLayoutResult

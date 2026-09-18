@@ -39,12 +39,15 @@ void FooterToolbar::render(
     std::span<const UI::Editor::BreadcrumbItem> breadcrumbs,
     const UI::Editor::FooterEditorStatus &status) const {
 
-  surface.fill_rectangle(context, layout.status_bar_bounds,
-                         surface.m_colors.status_background);
-  surface.draw_line(context, 0, round_to_int(layout.status_bar_bounds.y),
-                    round_to_int(layout.status_bar_bounds.right()),
-                    round_to_int(layout.status_bar_bounds.y),
-                    surface.m_colors.border);
+  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+  if (!is_modern) {
+    surface.fill_rectangle(context, layout.status_bar_bounds,
+                           surface.m_colors.status_background);
+    surface.draw_line(context, 0, round_to_int(layout.status_bar_bounds.y),
+                      round_to_int(layout.status_bar_bounds.right()),
+                      round_to_int(layout.status_bar_bounds.y),
+                      surface.m_colors.border);
+  }
 
   const float dpi = surface.m_dpi_scale;
   const float center_y =

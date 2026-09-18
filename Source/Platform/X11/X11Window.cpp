@@ -1152,6 +1152,7 @@ void X11Window::refresh_chrome_layout() {
       UI::Chrome::WindowChromeLayoutOptions{
           .show_window_controls = m_custom_chrome_enabled,
           .hamburger_only = true,
+          .binary_label = m_chrome_renderer.get_run_config_state().active_target_name,
       });
 }
 
@@ -4055,7 +4056,7 @@ void X11Window::apply_theme(const UI::Theme::StudioTheme &theme) {
     // Communicate OS blur request to Linux compositors (KWin, Picom, Compiz)
     Atom blur_atom = XInternAtom(m_display, "_KDE_NET_WM_BLUR_BEHIND_REGION", False);
     if (blur_atom != None) {
-      if (theme.enable_os_blur) {
+      if (theme.enable_os_blur || theme.is_modern) {
         unsigned long dummy = 0;
         XChangeProperty(m_display, m_window_handle, blur_atom, XA_CARDINAL, 32,
                         PropModeReplace,

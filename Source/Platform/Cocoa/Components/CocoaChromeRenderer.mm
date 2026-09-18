@@ -369,9 +369,12 @@ void CocoaChromeRenderer::render(
     const ChromeInteractionState &interaction_state,
     const CommandStateQueryCallback &command_state_query_callback) const {
   (void)command_state_query_callback;
-  // Draw titlebar background
-  fill_rectangle(context, chrome_layout.titlebar_bounds,
-                 m_colors.titlebar_background);
+  const bool is_modern = m_theme.is_modern || m_theme.enable_os_blur;
+  // Draw titlebar background only for traditional non-modern mode
+  if (!is_modern) {
+    fill_rectangle(context, chrome_layout.titlebar_bounds,
+                   m_colors.titlebar_background);
+  }
 
   // Note: Cocoa native window controls (traffic lights) are drawn by the OS.
   // We intentionally don't draw
@@ -491,9 +494,11 @@ void CocoaChromeRenderer::render(
   m_workspace_renderer.render(context, client_width, client_height,
                               chrome_layout.titlebar_bounds.bottom());
 
-  // Top border of content area (separates titlebar from content)
-  draw_line(context, 0, round_to_int(chrome_layout.titlebar_bounds.bottom()), client_width,
-            round_to_int(chrome_layout.titlebar_bounds.bottom()), m_colors.titlebar_border);
+  // Top border of content area (separates titlebar from content) only for traditional non-modern themes
+  if (!is_modern) {
+    draw_line(context, 0, round_to_int(chrome_layout.titlebar_bounds.bottom()), client_width,
+              round_to_int(chrome_layout.titlebar_bounds.bottom()), m_colors.titlebar_border);
+  }
 }
 
 void CocoaChromeRenderer::fill_rectangle(CGContextRef context,

@@ -205,12 +205,12 @@ void test_window_chrome_layout_is_responsive_and_dpi_aware()
     const WindowChromeLayout layout_engine;
     const WindowChromeLayoutResult narrow_layout = layout_engine.calculate(600.0F, 1.0F);
     const WindowChromeLayoutResult compact_layout = layout_engine.calculate(720.0F, 1.0F);
+    WindowChromeLayoutOptions linux_options{};
+    linux_options.show_window_controls = false;
     const WindowChromeLayoutResult linux_layout = layout_engine.calculate(
         720.0F,
         1.0F,
-        WindowChromeLayoutOptions{
-            .show_window_controls = false,
-        });
+        linux_options);
     const WindowChromeLayoutResult scaled_layout = layout_engine.calculate(2400.0F, 2.0F);
 
     expect(
@@ -246,6 +246,18 @@ void test_window_chrome_layout_is_responsive_and_dpi_aware()
         "the hamburger menu must also remain available under native WM decorations");
     expect(scaled_layout.titlebar_bounds.height == 70.0F, "titlebar metrics must scale with DPI");
     expect(scaled_layout.close_bounds.width == 92.0F, "window controls must scale with DPI");
+
+    WindowChromeLayoutOptions short_opt{};
+    short_opt.binary_label = "test";
+    const WindowChromeLayoutResult short_layout = layout_engine.calculate(1200.0F, 1.0F, short_opt);
+
+    WindowChromeLayoutOptions long_opt{};
+    long_opt.binary_label = "spectrax_standalone_long_binary_target";
+    const WindowChromeLayoutResult long_layout = layout_engine.calculate(1200.0F, 1.0F, long_opt);
+
+    expect(
+        long_layout.binary_bounds.width > short_layout.binary_bounds.width,
+        "binary combo button width must adapt responsively to active target label length");
 }
 
 void test_window_menu_model_matches_chrome_contract()

@@ -156,6 +156,17 @@ public:
     [[nodiscard]] float get_animated_titlebar_left_offset() const noexcept;
     [[nodiscard]] UI::Editor::StudioEditorLayoutResult calculate_layout(
         int client_width, int client_height, float content_top) const noexcept;
+    struct ModernCardGeometry {
+        UI::Rect sidebar_card;
+        UI::Rect editor_card;
+        UI::Rect terminal_card;
+        UI::Rect shader_card;
+        float card_radius = 8.0F;
+    };
+
+    [[nodiscard]] ModernCardGeometry get_modern_card_geometry(
+        int client_width, int client_height, float content_top) const noexcept;
+
     void shutdown();
     void render(CGContextRef context, int client_width, int client_height, float content_top) const;
     [[nodiscard]] const std::filesystem::path& get_icon_asset_root() const noexcept;
@@ -234,6 +245,8 @@ public:
     void fill_rounded_rectangle(CGContextRef context, const UI::Rect& rectangle,
                                 const CGFloat* rgba, float radius) const;
     void draw_rectangle(CGContextRef context, const UI::Rect& rectangle, const CGFloat* rgba) const;
+    void draw_rounded_rectangle(CGContextRef context, const UI::Rect& rectangle,
+                                const CGFloat* rgba, float radius) const;
     void draw_line(CGContextRef context, int from_x, int from_y, int to_x, int to_y,
                    const CGFloat* rgba) const;
     void draw_text(CGContextRef context, AntialiasedFont& font,
@@ -263,6 +276,7 @@ public:
     std::filesystem::path m_icon_asset_root;
     UI::Editor::StudioEditorLayout m_layout_engine;
     UI::Editor::StudioEditorPalette m_palette = UI::Editor::StudioEditorPalette::dark();
+    UI::Theme::StudioTheme m_theme;
     PaletteColors m_colors;
     PaletteText m_text;
     PaletteText m_text_dimmed;

@@ -35,7 +35,14 @@ ToolbarLayoutResult ToolbarLayoutCalculator::compute_layout(
     res.right_section_bounds = UI::Rect{search_x, content_top, search_w, tb_h};
 
     // 3. Center Section (Target Combo + Action Buttons)
-    const float target_combo_w = std::clamp(220.0F * safe_scale, metrics.target_combo_min_width * safe_scale, metrics.target_combo_max_width * safe_scale);
+    float target_combo_w = 220.0F * safe_scale;
+    if (!metrics.target_label.empty())
+    {
+        const float char_w = 8.2F * safe_scale;
+        const float base_pad = 54.0F * safe_scale;
+        target_combo_w = static_cast<float>(metrics.target_label.size()) * char_w + base_pad;
+    }
+    target_combo_w = std::clamp(target_combo_w, metrics.target_combo_min_width * safe_scale, metrics.target_combo_max_width * safe_scale);
     const float action_buttons_w = 4.0F * btn_sz + 3.0F * spacing; // Run, Debug, Build, Stop
     const float center_total_w = target_combo_w + spacing + action_buttons_w;
 

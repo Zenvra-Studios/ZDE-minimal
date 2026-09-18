@@ -509,6 +509,7 @@ void X11ChromeRenderer::render(
         UI::Chrome::WindowChromeLayoutOptions{
             .show_window_controls = true,
             .hamburger_only = true,
+            .binary_label = m_run_config_state.active_target_name,
         });
   }
 
@@ -957,7 +958,9 @@ PopupMenuGeometry X11ChromeRenderer::calculate_popup_geometry(
   const float row_height = 24.0F * scale;
   const float separator_height = 7.0F * scale;
   const float vertical_padding = 4.0F * scale;
-  const float floating_gap = 4.0F * scale;
+  const float max_popup_limit = (menu_index == 12) ? 560.0F * scale : 460.0F * scale;
+  const float base_pad = (menu_index == 12) ? 48.0F * scale : 42.0F * scale;
+  const float char_w = (menu_index == 12) ? 7.8F : 7.0F;
   float popup_width = 220.0F * scale;
   AntialiasedFont *font = m_font.get();
   for (const UI::Components::MenuItem &item : menu.items) {
@@ -965,8 +968,8 @@ PopupMenuGeometry X11ChromeRenderer::calculate_popup_geometry(
     float text_width =
         font != nullptr
             ? static_cast<float>(font->getTextWidth(std::string{item.label}))
-            : (static_cast<float>(item.label.size()) * 7.0F * scale);
-    float item_width = text_width + 42.0F * scale;
+            : (static_cast<float>(item.label.size()) * char_w * scale);
+    float item_width = text_width + base_pad;
     if (!item.shortcut.empty()) {
       float shortcut_width =
           font != nullptr
@@ -976,7 +979,7 @@ PopupMenuGeometry X11ChromeRenderer::calculate_popup_geometry(
     }
     popup_width = std::max(popup_width, item_width);
   }
-  popup_width = std::min(popup_width, 460.0F * scale);
+  popup_width = std::min(popup_width, max_popup_limit);
 
   const float window_right = chrome_layout.titlebar_bounds.right();
 

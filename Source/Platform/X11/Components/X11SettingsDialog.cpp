@@ -497,7 +497,9 @@ void X11SettingsDialog::render() {
   const UI::Theme::Color border_col = theme.titlebar_border;
   const unsigned long dialog_px = color_to_pixel(dialog_bg);
   const unsigned long border_px = color_to_pixel(border_col);
-  const unsigned long titlebar_px = color_to_pixel(theme.titlebar_background);
+  const bool is_modern = theme.is_modern || theme.enable_os_blur;
+  const unsigned long titlebar_px =
+      is_modern ? dialog_px : color_to_pixel(theme.titlebar_background);
 
   auto centered_x = [&](AntialiasedFont &font, const UI::Rect &rc,
                         std::string_view text) -> float {
@@ -512,10 +514,12 @@ void X11SettingsDialog::render() {
 
   // 2. Header (Custom Titlebar)
   fill_rect(m_back_buffer, layout.header_bounds, titlebar_px);
-  draw_line_segment(m_back_buffer, 0,
-                    round_to_int(layout.header_bounds.bottom() - 1.0F),
-                    m_width, round_to_int(layout.header_bounds.bottom() - 1.0F),
-                    border_px);
+  if (!is_modern) {
+    draw_line_segment(m_back_buffer, 0,
+                      round_to_int(layout.header_bounds.bottom() - 1.0F),
+                      m_width, round_to_int(layout.header_bounds.bottom() - 1.0F),
+                      border_px);
+  }
 
   // Titlebar Gear Icon
   draw_icon(m_back_buffer, "Assets/icons/gear.svg",
@@ -523,7 +527,7 @@ void X11SettingsDialog::render() {
             round_to_int(layout.header_bounds.y +
                          layout.header_bounds.height * 0.5F),
             std::max(round_to_int(16.0F * scale), 12), theme.text_secondary,
-            theme.titlebar_background);
+            is_modern ? dialog_bg : theme.titlebar_background);
 
   // Titlebar Title Text
   if (m_title_font && m_title_font->isValid()) {

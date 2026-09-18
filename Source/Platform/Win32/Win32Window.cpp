@@ -807,6 +807,7 @@ bool Win32Window::set_workspace_root(const std::filesystem::path &root) {
                                       : display_root.filename().string();
   m_window_title = utf8_to_wide(folder_name + " - " + m_specification.title);
   if (m_window_handle != nullptr) {
+    refresh_chrome_layout();
     SetWindowTextW(m_window_handle, m_window_title.c_str());
     InvalidateRect(m_window_handle, nullptr, FALSE);
   }
@@ -935,6 +936,7 @@ void Win32Window::refresh_configurations() {
     m_workspace_changed_callback(root);
   }
   if (m_window_handle != nullptr) {
+    refresh_chrome_layout();
     InvalidateRect(m_window_handle, nullptr, FALSE);
   }
 }
@@ -3335,12 +3337,13 @@ void Win32Window::paint_custom_chrome() {
   }
   HGDIOBJ previous_bitmap = SelectObject(buffer_context, buffer_bitmap);
 
-  if (m_theme.enable_os_blur) {
+  const bool blur_active = m_theme.enable_os_blur || m_theme.is_modern;
+  if (blur_active) {
     PatBlt(buffer_context, 0, 0, client_width, client_height, BLACKNESS);
     fill_rectangle(buffer_context,
                    UI::Rect{0.0F, 0.0F, static_cast<float>(client_width),
                             static_cast<float>(client_height)},
-                   m_theme.titlebar_background);
+                   m_theme.window_background);
   } else {
     fill_rectangle(buffer_context,
                    UI::Rect{0.0F, 0.0F, static_cast<float>(client_width),
@@ -3364,7 +3367,8 @@ void Win32Window::paint_custom_chrome() {
     static_cast<void>(m_workspace_renderer.tick_animations());
     m_workspace_renderer.render(buffer_context, client_width, client_height, 0.0F);
 
-    if (buffer_bits != nullptr && m_theme.enable_os_blur) {
+    const bool blur_active = m_theme.enable_os_blur || m_theme.is_modern;
+    if (buffer_bits != nullptr && blur_active) {
       auto *pixels = static_cast<uint32_t *>(buffer_bits);
       const size_t total_px = static_cast<size_t>(client_width) * client_height;
       for (size_t i = 0; i < total_px; ++i) {
@@ -3719,48 +3723,48 @@ void Win32Window::paint_custom_chrome() {
 
   SelectObject(buffer_context, previous_font);
 
-  if (buffer_bits != nullptr && m_theme.enable_os_blur) {
+  if (buffer_bits != nullptr && blur_active) {
     auto *pixels = static_cast<uint32_t *>(buffer_bits);
     const float content_top = m_chrome_layout.titlebar_bounds.bottom();
 
-    const bool modal_full_overlay =
-        m_about_modal.is_visible() ||
-        m_workspace_renderer.is_prompt_modal_visible() ||
-        m_workspace_renderer.is_add_item_dialog_visible() ||
-        m_workspace_renderer.is_settings_window_visible();
+    m_workspace_renderer.apply_solid_card_alpha(
+        pixels, client_width, client_height, content_top);
 
-    if (modal_full_overlay) {
-      const size_t total_px = static_cast<size_t>(client_width) * client_height;
-      for (size_t i = 0; i < total_px; ++i) {
-        pixels[i] |= 0xFF000000;
-      }
-    } else {
-      m_workspace_renderer.apply_solid_card_alpha(
-          pixels, client_width, client_height, content_top);
-
-      auto stamp_rect_alpha = [&](const UI::Rect &r) {
-        if (r.is_empty()) return;
-        const int x0 = std::clamp(static_cast<int>(r.x), 0, client_width);
-        const int y0 = std::clamp(static_cast<int>(r.y), 0, client_height);
-        const int x1 = std::clamp(static_cast<int>(r.right()), 0, client_width);
-        const int y1 = std::clamp(static_cast<int>(r.bottom()), 0, client_height);
-        for (int y = y0; y < y1; ++y) {
-          uint32_t *row = &pixels[y * client_width];
-          for (int x = x0; x < x1; ++x) {
-            row[x] |= 0xFF000000;
-          }
+    auto stamp_rect_alpha = [&](const UI::Rect &r) {
+      if (r.is_empty()) return;
+      const int x0 = std::clamp(static_cast<int>(r.x), 0, client_width);
+      const int y0 = std::clamp(static_cast<int>(r.y), 0, client_height);
+      const int x1 = std::clamp(static_cast<int>(r.right()), 0, client_width);
+      const int y1 = std::clamp(static_cast<int>(r.bottom()), 0, client_height);
+      for (int y = y0; y < y1; ++y) {
+        uint32_t *row = &pixels[y * client_width];
+        for (int x = x0; x < x1; ++x) {
+          row[x] |= 0xFF000000;
         }
-      };
+      }
+    };
 
-      if (m_menu_overlay_open) {
-        stamp_rect_alpha(calculate_menu_overlay_geometry().bounds);
-      }
-      if (m_open_menu_index.has_value()) {
-        stamp_rect_alpha(calculate_popup_menu_geometry(*m_open_menu_index).bounds);
-      }
-      if (m_explorer_context_menu.visible) {
-        stamp_rect_alpha(m_explorer_context_menu.bounds);
-      }
+    if (m_about_modal.is_visible()) {
+      const UI::Rect vp{0.0F, 0.0F, static_cast<float>(client_width),
+                        static_cast<float>(client_height)};
+      const auto layout = m_about_modal.calculate_layout(vp, m_chrome_layout.dpi_scale);
+      stamp_rect_alpha(layout.base_layout.dialog_bounds);
+    }
+    if (m_workspace_renderer.is_prompt_modal_visible()) {
+      const UI::Rect vp{0.0F, 0.0F, static_cast<float>(client_width),
+                        static_cast<float>(client_height)};
+      const auto layout = m_workspace_renderer.get_prompt_modal().calculate_layout(
+          vp, m_chrome_layout.dpi_scale);
+      stamp_rect_alpha(layout.base_layout.dialog_bounds);
+    }
+    if (m_menu_overlay_open) {
+      stamp_rect_alpha(calculate_menu_overlay_geometry().bounds);
+    }
+    if (m_open_menu_index.has_value()) {
+      stamp_rect_alpha(calculate_popup_menu_geometry(*m_open_menu_index).bounds);
+    }
+    if (m_explorer_context_menu.visible) {
+      stamp_rect_alpha(m_explorer_context_menu.bounds);
     }
   }
 
@@ -3785,6 +3789,11 @@ void Win32Window::refresh_chrome_layout() {
   }
   UI::Chrome::WindowChromeLayoutOptions options;
   options.hamburger_only = true; // All menus behind the hamburger popup
+  options.binary_label = m_run_config_state.available_targets.empty()
+                             ? "No Configuration"
+                             : (m_run_config_state.active_target_name.empty()
+                                    ? "No Configuration"
+                                    : m_run_config_state.active_target_name);
   m_chrome_layout = m_chrome_layout_engine.calculate(
       static_cast<float>(client_bounds.right - client_bounds.left),
       static_cast<float>(m_dpi) / 96.0F, options);
@@ -3831,7 +3840,8 @@ void Win32Window::update_dwm_border_color(bool force) {
   }
 
   if (m_custom_chrome_enabled) {
-    if (m_theme.enable_os_blur) {
+    const bool blur_active = m_theme.enable_os_blur || m_theme.is_modern;
+    if (blur_active) {
       const MARGINS frame_margins{-1, -1, -1, -1};
       DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
     } else {
@@ -4082,6 +4092,7 @@ void Win32Window::execute_menu_item(std::size_t menu_index,
       m_command_invoked_callback(command_id);
     }
   }
+  refresh_chrome_layout();
   InvalidateRect(m_window_handle, nullptr, FALSE);
 }
 
@@ -4154,14 +4165,19 @@ Win32Window::PopupMenuGeometry Win32Window::calculate_popup_menu_geometry(
   const float row_height = 24.0F * m_chrome_layout.dpi_scale;
   const float separator_height = 7.0F * m_chrome_layout.dpi_scale;
   const float vertical_padding = 4.0F * m_chrome_layout.dpi_scale;
+  const float max_popup_limit = (menu_index == 12)
+                                    ? 560.0F * m_chrome_layout.dpi_scale
+                                    : 460.0F * m_chrome_layout.dpi_scale;
+  const float char_w = (menu_index == 12) ? 7.8F : 7.0F;
+  const float base_pad = (menu_index == 12) ? 48.0F : 42.0F;
   float popup_width = 220.0F * m_chrome_layout.dpi_scale;
   for (const UI::Components::MenuItem &item : menu.items) {
     if (item.separator) {
       continue;
     }
-    float item_width = static_cast<float>(item.label.size()) * 7.0F *
+    float item_width = static_cast<float>(item.label.size()) * char_w *
                            m_chrome_layout.dpi_scale +
-                       42.0F * m_chrome_layout.dpi_scale;
+                       base_pad * m_chrome_layout.dpi_scale;
     if (!item.shortcut.empty()) {
       item_width += static_cast<float>(item.shortcut.size()) * 7.0F *
                         m_chrome_layout.dpi_scale +
@@ -4169,7 +4185,7 @@ Win32Window::PopupMenuGeometry Win32Window::calculate_popup_menu_geometry(
     }
     popup_width = std::max(popup_width, item_width);
   }
-  popup_width = std::min(popup_width, 460.0F * m_chrome_layout.dpi_scale);
+  popup_width = std::min(popup_width, max_popup_limit);
 
   const float window_right = m_chrome_layout.titlebar_bounds.right();
   const float floating_gap = 4.0F * m_chrome_layout.dpi_scale;
@@ -5616,7 +5632,8 @@ void Win32Window::apply_theme(const UI::Theme::StudioTheme& theme) {
                             &dark_mode_enabled, sizeof(dark_mode_enabled));
     }
     enable_menu_dark_mode(m_window_handle, theme.is_dark);
-    apply_os_backdrop(theme.enable_os_blur, theme.backdrop_effect, theme.is_dark);
+    const bool enable_blur = theme.enable_os_blur || theme.is_modern;
+    apply_os_backdrop(enable_blur, theme.backdrop_effect, theme.is_dark);
     update_dwm_border_color(GetFocus() == m_window_handle);
 
     SetWindowPos(m_window_handle, nullptr, 0, 0, 0, 0,

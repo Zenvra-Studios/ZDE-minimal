@@ -1557,14 +1557,9 @@ StudioWorkspaceRenderer::get_modern_card_geometry(
 
   const bool has_sidebar =
       m_tool_sidebar.is_visible() && !layout.tool_sidebar_bounds.is_empty();
-  if (has_sidebar) {
-    geom.sidebar_card = UI::Rect{
-        layout.tool_sidebar_bounds.x + outer_gap,
-        layout.tool_sidebar_bounds.y + outer_gap,
-        std::max(0.0F, layout.tool_sidebar_bounds.width - outer_gap - sep_gap * 0.5F),
-        std::max(0.0F, layout.tool_sidebar_bounds.height - outer_gap * 2.0F),
-    };
-  }
+  // In modern blurred style, the sidebar seamlessly floats on the blurred window
+  // surface rather than being enclosed in an opaque solid card.
+  geom.sidebar_card = UI::Rect{};
 
   const float editor_col_left =
       has_sidebar ? (layout.tool_sidebar_bounds.right() + sep_gap * 0.5F)
@@ -1689,8 +1684,10 @@ void StudioWorkspaceRenderer::apply_solid_card_alpha(
 
   const auto geom =
       get_modern_card_geometry(client_width, client_height, content_top);
-  set_card_alpha_channel(pixels, client_width, client_height, geom.sidebar_card,
-                         geom.card_radius);
+  if (!geom.sidebar_card.is_empty()) {
+    set_card_alpha_channel(pixels, client_width, client_height, geom.sidebar_card,
+                           geom.card_radius);
+  }
   set_card_alpha_channel(pixels, client_width, client_height, geom.editor_card,
                          geom.card_radius);
   set_card_alpha_channel(pixels, client_width, client_height, geom.terminal_card,
@@ -1817,6 +1814,8 @@ void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
       // Subtle 1px rounded outline
       draw_rounded_rectangle(device_context, geom.sidebar_card, m_palette.border,
                              card_radius);
+    } else {
+      m_tool_sidebar.render(*this, device_context, layout);
     }
 
     // 4. Text Editor Card Wrapper
