@@ -316,28 +316,32 @@ void ShaderSandboxPanel::render(
     render_controls(surface, context, layout);
 
     // Draw Splitter border on the left edge with blue accent highlight when hovered or resizing
-    const bool show_accent = m_hover_splitter || m_is_resizing;
-    const CGFloat* splitter_color = show_accent
-        ? surface.m_colors.accent
-        : surface.m_colors.border;
+    // In modern blurred mode, panels float borderless without blue hover accents
+    const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+    if (!is_modern) {
+        const bool show_accent = m_hover_splitter || m_is_resizing;
+        const CGFloat* splitter_color = show_accent
+            ? surface.m_colors.accent
+            : surface.m_colors.border;
 
-    const float splitter_x = layout.shader_panel_bounds.x;
-    surface.draw_line(context,
-        round_to_int(splitter_x),
-        round_to_int(layout.shader_panel_bounds.y),
-        round_to_int(splitter_x),
-        round_to_int(layout.shader_panel_bounds.bottom()),
-        splitter_color);
+        const float splitter_x = layout.shader_panel_bounds.x;
+        surface.draw_line(context,
+            round_to_int(splitter_x),
+            round_to_int(layout.shader_panel_bounds.y),
+            round_to_int(splitter_x),
+            round_to_int(layout.shader_panel_bounds.bottom()),
+            splitter_color);
 
-    if (show_accent)
-    {
-        surface.fill_rectangle(context,
-            UI::Rect{
-                splitter_x - surface.m_dpi_scale,
-                layout.shader_panel_bounds.y,
-                std::max(2.0F * surface.m_dpi_scale, 2.0F),
-                layout.shader_panel_bounds.height},
-            surface.m_colors.accent);
+        if (show_accent)
+        {
+            surface.fill_rectangle(context,
+                UI::Rect{
+                    splitter_x - surface.m_dpi_scale,
+                    layout.shader_panel_bounds.y,
+                    std::max(2.0F * surface.m_dpi_scale, 2.0F),
+                    layout.shader_panel_bounds.height},
+                surface.m_colors.accent);
+        }
     }
 }
 

@@ -1212,6 +1212,13 @@ void StudioWorkspaceRenderer::render(
         {
             fill_rectangle(context, layout.workspace_bounds, m_colors.workspace_background);
         }
+        else if (m_theme.is_dark)
+        {
+            // Zen Browser deep dark obsidian tint overlay on top of NSVisualEffectView
+            // Provides rich, moody contrast while preserving native macOS hardware backdrop refraction
+            const CGFloat dark_tint[4] = {0.039, 0.039, 0.055, 0.78};
+            fill_rectangle(context, layout.workspace_bounds, dark_tint);
+        }
 
         // Tabs float directly in titlebar or tab bar area
         m_text_editor.draw_tab_strip(*this, context, layout);

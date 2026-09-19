@@ -601,7 +601,7 @@ void TerminalPanel::render(
             round_to_int(layout.terminal_panel_bounds.right()), round_to_int(layout.terminal_panel_bounds.y),
             surface.m_pixels.border);
     }
-    if (m_resize_model.is_hovered() || m_resize_model.is_resizing())
+    if (!is_modern && (m_resize_model.is_hovered() || m_resize_model.is_resizing()))
     {
         surface.fill_rectangle(drawable,
             UI::Rect{layout.terminal_panel_bounds.x,

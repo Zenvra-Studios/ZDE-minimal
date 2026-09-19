@@ -330,44 +330,48 @@ void ShaderSandboxPanel::render(
     render_controls(surface, device_context, layout);
 
     // Draw Splitter border on the left edge with blue accent highlight when hovered or resizing
-    const bool show_accent = m_hover_splitter || m_is_resizing;
-    const float scale = surface.m_dpi_scale;
-    const UI::Rect splitter_rect = !layout.shader_splitter_bounds.is_empty()
-        ? layout.shader_splitter_bounds
-        : UI::Rect{layout.shader_panel_bounds.x - 4.0F * scale,
-                   layout.shader_panel_bounds.y,
-                   4.0F * scale,
-                   layout.shader_panel_bounds.height};
+    // In modern blurred mode, panels float borderless without blue hover accents
+    const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+    if (!is_modern) {
+        const bool show_accent = m_hover_splitter || m_is_resizing;
+        const float scale = surface.m_dpi_scale;
+        const UI::Rect splitter_rect = !layout.shader_splitter_bounds.is_empty()
+            ? layout.shader_splitter_bounds
+            : UI::Rect{layout.shader_panel_bounds.x - 4.0F * scale,
+                       layout.shader_panel_bounds.y,
+                       4.0F * scale,
+                       layout.shader_panel_bounds.height};
 
-    surface.fill_rectangle(
-        device_context, splitter_rect, surface.m_palette.editor_background);
-
-    const float splitter_x = !layout.shader_splitter_bounds.is_empty()
-        ? (layout.shader_splitter_bounds.x + layout.shader_splitter_bounds.width * 0.5F)
-        : layout.shader_panel_bounds.x;
-
-    const UI::Theme::Color splitter_color = show_accent
-        ? surface.m_palette.accent
-        : surface.m_palette.border;
-
-    surface.draw_line(
-        device_context,
-        round_to_int(splitter_x),
-        round_to_int(splitter_rect.y),
-        round_to_int(splitter_x),
-        round_to_int(splitter_rect.bottom()),
-        splitter_color);
-
-    if (show_accent)
-    {
         surface.fill_rectangle(
+            device_context, splitter_rect, surface.m_palette.editor_background);
+
+        const float splitter_x = !layout.shader_splitter_bounds.is_empty()
+            ? (layout.shader_splitter_bounds.x + layout.shader_splitter_bounds.width * 0.5F)
+            : layout.shader_panel_bounds.x;
+
+        const UI::Theme::Color splitter_color = show_accent
+            ? surface.m_palette.accent
+            : surface.m_palette.border;
+
+        surface.draw_line(
             device_context,
-            UI::Rect{
-                splitter_x - 1.0F * scale,
-                splitter_rect.y,
-                std::max(2.0F * scale, 2.0F),
-                splitter_rect.height},
-            surface.m_palette.accent);
+            round_to_int(splitter_x),
+            round_to_int(splitter_rect.y),
+            round_to_int(splitter_x),
+            round_to_int(splitter_rect.bottom()),
+            splitter_color);
+
+        if (show_accent)
+        {
+            surface.fill_rectangle(
+                device_context,
+                UI::Rect{
+                    splitter_x - 1.0F * scale,
+                    splitter_rect.y,
+                    std::max(2.0F * scale, 2.0F),
+                    splitter_rect.height},
+                surface.m_palette.accent);
+        }
     }
 }
 

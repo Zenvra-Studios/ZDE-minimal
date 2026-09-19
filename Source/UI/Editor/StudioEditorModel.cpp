@@ -134,13 +134,13 @@ StudioEditorPalette StudioEditorPalette::light() noexcept {
 
 StudioEditorPalette StudioEditorPalette::dark_modern() noexcept {
   auto p = dark();
-  p.workspace_background = {24, 25, 28, 255};
-  p.tab_background = {20, 21, 24, 255};
-  p.tab_active_background = {30, 31, 35, 255};
-  p.sidebar_background = {22, 23, 26, 255};
-  p.editor_background = {24, 25, 28, 255};
-  p.status_background = {20, 21, 24, 255};
-  p.border = {50, 52, 60, 255};
+  p.workspace_background = {14, 15, 18, 255};
+  p.tab_background = {16, 17, 20, 255};
+  p.tab_active_background = {24, 25, 29, 255};
+  p.sidebar_background = {16, 17, 20, 255};
+  p.editor_background = {18, 19, 23, 255};
+  p.status_background = {16, 17, 20, 255};
+  p.border = {42, 44, 52, 255};
   p.is_dark = true;
   p.is_modern = true;
   return p;

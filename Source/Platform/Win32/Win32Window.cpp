@@ -189,7 +189,7 @@ void fill_rounded_rectangle(HDC device_context, const UI::Rect &rectangle,
 
   float r = std::min({static_cast<float>(radius), rectangle.width * 0.5f,
                       rectangle.height * 0.5f});
-  if (r <= 0.0f) {
+  if (r <= 0.0f && color.alpha >= 255) {
     RECT native_rectangle = to_native_rect(rectangle);
     SetDCBrushColor(device_context, to_color_ref(color));
     FillRect(device_context, &native_rectangle,
@@ -3344,11 +3344,10 @@ void Win32Window::paint_custom_chrome() {
 
   const bool blur_active = m_theme.enable_os_blur || m_theme.is_modern;
   if (blur_active) {
+    // In modern blur mode, keep the backdrop transparent/black (0x00000000).
+    // Windows DWM composites non-opaque pixels additively with the blur backdrop.
+    // Leaving it black prevents washing out the deep dark acrylic blur into grey.
     PatBlt(buffer_context, 0, 0, client_width, client_height, BLACKNESS);
-    fill_rectangle(buffer_context,
-                   UI::Rect{0.0F, 0.0F, static_cast<float>(client_width),
-                            static_cast<float>(client_height)},
-                   m_theme.window_background);
   } else {
     fill_rectangle(buffer_context,
                    UI::Rect{0.0F, 0.0F, static_cast<float>(client_width),
@@ -3732,8 +3731,12 @@ void Win32Window::paint_custom_chrome() {
     auto *pixels = static_cast<uint32_t *>(buffer_bits);
     const float content_top = m_chrome_layout.titlebar_bounds.bottom();
 
-    m_workspace_renderer.apply_solid_card_alpha(
-        pixels, client_width, client_height, content_top);
+    const bool modal_open = m_about_modal.is_visible() ||
+                            m_workspace_renderer.is_prompt_modal_visible();
+    if (!modal_open) {
+      m_workspace_renderer.apply_solid_card_alpha(
+          pixels, client_width, client_height, content_top);
+    }
 
     auto stamp_rect_alpha = [&](const UI::Rect &r) {
       if (r.is_empty()) return;
@@ -4658,11 +4661,11 @@ void apply_backdrop_blur(HDC device_context, int width, int height,
   blur_horizontal(pixels, temp.data(), radius);
   blur_vertical(temp.data(), pixels, radius);
 
-  // Windows 10 Taskbar / Start Menu Acrylic Compositing: Saturation Boost +
-  // Deep Acrylic Tint + Frosted Glass Noise
-  const float tint_r = 16.0f, tint_g = 18.0f, tint_b = 24.0f;
-  const float tint_a = 0.35f;
-  const float saturation = 1.40f;
+  // Zen Browser / Fluent Acrylic Compositing: Subtle Saturation +
+  // Deep Dark Obsidian Tint (82% opacity) + Frosted Glass Noise
+  const float tint_r = 10.0f, tint_g = 10.0f, tint_b = 14.0f;
+  const float tint_a = 0.82f;
+  const float saturation = 1.20f;
 
   for (int y = 0; y < down_h; ++y) {
     const int row = y * down_w;
@@ -5552,17 +5555,21 @@ void Win32Window::apply_os_backdrop(bool enable_blur, UI::Theme::BackdropEffect 
   // 1. Windows 11 22H2+ (Build >= 22621): DWMWA_SYSTEMBACKDROP_TYPE (38)
   constexpr DWORD dwm_backdrop_type_attr = 38;
   constexpr DWORD dwmsbt_none = 1;
-  constexpr DWORD dwmsbt_mainwindow = 2;   // Mica
-  constexpr DWORD dwmsbt_transient = 3;    // Acrylic
+  [[maybe_unused]] constexpr DWORD dwmsbt_mainwindow = 2; // Mica
+  constexpr DWORD dwmsbt_transient = 3;                  // Acrylic
+  constexpr DWORD dwmsbt_tabbedwindow = 4;               // Mica Alt (deep dark tabbed backdrop)
 
   // 2. Windows 11 21H2 (Build 22000): DWMWA_MICA_EFFECT (1029)
   constexpr DWORD dwm_mica_attr = 1029;
 
   if (enable_blur) {
     if (win_build >= 22621) {
+      // In Windows 11 22H2+, if Mica is requested, use dwmsbt_tabbedwindow (Mica Alt).
+      // For acrylic blur, set dwmsbt_none so DWM allows SetWindowCompositionAttribute
+      // with custom dark obsidian tint (0xEE0E0A0A) rather than the default light grey acrylic.
       const DWORD backdrop = (effect == UI::Theme::BackdropEffect::Mica)
-                                 ? dwmsbt_mainwindow
-                                 : dwmsbt_transient;
+                                 ? dwmsbt_tabbedwindow
+                                 : dwmsbt_none;
       DwmSetWindowAttribute(m_window_handle, dwm_backdrop_type_attr, &backdrop, sizeof(backdrop));
     } else if (win_build >= 22000) {
       const BOOL mica_on = TRUE;
@@ -5592,7 +5599,9 @@ void Win32Window::apply_os_backdrop(bool enable_blur, UI::Theme::BackdropEffect 
         policy.AccentState = 4; // ACCENT_ENABLE_ACRYLICBLURBEHIND
         policy.AccentFlags = 2; // draw all borders
         // Tint format: AABBGGRR
-        policy.GradientColor = is_dark ? 0x99100e14 : 0x99f0f0f2;
+        // Zen Browser dark obsidian acrylic tint:
+        // Alpha = 0xEE (93% opacity), Blue = 0x0E (14), Green = 0x0A (10), Red = 0x0A (10)
+        policy.GradientColor = is_dark ? 0xEE0E0A0A : 0x99f0f0f2;
         WINDOWCOMPOSITIONATTRIBDATA data{19, &policy, sizeof(policy)};
         pfnSetWindowCompositionAttribute(m_window_handle, &data);
       }

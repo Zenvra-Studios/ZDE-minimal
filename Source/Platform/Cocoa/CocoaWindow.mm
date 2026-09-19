@@ -673,14 +673,17 @@ void CocoaWindow::apply_theme(const UI::Theme::StudioTheme& theme)
             NSVisualEffectView* blur = [[NSVisualEffectView alloc] initWithFrame:cv.bounds];
             blur.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
             blur.blendingMode = NSVisualEffectBlendingModeBehindWindow;
-            blur.material = NSVisualEffectMaterialUnderWindowBackground;
+            blur.material = theme.is_dark ? NSVisualEffectMaterialFullScreenUI : NSVisualEffectMaterialUnderWindowBackground;
             blur.state = NSVisualEffectStateActive;
+            blur.appearance = [NSAppearance appearanceNamed:theme.is_dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
             [cv addSubview:blur positioned:NSWindowBelow relativeTo:nil];
             m_blur_view = (__bridge_retained void*)blur;
         }
         else if (m_blur_view != nullptr)
         {
             NSVisualEffectView* blur = (__bridge NSVisualEffectView*)m_blur_view;
+            blur.material = theme.is_dark ? NSVisualEffectMaterialFullScreenUI : NSVisualEffectMaterialUnderWindowBackground;
+            blur.appearance = [NSAppearance appearanceNamed:theme.is_dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
             blur.hidden = NO;
         }
     }

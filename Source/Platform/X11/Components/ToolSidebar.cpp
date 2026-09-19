@@ -1122,19 +1122,20 @@ void ToolSidebar::render(
   }
 
   // Draw right border
-  const bool show_accent = m_resize_hovered || m_resizing;
-  if (!is_modern || show_accent) {
+  // In modern blurred mode, the sidebar seamlessly floats borderless without a right edge line or blue hover border
+  if (!is_modern) {
+    const bool show_accent = m_resize_hovered || m_resizing;
     const unsigned long splitter_color = show_accent ? surface.m_pixels.accent : surface.m_pixels.border;
     surface.draw_line(
         drawable, round_to_int(panel.right() - 1.0F), round_to_int(panel.y),
         round_to_int(panel.right() - 1.0F), round_to_int(panel.bottom()),
         splitter_color);
-  }
-  if (show_accent) {
-    surface.fill_rectangle(
-        drawable,
-        UI::Rect{panel.right() - 1.0F * scale, panel.y, 2.0F * scale, panel.height},
-        surface.m_pixels.accent);
+    if (show_accent) {
+      surface.fill_rectangle(
+          drawable,
+          UI::Rect{panel.right() - 1.0F * scale, panel.y, 2.0F * scale, panel.height},
+          surface.m_pixels.accent);
+    }
   }
 }
 

@@ -20,7 +20,7 @@ struct ModalBackdropConfig {
     float blur_radius = 24.0F;
     float saturation = 1.15F;
     float noise_opacity = 0.035F;
-    Theme::Color tint = {15, 15, 18, 160};
+    Theme::Color tint = {10, 10, 14, 210}; // Deep dark obsidian tint (Zen Browser aesthetic)
     bool dismiss_on_backdrop_click = true;
 
     [[nodiscard]] static constexpr std::string_view get_vertex_shader() noexcept {

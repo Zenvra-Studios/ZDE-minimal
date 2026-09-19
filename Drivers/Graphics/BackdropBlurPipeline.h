@@ -10,7 +10,7 @@ namespace Zenvra::Graphics {
 struct BlurUniforms {
     float radius = 24.0F;
     float saturation = 1.15F;
-    std::array<float, 4> tint = {0.059F, 0.059F, 0.071F, 0.627F}; // RGBA [0..1]
+    std::array<float, 4> tint = {0.039F, 0.039F, 0.055F, 0.82F}; // RGBA [0..1] deep dark obsidian (Zen Browser aesthetic)
     float noise_opacity = 0.035F;
     float texel_width = 1.0F / 1920.0F;
     float texel_height = 1.0F / 1080.0F;

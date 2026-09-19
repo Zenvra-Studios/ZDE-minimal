@@ -4222,10 +4222,11 @@ void apply_backdrop_blur(Display *display, Drawable drawable, GC gc,
   blur_horizontal(downscaled.data(), temp.data(), radius);
   blur_vertical(temp.data(), downscaled.data(), radius);
 
-  // Fluent Acrylic Compositing: Saturation Boost + Deep Acrylic Tint + Frosted Glass Noise
-  const float tint_r = 16.0F, tint_g = 18.0F, tint_b = 24.0F;
-  const float tint_a = 0.35F;
-  const float saturation = 1.40F;
+  // Zen Browser / Fluent Acrylic Compositing: Subtle Saturation +
+  // Deep Dark Obsidian Tint (82% opacity) + Frosted Glass Noise
+  const float tint_r = 10.0F, tint_g = 10.0F, tint_b = 14.0F;
+  const float tint_a = 0.82F;
+  const float saturation = 1.20F;
 
   for (int y = 0; y < down_h; ++y) {
     const int row = y * down_w;

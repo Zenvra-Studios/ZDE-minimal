@@ -2314,9 +2314,10 @@ void ToolSidebar::render(
     }
 
     // Border (matches X11/Win32: accent when resize-hovered or resizing)
-    const bool resize_active = m_resize_hovered || m_resizing;
+    // In modern blurred mode, the sidebar seamlessly floats borderless without a right edge line or blue hover border
     const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
-    if (!is_modern || resize_active) {
+    if (!is_modern) {
+        const bool resize_active = m_resize_hovered || m_resizing;
         const auto& border_color = resize_active ? surface.m_colors.accent
                                                  : surface.m_colors.border;
         surface.draw_line(context,

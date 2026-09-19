@@ -275,9 +275,10 @@ void ShaderSandboxPanel::render(
   render_controls(surface, drawable, layout);
 
   // Draw Splitter border on the left edge with blue accent highlight when hovered or resizing
-  const float splitter_x = layout.shader_panel_bounds.x;
-  const bool show_accent = m_hover_splitter || m_is_resizing;
-  if (!is_modern || show_accent) {
+  // In modern blurred mode, panels float borderless without blue hover accents
+  if (!is_modern) {
+    const float splitter_x = layout.shader_panel_bounds.x;
+    const bool show_accent = m_hover_splitter || m_is_resizing;
     const unsigned long splitter_color = show_accent
         ? surface.m_pixels.accent
         : surface.m_pixels.border;
@@ -288,16 +289,16 @@ void ShaderSandboxPanel::render(
                       round_to_int(splitter_x),
                       round_to_int(layout.shader_panel_bounds.bottom()),
                       splitter_color);
-  }
 
-  if (show_accent) {
-    surface.fill_rectangle(
-        drawable,
-        UI::Rect{splitter_x - surface.m_dpi_scale,
-                 layout.shader_panel_bounds.y,
-                 std::max(2.0F * surface.m_dpi_scale, 2.0F),
-                 layout.shader_panel_bounds.height},
-        surface.m_pixels.accent);
+    if (show_accent) {
+      surface.fill_rectangle(
+          drawable,
+          UI::Rect{splitter_x - surface.m_dpi_scale,
+                   layout.shader_panel_bounds.y,
+                   std::max(2.0F * surface.m_dpi_scale, 2.0F),
+                   layout.shader_panel_bounds.height},
+          surface.m_pixels.accent);
+    }
   }
 }
 

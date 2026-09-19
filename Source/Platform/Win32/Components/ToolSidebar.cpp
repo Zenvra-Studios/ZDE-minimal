@@ -2318,28 +2318,31 @@ void ToolSidebar::render_search_panel(
   }
 
   // Draw Right Border separating sidebar from editor with blue accent highlight when hovered or resizing
-  const bool show_accent = m_resize_hovered || m_resizing;
-  const UI::Theme::Color splitter_color = show_accent
-      ? surface.m_palette.accent
-      : surface.m_palette.border;
+  // In modern blurred mode, the sidebar seamlessly floats borderless without a right edge line or blue hover border
+  if (!is_modern) {
+    const bool show_accent = m_resize_hovered || m_resizing;
+    const UI::Theme::Color splitter_color = show_accent
+        ? surface.m_palette.accent
+        : surface.m_palette.border;
 
-  const float splitter_x = panel.right() - scale;
-  surface.draw_line(device_context,
-                    round_to_int(splitter_x),
-                    round_to_int(panel.y),
-                    round_to_int(splitter_x),
-                    round_to_int(panel.bottom()),
-                    splitter_color);
+    const float splitter_x = panel.right() - scale;
+    surface.draw_line(device_context,
+                      round_to_int(splitter_x),
+                      round_to_int(panel.y),
+                      round_to_int(splitter_x),
+                      round_to_int(panel.bottom()),
+                      splitter_color);
 
-  if (show_accent) {
-    surface.fill_rectangle(
-        device_context,
-        UI::Rect{
-            splitter_x - 1.5F * scale,
-            panel.y,
-            std::max(3.5F * scale, 3.0F),
-            panel.height},
-        surface.m_palette.accent);
+    if (show_accent) {
+      surface.fill_rectangle(
+          device_context,
+          UI::Rect{
+              splitter_x - 1.5F * scale,
+              panel.y,
+              std::max(3.5F * scale, 3.0F),
+              panel.height},
+          surface.m_palette.accent);
+    }
   }
 }
 
@@ -2948,15 +2951,18 @@ void ToolSidebar::render_extensions_panel(
   }
 
   // Draw Right Border separating sidebar from editor
-  const bool show_accent = m_resize_hovered || m_resizing;
-  const UI::Theme::Color splitter_color = show_accent
-      ? surface.m_palette.accent
-      : surface.m_palette.border;
+  // In modern blurred mode, the sidebar seamlessly floats borderless without a right edge line or blue hover border
+  if (!is_modern) {
+    const bool show_accent = m_resize_hovered || m_resizing;
+    const UI::Theme::Color splitter_color = show_accent
+        ? surface.m_palette.accent
+        : surface.m_palette.border;
 
-  const float splitter_x = panel.right() - scale;
-  surface.draw_line(device_context, round_to_int(splitter_x),
-                    round_to_int(panel.y), round_to_int(splitter_x),
-                    round_to_int(panel.bottom()), splitter_color);
+    const float splitter_x = panel.right() - scale;
+    surface.draw_line(device_context, round_to_int(splitter_x),
+                      round_to_int(panel.y), round_to_int(splitter_x),
+                      round_to_int(panel.bottom()), splitter_color);
+  }
 }
 
 void ToolSidebar::render_tool_plugin_panel(
@@ -3292,15 +3298,18 @@ void ToolSidebar::render_tool_plugin_panel(
   }
 
   // Draw Right Border separating sidebar from editor
-  const bool show_accent = m_resize_hovered || m_resizing;
-  const UI::Theme::Color splitter_color = show_accent
-      ? surface.m_palette.accent
-      : surface.m_palette.border;
+  // In modern blurred mode, the sidebar seamlessly floats borderless without a right edge line or blue hover border
+  if (!is_modern) {
+    const bool show_accent = m_resize_hovered || m_resizing;
+    const UI::Theme::Color splitter_color = show_accent
+        ? surface.m_palette.accent
+        : surface.m_palette.border;
 
-  const float splitter_x = panel.right() - scale;
-  surface.draw_line(device_context, round_to_int(splitter_x),
-                    round_to_int(panel.y), round_to_int(splitter_x),
-                    round_to_int(panel.bottom()), splitter_color);
+    const float splitter_x = panel.right() - scale;
+    surface.draw_line(device_context, round_to_int(splitter_x),
+                      round_to_int(panel.y), round_to_int(splitter_x),
+                      round_to_int(panel.bottom()), splitter_color);
+  }
 }
 
 void ToolSidebar::render(
@@ -3308,9 +3317,10 @@ void ToolSidebar::render(
     const UI::Editor::StudioEditorLayoutResult &layout) const {
   const UI::Rect panel = layout.tool_sidebar_bounds;
   const float scale = layout.dpi_scale;
+  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
 
   if (!is_visible() || panel.is_empty()) {
-    if (m_resize_hovered || m_resizing) {
+    if (!is_modern && (m_resize_hovered || m_resizing)) {
       surface.draw_line(device_context, round_to_int(panel.right() - scale),
                         round_to_int(panel.y), round_to_int(panel.right() - scale),
                         round_to_int(panel.bottom()), surface.m_palette.accent);
@@ -3325,7 +3335,6 @@ void ToolSidebar::render(
     return;
   }
 
-  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
   if (!is_modern) {
     surface.fill_rectangle(device_context, panel,
                            surface.m_palette.sidebar_background);
@@ -3526,21 +3535,44 @@ void ToolSidebar::render(
         } else if (is_drag_source) {
           surface.fill_rectangle(device_context, row_bounds, UI::Theme::Color{255, 255, 255, 20});
         } else if (is_selected) {
-          surface.fill_rectangle(device_context, row_bounds, UI::Theme::Color{14, 75, 130, 255});
-          if (m_model.get_selected_path() && *m_model.get_selected_path() == item.path) {
-            const UI::Rect left_bar{
-                panel.x, row_bounds.y + 1.0F * scale,
-                3.0F * scale, row_bounds.height - 2.0F * scale
-            };
-            surface.fill_rectangle(device_context, left_bar, surface.m_palette.accent);
+          if (is_modern) {
+            surface.fill_rounded_rectangle(device_context, highlight_rect,
+                                           UI::Theme::Color{35, 110, 190, 160},
+                                           4.0F * scale);
+          } else {
+            surface.fill_rectangle(device_context, row_bounds,
+                                   UI::Theme::Color{14, 75, 130, 255});
+          }
+          if (m_model.get_selected_path() &&
+              *m_model.get_selected_path() == item.path) {
+            const UI::Rect left_bar{panel.x, row_bounds.y + 1.0F * scale,
+                                    3.0F * scale,
+                                    row_bounds.height - 2.0F * scale};
+            if (!is_modern) {
+              surface.fill_rectangle(device_context, left_bar,
+                                     surface.m_palette.accent);
+            }
           }
         } else if (is_hovered) {
-          surface.fill_rectangle(device_context, row_bounds, surface.m_palette.hover_background);
+          if (is_modern) {
+            surface.fill_rounded_rectangle(device_context, highlight_rect,
+                                           UI::Theme::Color{255, 255, 255, 20},
+                                           4.0F * scale);
+          } else {
+            surface.fill_rectangle(device_context, row_bounds,
+                                   surface.m_palette.hover_background);
+          }
         }
 
-        const UI::Theme::Color current_row_bg = is_selected
-            ? UI::Theme::Color{14, 75, 130, 255}
-            : (is_hovered ? surface.m_palette.hover_background : surface.m_palette.sidebar_background);
+        const UI::Theme::Color current_row_bg =
+            is_selected
+                ? (is_modern ? UI::Theme::Color{35, 110, 190, 160}
+                             : UI::Theme::Color{14, 75, 130, 255})
+                : (is_hovered
+                       ? (is_modern ? UI::Theme::Color{255, 255, 255, 20}
+                                    : surface.m_palette.hover_background)
+                       : (is_modern ? UI::Theme::Color{0, 0, 0, 0}
+                                    : surface.m_palette.sidebar_background));
 
         const float indent_x = panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
         const UI::Theme::Color guide_color{85, 92, 105, 190};
@@ -3644,12 +3676,13 @@ void ToolSidebar::render(
           };
 
           const bool is_sticky_hovered = (m_hovered_sticky_index && *m_hovered_sticky_index == item_index);
-          const UI::Theme::Color sticky_bg = is_sticky_hovered 
-              ? surface.m_palette.hover_background 
-              : surface.m_palette.sidebar_background;
-
-          surface.fill_rectangle(device_context, sticky_bounds, sticky_bg);
-          if (i == sticky_indices.size() - 1) {
+          const UI::Theme::Color sticky_bg = is_modern
+              ? (is_sticky_hovered ? UI::Theme::Color{255, 255, 255, 25} : UI::Theme::Color{0, 0, 0, 0})
+              : (is_sticky_hovered ? surface.m_palette.hover_background : surface.m_palette.sidebar_background);
+          if (!is_modern || is_sticky_hovered) {
+            surface.fill_rectangle(device_context, sticky_bounds, sticky_bg);
+          }
+          if (!is_modern && i == sticky_indices.size() - 1) {
             surface.draw_line(device_context, round_to_int(panel.x), round_to_int(sticky_bounds.bottom()),
                               round_to_int(panel.right()), round_to_int(sticky_bounds.bottom()),
                               surface.m_palette.border);
@@ -3742,9 +3775,9 @@ void ToolSidebar::render(
   }
 
   // Draw Right Border separating sidebar from editor with blue accent highlight when hovered or resizing.
-  // In modern blurred mode, the sidebar seamlessly floats borderless without a right edge line.
-  const bool show_accent = m_resize_hovered || m_resizing;
-  if (!is_modern || show_accent) {
+  // In modern blurred mode, the sidebar seamlessly floats borderless without a right edge line or blue hover border.
+  if (!is_modern) {
+    const bool show_accent = m_resize_hovered || m_resizing;
     const UI::Theme::Color splitter_color = show_accent
         ? surface.m_palette.accent
         : surface.m_palette.border;

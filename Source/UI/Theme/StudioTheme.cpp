@@ -53,13 +53,13 @@ StudioTheme StudioTheme::zenvra_dark_modern() noexcept
     theme.is_modern = true;
     theme.enable_os_blur = false;
     theme.backdrop_effect = BackdropEffect::None;
-    // Canonical dark neutral charcoal slate for solid window & titlebar presentation
-    theme.window_background = {24, 25, 28, 255};
+    // Canonical dark neutral charcoal slate for solid window & titlebar presentation (Zen Browser aesthetic)
+    theme.window_background = {14, 15, 18, 255};
     theme.titlebar_background = theme.window_background;
-    theme.titlebar_border = {50, 52, 60, 255};
-    theme.panel_background = {22, 23, 26, 255};
-    theme.command_center_background = {30, 31, 35, 255};
-    theme.command_center_border = {65, 68, 75, 255};
+    theme.titlebar_border = {42, 44, 52, 255};
+    theme.panel_background = {16, 17, 20, 255};
+    theme.command_center_background = {24, 25, 29, 255};
+    theme.command_center_border = {50, 52, 60, 255};
     return theme;
 }
 

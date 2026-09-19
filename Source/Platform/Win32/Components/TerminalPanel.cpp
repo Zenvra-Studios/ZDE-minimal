@@ -492,7 +492,8 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
       round_to_int(layout.terminal_panel_bounds.y),
       round_to_int(layout.terminal_panel_bounds.right()),
       round_to_int(layout.terminal_panel_bounds.y), surface.m_palette.border);
-  if (m_resize_model.is_hovered() || m_resize_model.is_resizing()) {
+  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+  if (!is_modern && (m_resize_model.is_hovered() || m_resize_model.is_resizing())) {
     surface.fill_rectangle(
         device_context,
         UI::Rect{layout.terminal_panel_bounds.x,
