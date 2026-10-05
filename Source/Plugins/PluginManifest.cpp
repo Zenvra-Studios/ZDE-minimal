@@ -313,7 +313,9 @@ std::string PluginManifest::deduce_category() const
     if (lower_id.find("lsp") != std::string::npos || lower_id.find("clangd") != std::string::npos ||
         lower_id.find("analyzer") != std::string::npos || lower_id.find("pyright") != std::string::npos ||
         lower_id.find("gopls") != std::string::npos || lower_id.find("zls") != std::string::npos ||
+        lower_id.find("jdtls") != std::string::npos || lower_id.find("jdt") != std::string::npos ||
         lower_id.find("omnisharp") != std::string::npos || lower_name.find("lsp") != std::string::npos ||
+        lower_name.find("jdtls") != std::string::npos ||
         lower_name.find("language") != std::string::npos || lower_desc.find("language server") != std::string::npos)
     {
         return "lsp";

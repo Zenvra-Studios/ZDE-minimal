@@ -24,9 +24,6 @@ bool TerminalPanelModel::toggle(const std::filesystem::path &working_directory) 
  */
 bool TerminalPanelModel::create_session(
     const std::filesystem::path &working_directory) {
-  if (m_sessions.size() >= maximum_sessions) {
-    return false;
-  }
   auto session = std::make_unique<TerminalSession>();
   static_cast<void>(session->start(working_directory, m_columns, m_rows));
   // Read initial output immediately with zero latency

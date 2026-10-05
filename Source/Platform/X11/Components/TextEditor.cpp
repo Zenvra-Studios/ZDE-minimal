@@ -3496,7 +3496,7 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
       is_split_pane ? const_cast<std::size_t &>(m_split_last_folding_revision)
                     : const_cast<std::size_t &>(m_last_folding_revision);
   const bool needs_window_shift =
-      (total_lines > 25000 &&
+      (total_lines > 5000 &&
        (first_line < folding.get_window_offset() ||
         first_line + vis_count >=
             folding.get_window_offset() + folding.get_window_size()));

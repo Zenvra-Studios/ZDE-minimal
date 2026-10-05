@@ -215,7 +215,9 @@ bool MarketplaceClient::load_catalog_from_json(const nlohmann::json& j)
                 if (lower_id.find("lsp") != std::string::npos || lower_id.find("clangd") != std::string::npos ||
                     lower_id.find("analyzer") != std::string::npos || lower_id.find("pyright") != std::string::npos ||
                     lower_id.find("gopls") != std::string::npos || lower_id.find("zls") != std::string::npos ||
-                    lower_name.find("lsp") != std::string::npos || lower_name.find("language") != std::string::npos)
+                    lower_id.find("jdtls") != std::string::npos || lower_id.find("jdt") != std::string::npos ||
+                    lower_name.find("lsp") != std::string::npos || lower_name.find("jdtls") != std::string::npos ||
+                    lower_name.find("language") != std::string::npos)
                 {
                     entry.category = "lsp";
                 }
@@ -574,6 +576,36 @@ void MarketplaceClient::ensure_default_catalog_if_empty()
             .tags = {"ruby", "lsp", "shopify"},
             .downloads = "1.2M",
             .rating = "4.7"
+        },
+        {
+            .id = "eclipse.jdtls",
+            .name = "Eclipse JDT Language Server (jdtls)",
+            .version = "1.44.0",
+            .description = "Eclipse JDT Language Server Protocol (LSP) for Java with code completion, IntelliSense, and diagnostics",
+            .publisher = "Eclipse Foundation",
+            .repository_url = "https://github.com/eclipse-jdtls/eclipse.jdt.ls.git",
+            .download_url = "",
+            .icon_url = "https://raw.githubusercontent.com/red-hat-developer/vscode-java/master/icons/icon128.png",
+            .sha256 = "",
+            .category = "lsp",
+            .tags = {"java", "jdtls", "eclipse", "lsp", "language", "intellisense", "autocomplete"},
+            .downloads = "32M",
+            .rating = "4.9"
+        },
+        {
+            .id = "redhat.java",
+            .name = "Language Support for Java(TM)",
+            .version = "1.37.0",
+            .description = "Java IntelliSense, auto-completion, refactoring, and Language Server Protocol via Eclipse JDTLS",
+            .publisher = "Red Hat",
+            .repository_url = "https://github.com/red-hat-developer/vscode-java.git",
+            .download_url = "",
+            .icon_url = "https://raw.githubusercontent.com/red-hat-developer/vscode-java/master/icons/icon128.png",
+            .sha256 = "",
+            .category = "lsp",
+            .tags = {"java", "jdtls", "redhat", "lsp", "intellisense", "autocomplete"},
+            .downloads = "45M",
+            .rating = "4.8"
         },
         {
             .id = "ms-python.python",

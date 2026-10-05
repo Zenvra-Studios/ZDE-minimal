@@ -90,8 +90,6 @@ public:
   [[nodiscard]] std::string get_selected_text() const;
 
 private:
-  static constexpr std::size_t maximum_sessions = 8;
-
   void remove_session(std::size_t index) noexcept;
 
   std::vector<TerminalSessionEntry> m_sessions;

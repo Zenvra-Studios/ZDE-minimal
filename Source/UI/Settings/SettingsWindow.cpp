@@ -1436,7 +1436,8 @@ std::vector<SettingsSectionDef> get_all_sections() {
        "Workbench",
        {"workbench.app.title", "workbench.mascot.image", "workbench.mascot.renderMode", "theme.current",
         "ui.fontSize", "ui.fontFamily", "ui.scale", "workbench.sidebar.position",
-        "workbench.panel.position", "workbench.activityBar.visible"}});
+        "workbench.panel.position", "workbench.activityBar.visible",
+        "workbench.activityBar.location"}});
 
   sections.push_back(
       {"Window", "Window", {"window.zoomLevel", "window.fullscreen"}});
@@ -2153,6 +2154,7 @@ bool SettingsWindow::handle_pointer_press(
   if (layout.search_bar_bounds.contains(x, y)) {
     m_editing_setting_id.clear();
     m_search_input.set_focused(true);
+    m_caret_visible = true;
     static_cast<void>(m_search_input.handle_pointer_press(x, y));
     return true;
   } else {
@@ -2599,6 +2601,7 @@ bool SettingsWindow::handle_char(char32_t codepoint) noexcept {
       utf8_char.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
       utf8_char.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
     }
+    m_caret_visible = true;
     if (!m_editing_setting_id.empty()) {
       m_editing_text += utf8_char;
       return true;
@@ -2611,6 +2614,7 @@ bool SettingsWindow::handle_char(char32_t codepoint) noexcept {
 }
 
 bool SettingsWindow::handle_backspace() noexcept {
+  m_caret_visible = true;
   if (!m_editing_setting_id.empty()) {
     if (!m_editing_text.empty()) {
       m_editing_text.pop_back();
@@ -2816,7 +2820,11 @@ void SettingsWindow::render(HDC device_context,
     SetTextColor(device_context, to_color_ref(theme.text_secondary));
     const std::wstring ph =
         Utility::utf8_to_wide(m_search_input.get_placeholder()).value_or(L"");
-    DrawTextW(device_context, ph.c_str(), -1, &text_rc,
+    RECT ph_rc = text_rc;
+    if (m_search_input.get_state().focused) {
+      ph_rc.left += static_cast<LONG>(3.0F * dpi_scale);
+    }
+    DrawTextW(device_context, ph.c_str(), -1, &ph_rc,
               DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
   } else {
     SetTextColor(device_context, to_color_ref(theme.text_primary));
@@ -2824,26 +2832,6 @@ void SettingsWindow::render(HDC device_context,
         Utility::utf8_to_wide(m_search_input.get_text()).value_or(L"");
     DrawTextW(device_context, txt.c_str(), -1, &text_rc,
               DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-
-    // Blinking caret
-    if (m_search_input.get_state().focused && m_caret_visible) {
-      SIZE text_ext{};
-      GetTextExtentPoint32W(device_context, txt.c_str(),
-                            static_cast<int>(txt.size()), &text_ext);
-      const int caret_x = text_rc.left + text_ext.cx + 1;
-      const int caret_top =
-          text_rc.top +
-          static_cast<int>((search_text_bounds.height - 16.0F * dpi_scale) *
-                           0.5F);
-      const int caret_bottom = caret_top + static_cast<int>(16.0F * dpi_scale);
-
-      HPEN caret_pen = CreatePen(PS_SOLID, 2, to_color_ref(theme.text_primary));
-      HGDIOBJ prev_cp = SelectObject(device_context, caret_pen);
-      MoveToEx(device_context, caret_x, caret_top, nullptr);
-      LineTo(device_context, caret_x, caret_bottom);
-      SelectObject(device_context, prev_cp);
-      DeleteObject(caret_pen);
-    }
 
     // Search clear button
     if (!layout.search_clear_btn_bounds.is_empty()) {
@@ -2874,6 +2862,30 @@ void SettingsWindow::render(HDC device_context,
       SelectObject(device_context, p_clr);
       DeleteObject(clr_pen);
     }
+  }
+
+  // Blinking caret (rendered whenever focused, whether text is empty or not)
+  if (m_search_input.get_state().focused && m_caret_visible) {
+    const std::string_view prefix = m_search_input.get_text_before_cursor();
+    const std::wstring prefix_w = Utility::utf8_to_wide(prefix).value_or(L"");
+    SIZE text_ext{};
+    if (!prefix_w.empty()) {
+      GetTextExtentPoint32W(device_context, prefix_w.c_str(),
+                            static_cast<int>(prefix_w.size()), &text_ext);
+    }
+    const int caret_x = text_rc.left + text_ext.cx + 1;
+    const int caret_top =
+        text_rc.top +
+        static_cast<int>((search_text_bounds.height - 16.0F * dpi_scale) *
+                         0.5F);
+    const int caret_bottom = caret_top + static_cast<int>(16.0F * dpi_scale);
+
+    HPEN caret_pen = CreatePen(PS_SOLID, 2, to_color_ref(theme.text_primary));
+    HGDIOBJ prev_cp = SelectObject(device_context, caret_pen);
+    MoveToEx(device_context, caret_x, caret_top, nullptr);
+    LineTo(device_context, caret_x, caret_bottom);
+    SelectObject(device_context, prev_cp);
+    DeleteObject(caret_pen);
   }
 
   // 4. Scope Tabs (User | Workspace) - Flat text links with active accent

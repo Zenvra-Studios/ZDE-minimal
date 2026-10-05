@@ -23,15 +23,86 @@ void ActivitySidebar::render(
     HDC device_context,
     const UI::Editor::StudioEditorLayoutResult& layout) const
 {
+    if (layout.activity_bar_bounds.is_empty() ||
+        layout.activity_bar_bounds.width <= 0.0F ||
+        layout.activity_bar_bounds.height <= 0.0F)
+    {
+        return;
+    }
+
+    const bool is_horizontal = layout.activity_bar_bounds.width > layout.activity_bar_bounds.height;
+    const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+    const std::span<const UI::Editor::SidebarItem> items = UI::Editor::get_studio_sidebar_items();
+
+    if (is_horizontal)
+    {
+        if (!is_modern)
+        {
+            // 1. Fill horizontal activity bar background (only in classic non-blurred mode)
+            surface.fill_rectangle(device_context, layout.activity_bar_bounds, surface.m_palette.sidebar_background);
+
+            // 2. Draw 1px border line
+            const bool is_at_bottom = (layout.activity_bar_bounds.y > layout.tool_sidebar_bounds.y);
+            const int line_y = is_at_bottom
+                ? round_to_int(layout.activity_bar_bounds.y)
+                : round_to_int(layout.activity_bar_bounds.bottom() - 1.0F);
+            surface.draw_line(
+                device_context,
+                round_to_int(layout.activity_bar_bounds.x),
+                line_y,
+                round_to_int(layout.activity_bar_bounds.right()),
+                line_y,
+                surface.m_palette.border);
+        }
+
+        // 3. Render items horizontally
+        for (std::size_t i = 0; i < items.size(); ++i)
+        {
+            const auto& item = items[i];
+            const UI::Rect item_rect = UI::Editor::calculate_studio_sidebar_item_bounds(layout, i);
+            if (item_rect.is_empty() || item_rect.right() > layout.activity_bar_bounds.right())
+            {
+                continue;
+            }
+
+            const bool active = item.icon == UI::Editor::SidebarIcon::Terminal
+                ? surface.m_terminal_panel.is_visible()
+                : item.icon == UI::Editor::SidebarIcon::Shader
+                    ? surface.m_shader_sandbox_panel.is_visible()
+                    : surface.m_tool_sidebar.is_active(item.icon);
+            const bool hovered = surface.m_tool_sidebar.is_hovered(item.icon);
+
+            const float box_radius = 5.0F * surface.m_dpi_scale;
+
+            if (active)
+            {
+                const UI::Theme::Color active_bg = surface.m_palette.is_dark
+                    ? UI::Theme::Color{255, 255, 255, 28}
+                    : UI::Theme::Color{0, 102, 204, 28};
+                surface.fill_rounded_rectangle(device_context, item_rect, active_bg, box_radius);
+            }
+            else if (hovered)
+            {
+                const UI::Theme::Color hover_bg = surface.m_palette.is_dark
+                    ? UI::Theme::Color{255, 255, 255, 18}
+                    : UI::Theme::Color{0, 0, 0, 16};
+                surface.fill_rounded_rectangle(device_context, item_rect, hover_bg, box_radius);
+            }
+
+            const int icon_cx = round_to_int(item_rect.x + item_rect.width * 0.5F);
+            const int icon_cy = round_to_int(item_rect.y + item_rect.height * 0.5F);
+            draw_icon(surface, device_context, item.icon, icon_cx, icon_cy, active, hovered);
+        }
+        return;
+    }
+
     const int center_x = round_to_int(layout.activity_bar_bounds.x + layout.activity_bar_bounds.width * 0.5F);
     std::size_t top_index = 0;
     std::size_t bottom_index = 0;
-    const std::span<const UI::Editor::SidebarItem> items = UI::Editor::get_studio_sidebar_items();
     const std::size_t bottom_count = static_cast<std::size_t>(std::count_if(
         items.begin(), items.end(), [](const UI::Editor::SidebarItem& item) {
             return item.placement == UI::Editor::SidebarPlacement::Bottom;
         }));
-    const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
 
     for (const UI::Editor::SidebarItem& item : items)
     {
@@ -70,12 +141,12 @@ void ActivitySidebar::render(
                 ? surface.m_shader_sandbox_panel.is_visible()
                 : surface.m_tool_sidebar.is_active(item.icon);
         const bool hovered = surface.m_tool_sidebar.is_hovered(item.icon);
-        const float item_h = UI::Editor::StudioEditorMetrics::sidebar_item_height * surface.m_dpi_scale;
+        const float box_size = 32.0F * surface.m_dpi_scale;
         const UI::Rect box_rect{
-            layout.activity_bar_bounds.x + 4.0F * surface.m_dpi_scale,
-            center_y - item_h * 0.5F + 3.0F * surface.m_dpi_scale,
-            layout.activity_bar_bounds.width - 8.0F * surface.m_dpi_scale,
-            item_h - 6.0F * surface.m_dpi_scale,
+            static_cast<float>(center_x) - box_size * 0.5F,
+            center_y - box_size * 0.5F,
+            box_size,
+            box_size,
         };
         const float box_radius = 5.0F * surface.m_dpi_scale;
 
@@ -112,11 +183,15 @@ void ActivitySidebar::render(
     }
 
     if (!is_modern) {
+        const bool on_right = (layout.activity_bar_bounds.x > layout.editor_bounds.x);
+        const int line_x = on_right
+            ? round_to_int(layout.activity_bar_bounds.x)
+            : round_to_int(layout.activity_bar_bounds.right() - 1.0F);
         surface.draw_line(
             device_context,
-            round_to_int(layout.activity_bar_bounds.right() - 1.0F),
+            line_x,
             round_to_int(layout.activity_bar_bounds.y),
-            round_to_int(layout.activity_bar_bounds.right() - 1.0F),
+            line_x,
             round_to_int(layout.activity_bar_bounds.bottom()),
             surface.m_palette.border);
     }
@@ -134,7 +209,7 @@ void ActivitySidebar::draw_icon(
     bool active,
     bool hovered) const
 {
-    const int size = std::max(round_to_int(UI::Editor::StudioEditorMetrics::sidebar_icon_size * surface.m_dpi_scale), 14);
+    const int size = std::max(round_to_int(UI::Editor::StudioEditorMetrics::sidebar_icon_size * surface.m_dpi_scale), 13);
     std::string_view asset_name;
     switch (icon)
     {
@@ -192,11 +267,8 @@ void ActivitySidebar::draw_icon(
 
     if (!asset_name.empty())
     {
-        // ToolPlugin icons (Docker etc.) use material-icon-theme SVGs which have
-        // more internal padding than vscode-codicons. Scale them up so they
-        // appear visually equal to the other sidebar icons.
-        const int draw_size = (icon == UI::Editor::SidebarIcon::ToolPlugin)
-            ? std::max(round_to_int(UI::Editor::StudioEditorMetrics::sidebar_icon_size * 1.33F * surface.m_dpi_scale), 18)
+        const int draw_size = (icon == UI::Editor::SidebarIcon::ToolPlugin && asset_name.starts_with("material-icon-theme/"))
+            ? std::max(round_to_int(18.0F * surface.m_dpi_scale), 15)
             : size;
 
         const UI::Theme::Color icon_color = active

@@ -65,7 +65,7 @@ void EditorFoldingModel::rebuild(std::span<const std::string> lines, std::size_t
     std::size_t start_idx = 0;
     std::size_t end_idx = total_count;
 
-    if (total_count > 25000 && focus_radius > 0)
+    if (total_count > 5000 && focus_radius > 0)
     {
         start_idx = (focus_center > focus_radius) ? (focus_center - focus_radius) : 0;
         end_idx = std::min(total_count, focus_center + focus_radius);

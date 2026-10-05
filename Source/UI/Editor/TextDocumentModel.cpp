@@ -1593,6 +1593,16 @@ void TextDocumentModel::set_diagnostics(std::vector<Language::Protocol::Diagnost
     }
 }
 
+bool TextDocumentModel::has_diagnostics() const noexcept
+{
+    if (m_diagnostics_mutex)
+    {
+        std::lock_guard<std::mutex> lock(*m_diagnostics_mutex);
+        return !m_diagnostics.empty();
+    }
+    return !m_diagnostics.empty();
+}
+
 std::vector<Language::Protocol::Diagnostic> TextDocumentModel::get_diagnostics() const
 {
     if (m_diagnostics_mutex)
@@ -1608,6 +1618,10 @@ std::vector<Language::Protocol::Diagnostic> TextDocumentModel::get_diagnostics_f
     if (m_diagnostics_mutex)
     {
         std::lock_guard<std::mutex> lock(*m_diagnostics_mutex);
+        if (m_diagnostics.empty())
+        {
+            return {};
+        }
         std::vector<Language::Protocol::Diagnostic> line_diags;
         for (const auto& diag : m_diagnostics)
         {
@@ -1617,6 +1631,10 @@ std::vector<Language::Protocol::Diagnostic> TextDocumentModel::get_diagnostics_f
             }
         }
         return line_diags;
+    }
+    if (m_diagnostics.empty())
+    {
+        return {};
     }
     std::vector<Language::Protocol::Diagnostic> line_diags;
     for (const auto& diag : m_diagnostics)
@@ -2303,7 +2321,14 @@ std::string TextDocumentModel::get_lines_text(std::size_t start_line, std::size_
     if (m_lines.empty() || count == 0 || start_line >= m_lines.size()) return "";
     const std::size_t end_line = std::min(start_line + count, m_lines.size());
 
+    std::size_t total_size = 0;
+    for (std::size_t l = start_line; l < end_line; ++l)
+    {
+        total_size += m_lines[l].size() + 1;
+    }
+
     std::string result;
+    result.reserve(total_size);
     for (std::size_t l = start_line; l < end_line; ++l)
     {
         result += m_lines[l];

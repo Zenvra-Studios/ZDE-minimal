@@ -134,6 +134,7 @@ public:
     void mark_saved() noexcept;
 
     void set_diagnostics(std::vector<Language::Protocol::Diagnostic> diagnostics);
+    [[nodiscard]] bool has_diagnostics() const noexcept;
     [[nodiscard]] std::vector<Language::Protocol::Diagnostic> get_diagnostics() const;
     [[nodiscard]] std::vector<Language::Protocol::Diagnostic> get_diagnostics_for_line(std::size_t line) const;
     [[nodiscard]] Language::Syntax::TokenizerState get_line_state(std::size_t line_index) const noexcept;

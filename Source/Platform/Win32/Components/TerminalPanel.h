@@ -64,6 +64,16 @@ public:
   void set_active_channel(PanelChannel channel) noexcept {
     m_active_channel = channel;
   }
+  [[nodiscard]] bool is_dragging_tab_scrollbar() const noexcept {
+    return m_dragging_tab_scrollbar;
+  }
+  [[nodiscard]] bool is_selecting_text() const noexcept {
+    return m_selecting_text;
+  }
+  [[nodiscard]] float get_tab_scroll_offset() const noexcept {
+    return m_tab_scroll_offset;
+  }
+
   [[nodiscard]] bool
   contains(const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
            float point_y) const noexcept;
@@ -79,6 +89,24 @@ public:
               const UI::Editor::StudioEditorLayoutResult &layout);
 
 private:
+  [[nodiscard]] float tab_strip_start_x(
+      const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
+  [[nodiscard]] float tab_strip_end_x(
+      const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
+  [[nodiscard]] UI::Rect tab_viewport_bounds(
+      const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
+  [[nodiscard]] UI::Rect scroll_left_button_bounds(
+      const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
+  [[nodiscard]] UI::Rect scroll_right_button_bounds(
+      const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
+  [[nodiscard]] UI::Rect tab_scrollbar_track_bounds(
+      const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
+  [[nodiscard]] UI::Rect tab_scrollbar_thumb_bounds(
+      const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
+  void ensure_tab_visible(
+      const UI::Editor::StudioEditorLayoutResult &layout,
+      std::size_t index) noexcept;
+
   [[nodiscard]] UI::Rect
   session_tab_bounds(const UI::Editor::StudioEditorLayoutResult &layout,
                      std::size_t index) const noexcept;
@@ -104,6 +132,16 @@ private:
   std::size_t m_last_total_rows = 0;
   std::size_t m_last_visible_rows = 0;
   bool m_selecting_text = false;
+  float m_tab_scroll_offset = 0.0F;
+  mutable float m_max_tab_scroll = 0.0F;
+  bool m_hovered_tab_scrollbar = false;
+  bool m_dragging_tab_scrollbar = false;
+  float m_tab_scroll_drag_start_x = 0.0F;
+  float m_tab_scroll_drag_initial_offset = 0.0F;
+  bool m_hovered_scroll_left = false;
+  bool m_hovered_scroll_right = false;
+  mutable UI::Rect m_last_header_bounds;
+  mutable float m_last_scale = 1.0F;
   mutable std::unordered_map<std::size_t, float> m_tab_animated_offset_x;
   PanelChannel m_active_channel = PanelChannel::Terminal;
 };

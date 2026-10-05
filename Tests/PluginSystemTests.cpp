@@ -318,6 +318,43 @@ TEST_F(PluginSystemTests, MarketplaceCatalogSearchAndDiscovery)
     EXPECT_EQ(entry_opt->name, "Dracula Theme");
 }
 
+TEST_F(PluginSystemTests, MarketplaceJavaJdtlsCatalogEntryAndLspDiscovery)
+{
+    Marketplace::MarketplaceClient client;
+    client.ensure_default_catalog_if_empty();
+
+    auto jdtls_results = client.search("jdtls");
+    ASSERT_FALSE(jdtls_results.empty());
+
+    bool found_jdtls = false;
+    for (const auto& entry : jdtls_results)
+    {
+        if (entry.id == "eclipse.jdtls" || entry.id == "redhat.java")
+        {
+            found_jdtls = true;
+            EXPECT_EQ(entry.category, "lsp");
+            EXPECT_TRUE(entry.repository_url.find("github.com") != std::string::npos);
+            EXPECT_TRUE(entry.repository_url.ends_with(".git"));
+        }
+    }
+    EXPECT_TRUE(found_jdtls);
+
+    auto java_results = client.search("java");
+    ASSERT_FALSE(java_results.empty());
+
+    auto eclipse_entry = client.find_entry("eclipse.jdtls");
+    ASSERT_TRUE(eclipse_entry.has_value());
+    EXPECT_EQ(eclipse_entry->name, "Eclipse JDT Language Server (jdtls)");
+    EXPECT_EQ(eclipse_entry->category, "lsp");
+    EXPECT_EQ(eclipse_entry->repository_url, "https://github.com/eclipse-jdtls/eclipse.jdt.ls.git");
+
+    auto redhat_entry = client.find_entry("redhat.java");
+    ASSERT_TRUE(redhat_entry.has_value());
+    EXPECT_EQ(redhat_entry->name, "Language Support for Java(TM)");
+    EXPECT_EQ(redhat_entry->category, "lsp");
+    EXPECT_EQ(redhat_entry->repository_url, "https://github.com/red-hat-developer/vscode-java.git");
+}
+
 TEST_F(PluginSystemTests, PluginManagerIntegrationAndLifecycle)
 {
     // Setup PluginManager in isolated sandbox

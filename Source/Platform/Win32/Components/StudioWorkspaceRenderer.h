@@ -128,6 +128,12 @@ public:
         int client_width,
         int client_height,
         float content_top) const noexcept;
+    [[nodiscard]] bool is_activity_bar_area(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
     [[nodiscard]] bool is_tab_bar_point(
         float point_x,
         float point_y,
@@ -167,6 +173,12 @@ public:
         int client_height,
         float content_top) const noexcept;
     [[nodiscard]] bool is_terminal_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_terminal_panel_point(
         float point_x,
         float point_y,
         int client_width,

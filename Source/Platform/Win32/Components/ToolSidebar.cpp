@@ -1,4 +1,5 @@
 #include "Platform/Win32/Components/ToolSidebar.h"
+#include "Language/LanguageServerManager.h"
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
 #include "Plugins/PluginManager.h"
 #include "UI/Editor/FileIconModel.h"
@@ -7,6 +8,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -45,6 +47,175 @@ std::string ellipsize(HDC device_context, AntialiasedFont &font,
   return text + std::string{suffix};
 }
 
+//
+void apply_sticky_backdrop_blur(HDC device_context, const UI::Rect &bounds,
+                                float scale, const UI::Theme::Color &tint_color,
+                                bool is_dark) {
+  if (device_context == nullptr || bounds.is_empty()) {
+    return;
+  }
+
+  const int x = round_to_int(bounds.x);
+  const int y = round_to_int(bounds.y);
+  const int w = round_to_int(bounds.width);
+  const int h = round_to_int(bounds.height);
+  if (w <= 0 || h <= 0) {
+    return;
+  }
+
+  // 2x downsampling for ultra-fast, smooth area-averaging blur
+  const int down_w = std::max(w / 2, 1);
+  const int down_h = std::max(h / 2, 1);
+
+  BITMAPINFO bmi{};
+  bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  bmi.bmiHeader.biWidth = down_w;
+  bmi.bmiHeader.biHeight = -down_h; // top-down
+  bmi.bmiHeader.biPlanes = 1;
+  bmi.bmiHeader.biBitCount = 32;
+  bmi.bmiHeader.biCompression = BI_RGB;
+
+  HDC memDC = CreateCompatibleDC(device_context);
+  if (!memDC) {
+    return;
+  }
+
+  void *bits = nullptr;
+  HBITMAP hBmp =
+      CreateDIBSection(device_context, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+  if (!hBmp || !bits) {
+    DeleteDC(memDC);
+    return;
+  }
+
+  HGDIOBJ oldBmp = SelectObject(memDC, hBmp);
+
+  SetStretchBltMode(memDC, HALFTONE);
+  StretchBlt(memDC, 0, 0, down_w, down_h, device_context, x, y, w, h, SRCCOPY);
+
+  auto *pixels = static_cast<uint32_t *>(bits);
+  const int total_pixels = down_w * down_h;
+
+  const int radius = std::clamp(static_cast<int>(6.0f * scale), 3, 14);
+  std::vector<uint32_t> temp(total_pixels);
+
+  // Fast O(1) sliding-window box blur passes (converges to Gaussian)
+  auto blur_horizontal = [&](const uint32_t *src, uint32_t *dst, int r) {
+    const float inv_w = 1.0f / static_cast<float>(2 * r + 1);
+    for (int cy = 0; cy < down_h; ++cy) {
+      const int row = cy * down_w;
+      int sum_r = 0, sum_g = 0, sum_b = 0;
+
+      for (int cx = -r; cx <= r; ++cx) {
+        const int clamped_x = std::clamp(cx, 0, down_w - 1);
+        const uint32_t px = src[row + clamped_x];
+        sum_r += (px >> 16) & 0xFF;
+        sum_g += (px >> 8) & 0xFF;
+        sum_b += px & 0xFF;
+      }
+
+      for (int cx = 0; cx < down_w; ++cx) {
+        dst[row + cx] = (static_cast<uint32_t>(sum_r * inv_w) << 16) |
+                        (static_cast<uint32_t>(sum_g * inv_w) << 8) |
+                        static_cast<uint32_t>(sum_b * inv_w);
+
+        const int remove_x = std::clamp(cx - r, 0, down_w - 1);
+        const int add_x = std::clamp(cx + r + 1, 0, down_w - 1);
+        const uint32_t p_remove = src[row + remove_x];
+        const uint32_t p_add = src[row + add_x];
+
+        sum_r += ((p_add >> 16) & 0xFF) - ((p_remove >> 16) & 0xFF);
+        sum_g += ((p_add >> 8) & 0xFF) - ((p_remove >> 8) & 0xFF);
+        sum_b += (p_add & 0xFF) - (p_remove & 0xFF);
+      }
+    }
+  };
+
+  auto blur_vertical = [&](const uint32_t *src, uint32_t *dst, int r) {
+    const float inv_h = 1.0f / static_cast<float>(2 * r + 1);
+    for (int cx = 0; cx < down_w; ++cx) {
+      int sum_r = 0, sum_g = 0, sum_b = 0;
+
+      for (int cy = -r; cy <= r; ++cy) {
+        const int clamped_y = std::clamp(cy, 0, down_h - 1);
+        const uint32_t px = src[clamped_y * down_w + cx];
+        sum_r += (px >> 16) & 0xFF;
+        sum_g += (px >> 8) & 0xFF;
+        sum_b += px & 0xFF;
+      }
+
+      for (int cy = 0; cy < down_h; ++cy) {
+        dst[cy * down_w + cx] = (static_cast<uint32_t>(sum_r * inv_h) << 16) |
+                                (static_cast<uint32_t>(sum_g * inv_h) << 8) |
+                                static_cast<uint32_t>(sum_b * inv_h);
+
+        const int remove_y = std::clamp(cy - r, 0, down_h - 1);
+        const int add_y = std::clamp(cy + r + 1, 0, down_h - 1);
+        const uint32_t p_remove = src[remove_y * down_w + cx];
+        const uint32_t p_add = src[add_y * down_w + cx];
+
+        sum_r += ((p_add >> 16) & 0xFF) - ((p_remove >> 16) & 0xFF);
+        sum_g += ((p_add >> 8) & 0xFF) - ((p_remove >> 8) & 0xFF);
+        sum_b += (p_add & 0xFF) - (p_remove & 0xFF);
+      }
+    }
+  };
+
+  // 2 passes of sliding box blur (approx Gaussian blur)
+  blur_horizontal(pixels, temp.data(), radius);
+  blur_vertical(temp.data(), pixels, radius);
+  blur_horizontal(pixels, temp.data(), radius);
+  blur_vertical(temp.data(), pixels, radius);
+
+  // Fluent / macOS Frosted Glass Acrylic Compositing
+  const float tint_r = static_cast<float>(tint_color.red);
+  const float tint_g = static_cast<float>(tint_color.green);
+  const float tint_b = static_cast<float>(tint_color.blue);
+  const float tint_a = is_dark ? 0.82f : 0.88f;
+  const float saturation = 1.15f;
+
+  for (int cy = 0; cy < down_h; ++cy) {
+    const int row = cy * down_w;
+    for (int cx = 0; cx < down_w; ++cx) {
+      const uint32_t px = pixels[row + cx];
+      float br = static_cast<float>((px >> 16) & 0xFF);
+      float bg = static_cast<float>((px >> 8) & 0xFF);
+      float bb = static_cast<float>(px & 0xFF);
+
+      float lum = br * 0.2126f + bg * 0.7152f + bb * 0.0722f;
+      float sr = lum + (br - lum) * saturation;
+      float sg = lum + (bg - lum) * saturation;
+      float sb = lum + (bb - lum) * saturation;
+
+      float mr = sr * (1.0f - tint_a) + tint_r * tint_a;
+      float mg = sg * (1.0f - tint_a) + tint_g * tint_a;
+      float mb = sb * (1.0f - tint_a) + tint_b * tint_a;
+
+      float noise =
+          std::fmod(52.9829189f *
+                        std::fmod(static_cast<float>(cx) * 0.06711056f +
+                                      static_cast<float>(cy) * 0.00583715f,
+                                  1.0f),
+                    1.0f) -
+          0.5f;
+      float grain = noise * 2.5f;
+
+      uint32_t fr = static_cast<uint32_t>(std::clamp(mr + grain, 0.0f, 255.0f));
+      uint32_t fg = static_cast<uint32_t>(std::clamp(mg + grain, 0.0f, 255.0f));
+      uint32_t fb = static_cast<uint32_t>(std::clamp(mb + grain, 0.0f, 255.0f));
+
+      pixels[row + cx] = (fr << 16) | (fg << 8) | fb;
+    }
+  }
+
+  SetStretchBltMode(device_context, HALFTONE);
+  StretchBlt(device_context, x, y, w, h, memDC, 0, 0, down_w, down_h, SRCCOPY);
+
+  SelectObject(memDC, oldBmp);
+  DeleteObject(hBmp);
+  DeleteDC(memDC);
+}
+
 std::string to_lower(std::string_view s) {
   std::string res(s);
   std::transform(res.begin(), res.end(), res.begin(), [](unsigned char c) {
@@ -57,34 +228,50 @@ std::string extension_icon_for(std::string_view id, std::string_view name) {
   const std::string lower_id = to_lower(id);
   const std::string lower_name = to_lower(name);
 
-  if (lower_id.find("cpp") != std::string::npos || lower_name.find("clangd") != std::string::npos) {
+  if (lower_id.find("java") != std::string::npos ||
+      lower_name.find("java") != std::string::npos ||
+      lower_id.find("jdt") != std::string::npos ||
+      lower_name.find("jdt") != std::string::npos) {
+    return "material-icon-theme/java.svg";
+  }
+  if (lower_id.find("cpp") != std::string::npos ||
+      lower_name.find("clangd") != std::string::npos) {
     return "material-icon-theme/cpp.svg";
   }
-  if (lower_id.find("cmake") != std::string::npos || lower_name.find("cmake") != std::string::npos) {
+  if (lower_id.find("cmake") != std::string::npos ||
+      lower_name.find("cmake") != std::string::npos) {
     return "material-icon-theme/cmake.svg";
   }
-  if (lower_id.find("go") != std::string::npos || lower_name.find("go") != std::string::npos) {
+  if (lower_id.find("go") != std::string::npos ||
+      lower_name.find("go") != std::string::npos) {
     return "material-icon-theme/go.svg";
   }
-  if (lower_id.find("python") != std::string::npos || lower_name.find("py") != std::string::npos) {
+  if (lower_id.find("python") != std::string::npos ||
+      lower_name.find("py") != std::string::npos) {
     return "material-icon-theme/python.svg";
   }
-  if (lower_id.find("ruby") != std::string::npos || lower_name.find("ruby") != std::string::npos) {
+  if (lower_id.find("ruby") != std::string::npos ||
+      lower_name.find("ruby") != std::string::npos) {
     return "material-icon-theme/ruby.svg";
   }
-  if (lower_id.find("rust") != std::string::npos || lower_name.find("rust") != std::string::npos) {
+  if (lower_id.find("rust") != std::string::npos ||
+      lower_name.find("rust") != std::string::npos) {
     return "material-icon-theme/rust.svg";
   }
-  if (lower_id.find("markdown") != std::string::npos || lower_name.find("markdown") != std::string::npos) {
+  if (lower_id.find("markdown") != std::string::npos ||
+      lower_name.find("markdown") != std::string::npos) {
     return "material-icon-theme/markdownlint.svg";
   }
-  if (lower_id.find("history") != std::string::npos || lower_name.find("history") != std::string::npos) {
+  if (lower_id.find("history") != std::string::npos ||
+      lower_name.find("history") != std::string::npos) {
     return "material-icon-theme/git.svg";
   }
-  if (lower_id.find("git") != std::string::npos || lower_name.find("git") != std::string::npos) {
+  if (lower_id.find("git") != std::string::npos ||
+      lower_name.find("git") != std::string::npos) {
     return "Assets/icons/git-branch.svg";
   }
-  if (lower_id.find("docker") != std::string::npos || lower_name.find("docker") != std::string::npos) {
+  if (lower_id.find("docker") != std::string::npos ||
+      lower_name.find("docker") != std::string::npos) {
     return "material-icon-theme/docker.svg";
   }
   return "Assets/icons/puzzle.svg";
@@ -159,7 +346,8 @@ bool ToolSidebar::handle_char(char32_t codepoint) {
     m_search_model.insert_char(codepoint);
     return true;
   }
-  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Services && m_ext_search_focused) {
+  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Services &&
+      m_ext_search_focused) {
     if (codepoint >= 0x20 && codepoint <= 0x7E) {
       m_ext_search_query.push_back(static_cast<char>(codepoint));
       m_ext_scroll_y = 0.0F;
@@ -170,7 +358,8 @@ bool ToolSidebar::handle_char(char32_t codepoint) {
 }
 
 bool ToolSidebar::handle_key(int vkey, bool ctrl, bool shift, bool alt) {
-  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Services && m_ext_search_focused) {
+  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Services &&
+      m_ext_search_focused) {
     if (vkey == VK_BACK) {
       if (!m_ext_search_query.empty()) {
         m_ext_search_query.pop_back();
@@ -192,12 +381,13 @@ bool ToolSidebar::handle_key(int vkey, bool ctrl, bool shift, bool alt) {
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
     // Ctrl+C (Copy File/Folder or Multi-Selection)
     if (ctrl && !shift && !alt && (vkey == 'C' || vkey == 'c')) {
-      const auto& selected = m_model.get_selected_paths();
+      const auto &selected = m_model.get_selected_paths();
       if (!selected.empty()) {
         m_model.copy_selected_to_clipboard();
         std::wstring all_paths_w;
-        for (const auto& p : selected) {
-          if (!all_paths_w.empty()) all_paths_w += L"\r\n";
+        for (const auto &p : selected) {
+          if (!all_paths_w.empty())
+            all_paths_w += L"\r\n";
           all_paths_w += p.wstring();
         }
         if (OpenClipboard(nullptr)) {
@@ -218,12 +408,13 @@ bool ToolSidebar::handle_key(int vkey, bool ctrl, bool shift, bool alt) {
 
     // Ctrl+X (Cut File/Folder or Multi-Selection)
     if (ctrl && !shift && !alt && (vkey == 'X' || vkey == 'x')) {
-      const auto& selected = m_model.get_selected_paths();
+      const auto &selected = m_model.get_selected_paths();
       if (!selected.empty()) {
         m_model.cut_selected_to_clipboard();
         std::wstring all_paths_w;
-        for (const auto& p : selected) {
-          if (!all_paths_w.empty()) all_paths_w += L"\r\n";
+        for (const auto &p : selected) {
+          if (!all_paths_w.empty())
+            all_paths_w += L"\r\n";
           all_paths_w += p.wstring();
         }
         if (OpenClipboard(nullptr)) {
@@ -293,9 +484,11 @@ bool ToolSidebar::handle_key(int vkey, bool ctrl, bool shift, bool alt) {
     const std::string sel = m_search_model.get_selected_text();
     if (!sel.empty() && OpenClipboard(nullptr)) {
       EmptyClipboard();
-      const int wsize = MultiByteToWideChar(CP_UTF8, 0, sel.c_str(), -1, NULL, 0);
+      const int wsize =
+          MultiByteToWideChar(CP_UTF8, 0, sel.c_str(), -1, NULL, 0);
       if (wsize > 0) {
-        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, static_cast<SIZE_T>(wsize) * sizeof(wchar_t));
+        HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, static_cast<SIZE_T>(wsize) *
+                                                      sizeof(wchar_t));
         if (hMem) {
           wchar_t *pMem = static_cast<wchar_t *>(GlobalLock(hMem));
           if (pMem) {
@@ -316,9 +509,11 @@ bool ToolSidebar::handle_key(int vkey, bool ctrl, bool shift, bool alt) {
     if (!sel.empty()) {
       if (OpenClipboard(nullptr)) {
         EmptyClipboard();
-        const int wsize = MultiByteToWideChar(CP_UTF8, 0, sel.c_str(), -1, NULL, 0);
+        const int wsize =
+            MultiByteToWideChar(CP_UTF8, 0, sel.c_str(), -1, NULL, 0);
         if (wsize > 0) {
-          HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, static_cast<SIZE_T>(wsize) * sizeof(wchar_t));
+          HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, static_cast<SIZE_T>(wsize) *
+                                                        sizeof(wchar_t));
           if (hMem) {
             wchar_t *pMem = static_cast<wchar_t *>(GlobalLock(hMem));
             if (pMem) {
@@ -342,10 +537,12 @@ bool ToolSidebar::handle_key(int vkey, bool ctrl, bool shift, bool alt) {
       if (hData) {
         const wchar_t *pText = static_cast<const wchar_t *>(GlobalLock(hData));
         if (pText) {
-          int size_needed = WideCharToMultiByte(CP_UTF8, 0, pText, -1, NULL, 0, NULL, NULL);
+          int size_needed =
+              WideCharToMultiByte(CP_UTF8, 0, pText, -1, NULL, 0, NULL, NULL);
           if (size_needed > 1) {
             std::string utf8_str(size_needed - 1, 0);
-            WideCharToMultiByte(CP_UTF8, 0, pText, -1, &utf8_str[0], size_needed, NULL, NULL);
+            WideCharToMultiByte(CP_UTF8, 0, pText, -1, &utf8_str[0],
+                                size_needed, NULL, NULL);
             m_search_model.insert_text(utf8_str);
           }
           GlobalUnlock(hData);
@@ -389,7 +586,8 @@ bool ToolSidebar::handle_key(int vkey, bool ctrl, bool shift, bool alt) {
     return true;
   }
   if (vkey == VK_RETURN) {
-    if (m_search_model.get_focused_input() == UI::Editor::SearchInputFocus::Replace) {
+    if (m_search_model.get_focused_input() ==
+        UI::Editor::SearchInputFocus::Replace) {
       if (ctrl || alt) {
         m_search_model.replace_all();
       }
@@ -400,7 +598,8 @@ bool ToolSidebar::handle_key(int vkey, bool ctrl, bool shift, bool alt) {
   }
   if (vkey == VK_TAB) {
     if (m_search_model.is_replace_expanded()) {
-      if (m_search_model.get_focused_input() == UI::Editor::SearchInputFocus::Search) {
+      if (m_search_model.get_focused_input() ==
+          UI::Editor::SearchInputFocus::Search) {
         m_search_model.set_focused_input(UI::Editor::SearchInputFocus::Replace);
       } else {
         m_search_model.set_focused_input(UI::Editor::SearchInputFocus::Search);
@@ -417,34 +616,41 @@ bool ToolSidebar::is_search_focused() const noexcept {
     return m_ext_search_focused;
   }
   return m_model.get_active_icon() == UI::Editor::SidebarIcon::Search &&
-         m_search_model.get_focused_input() != UI::Editor::SearchInputFocus::None;
+         m_search_model.get_focused_input() !=
+             UI::Editor::SearchInputFocus::None;
 }
 
-float ToolSidebar::search_tree_top_y(const UI::Editor::StudioEditorLayoutResult& layout) const noexcept {
+float ToolSidebar::search_tree_top_y(
+    const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
   const float header_h = header_height * scale;
   const float input_h = 28.0F * scale;
-  const float replace_h = m_search_model.is_replace_expanded() ? 32.0F * scale : 0.0F;
+  const float replace_h =
+      m_search_model.is_replace_expanded() ? 32.0F * scale : 0.0F;
   const float summary_h = 24.0F * scale;
-  return layout.tool_sidebar_bounds.y + header_h + 8.0F * scale + input_h + replace_h + summary_h;
+  return layout.tool_sidebar_bounds.y + header_h + 8.0F * scale + input_h +
+         replace_h + summary_h;
 }
 
-std::size_t ToolSidebar::search_viewport_row_count(const UI::Editor::StudioEditorLayoutResult& layout) const noexcept {
+std::size_t ToolSidebar::search_viewport_row_count(
+    const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float top = search_tree_top_y(layout);
   const float available = layout.tool_sidebar_bounds.bottom() - top;
-  if (available <= 0.0F) return 0;
+  if (available <= 0.0F)
+    return 0;
   return static_cast<std::size_t>(available / (row_height * layout.dpi_scale));
 }
 
 std::optional<std::size_t> ToolSidebar::search_row_from_point(
-    const UI::Editor::StudioEditorLayoutResult& layout,
+    const UI::Editor::StudioEditorLayoutResult &layout,
     float point_y) const noexcept {
   const float top = search_tree_top_y(layout);
   if (point_y < top || point_y >= layout.tool_sidebar_bounds.bottom()) {
     return std::nullopt;
   }
   const float scale = layout.dpi_scale;
-  const auto idx = static_cast<std::size_t>((point_y - top) / (row_height * scale));
+  const auto idx =
+      static_cast<std::size_t>((point_y - top) / (row_height * scale));
   const auto visible_rows = m_search_model.get_visible_rows();
   const std::size_t actual_idx = m_search_model.get_scroll_offset() + idx;
   if (actual_idx < visible_rows.size()) {
@@ -454,31 +660,24 @@ std::optional<std::size_t> ToolSidebar::search_row_from_point(
 }
 
 UI::Rect ToolSidebar::search_scrollbar_bounds(
-    const UI::Editor::StudioEditorLayoutResult& layout) const noexcept {
+    const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
   const float top = search_tree_top_y(layout);
   const float width = 8.0F * scale;
-  return UI::Rect{
-      layout.tool_sidebar_bounds.right() - width,
-      top,
-      width,
-      std::max(layout.tool_sidebar_bounds.bottom() - top, 0.0F)
-  };
+  return UI::Rect{layout.tool_sidebar_bounds.right() - width, top, width,
+                  std::max(layout.tool_sidebar_bounds.bottom() - top, 0.0F)};
 }
 
 UI::Rect ToolSidebar::extensions_scrollbar_bounds(
-    const UI::Editor::StudioEditorLayoutResult& layout) const noexcept {
+    const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
-  const float search_top = layout.tool_sidebar_bounds.y + header_height * scale + 8.0F * scale;
+  const float search_top =
+      layout.tool_sidebar_bounds.y + header_height * scale + 8.0F * scale;
   const float search_height = 26.0F * scale;
   const float top = search_top + search_height + 8.0F * scale;
   const float width = 8.0F * scale;
-  return UI::Rect{
-      layout.tool_sidebar_bounds.right() - width,
-      top,
-      width,
-      std::max(layout.tool_sidebar_bounds.bottom() - top, 0.0F)
-  };
+  return UI::Rect{layout.tool_sidebar_bounds.right() - width, top, width,
+                  std::max(layout.tool_sidebar_bounds.bottom() - top, 0.0F)};
 }
 
 SidebarPressResult ToolSidebar::handle_search_press(
@@ -492,19 +691,25 @@ SidebarPressResult ToolSidebar::handle_search_press(
   const float header_center_y = top + header_height * 0.5F * scale;
   const float btn_size = 20.0F * scale;
 
-  const UI::Rect collapse_btn{panel.right() - 24.0F * scale - btn_size * 2.0F, header_center_y - btn_size * 0.5F, btn_size, btn_size};
+  const UI::Rect collapse_btn{panel.right() - 24.0F * scale - btn_size * 2.0F,
+                              header_center_y - btn_size * 0.5F, btn_size,
+                              btn_size};
   if (collapse_btn.contains(point_x, point_y)) {
     m_search_model.collapse_all();
     return SidebarPressResult{.handled = true};
   }
 
-  const UI::Rect clear_btn{panel.right() - 22.0F * scale - btn_size, header_center_y - btn_size * 0.5F, btn_size, btn_size};
+  const UI::Rect clear_btn{panel.right() - 22.0F * scale - btn_size,
+                           header_center_y - btn_size * 0.5F, btn_size,
+                           btn_size};
   if (clear_btn.contains(point_x, point_y)) {
     m_search_model.clear_query();
     return SidebarPressResult{.handled = true};
   }
 
-  const UI::Rect refresh_btn{panel.right() - 20.0F * scale, header_center_y - btn_size * 0.5F, btn_size, btn_size};
+  const UI::Rect refresh_btn{panel.right() - 20.0F * scale,
+                             header_center_y - btn_size * 0.5F, btn_size,
+                             btn_size};
   if (refresh_btn.contains(point_x, point_y)) {
     m_search_model.execute_search();
     return SidebarPressResult{.handled = true};
@@ -512,37 +717,38 @@ SidebarPressResult ToolSidebar::handle_search_press(
 
   // Replace Chevron Expand/Collapse Toggle
   const float input_top = top + header_height * scale + 8.0F * scale;
-  const UI::Rect chevron_btn{panel.x + 8.0F * scale, input_top + 4.0F * scale, 16.0F * scale, 20.0F * scale};
+  const UI::Rect chevron_btn{panel.x + 8.0F * scale, input_top + 4.0F * scale,
+                             16.0F * scale, 20.0F * scale};
   if (chevron_btn.contains(point_x, point_y)) {
     m_search_model.toggle_replace_expanded();
     return SidebarPressResult{.handled = true};
   }
 
   // Search Input Box & Toggles
-  const UI::Rect search_bounds{
-      panel.x + 28.0F * scale,
-      input_top,
-      std::max(panel.width - 36.0F * scale, 0.0F),
-      26.0F * scale
-  };
+  const UI::Rect search_bounds{panel.x + 28.0F * scale, input_top,
+                               std::max(panel.width - 36.0F * scale, 0.0F),
+                               26.0F * scale};
 
   const float opt_btn_w = 20.0F * scale;
   const float opt_btn_h = 20.0F * scale;
   const float opt_btn_y = input_top + 3.0F * scale;
 
-  const UI::Rect regex_btn{search_bounds.right() - 22.0F * scale, opt_btn_y, opt_btn_w, opt_btn_h};
+  const UI::Rect regex_btn{search_bounds.right() - 22.0F * scale, opt_btn_y,
+                           opt_btn_w, opt_btn_h};
   if (regex_btn.contains(point_x, point_y)) {
     m_search_model.toggle_use_regex();
     return SidebarPressResult{.handled = true};
   }
 
-  const UI::Rect word_btn{search_bounds.right() - 44.0F * scale, opt_btn_y, opt_btn_w, opt_btn_h};
+  const UI::Rect word_btn{search_bounds.right() - 44.0F * scale, opt_btn_y,
+                          opt_btn_w, opt_btn_h};
   if (word_btn.contains(point_x, point_y)) {
     m_search_model.toggle_match_word();
     return SidebarPressResult{.handled = true};
   }
 
-  const UI::Rect case_btn{search_bounds.right() - 66.0F * scale, opt_btn_y, opt_btn_w, opt_btn_h};
+  const UI::Rect case_btn{search_bounds.right() - 66.0F * scale, opt_btn_y,
+                          opt_btn_w, opt_btn_h};
   if (case_btn.contains(point_x, point_y)) {
     m_search_model.toggle_match_case();
     return SidebarPressResult{.handled = true};
@@ -559,7 +765,8 @@ SidebarPressResult ToolSidebar::handle_search_press(
       const float char_w = 7.2F * scale;
       std::size_t idx = 0;
       if (point_x > text_x) {
-        idx = static_cast<std::size_t>((point_x - text_x + char_w * 0.5F) / char_w);
+        idx = static_cast<std::size_t>((point_x - text_x + char_w * 0.5F) /
+                                       char_w);
         idx = std::min(idx, q.size());
       }
       m_search_model.set_caret_and_selection(idx, idx, idx);
@@ -572,20 +779,21 @@ SidebarPressResult ToolSidebar::handle_search_press(
   // Replace Input Box & Toggles
   if (m_search_model.is_replace_expanded()) {
     const float replace_top = input_top + 30.0F * scale;
-    const UI::Rect replace_bounds{
-        panel.x + 28.0F * scale,
-        replace_top,
-        std::max(panel.width - 64.0F * scale, 0.0F),
-        26.0F * scale
-    };
+    const UI::Rect replace_bounds{panel.x + 28.0F * scale, replace_top,
+                                  std::max(panel.width - 64.0F * scale, 0.0F),
+                                  26.0F * scale};
 
-    const UI::Rect preserve_case_btn{replace_bounds.right() - 22.0F * scale, replace_top + 3.0F * scale, opt_btn_w, opt_btn_h};
+    const UI::Rect preserve_case_btn{replace_bounds.right() - 22.0F * scale,
+                                     replace_top + 3.0F * scale, opt_btn_w,
+                                     opt_btn_h};
     if (preserve_case_btn.contains(point_x, point_y)) {
       m_search_model.toggle_preserve_case();
       return SidebarPressResult{.handled = true};
     }
 
-    const UI::Rect replace_all_btn{panel.right() - 32.0F * scale, replace_top + 2.0F * scale, 22.0F * scale, 22.0F * scale};
+    const UI::Rect replace_all_btn{panel.right() - 32.0F * scale,
+                                   replace_top + 2.0F * scale, 22.0F * scale,
+                                   22.0F * scale};
     if (replace_all_btn.contains(point_x, point_y)) {
       m_search_model.replace_all();
       return SidebarPressResult{.handled = true};
@@ -602,7 +810,8 @@ SidebarPressResult ToolSidebar::handle_search_press(
         const float char_w = 7.2F * scale;
         std::size_t idx = 0;
         if (point_x > text_x) {
-          idx = static_cast<std::size_t>((point_x - text_x + char_w * 0.5F) / char_w);
+          idx = static_cast<std::size_t>((point_x - text_x + char_w * 0.5F) /
+                                         char_w);
           idx = std::min(idx, q.size());
         }
         m_search_model.set_caret_and_selection(idx, idx, idx);
@@ -618,7 +827,8 @@ SidebarPressResult ToolSidebar::handle_search_press(
   const std::size_t search_rows = search_viewport_row_count(layout);
   m_search_scrollbar.set_track_bounds(search_scrollbar_bounds(layout));
   m_search_scrollbar.set_metrics(visible_rows.size(), search_rows);
-  static_cast<void>(m_search_scrollbar.scroll_to(m_search_model.get_scroll_offset()));
+  static_cast<void>(
+      m_search_scrollbar.scroll_to(m_search_model.get_scroll_offset()));
   if (m_search_scrollbar.handle_pointer_press(point_x, point_y)) {
     m_search_model.set_scroll_offset(m_search_scrollbar.get_scroll_offset());
     return SidebarPressResult{.handled = true};
@@ -629,13 +839,11 @@ SidebarPressResult ToolSidebar::handle_search_press(
   if (row) {
     const auto nav = m_search_model.activate_visible_row(*row);
     if (nav) {
-      return SidebarPressResult{
-          .handled = true,
-          .action = SidebarActionKind::OpenFile,
-          .path = nav->path,
-          .line = nav->line,
-          .column = nav->column
-      };
+      return SidebarPressResult{.handled = true,
+                                .action = SidebarActionKind::OpenFile,
+                                .path = nav->path,
+                                .line = nav->line,
+                                .column = nav->column};
     }
     return SidebarPressResult{.handled = true};
   }
@@ -653,27 +861,55 @@ bool ToolSidebar::handle_search_move(
   const float header_center_y = top + header_height * 0.5F * scale;
   const float btn_size = 20.0F * scale;
 
-  m_hover_search_collapse_all = UI::Rect{panel.right() - 24.0F * scale - btn_size * 2.0F, header_center_y - btn_size * 0.5F, btn_size, btn_size}.contains(point_x, point_y);
-  m_hover_search_clear = UI::Rect{panel.right() - 22.0F * scale - btn_size, header_center_y - btn_size * 0.5F, btn_size, btn_size}.contains(point_x, point_y);
-  m_hover_search_refresh = UI::Rect{panel.right() - 20.0F * scale, header_center_y - btn_size * 0.5F, btn_size, btn_size}.contains(point_x, point_y);
+  m_hover_search_collapse_all =
+      UI::Rect{panel.right() - 24.0F * scale - btn_size * 2.0F,
+               header_center_y - btn_size * 0.5F, btn_size, btn_size}
+          .contains(point_x, point_y);
+  m_hover_search_clear =
+      UI::Rect{panel.right() - 22.0F * scale - btn_size,
+               header_center_y - btn_size * 0.5F, btn_size, btn_size}
+          .contains(point_x, point_y);
+  m_hover_search_refresh =
+      UI::Rect{panel.right() - 20.0F * scale, header_center_y - btn_size * 0.5F,
+               btn_size, btn_size}
+          .contains(point_x, point_y);
 
   const float input_top = top + header_height * scale + 8.0F * scale;
-  m_hover_search_chevron = UI::Rect{panel.x + 8.0F * scale, input_top + 4.0F * scale, 16.0F * scale, 20.0F * scale}.contains(point_x, point_y);
+  m_hover_search_chevron =
+      UI::Rect{panel.x + 8.0F * scale, input_top + 4.0F * scale, 16.0F * scale,
+               20.0F * scale}
+          .contains(point_x, point_y);
 
-  const UI::Rect search_bounds{panel.x + 28.0F * scale, input_top, std::max(panel.width - 36.0F * scale, 0.0F), 26.0F * scale};
+  const UI::Rect search_bounds{panel.x + 28.0F * scale, input_top,
+                               std::max(panel.width - 36.0F * scale, 0.0F),
+                               26.0F * scale};
   const float opt_btn_w = 20.0F * scale;
   const float opt_btn_h = 20.0F * scale;
   const float opt_btn_y = input_top + 3.0F * scale;
 
-  m_hover_search_use_regex = UI::Rect{search_bounds.right() - 22.0F * scale, opt_btn_y, opt_btn_w, opt_btn_h}.contains(point_x, point_y);
-  m_hover_search_match_word = UI::Rect{search_bounds.right() - 44.0F * scale, opt_btn_y, opt_btn_w, opt_btn_h}.contains(point_x, point_y);
-  m_hover_search_match_case = UI::Rect{search_bounds.right() - 66.0F * scale, opt_btn_y, opt_btn_w, opt_btn_h}.contains(point_x, point_y);
+  m_hover_search_use_regex = UI::Rect{search_bounds.right() - 22.0F * scale,
+                                      opt_btn_y, opt_btn_w, opt_btn_h}
+                                 .contains(point_x, point_y);
+  m_hover_search_match_word = UI::Rect{search_bounds.right() - 44.0F * scale,
+                                       opt_btn_y, opt_btn_w, opt_btn_h}
+                                  .contains(point_x, point_y);
+  m_hover_search_match_case = UI::Rect{search_bounds.right() - 66.0F * scale,
+                                       opt_btn_y, opt_btn_w, opt_btn_h}
+                                  .contains(point_x, point_y);
 
   if (m_search_model.is_replace_expanded()) {
     const float replace_top = input_top + 30.0F * scale;
-    const UI::Rect replace_bounds{panel.x + 28.0F * scale, replace_top, std::max(panel.width - 64.0F * scale, 0.0F), 26.0F * scale};
-    m_hover_search_preserve_case = UI::Rect{replace_bounds.right() - 22.0F * scale, replace_top + 3.0F * scale, opt_btn_w, opt_btn_h}.contains(point_x, point_y);
-    m_hover_search_replace_all = UI::Rect{panel.right() - 32.0F * scale, replace_top + 2.0F * scale, 22.0F * scale, 22.0F * scale}.contains(point_x, point_y);
+    const UI::Rect replace_bounds{panel.x + 28.0F * scale, replace_top,
+                                  std::max(panel.width - 64.0F * scale, 0.0F),
+                                  26.0F * scale};
+    m_hover_search_preserve_case =
+        UI::Rect{replace_bounds.right() - 22.0F * scale,
+                 replace_top + 3.0F * scale, opt_btn_w, opt_btn_h}
+            .contains(point_x, point_y);
+    m_hover_search_replace_all =
+        UI::Rect{panel.right() - 32.0F * scale, replace_top + 2.0F * scale,
+                 22.0F * scale, 22.0F * scale}
+            .contains(point_x, point_y);
   } else {
     m_hover_search_preserve_case = false;
     m_hover_search_replace_all = false;
@@ -681,8 +917,10 @@ bool ToolSidebar::handle_search_move(
 
   const auto prev_search_row = m_hovered_search_row;
   m_hovered_search_row = search_row_from_point(layout, point_y);
-  m_hovered_search_scrollbar = search_scrollbar_bounds(layout).contains(point_x, point_y) &&
-                               m_search_model.get_visible_rows().size() > search_viewport_row_count(layout);
+  m_hovered_search_scrollbar =
+      search_scrollbar_bounds(layout).contains(point_x, point_y) &&
+      m_search_model.get_visible_rows().size() >
+          search_viewport_row_count(layout);
 
   return prev_search_row != m_hovered_search_row;
 }
@@ -697,24 +935,26 @@ bool ToolSidebar::handle_extensions_scroll(
   const float content_top = search_top + search_height + 8.0F * scale;
   const float viewport_h = std::max(panel.bottom() - content_top, 0.0F);
 
-  auto& pm = Zenvra::Plugins::PluginManager::instance();
+  auto &pm = Zenvra::Plugins::PluginManager::instance();
   std::size_t inst_count = pm.get_all_plugins().size();
   std::size_t rec_count = pm.get_marketplace().get_all_entries().size();
 
   if (!m_ext_search_query.empty()) {
     const std::string q = to_lower(m_ext_search_query);
     inst_count = 0;
-    for (const auto& p : pm.get_all_plugins()) {
+    for (const auto &p : pm.get_all_plugins()) {
       if (to_lower(p->get_name()).find(q) != std::string::npos ||
           to_lower(p->get_id()).find(q) != std::string::npos ||
           to_lower(p->get_description()).find(q) != std::string::npos ||
-          to_lower(p->get_manifest().get_publisher()).find(q) != std::string::npos) {
+          to_lower(p->get_manifest().get_publisher()).find(q) !=
+              std::string::npos) {
         ++inst_count;
       }
     }
     rec_count = 0;
-    for (const auto& e : pm.get_marketplace().get_all_entries()) {
-      if (pm.get_registry().has_plugin(e.id)) continue;
+    for (const auto &e : pm.get_marketplace().get_all_entries()) {
+      if (pm.get_registry().has_plugin(e.id))
+        continue;
       if (to_lower(e.name).find(q) != std::string::npos ||
           to_lower(e.id).find(q) != std::string::npos ||
           to_lower(e.description).find(q) != std::string::npos ||
@@ -735,7 +975,9 @@ bool ToolSidebar::handle_extensions_scroll(
 
   const float max_scroll = std::max(total_h - viewport_h, 0.0F);
   const float prev_scroll = m_ext_scroll_y;
-  m_ext_scroll_y = std::clamp(m_ext_scroll_y + static_cast<float>(line_delta) * 36.0F * scale, 0.0F, max_scroll);
+  m_ext_scroll_y = std::clamp(m_ext_scroll_y + static_cast<float>(line_delta) *
+                                                   36.0F * scale,
+                              0.0F, max_scroll);
   return m_ext_scroll_y != prev_scroll;
 }
 
@@ -749,22 +991,34 @@ bool ToolSidebar::handle_extensions_move(
   const float header_center_y = top + header_height * 0.5F * scale;
   const float btn_size = 18.0F * scale;
 
-  const UI::Rect refresh_rect{panel.right() - 44.0F * scale - btn_size * 0.5F, header_center_y - btn_size * 0.5F, btn_size, btn_size};
-  const UI::Rect ellipsis_rect{panel.right() - 22.0F * scale - btn_size * 0.5F, header_center_y - btn_size * 0.5F, btn_size, btn_size};
+  const UI::Rect refresh_rect{panel.right() - 44.0F * scale - btn_size * 0.5F,
+                              header_center_y - btn_size * 0.5F, btn_size,
+                              btn_size};
+  const UI::Rect ellipsis_rect{panel.right() - 22.0F * scale - btn_size * 0.5F,
+                               header_center_y - btn_size * 0.5F, btn_size,
+                               btn_size};
 
   const bool next_refresh = refresh_rect.contains(point_x, point_y);
   const bool next_more = ellipsis_rect.contains(point_x, point_y);
 
   const float search_top = top + header_height * scale + 8.0F * scale;
   const float search_height = 26.0F * scale;
-  const UI::Rect search_bounds{panel.x + 12.0F * scale, search_top, std::max(panel.width - 24.0F * scale, 0.0F), search_height};
-  const UI::Rect clear_rect{search_bounds.right() - 36.0F * scale, search_top + 3.0F * scale, 18.0F * scale, 20.0F * scale};
-  const UI::Rect filter_rect{search_bounds.right() - 18.0F * scale, search_top + 3.0F * scale, 18.0F * scale, 20.0F * scale};
+  const UI::Rect search_bounds{panel.x + 12.0F * scale, search_top,
+                               std::max(panel.width - 24.0F * scale, 0.0F),
+                               search_height};
+  const UI::Rect clear_rect{search_bounds.right() - 36.0F * scale,
+                            search_top + 3.0F * scale, 18.0F * scale,
+                            20.0F * scale};
+  const UI::Rect filter_rect{search_bounds.right() - 18.0F * scale,
+                             search_top + 3.0F * scale, 18.0F * scale,
+                             20.0F * scale};
 
-  const bool next_clear = !m_ext_search_query.empty() && clear_rect.contains(point_x, point_y);
+  const bool next_clear =
+      !m_ext_search_query.empty() && clear_rect.contains(point_x, point_y);
   const bool next_filter = filter_rect.contains(point_x, point_y);
 
-  const bool next_scrollbar = extensions_scrollbar_bounds(layout).contains(point_x, point_y);
+  const bool next_scrollbar =
+      extensions_scrollbar_bounds(layout).contains(point_x, point_y);
 
   const float content_top = search_top + search_height + 8.0F * scale;
 
@@ -776,18 +1030,22 @@ bool ToolSidebar::handle_extensions_move(
   bool next_inst_hdr = false;
   bool next_rec_hdr = false;
 
-  if (point_y >= content_top && point_y <= panel.bottom() && point_x >= panel.x && point_x <= panel.right()) {
+  if (point_y >= content_top && point_y <= panel.bottom() &&
+      point_x >= panel.x && point_x <= panel.right()) {
     float cur_y = content_top - m_ext_scroll_y;
     const float header_h = 24.0F * scale;
 
-    auto& pm = Zenvra::Plugins::PluginManager::instance();
+    auto &pm = Zenvra::Plugins::PluginManager::instance();
     std::vector<std::shared_ptr<Zenvra::Plugins::Plugin>> matching_installed;
-    for (const auto& p : pm.get_all_plugins()) {
-      if (!p) continue;
+    for (const auto &p : pm.get_all_plugins()) {
+      if (!p)
+        continue;
       std::error_code ec;
-      if (!std::filesystem::exists(p->get_install_path(), ec)) continue;
+      if (!std::filesystem::exists(p->get_install_path(), ec))
+        continue;
       if (!std::filesystem::exists(p->get_install_path() / "plugin.json", ec) &&
-          !std::filesystem::exists(p->get_install_path() / "package.json", ec)) continue;
+          !std::filesystem::exists(p->get_install_path() / "package.json", ec))
+        continue;
 
       if (m_ext_search_query.empty()) {
         matching_installed.push_back(p);
@@ -796,8 +1054,10 @@ bool ToolSidebar::handle_extensions_move(
         if (to_lower(p->get_name()).find(q) != std::string::npos ||
             to_lower(p->get_id()).find(q) != std::string::npos ||
             to_lower(p->get_description()).find(q) != std::string::npos ||
-            to_lower(p->get_manifest().get_publisher()).find(q) != std::string::npos ||
-            to_lower(p->get_manifest().get_category()).find(q) != std::string::npos) {
+            to_lower(p->get_manifest().get_publisher()).find(q) !=
+                std::string::npos ||
+            to_lower(p->get_manifest().get_category()).find(q) !=
+                std::string::npos) {
           matching_installed.push_back(p);
         }
       }
@@ -821,11 +1081,15 @@ bool ToolSidebar::handle_extensions_move(
               next_inst_idx = i;
               const float uninst_btn_w = 64.0F * scale;
               const float uninst_btn_h = 22.0F * scale;
-              const UI::Rect uninst_btn_rect{panel.right() - uninst_btn_w - 38.0F * scale, cur_y + 18.0F * scale, uninst_btn_w, uninst_btn_h};
+              const UI::Rect uninst_btn_rect{
+                  panel.right() - uninst_btn_w - 38.0F * scale,
+                  cur_y + 18.0F * scale, uninst_btn_w, uninst_btn_h};
               if (uninst_btn_rect.contains(point_x, point_y)) {
                 next_uninstall_idx = i;
               }
-              const UI::Rect gear_rect{panel.right() - 32.0F * scale, cur_y + 18.0F * scale, 22.0F * scale, 22.0F * scale};
+              const UI::Rect gear_rect{panel.right() - 32.0F * scale,
+                                       cur_y + 18.0F * scale, 22.0F * scale,
+                                       22.0F * scale};
               if (gear_rect.contains(point_x, point_y)) {
                 next_gear_idx = i;
               }
@@ -836,8 +1100,9 @@ bool ToolSidebar::handle_extensions_move(
       }
     }
 
-    std::vector<Zenvra::Plugins::Marketplace::MarketplacePluginEntry> matching_recommended;
-    for (const auto& e : pm.get_marketplace().get_all_entries()) {
+    std::vector<Zenvra::Plugins::Marketplace::MarketplacePluginEntry>
+        matching_recommended;
+    for (const auto &e : pm.get_marketplace().get_all_entries()) {
       if (pm.get_registry().has_plugin(e.id)) {
         auto p = pm.get_registry().get_plugin(e.id);
         std::error_code ec;
@@ -849,7 +1114,14 @@ bool ToolSidebar::handle_extensions_move(
         matching_recommended.push_back(e);
       } else {
         const std::string q = to_lower(m_ext_search_query);
-        if (to_lower(e.name).find(q) != std::string::npos ||
+        bool tag_matched = false;
+        for (const auto &tag : e.tags) {
+          if (to_lower(tag).find(q) != std::string::npos) {
+            tag_matched = true;
+            break;
+          }
+        }
+        if (tag_matched || to_lower(e.name).find(q) != std::string::npos ||
             to_lower(e.id).find(q) != std::string::npos ||
             to_lower(e.description).find(q) != std::string::npos ||
             to_lower(e.publisher).find(q) != std::string::npos ||
@@ -874,7 +1146,8 @@ bool ToolSidebar::handle_extensions_move(
             next_rec_idx = j;
             const float btn_w = 56.0F * scale;
             const float btn_h = 22.0F * scale;
-            const UI::Rect btn_rect{panel.right() - btn_w - 12.0F * scale, cur_y + 36.0F * scale, btn_w, btn_h};
+            const UI::Rect btn_rect{panel.right() - btn_w - 12.0F * scale,
+                                    cur_y + 36.0F * scale, btn_w, btn_h};
             if (btn_rect.contains(point_x, point_y)) {
               next_install_idx = j;
             }
@@ -915,8 +1188,8 @@ bool ToolSidebar::handle_extensions_move(
 }
 
 SidebarPressResult ToolSidebar::handle_extensions_press(
-    const UI::Editor::StudioEditorLayoutResult &layout,
-    float point_x, float point_y) {
+    const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
+    float point_y) {
   const float scale = layout.dpi_scale;
   const UI::Rect panel = layout.tool_sidebar_bounds;
   const float top = panel.y;
@@ -925,14 +1198,18 @@ SidebarPressResult ToolSidebar::handle_extensions_press(
   const float btn_size = 18.0F * scale;
 
   // Refresh
-  const UI::Rect refresh_rect{panel.right() - 44.0F * scale - btn_size * 0.5F, header_center_y - btn_size * 0.5F, btn_size, btn_size};
+  const UI::Rect refresh_rect{panel.right() - 44.0F * scale - btn_size * 0.5F,
+                              header_center_y - btn_size * 0.5F, btn_size,
+                              btn_size};
   if (refresh_rect.contains(point_x, point_y)) {
     Zenvra::Plugins::PluginManager::instance().scan_plugins();
     return SidebarPressResult{.handled = true};
   }
 
   // More options
-  const UI::Rect ellipsis_rect{panel.right() - 22.0F * scale - btn_size * 0.5F, header_center_y - btn_size * 0.5F, btn_size, btn_size};
+  const UI::Rect ellipsis_rect{panel.right() - 22.0F * scale - btn_size * 0.5F,
+                               header_center_y - btn_size * 0.5F, btn_size,
+                               btn_size};
   if (ellipsis_rect.contains(point_x, point_y)) {
     return SidebarPressResult{.handled = true};
   }
@@ -940,8 +1217,12 @@ SidebarPressResult ToolSidebar::handle_extensions_press(
   // Search Box
   const float search_top = top + header_height * scale + 8.0F * scale;
   const float search_height = 26.0F * scale;
-  const UI::Rect search_bounds{panel.x + 12.0F * scale, search_top, std::max(panel.width - 24.0F * scale, 0.0F), search_height};
-  const UI::Rect clear_rect{search_bounds.right() - 36.0F * scale, search_top + 3.0F * scale, 18.0F * scale, 20.0F * scale};
+  const UI::Rect search_bounds{panel.x + 12.0F * scale, search_top,
+                               std::max(panel.width - 24.0F * scale, 0.0F),
+                               search_height};
+  const UI::Rect clear_rect{search_bounds.right() - 36.0F * scale,
+                            search_top + 3.0F * scale, 18.0F * scale,
+                            20.0F * scale};
 
   if (!m_ext_search_query.empty() && clear_rect.contains(point_x, point_y)) {
     m_ext_search_query.clear();
@@ -959,25 +1240,30 @@ SidebarPressResult ToolSidebar::handle_extensions_press(
 
   // Scrollbar press
   if (m_extensions_scrollbar.handle_pointer_press(point_x, point_y)) {
-    m_ext_scroll_y = static_cast<float>(m_extensions_scrollbar.get_scroll_offset());
+    m_ext_scroll_y =
+        static_cast<float>(m_extensions_scrollbar.get_scroll_offset());
     return SidebarPressResult{.handled = true};
   }
 
   // Content interactions
   const float content_top = search_top + search_height + 8.0F * scale;
 
-  if (point_y >= content_top && point_y <= panel.bottom() && point_x >= panel.x && point_x <= panel.right()) {
+  if (point_y >= content_top && point_y <= panel.bottom() &&
+      point_x >= panel.x && point_x <= panel.right()) {
     float cur_y = content_top - m_ext_scroll_y;
     const float header_h = 24.0F * scale;
 
-    auto& pm = Zenvra::Plugins::PluginManager::instance();
+    auto &pm = Zenvra::Plugins::PluginManager::instance();
     std::vector<std::shared_ptr<Zenvra::Plugins::Plugin>> matching_installed;
-    for (const auto& p : pm.get_all_plugins()) {
-      if (!p) continue;
+    for (const auto &p : pm.get_all_plugins()) {
+      if (!p)
+        continue;
       std::error_code ec;
-      if (!std::filesystem::exists(p->get_install_path(), ec)) continue;
+      if (!std::filesystem::exists(p->get_install_path(), ec))
+        continue;
       if (!std::filesystem::exists(p->get_install_path() / "plugin.json", ec) &&
-          !std::filesystem::exists(p->get_install_path() / "package.json", ec)) continue;
+          !std::filesystem::exists(p->get_install_path() / "package.json", ec))
+        continue;
 
       if (m_ext_search_query.empty()) {
         matching_installed.push_back(p);
@@ -986,8 +1272,10 @@ SidebarPressResult ToolSidebar::handle_extensions_press(
         if (to_lower(p->get_name()).find(q) != std::string::npos ||
             to_lower(p->get_id()).find(q) != std::string::npos ||
             to_lower(p->get_description()).find(q) != std::string::npos ||
-            to_lower(p->get_manifest().get_publisher()).find(q) != std::string::npos ||
-            to_lower(p->get_manifest().get_category()).find(q) != std::string::npos) {
+            to_lower(p->get_manifest().get_publisher()).find(q) !=
+                std::string::npos ||
+            to_lower(p->get_manifest().get_category()).find(q) !=
+                std::string::npos) {
           matching_installed.push_back(p);
         }
       }
@@ -1011,13 +1299,17 @@ SidebarPressResult ToolSidebar::handle_extensions_press(
             if (item_rect.contains(point_x, point_y)) {
               const float uninst_btn_w = 64.0F * scale;
               const float uninst_btn_h = 22.0F * scale;
-              const UI::Rect uninst_btn_rect{panel.right() - uninst_btn_w - 38.0F * scale, cur_y + 18.0F * scale, uninst_btn_w, uninst_btn_h};
+              const UI::Rect uninst_btn_rect{
+                  panel.right() - uninst_btn_w - 38.0F * scale,
+                  cur_y + 18.0F * scale, uninst_btn_w, uninst_btn_h};
               if (uninst_btn_rect.contains(point_x, point_y)) {
                 auto p = matching_installed[i];
                 pm.uninstall_plugin(p->get_id());
                 return SidebarPressResult{.handled = true};
               }
-              const UI::Rect gear_rect{panel.right() - 32.0F * scale, cur_y + 18.0F * scale, 22.0F * scale, 22.0F * scale};
+              const UI::Rect gear_rect{panel.right() - 32.0F * scale,
+                                       cur_y + 18.0F * scale, 22.0F * scale,
+                                       22.0F * scale};
               if (gear_rect.contains(point_x, point_y)) {
                 auto p = matching_installed[i];
                 if (p->is_enabled()) {
@@ -1035,8 +1327,9 @@ SidebarPressResult ToolSidebar::handle_extensions_press(
       }
     }
 
-    std::vector<Zenvra::Plugins::Marketplace::MarketplacePluginEntry> matching_recommended;
-    for (const auto& e : pm.get_marketplace().get_all_entries()) {
+    std::vector<Zenvra::Plugins::Marketplace::MarketplacePluginEntry>
+        matching_recommended;
+    for (const auto &e : pm.get_marketplace().get_all_entries()) {
       if (pm.get_registry().has_plugin(e.id)) {
         auto p = pm.get_registry().get_plugin(e.id);
         std::error_code ec;
@@ -1048,7 +1341,14 @@ SidebarPressResult ToolSidebar::handle_extensions_press(
         matching_recommended.push_back(e);
       } else {
         const std::string q = to_lower(m_ext_search_query);
-        if (to_lower(e.name).find(q) != std::string::npos ||
+        bool tag_matched = false;
+        for (const auto &tag : e.tags) {
+          if (to_lower(tag).find(q) != std::string::npos) {
+            tag_matched = true;
+            break;
+          }
+        }
+        if (tag_matched || to_lower(e.name).find(q) != std::string::npos ||
             to_lower(e.id).find(q) != std::string::npos ||
             to_lower(e.description).find(q) != std::string::npos ||
             to_lower(e.publisher).find(q) != std::string::npos ||
@@ -1073,13 +1373,16 @@ SidebarPressResult ToolSidebar::handle_extensions_press(
           if (item_rect.contains(point_x, point_y)) {
             const float btn_w = 56.0F * scale;
             const float btn_h = 22.0F * scale;
-            const UI::Rect btn_rect{panel.right() - btn_w - 12.0F * scale, cur_y + 36.0F * scale, btn_w, btn_h};
+            const UI::Rect btn_rect{panel.right() - btn_w - 12.0F * scale,
+                                    cur_y + 36.0F * scale, btn_w, btn_h};
             if (btn_rect.contains(point_x, point_y)) {
               // Trigger install!
-              const auto& entry = matching_recommended[j];
-              const auto target_path = pm.get_installer()
-                  ? pm.get_installer()->get_target_path(entry.category, entry.id)
-                  : (pm.get_plugins_root() / entry.category / entry.id);
+              const auto &entry = matching_recommended[j];
+              const auto target_path =
+                  pm.get_installer()
+                      ? pm.get_installer()->get_target_path(entry.category,
+                                                            entry.id)
+                      : (pm.get_plugins_root() / entry.category / entry.id);
 
               std::error_code ec;
               std::filesystem::create_directories(target_path, ec);
@@ -1092,26 +1395,112 @@ SidebarPressResult ToolSidebar::handle_extensions_press(
               mf.set_publisher(entry.publisher);
               mf.set_category(entry.category);
 
-              // Physically write plugin.json so it exists on disk!
+              // Physically write plugin.json with explicit LSP metadata if
+              // applicable
               {
+                nlohmann::json pj = mf.to_json();
+                if (entry.category == "lsp") {
+                  std::string lang = "java";
+                  std::string exe = "jdtls";
+                  std::vector<std::string> exts = {".java", ".jav"};
+                  if (entry.id.find("clangd") != std::string::npos) {
+                    lang = "cpp";
+                    exe = "clangd";
+                    exts = {".cpp", ".c", ".h", ".hpp"};
+                  } else if (entry.id.find("rust") != std::string::npos) {
+                    lang = "rust";
+                    exe = "rust-analyzer";
+                    exts = {".rs"};
+                  } else if (entry.id.find("pyright") != std::string::npos ||
+                             entry.id.find("python") != std::string::npos) {
+                    lang = "python";
+                    exe = "pyright-langserver";
+                    exts = {".py"};
+                  } else if (entry.id.find("gopls") != std::string::npos ||
+                             entry.id.find("go") != std::string::npos) {
+                    lang = "go";
+                    exe = "gopls";
+                    exts = {".go"};
+                  } else if (entry.id.find("zls") != std::string::npos ||
+                             entry.id.find("zig") != std::string::npos) {
+                    lang = "zig";
+                    exe = "zls";
+                    exts = {".zig"};
+                  } else if (entry.id.find("lua") != std::string::npos) {
+                    lang = "lua";
+                    exe = "lua-language-server";
+                    exts = {".lua"};
+                  } else if (entry.id.find("jdt") != std::string::npos ||
+                             entry.id.find("java") != std::string::npos) {
+                    lang = "java";
+                    exe = "jdtls";
+                    exts = {".java", ".jav"};
+                  }
+                  pj["lsp"] = {{"language", lang},
+                               {"executable", exe},
+                               {"extensions", exts},
+                               {"args", nlohmann::json::array()}};
+                }
                 std::ofstream out(target_path / "plugin.json");
                 if (out.is_open()) {
-                  out << mf.to_json().dump(2);
+                  out << pj.dump(2);
                 }
               }
 
-              if (!entry.repository_url.empty()) {
+              if (entry.id == "eclipse.jdtls" || entry.id == "redhat.java") {
+                // Auto-unpack pre-built JDTLS package if available
+                std::error_code ec_jdt;
+                std::vector<std::filesystem::path> zip_sources;
+                if (const char *up = std::getenv("USERPROFILE")) {
+                  zip_sources.push_back(std::filesystem::path(up) /
+                                        "Documents" / "jdtls-win32.zip");
+                  zip_sources.push_back(std::filesystem::path(up) /
+                                        "Downloads" / "jdtls-win32.zip");
+                }
+                zip_sources.push_back(pm.get_plugins_root() / "lsp" /
+                                      "eclipse.jdtls" / "jdtls-win32.zip");
+                zip_sources.push_back(pm.get_plugins_root() / ".cache" /
+                                      "jdtls-win32.zip");
+
+                bool unpacked = false;
+                for (const auto &zsrc : zip_sources) {
+                  if (std::filesystem::exists(zsrc, ec_jdt)) {
+                    const std::string unpack_cmd = "tar -xf \"" +
+                                                   zsrc.string() + "\" -C \"" +
+                                                   target_path.string() + "\"";
+                    std::system(unpack_cmd.c_str());
+                    const auto bat_path = target_path / "bin" / "jdtls.bat";
+                    const auto cmd_path = target_path / "bin" / "jdtls.cmd";
+                    std::ofstream b_out(bat_path);
+                    if (b_out.is_open())
+                      b_out << "@echo off\npython \"%~dp0jdtls\" %*\n";
+                    std::ofstream c_out(cmd_path);
+                    if (c_out.is_open())
+                      c_out << "@echo off\npython \"%~dp0jdtls\" %*\n";
+                    unpacked = true;
+                    break;
+                  }
+                }
+                if (!unpacked && !entry.repository_url.empty()) {
+                  pm.install_from_git(entry.repository_url);
+                }
+              } else if (!entry.repository_url.empty()) {
                 pm.install_from_git(entry.repository_url);
               }
 
               auto new_p = std::make_shared<Zenvra::Plugins::Plugin>(
                   mf, target_path,
-                  entry.repository_url.empty() ? Zenvra::Plugins::PluginSource::Local : Zenvra::Plugins::PluginSource::Git);
+                  entry.repository_url.empty()
+                      ? Zenvra::Plugins::PluginSource::Local
+                      : Zenvra::Plugins::PluginSource::Git);
               new_p->set_state(Zenvra::Plugins::PluginState::Installed);
               new_p->set_enabled(true);
               pm.get_registry().register_plugin(new_p);
               pm.activate_plugin(new_p);
-              pm.get_registry().save_to_disk(pm.get_plugins_root() / ".registry" / "plugins.json");
+              Zenvra::Language::LanguageServerManager::instance()
+                  .clear_unavailable_language("java");
+              pm.get_registry().save_to_disk(pm.get_plugins_root() /
+                                             ".registry" / "plugins.json");
 
               return SidebarPressResult{.handled = true};
             }
@@ -1134,13 +1523,18 @@ bool ToolSidebar::handle_tool_plugin_move(
   const float header_center_y = panel.y + header_height * 0.5F * scale;
   const float btn_size = 18.0F * scale;
 
-  const UI::Rect switch_rect{panel.right() - 22.0F * scale - btn_size * 0.5F, header_center_y - btn_size * 0.5F, btn_size, btn_size};
-  const UI::Rect refresh_rect{panel.right() - 44.0F * scale - btn_size * 0.5F, header_center_y - btn_size * 0.5F, btn_size, btn_size};
+  const UI::Rect switch_rect{panel.right() - 22.0F * scale - btn_size * 0.5F,
+                             header_center_y - btn_size * 0.5F, btn_size,
+                             btn_size};
+  const UI::Rect refresh_rect{panel.right() - 44.0F * scale - btn_size * 0.5F,
+                              header_center_y - btn_size * 0.5F, btn_size,
+                              btn_size};
 
   const bool next_switch = switch_rect.contains(point_x, point_y);
   const bool next_refresh = refresh_rect.contains(point_x, point_y);
 
-  float cur_y = panel.y + header_height * scale + 12.0F * scale + 52.0F * scale + 14.0F * scale;
+  float cur_y = panel.y + header_height * scale + 12.0F * scale +
+                52.0F * scale + 14.0F * scale;
   const float content_left = panel.x + 12.0F * scale;
   const float content_w = std::max(panel.width - 24.0F * scale, 0.0F);
 
@@ -1158,7 +1552,8 @@ bool ToolSidebar::handle_tool_plugin_move(
   cur_y += 16.0F * scale;
 
   const UI::Rect btn1_rect{content_left, cur_y, content_w, 26.0F * scale};
-  const UI::Rect btn2_rect{content_left, cur_y + 32.0F * scale, content_w, 26.0F * scale};
+  const UI::Rect btn2_rect{content_left, cur_y + 32.0F * scale, content_w,
+                           26.0F * scale};
 
   const bool next_btn1 = btn1_rect.contains(point_x, point_y);
   const bool next_btn2 = btn2_rect.contains(point_x, point_y);
@@ -1184,17 +1579,24 @@ SidebarPressResult ToolSidebar::handle_tool_plugin_press(
   const float header_center_y = panel.y + header_height * 0.5F * scale;
   const float btn_size = 18.0F * scale;
 
-  const UI::Rect switch_rect{panel.right() - 22.0F * scale - btn_size * 0.5F, header_center_y - btn_size * 0.5F, btn_size, btn_size};
-  const UI::Rect refresh_rect{panel.right() - 44.0F * scale - btn_size * 0.5F, header_center_y - btn_size * 0.5F, btn_size, btn_size};
+  const UI::Rect switch_rect{panel.right() - 22.0F * scale - btn_size * 0.5F,
+                             header_center_y - btn_size * 0.5F, btn_size,
+                             btn_size};
+  const UI::Rect refresh_rect{panel.right() - 44.0F * scale - btn_size * 0.5F,
+                              header_center_y - btn_size * 0.5F, btn_size,
+                              btn_size};
 
   if (switch_rect.contains(point_x, point_y)) {
-    return SidebarPressResult{.handled = true, .action = SidebarActionKind::SwitchTool};
+    return SidebarPressResult{.handled = true,
+                              .action = SidebarActionKind::SwitchTool};
   }
   if (refresh_rect.contains(point_x, point_y)) {
-    return SidebarPressResult{.handled = true, .action = SidebarActionKind::Refresh};
+    return SidebarPressResult{.handled = true,
+                              .action = SidebarActionKind::Refresh};
   }
 
-  float cur_y = panel.y + header_height * scale + 12.0F * scale + 52.0F * scale + 14.0F * scale;
+  float cur_y = panel.y + header_height * scale + 12.0F * scale +
+                52.0F * scale + 14.0F * scale;
   const float content_left = panel.x + 12.0F * scale;
   const float content_w = std::max(panel.width - 24.0F * scale, 0.0F);
 
@@ -1226,17 +1628,18 @@ SidebarPressResult ToolSidebar::handle_tool_plugin_press(
 
   const UI::Rect btn1_rect{content_left, cur_y, content_w, 26.0F * scale};
   if (btn1_rect.contains(point_x, point_y)) {
-    return SidebarPressResult{.handled = true, .action = SidebarActionKind::OpenTerminal};
+    return SidebarPressResult{.handled = true,
+                              .action = SidebarActionKind::OpenTerminal};
   }
 
-  const UI::Rect btn2_rect{content_left, cur_y + 32.0F * scale, content_w, 26.0F * scale};
+  const UI::Rect btn2_rect{content_left, cur_y + 32.0F * scale, content_w,
+                           26.0F * scale};
   if (btn2_rect.contains(point_x, point_y)) {
     return SidebarPressResult{.handled = true};
   }
 
   return SidebarPressResult{.handled = true};
 }
-
 
 SidebarPressResult ToolSidebar::handle_pointer_press(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
@@ -1280,7 +1683,9 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
     m_empty_state_clone_btn.set_bounds(UI::Rect{btn_x, btn_y, btn_w, btn_h});
 
     if (m_empty_state_open_btn.handle_pointer_press(point_x, point_y)) {
-      return SidebarPressResult{.handled = true, .action = SidebarActionKind::OpenFile, .path = "::OPEN_FOLDER::"};
+      return SidebarPressResult{.handled = true,
+                                .action = SidebarActionKind::OpenFile,
+                                .path = "::OPEN_FOLDER::"};
     }
     if (m_empty_state_clone_btn.handle_pointer_press(point_x, point_y)) {
       return SidebarPressResult{.handled = true};
@@ -1292,7 +1697,8 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
     const std::size_t row_count = viewport_row_count(layout);
     m_project_scrollbar.set_track_bounds(scrollbar_bounds(layout));
     m_project_scrollbar.set_metrics(items.size(), row_count);
-    static_cast<void>(m_project_scrollbar.scroll_to(m_model.get_scroll_offset()));
+    static_cast<void>(
+        m_project_scrollbar.scroll_to(m_model.get_scroll_offset()));
     if (m_project_scrollbar.handle_pointer_press(point_x, point_y)) {
       m_model.set_scroll_offset(m_project_scrollbar.get_scroll_offset());
       return SidebarPressResult{.handled = true};
@@ -1301,18 +1707,27 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
     const bool show_actions = !m_model.get_project_items().empty();
     HeaderAction header_act = HeaderAction::None;
-    if (m_explorer_header.handle_pointer_press(layout, point_x, point_y, m_model, header_act, show_actions)) {
+    if (m_explorer_header.handle_pointer_press(
+            layout, point_x, point_y, m_model, header_act, show_actions)) {
       if (header_act == HeaderAction::NewFile) {
-        return SidebarPressResult{.handled = true, .action = SidebarActionKind::NewFile, .path = m_model.get_target_directory_for_creation()};
+        return SidebarPressResult{
+            .handled = true,
+            .action = SidebarActionKind::NewFile,
+            .path = m_model.get_target_directory_for_creation()};
       }
       if (header_act == HeaderAction::NewFolder) {
-        return SidebarPressResult{.handled = true, .action = SidebarActionKind::NewFolder, .path = m_model.get_target_directory_for_creation()};
+        return SidebarPressResult{
+            .handled = true,
+            .action = SidebarActionKind::NewFolder,
+            .path = m_model.get_target_directory_for_creation()};
       }
       if (header_act == HeaderAction::Refresh) {
-        return SidebarPressResult{.handled = true, .action = SidebarActionKind::Refresh};
+        return SidebarPressResult{.handled = true,
+                                  .action = SidebarActionKind::Refresh};
       }
       if (header_act == HeaderAction::CollapseAll) {
-        return SidebarPressResult{.handled = true, .action = SidebarActionKind::CollapseAll};
+        return SidebarPressResult{.handled = true,
+                                  .action = SidebarActionKind::CollapseAll};
       }
       return SidebarPressResult{.handled = true};
     }
@@ -1320,15 +1735,17 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
   const float scale = layout.dpi_scale;
   const float tree_top = layout.tool_sidebar_bounds.y + header_height * scale;
   const auto sticky = get_sticky_items();
-  const float sticky_height = static_cast<float>(sticky.size()) * row_height * scale;
-  
+  const float sticky_height =
+      static_cast<float>(sticky.size()) * row_height * scale;
+
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project &&
       point_y >= tree_top && point_y < tree_top + sticky_height) {
-      std::size_t sticky_index = static_cast<std::size_t>((point_y - tree_top) / (row_height * scale));
-      if (sticky_index < sticky.size()) {
-          m_model.set_scroll_offset(sticky[sticky_index]);
-          return SidebarPressResult{.handled = true};
-      }
+    std::size_t sticky_index =
+        static_cast<std::size_t>((point_y - tree_top) / (row_height * scale));
+    if (sticky_index < sticky.size()) {
+      m_model.set_scroll_offset(sticky[sticky_index]);
+      return SidebarPressResult{.handled = true};
+    }
   }
 
   const std::optional<std::size_t> row = row_from_point(layout, point_y);
@@ -1346,7 +1763,9 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
     const UI::Editor::ActivityPanelAction action =
         m_model.activate_project_row(*row, shift_down, ctrl_down);
     if (action.file_to_open) {
-      return SidebarPressResult{.handled = true, .action = SidebarActionKind::OpenFile, .path = action.file_to_open};
+      return SidebarPressResult{.handled = true,
+                                .action = SidebarActionKind::OpenFile,
+                                .path = action.file_to_open};
     }
     return SidebarPressResult{.handled = action.handled};
   }
@@ -1356,7 +1775,8 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
 std::optional<std::filesystem::path> ToolSidebar::handle_right_click(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) {
-  if (!contains(layout, point_x, point_y) || m_model.get_active_icon() != UI::Editor::SidebarIcon::Project) {
+  if (!contains(layout, point_x, point_y) ||
+      m_model.get_active_icon() != UI::Editor::SidebarIcon::Project) {
     return std::nullopt;
   }
   const std::optional<std::size_t> row = row_from_point(layout, point_y);
@@ -1377,94 +1797,99 @@ std::optional<std::filesystem::path> ToolSidebar::handle_right_click(
 bool ToolSidebar::handle_pointer_move(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) noexcept {
-    std::optional<UI::Editor::SidebarIcon> next_icon;
-    if (const std::optional<std::size_t> sidebar_index =
-            UI::Editor::hit_test_studio_sidebar(layout, point_x, point_y)) {
-        next_icon = UI::Editor::get_studio_sidebar_items()[*sidebar_index].icon;
-    }
+  std::optional<UI::Editor::SidebarIcon> next_icon;
+  if (const std::optional<std::size_t> sidebar_index =
+          UI::Editor::hit_test_studio_sidebar(layout, point_x, point_y)) {
+    next_icon = UI::Editor::get_studio_sidebar_items()[*sidebar_index].icon;
+  }
 
-    const bool next_resize_hovered = is_resize_handle_point(layout, point_x, point_y);
-    const bool resize_changed = (next_resize_hovered != m_resize_hovered);
-    m_resize_hovered = next_resize_hovered;
+  const bool next_resize_hovered =
+      is_resize_handle_point(layout, point_x, point_y);
+  const bool resize_changed = (next_resize_hovered != m_resize_hovered);
+  m_resize_hovered = next_resize_hovered;
 
-    if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Search) {
-      const bool search_changed = handle_search_move(layout, point_x, point_y);
-      const bool icon_changed = next_icon != m_hovered_icon;
-      m_hovered_icon = next_icon;
-      return search_changed || icon_changed || resize_changed;
-    }
-
-    if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Services) {
-      const bool ext_changed = handle_extensions_move(layout, point_x, point_y);
-      const bool icon_changed = next_icon != m_hovered_icon;
-      m_hovered_icon = next_icon;
-      return ext_changed || icon_changed || resize_changed;
-    }
-
-    if (m_model.get_active_icon() == UI::Editor::SidebarIcon::ToolPlugin) {
-      const bool tool_changed = handle_tool_plugin_move(layout, point_x, point_y);
-      const bool icon_changed = next_icon != m_hovered_icon;
-      m_hovered_icon = next_icon;
-      return tool_changed || icon_changed || resize_changed;
-    }
-
-    std::optional<std::size_t> next_sticky_hover;
-    std::optional<std::size_t> next_row;
-    bool next_scrollbar = false;
-    
-    if (contains(layout, point_x, point_y) &&
-        m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
-        
-        const float scale = layout.dpi_scale;
-        const float tree_top = layout.tool_sidebar_bounds.y + header_height * scale;
-        const auto sticky = get_sticky_items();
-        const float sticky_height = static_cast<float>(sticky.size()) * row_height * scale;
-
-        if (point_y >= tree_top && point_y < tree_top + sticky_height) {
-            std::size_t sticky_index = static_cast<std::size_t>((point_y - tree_top) / (row_height * scale));
-            if (sticky_index < sticky.size()) {
-                next_sticky_hover = sticky[sticky_index];
-            }
-        } else {
-            next_row = row_from_point(layout, point_y);
-        }
-        
-        next_scrollbar =
-            scrollbar_bounds(layout).contains(point_x, point_y) &&
-            m_model.get_project_items().size() > viewport_row_count(layout);
-        if (next_scrollbar) {
-            next_row.reset();
-        }
-    }
-    
-    bool header_changed = false;
-    bool btn_changed = false;
-    if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
-      const bool show_actions = !m_model.get_project_items().empty();
-      header_changed = m_explorer_header.handle_pointer_move(layout, point_x, point_y, show_actions);
-
-      if (m_model.get_project_items().empty()) {
-        const bool prev_open_h = m_empty_state_open_btn.get_state().hovered;
-        const bool prev_clone_h = m_empty_state_clone_btn.get_state().hovered;
-        static_cast<void>(m_empty_state_open_btn.handle_pointer_move(point_x, point_y));
-        static_cast<void>(m_empty_state_clone_btn.handle_pointer_move(point_x, point_y));
-        btn_changed = (prev_open_h != m_empty_state_open_btn.get_state().hovered) ||
-                      (prev_clone_h != m_empty_state_clone_btn.get_state().hovered);
-      }
-    }
-
-    const bool changed = (next_row != m_hovered_row) ||
-                         (next_sticky_hover != m_hovered_sticky_index) ||
-                         (next_icon != m_hovered_icon) ||
-                         (next_scrollbar != m_hovered_scrollbar) ||
-                         resize_changed ||
-                         header_changed ||
-                         btn_changed;
-    m_hovered_row = next_row;
-    m_hovered_sticky_index = next_sticky_hover;
+  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Search) {
+    const bool search_changed = handle_search_move(layout, point_x, point_y);
+    const bool icon_changed = next_icon != m_hovered_icon;
     m_hovered_icon = next_icon;
-    m_hovered_scrollbar = next_scrollbar;
-    return changed;
+    return search_changed || icon_changed || resize_changed;
+  }
+
+  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Services) {
+    const bool ext_changed = handle_extensions_move(layout, point_x, point_y);
+    const bool icon_changed = next_icon != m_hovered_icon;
+    m_hovered_icon = next_icon;
+    return ext_changed || icon_changed || resize_changed;
+  }
+
+  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::ToolPlugin) {
+    const bool tool_changed = handle_tool_plugin_move(layout, point_x, point_y);
+    const bool icon_changed = next_icon != m_hovered_icon;
+    m_hovered_icon = next_icon;
+    return tool_changed || icon_changed || resize_changed;
+  }
+
+  std::optional<std::size_t> next_sticky_hover;
+  std::optional<std::size_t> next_row;
+  bool next_scrollbar = false;
+
+  if (contains(layout, point_x, point_y) &&
+      m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
+
+    const float scale = layout.dpi_scale;
+    const float tree_top = layout.tool_sidebar_bounds.y + header_height * scale;
+    const auto sticky = get_sticky_items();
+    const float sticky_height =
+        static_cast<float>(sticky.size()) * row_height * scale;
+
+    if (point_y >= tree_top && point_y < tree_top + sticky_height) {
+      std::size_t sticky_index =
+          static_cast<std::size_t>((point_y - tree_top) / (row_height * scale));
+      if (sticky_index < sticky.size()) {
+        next_sticky_hover = sticky[sticky_index];
+      }
+    } else {
+      next_row = row_from_point(layout, point_y);
+    }
+
+    next_scrollbar =
+        scrollbar_bounds(layout).contains(point_x, point_y) &&
+        m_model.get_project_items().size() > viewport_row_count(layout);
+    if (next_scrollbar) {
+      next_row.reset();
+    }
+  }
+
+  bool header_changed = false;
+  bool btn_changed = false;
+  if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
+    const bool show_actions = !m_model.get_project_items().empty();
+    header_changed = m_explorer_header.handle_pointer_move(
+        layout, point_x, point_y, show_actions);
+
+    if (m_model.get_project_items().empty()) {
+      const bool prev_open_h = m_empty_state_open_btn.get_state().hovered;
+      const bool prev_clone_h = m_empty_state_clone_btn.get_state().hovered;
+      static_cast<void>(
+          m_empty_state_open_btn.handle_pointer_move(point_x, point_y));
+      static_cast<void>(
+          m_empty_state_clone_btn.handle_pointer_move(point_x, point_y));
+      btn_changed =
+          (prev_open_h != m_empty_state_open_btn.get_state().hovered) ||
+          (prev_clone_h != m_empty_state_clone_btn.get_state().hovered);
+    }
+  }
+
+  const bool changed = (next_row != m_hovered_row) ||
+                       (next_sticky_hover != m_hovered_sticky_index) ||
+                       (next_icon != m_hovered_icon) ||
+                       (next_scrollbar != m_hovered_scrollbar) ||
+                       resize_changed || header_changed || btn_changed;
+  m_hovered_row = next_row;
+  m_hovered_sticky_index = next_sticky_hover;
+  m_hovered_icon = next_icon;
+  m_hovered_scrollbar = next_scrollbar;
+  return changed;
 }
 
 bool ToolSidebar::handle_scroll(
@@ -1496,8 +1921,7 @@ bool ToolSidebar::contains(const UI::Editor::StudioEditorLayoutResult &layout,
 }
 
 bool ToolSidebar::is_interactive_point(
-    const UI::Editor::StudioEditorLayoutResult& layout,
-    float point_x,
+    const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) const noexcept {
   if (!is_visible() || !layout.tool_sidebar_bounds.contains(point_x, point_y)) {
     return false;
@@ -1515,7 +1939,8 @@ bool ToolSidebar::is_interactive_point(
 
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
     const bool show_actions = !m_model.get_project_items().empty();
-    if (m_explorer_header.is_interactive_point(layout, point_x, point_y, show_actions)) {
+    if (m_explorer_header.is_interactive_point(layout, point_x, point_y,
+                                               show_actions)) {
       return true;
     }
     if (m_model.get_project_items().empty()) {
@@ -1534,9 +1959,11 @@ bool ToolSidebar::is_interactive_point(
     }
     const float tree_top = panel.y + header_height * scale;
     const auto sticky = get_sticky_items();
-    const float sticky_height = static_cast<float>(sticky.size()) * row_height * scale;
+    const float sticky_height =
+        static_cast<float>(sticky.size()) * row_height * scale;
     if (point_y >= tree_top && point_y < tree_top + sticky_height) {
-      const std::size_t sticky_index = static_cast<std::size_t>((point_y - tree_top) / (row_height * scale));
+      const std::size_t sticky_index =
+          static_cast<std::size_t>((point_y - tree_top) / (row_height * scale));
       if (sticky_index < sticky.size()) {
         return true;
       }
@@ -1556,35 +1983,57 @@ bool ToolSidebar::is_interactive_point(
     const float btn_size = 20.0F * scale;
 
     // Search Header buttons: Collapse All, Clear, Refresh
-    if (UI::Rect{panel.right() - 24.0F * scale - btn_size * 2.0F, header_center_y - btn_size * 0.5F, btn_size, btn_size}.contains(point_x, point_y) ||
-        UI::Rect{panel.right() - 22.0F * scale - btn_size, header_center_y - btn_size * 0.5F, btn_size, btn_size}.contains(point_x, point_y) ||
-        UI::Rect{panel.right() - 20.0F * scale, header_center_y - btn_size * 0.5F, btn_size, btn_size}.contains(point_x, point_y)) {
+    if (UI::Rect{panel.right() - 24.0F * scale - btn_size * 2.0F,
+                 header_center_y - btn_size * 0.5F, btn_size, btn_size}
+            .contains(point_x, point_y) ||
+        UI::Rect{panel.right() - 22.0F * scale - btn_size,
+                 header_center_y - btn_size * 0.5F, btn_size, btn_size}
+            .contains(point_x, point_y) ||
+        UI::Rect{panel.right() - 20.0F * scale,
+                 header_center_y - btn_size * 0.5F, btn_size, btn_size}
+            .contains(point_x, point_y)) {
       return true;
     }
 
     const float input_top = panel.y + header_height * scale + 8.0F * scale;
     // Chevron expand/collapse toggle
-    if (UI::Rect{panel.x + 6.0F * scale, input_top + 3.0F * scale, 18.0F * scale, 20.0F * scale}.contains(point_x, point_y)) {
+    if (UI::Rect{panel.x + 6.0F * scale, input_top + 3.0F * scale,
+                 18.0F * scale, 20.0F * scale}
+            .contains(point_x, point_y)) {
       return true;
     }
 
     // Search option toggle buttons
-    const UI::Rect search_bounds{panel.x + 28.0F * scale, input_top, std::max(panel.width - 36.0F * scale, 0.0F), 26.0F * scale};
+    const UI::Rect search_bounds{panel.x + 28.0F * scale, input_top,
+                                 std::max(panel.width - 36.0F * scale, 0.0F),
+                                 26.0F * scale};
     const float opt_btn_w = 20.0F * scale;
     const float opt_btn_h = 20.0F * scale;
     const float opt_btn_y = input_top + 3.0F * scale;
 
-    if (UI::Rect{search_bounds.right() - 22.0F * scale, opt_btn_y, opt_btn_w, opt_btn_h}.contains(point_x, point_y) ||
-        UI::Rect{search_bounds.right() - 44.0F * scale, opt_btn_y, opt_btn_w, opt_btn_h}.contains(point_x, point_y) ||
-        UI::Rect{search_bounds.right() - 66.0F * scale, opt_btn_y, opt_btn_w, opt_btn_h}.contains(point_x, point_y)) {
+    if (UI::Rect{search_bounds.right() - 22.0F * scale, opt_btn_y, opt_btn_w,
+                 opt_btn_h}
+            .contains(point_x, point_y) ||
+        UI::Rect{search_bounds.right() - 44.0F * scale, opt_btn_y, opt_btn_w,
+                 opt_btn_h}
+            .contains(point_x, point_y) ||
+        UI::Rect{search_bounds.right() - 66.0F * scale, opt_btn_y, opt_btn_w,
+                 opt_btn_h}
+            .contains(point_x, point_y)) {
       return true;
     }
 
     if (m_search_model.is_replace_expanded()) {
       const float replace_top = input_top + 30.0F * scale;
-      const UI::Rect replace_bounds{panel.x + 28.0F * scale, replace_top, std::max(panel.width - 64.0F * scale, 0.0F), 26.0F * scale};
-      if (UI::Rect{replace_bounds.right() - 22.0F * scale, replace_top + 3.0F * scale, opt_btn_w, opt_btn_h}.contains(point_x, point_y) ||
-          UI::Rect{panel.right() - 32.0F * scale, replace_top + 2.0F * scale, 22.0F * scale, 22.0F * scale}.contains(point_x, point_y)) {
+      const UI::Rect replace_bounds{panel.x + 28.0F * scale, replace_top,
+                                    std::max(panel.width - 64.0F * scale, 0.0F),
+                                    26.0F * scale};
+      if (UI::Rect{replace_bounds.right() - 22.0F * scale,
+                   replace_top + 3.0F * scale, opt_btn_w, opt_btn_h}
+              .contains(point_x, point_y) ||
+          UI::Rect{panel.right() - 32.0F * scale, replace_top + 2.0F * scale,
+                   22.0F * scale, 22.0F * scale}
+              .contains(point_x, point_y)) {
         return true;
       }
     }
@@ -1599,7 +2048,9 @@ bool ToolSidebar::is_interactive_point(
   // Other sidebars (Source Control, Run/Debug, Extensions, Settings)
   const float header_center_y = panel.y + header_height * 0.5F * scale;
   const float btn_size = 20.0F * scale;
-  if (UI::Rect{panel.right() - 24.0F * scale, header_center_y - btn_size * 0.5F, btn_size, btn_size}.contains(point_x, point_y)) {
+  if (UI::Rect{panel.right() - 24.0F * scale, header_center_y - btn_size * 0.5F,
+               btn_size, btn_size}
+          .contains(point_x, point_y)) {
     return true;
   }
 
@@ -1607,8 +2058,7 @@ bool ToolSidebar::is_interactive_point(
 }
 
 bool ToolSidebar::is_text_input_point(
-    const UI::Editor::StudioEditorLayoutResult& layout,
-    float point_x,
+    const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) const noexcept {
   if (!is_visible()) {
     return false;
@@ -1618,8 +2068,13 @@ bool ToolSidebar::is_text_input_point(
 
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Services) {
     const float search_top = panel.y + header_height * scale + 8.0F * scale;
-    const UI::Rect search_bounds{panel.x + 12.0F * scale, search_top, std::max(panel.width - 24.0F * scale, 0.0F), 26.0F * scale};
-    const UI::Rect search_text_area{search_bounds.x, search_bounds.y, std::max(search_bounds.width - 40.0F * scale, 0.0F), search_bounds.height};
+    const UI::Rect search_bounds{panel.x + 12.0F * scale, search_top,
+                                 std::max(panel.width - 24.0F * scale, 0.0F),
+                                 26.0F * scale};
+    const UI::Rect search_text_area{
+        search_bounds.x, search_bounds.y,
+        std::max(search_bounds.width - 40.0F * scale, 0.0F),
+        search_bounds.height};
     return search_text_area.contains(point_x, point_y);
   }
 
@@ -1629,16 +2084,26 @@ bool ToolSidebar::is_text_input_point(
 
   const float input_top = panel.y + header_height * scale + 8.0F * scale;
 
-  const UI::Rect search_bounds{panel.x + 28.0F * scale, input_top, std::max(panel.width - 36.0F * scale, 0.0F), 26.0F * scale};
-  const UI::Rect search_text_area{search_bounds.x, search_bounds.y, std::max(search_bounds.width - 70.0F * scale, 0.0F), search_bounds.height};
+  const UI::Rect search_bounds{panel.x + 28.0F * scale, input_top,
+                               std::max(panel.width - 36.0F * scale, 0.0F),
+                               26.0F * scale};
+  const UI::Rect search_text_area{
+      search_bounds.x, search_bounds.y,
+      std::max(search_bounds.width - 70.0F * scale, 0.0F),
+      search_bounds.height};
   if (search_text_area.contains(point_x, point_y)) {
     return true;
   }
 
   if (m_search_model.is_replace_expanded()) {
     const float replace_top = input_top + 30.0F * scale;
-    const UI::Rect replace_bounds{panel.x + 28.0F * scale, replace_top, std::max(panel.width - 64.0F * scale, 0.0F), 26.0F * scale};
-    const UI::Rect replace_text_area{replace_bounds.x, replace_bounds.y, std::max(replace_bounds.width - 26.0F * scale, 0.0F), replace_bounds.height};
+    const UI::Rect replace_bounds{panel.x + 28.0F * scale, replace_top,
+                                  std::max(panel.width - 64.0F * scale, 0.0F),
+                                  26.0F * scale};
+    const UI::Rect replace_text_area{
+        replace_bounds.x, replace_bounds.y,
+        std::max(replace_bounds.width - 26.0F * scale, 0.0F),
+        replace_bounds.height};
     if (replace_text_area.contains(point_x, point_y)) {
       return true;
     }
@@ -1648,17 +2113,17 @@ bool ToolSidebar::is_text_input_point(
 }
 
 bool ToolSidebar::is_resize_handle_point(
-    const UI::Editor::StudioEditorLayoutResult& layout,
-    float point_x,
+    const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) const noexcept {
-    const float scale = layout.dpi_scale;
-    const UI::Rect handle_bounds{
-        layout.tool_sidebar_bounds.right() - 4.0F * scale,
-        layout.tool_sidebar_bounds.y,
-        8.0F * scale,
-        layout.tool_sidebar_bounds.height
-    };
-    return handle_bounds.contains(point_x, point_y);
+  const float scale = layout.dpi_scale;
+  const bool on_right = layout.tool_sidebar_bounds.x > layout.editor_bounds.x;
+  const float handle_x = on_right
+      ? (layout.tool_sidebar_bounds.x - 4.0F * scale)
+      : (layout.tool_sidebar_bounds.right() - 4.0F * scale);
+  const UI::Rect handle_bounds{handle_x,
+                               layout.tool_sidebar_bounds.y, 8.0F * scale,
+                               layout.tool_sidebar_bounds.height};
+  return handle_bounds.contains(point_x, point_y);
 }
 
 bool ToolSidebar::is_resizing() const noexcept { return m_resizing; }
@@ -1666,171 +2131,203 @@ bool ToolSidebar::is_resizing() const noexcept { return m_resizing; }
 float ToolSidebar::get_width() const noexcept { return m_width; }
 
 bool ToolSidebar::handle_pointer_drag(
-    const UI::Editor::StudioEditorLayoutResult& layout,
-    float point_x,
+    const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) noexcept {
-    if (m_resizing) {
-        const float delta = point_x - m_drag_start_x;
-        float new_width = m_drag_start_width + delta / layout.dpi_scale;
-        
-        if (!m_model.is_visible()) {
-            if (new_width >= 100.0F) {
-                m_model.set_visible(true);
-                m_width = new_width;
-            } else {
-                m_width = 0.0F;
-            }
-        } else {
-            if (new_width < 100.0F) {
-                m_model.set_visible(false);
-                m_width = 0.0F;
-            } else {
-                m_width = new_width;
-            }
-        }
-        return true;
-    }
+  if (m_resizing) {
+    const bool on_right = layout.tool_sidebar_bounds.x > layout.editor_bounds.x;
+    const float delta = on_right ? (m_drag_start_x - point_x) : (point_x - m_drag_start_x);
+    float new_width = m_drag_start_width + delta / layout.dpi_scale;
 
-    if (m_is_selecting_search_text && m_model.get_active_icon() == UI::Editor::SidebarIcon::Search) {
-        const float scale = layout.dpi_scale;
-        const float char_w = 7.2F * scale;
-        if (m_search_model.get_focused_input() == UI::Editor::SearchInputFocus::Search) {
-            const float input_top = layout.tool_sidebar_bounds.y + header_height * scale + 8.0F * scale;
-            const UI::Rect search_bounds{layout.tool_sidebar_bounds.x + 28.0F * scale, input_top, std::max(layout.tool_sidebar_bounds.width - 36.0F * scale, 0.0F), 26.0F * scale};
-            const float text_x = search_bounds.x + 6.0F * scale;
-            const std::string_view q = m_search_model.get_search_query();
-            std::size_t idx = 0;
-            if (point_x > text_x) {
-                idx = static_cast<std::size_t>((point_x - text_x + char_w * 0.5F) / char_w);
-                idx = std::min(idx, q.size());
-            }
-            m_search_model.update_drag_selection(idx);
-            return true;
-        } else if (m_search_model.get_focused_input() == UI::Editor::SearchInputFocus::Replace) {
-            const float input_top = layout.tool_sidebar_bounds.y + header_height * scale + 8.0F * scale;
-            const float replace_top = input_top + 30.0F * scale;
-            const UI::Rect replace_bounds{layout.tool_sidebar_bounds.x + 28.0F * scale, replace_top, std::max(layout.tool_sidebar_bounds.width - 64.0F * scale, 0.0F), 26.0F * scale};
-            const float text_x = replace_bounds.x + 6.0F * scale;
-            const std::string_view q = m_search_model.get_replace_query();
-            std::size_t idx = 0;
-            if (point_x > text_x) {
-                idx = static_cast<std::size_t>((point_x - text_x + char_w * 0.5F) / char_w);
-                idx = std::min(idx, q.size());
-            }
-            m_search_model.update_drag_selection(idx);
-            return true;
-        }
+    if (!m_model.is_visible()) {
+      if (new_width >= 100.0F) {
+        m_model.set_visible(true);
+        m_width = new_width;
+      } else {
+        m_width = 0.0F;
+      }
+    } else {
+      if (new_width < 100.0F) {
+        m_model.set_visible(false);
+        m_width = 0.0F;
+      } else {
+        m_width = new_width;
+      }
     }
+    return true;
+  }
 
-    if (m_project_scrollbar.is_dragging()) {
-        m_project_scrollbar.set_track_bounds(scrollbar_bounds(layout));
-        m_project_scrollbar.set_metrics(m_model.get_project_items().size(), viewport_row_count(layout));
-        if (m_project_scrollbar.handle_pointer_drag(point_x, point_y)) {
-            m_model.set_scroll_offset(m_project_scrollbar.get_scroll_offset());
-        }
-        return true;
+  if (m_is_selecting_search_text &&
+      m_model.get_active_icon() == UI::Editor::SidebarIcon::Search) {
+    const float scale = layout.dpi_scale;
+    const float char_w = 7.2F * scale;
+    if (m_search_model.get_focused_input() ==
+        UI::Editor::SearchInputFocus::Search) {
+      const float input_top =
+          layout.tool_sidebar_bounds.y + header_height * scale + 8.0F * scale;
+      const UI::Rect search_bounds{
+          layout.tool_sidebar_bounds.x + 28.0F * scale, input_top,
+          std::max(layout.tool_sidebar_bounds.width - 36.0F * scale, 0.0F),
+          26.0F * scale};
+      const float text_x = search_bounds.x + 6.0F * scale;
+      const std::string_view q = m_search_model.get_search_query();
+      std::size_t idx = 0;
+      if (point_x > text_x) {
+        idx = static_cast<std::size_t>((point_x - text_x + char_w * 0.5F) /
+                                       char_w);
+        idx = std::min(idx, q.size());
+      }
+      m_search_model.update_drag_selection(idx);
+      return true;
+    } else if (m_search_model.get_focused_input() ==
+               UI::Editor::SearchInputFocus::Replace) {
+      const float input_top =
+          layout.tool_sidebar_bounds.y + header_height * scale + 8.0F * scale;
+      const float replace_top = input_top + 30.0F * scale;
+      const UI::Rect replace_bounds{
+          layout.tool_sidebar_bounds.x + 28.0F * scale, replace_top,
+          std::max(layout.tool_sidebar_bounds.width - 64.0F * scale, 0.0F),
+          26.0F * scale};
+      const float text_x = replace_bounds.x + 6.0F * scale;
+      const std::string_view q = m_search_model.get_replace_query();
+      std::size_t idx = 0;
+      if (point_x > text_x) {
+        idx = static_cast<std::size_t>((point_x - text_x + char_w * 0.5F) /
+                                       char_w);
+        idx = std::min(idx, q.size());
+      }
+      m_search_model.update_drag_selection(idx);
+      return true;
     }
+  }
 
-    if (m_search_scrollbar.is_dragging()) {
-        if (m_search_scrollbar.handle_pointer_drag(point_x, point_y)) {
-            m_search_model.set_scroll_offset(m_search_scrollbar.get_scroll_offset());
-        }
-        return true;
+  if (m_project_scrollbar.is_dragging()) {
+    m_project_scrollbar.set_track_bounds(scrollbar_bounds(layout));
+    m_project_scrollbar.set_metrics(m_model.get_project_items().size(),
+                                    viewport_row_count(layout));
+    if (m_project_scrollbar.handle_pointer_drag(point_x, point_y)) {
+      m_model.set_scroll_offset(m_project_scrollbar.get_scroll_offset());
     }
+    return true;
+  }
 
-    if (m_extensions_scrollbar.is_dragging()) {
-        if (m_extensions_scrollbar.handle_pointer_drag(point_x, point_y)) {
-            m_ext_scroll_y = static_cast<float>(m_extensions_scrollbar.get_scroll_offset());
-        }
-        return true;
+  if (m_search_scrollbar.is_dragging()) {
+    if (m_search_scrollbar.handle_pointer_drag(point_x, point_y)) {
+      m_search_model.set_scroll_offset(m_search_scrollbar.get_scroll_offset());
     }
+    return true;
+  }
 
-    if (m_drag_source_row.has_value() && m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
-        const float dist = std::hypot(point_x - m_drag_press_x, point_y - m_drag_press_y);
-        if (dist > 5.0F) {
-            m_is_dragging_item = true;
-            m_drag_current_x = point_x;
-            m_drag_current_y = point_y;
-            m_drag_target_row = row_from_point(layout, point_y);
-            return true;
-        }
+  if (m_extensions_scrollbar.is_dragging()) {
+    if (m_extensions_scrollbar.handle_pointer_drag(point_x, point_y)) {
+      m_ext_scroll_y =
+          static_cast<float>(m_extensions_scrollbar.get_scroll_offset());
     }
-    
-    return false;
+    return true;
+  }
+
+  if (m_drag_source_row.has_value() &&
+      m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
+    const float dist =
+        std::hypot(point_x - m_drag_press_x, point_y - m_drag_press_y);
+    if (dist > 5.0F) {
+      m_is_dragging_item = true;
+      m_drag_current_x = point_x;
+      m_drag_current_y = point_y;
+      m_drag_target_row = row_from_point(layout, point_y);
+      return true;
+    }
+  }
+
+  return false;
 }
 
 bool ToolSidebar::handle_pointer_release() noexcept {
-    const bool was_resizing = m_resizing;
-    const bool was_dragging = m_is_dragging_item;
-    const bool scroll_project_released = m_project_scrollbar.handle_pointer_release();
-    const bool scroll_search_released = m_search_scrollbar.handle_pointer_release();
-    const bool scroll_ext_released = m_extensions_scrollbar.handle_pointer_release();
-    m_resizing = false;
-    m_is_selecting_search_text = false;
+  const bool was_resizing = m_resizing;
+  const bool was_dragging = m_is_dragging_item;
+  const bool scroll_project_released =
+      m_project_scrollbar.handle_pointer_release();
+  const bool scroll_search_released =
+      m_search_scrollbar.handle_pointer_release();
+  const bool scroll_ext_released =
+      m_extensions_scrollbar.handle_pointer_release();
+  m_resizing = false;
+  m_is_selecting_search_text = false;
 
-    if (m_is_dragging_item && m_drag_source_row.has_value()) {
-        const auto items = m_model.get_project_items();
-        const std::size_t source_idx = m_model.get_scroll_offset() + *m_drag_source_row;
-        if (source_idx < items.size()) {
-            const auto source_path = items[source_idx].path;
-            std::filesystem::path target_dir;
-            if (m_drag_target_row.has_value()) {
-                const std::size_t target_idx = m_model.get_scroll_offset() + *m_drag_target_row;
-                if (target_idx < items.size()) {
-                    const auto& target_item = items[target_idx];
-                    if (target_item.directory) {
-                        target_dir = target_item.path;
-                    } else {
-                        target_dir = target_item.path.parent_path();
-                    }
-                }
-            } else {
-                target_dir = m_model.get_workspace_root();
-            }
-
-            if (!target_dir.empty()) {
-                const auto selected = m_model.get_selected_paths();
-                if (selected.size() > 1 && m_model.is_selected(source_path)) {
-                    for (const auto& p : selected) {
-                        if (p != target_dir && !target_dir.string().starts_with(p.string()) && p.parent_path() != target_dir) {
-                            std::filesystem::path out_p;
-                            static_cast<void>(m_model.move_item(p, target_dir, out_p));
-                        }
-                    }
-                } else if (source_path != target_dir && source_path.parent_path() != target_dir) {
-                    std::filesystem::path out_p;
-                    static_cast<void>(m_model.move_item(source_path, target_dir, out_p));
-                }
-            }
+  if (m_is_dragging_item && m_drag_source_row.has_value()) {
+    const auto items = m_model.get_project_items();
+    const std::size_t source_idx =
+        m_model.get_scroll_offset() + *m_drag_source_row;
+    if (source_idx < items.size()) {
+      const auto source_path = items[source_idx].path;
+      std::filesystem::path target_dir;
+      if (m_drag_target_row.has_value()) {
+        const std::size_t target_idx =
+            m_model.get_scroll_offset() + *m_drag_target_row;
+        if (target_idx < items.size()) {
+          const auto &target_item = items[target_idx];
+          if (target_item.directory) {
+            target_dir = target_item.path;
+          } else {
+            target_dir = target_item.path.parent_path();
+          }
         }
+      } else {
+        target_dir = m_model.get_workspace_root();
+      }
+
+      if (!target_dir.empty()) {
+        const auto selected = m_model.get_selected_paths();
+        if (selected.size() > 1 && m_model.is_selected(source_path)) {
+          for (const auto &p : selected) {
+            if (p != target_dir &&
+                !target_dir.string().starts_with(p.string()) &&
+                p.parent_path() != target_dir) {
+              std::filesystem::path out_p;
+              static_cast<void>(m_model.move_item(p, target_dir, out_p));
+            }
+          }
+        } else if (source_path != target_dir &&
+                   source_path.parent_path() != target_dir) {
+          std::filesystem::path out_p;
+          static_cast<void>(m_model.move_item(source_path, target_dir, out_p));
+        }
+      }
     }
-    m_drag_source_row.reset();
-    m_drag_target_row.reset();
-    m_is_dragging_item = false;
-    return was_resizing || was_dragging || scroll_project_released || scroll_search_released || scroll_ext_released;
+  }
+  m_drag_source_row.reset();
+  m_drag_target_row.reset();
+  m_is_dragging_item = false;
+  return was_resizing || was_dragging || scroll_project_released ||
+         scroll_search_released || scroll_ext_released;
 }
 
 bool ToolSidebar::tick_animations() noexcept {
-    bool updated = false;
-    if (m_search_model.tick()) {
+  bool updated = false;
+  if (m_search_model.tick()) {
+    updated = true;
+  }
+  // Animate caret blinking and refresh immediately while search worker is
+  // running or user is focused on search
+  if ((m_model.get_active_icon() == UI::Editor::SidebarIcon::Search &&
+       (m_search_model.get_focused_input() !=
+            UI::Editor::SearchInputFocus::None ||
+        m_search_model.is_searching())) ||
+      (m_model.get_active_icon() == UI::Editor::SidebarIcon::Services &&
+       m_ext_search_focused)) {
+    updated = true;
+  }
+  if (is_visible() && !m_model.get_workspace_root().empty()) {
+    const auto now = std::chrono::steady_clock::now();
+    if (std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - m_last_refresh_time)
+            .count() >= 1000) {
+      m_last_refresh_time = now;
+      if (m_model.refresh()) {
         updated = true;
+      }
     }
-    // Animate caret blinking and refresh immediately while search worker is running or user is focused on search
-    if ((m_model.get_active_icon() == UI::Editor::SidebarIcon::Search &&
-        (m_search_model.get_focused_input() != UI::Editor::SearchInputFocus::None || m_search_model.is_searching())) ||
-        (m_model.get_active_icon() == UI::Editor::SidebarIcon::Services && m_ext_search_focused)) {
-        updated = true;
-    }
-    if (is_visible() && !m_model.get_workspace_root().empty()) {
-        const auto now = std::chrono::steady_clock::now();
-        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - m_last_refresh_time).count() >= 1000) {
-            m_last_refresh_time = now;
-            if (m_model.refresh()) {
-                updated = true;
-            }
-        }
-    }
-    return updated;
+  }
+  return updated;
 }
 
 void ToolSidebar::render_search_panel(
@@ -1840,51 +2337,69 @@ void ToolSidebar::render_search_panel(
   const float scale = layout.dpi_scale;
 
   // 1. Header: "Search" with Action Buttons (Collapse All, Clear, Refresh)
-  surface.draw_text(device_context, *surface.m_ui_font, "Search",
-                    panel.x + 14.0F * scale,
-                    panel.y + header_height * 0.5F * scale,
-                    surface.m_palette.text_primary);
+  surface.draw_text(
+      device_context, *surface.m_ui_font, "Search", panel.x + 14.0F * scale,
+      panel.y + header_height * 0.5F * scale, surface.m_palette.text_primary);
 
   const float header_center_y = panel.y + header_height * 0.5F * scale;
   const float btn_size = 18.0F * scale;
 
   // Collapse All Icon
-  const UI::Rect collapse_rect{panel.right() - 24.0F * scale - btn_size * 2.0F, header_center_y - btn_size * 0.5F, btn_size, btn_size};
+  const UI::Rect collapse_rect{panel.right() - 24.0F * scale - btn_size * 2.0F,
+                               header_center_y - btn_size * 0.5F, btn_size,
+                               btn_size};
   if (m_hover_search_collapse_all) {
-    surface.fill_rounded_rectangle(device_context, collapse_rect, surface.m_palette.hover_background, 3.0F * scale);
+    surface.fill_rounded_rectangle(device_context, collapse_rect,
+                                   surface.m_palette.hover_background,
+                                   3.0F * scale);
   }
   surface.draw_svg_icon(device_context, "collapse-all.svg",
                         round_to_int(collapse_rect.x + btn_size * 0.5F),
                         round_to_int(collapse_rect.y + btn_size * 0.5F),
                         round_to_int(13.0F * scale),
-                        m_hover_search_collapse_all ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
+                        m_hover_search_collapse_all
+                            ? UI::Theme::Color{255, 255, 255, 255}
+                            : surface.m_palette.text_muted,
                         surface.m_palette.sidebar_background);
 
   // Clear Search Icon
-  const UI::Rect clear_rect{panel.right() - 22.0F * scale - btn_size, header_center_y - btn_size * 0.5F, btn_size, btn_size};
+  const UI::Rect clear_rect{panel.right() - 22.0F * scale - btn_size,
+                            header_center_y - btn_size * 0.5F, btn_size,
+                            btn_size};
   if (m_hover_search_clear) {
-    surface.fill_rounded_rectangle(device_context, clear_rect, surface.m_palette.hover_background, 3.0F * scale);
+    surface.fill_rounded_rectangle(device_context, clear_rect,
+                                   surface.m_palette.hover_background,
+                                   3.0F * scale);
   }
-  surface.draw_svg_icon(device_context, "close-minimal.svg",
-                        round_to_int(clear_rect.x + btn_size * 0.5F),
-                        round_to_int(clear_rect.y + btn_size * 0.5F),
-                        round_to_int(12.0F * scale),
-                        m_hover_search_clear ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
-                        surface.m_palette.sidebar_background);
+  surface.draw_svg_icon(
+      device_context, "close-minimal.svg",
+      round_to_int(clear_rect.x + btn_size * 0.5F),
+      round_to_int(clear_rect.y + btn_size * 0.5F), round_to_int(12.0F * scale),
+      m_hover_search_clear ? UI::Theme::Color{255, 255, 255, 255}
+                           : surface.m_palette.text_muted,
+      surface.m_palette.sidebar_background);
 
   // Refresh Icon
-  const UI::Rect refresh_rect{panel.right() - 20.0F * scale, header_center_y - btn_size * 0.5F, btn_size, btn_size};
+  const UI::Rect refresh_rect{panel.right() - 20.0F * scale,
+                              header_center_y - btn_size * 0.5F, btn_size,
+                              btn_size};
   if (m_hover_search_refresh) {
-    surface.fill_rounded_rectangle(device_context, refresh_rect, surface.m_palette.hover_background, 3.0F * scale);
+    surface.fill_rounded_rectangle(device_context, refresh_rect,
+                                   surface.m_palette.hover_background,
+                                   3.0F * scale);
   }
   surface.draw_svg_icon(device_context, "refresh.svg",
                         round_to_int(refresh_rect.x + btn_size * 0.5F),
                         round_to_int(refresh_rect.y + btn_size * 0.5F),
                         round_to_int(12.0F * scale),
-                        m_hover_search_refresh ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
+                        m_hover_search_refresh
+                            ? UI::Theme::Color{255, 255, 255, 255}
+                            : surface.m_palette.text_muted,
                         surface.m_palette.sidebar_background);
 
-  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+  const bool is_modern = surface.m_palette.is_modern ||
+                         surface.m_theme.is_modern ||
+                         surface.m_theme.enable_os_blur;
   if (!is_modern) {
     surface.draw_line(device_context, round_to_int(panel.x),
                       round_to_int(panel.y + header_height * scale),
@@ -1897,44 +2412,52 @@ void ToolSidebar::render_search_panel(
   const float input_top = panel.y + header_height * scale + 8.0F * scale;
 
   // Chevron Expand/Collapse Toggle on left
-  const UI::Rect chevron_bounds{panel.x + 6.0F * scale, input_top + 3.0F * scale, 18.0F * scale, 20.0F * scale};
+  const UI::Rect chevron_bounds{panel.x + 6.0F * scale,
+                                input_top + 3.0F * scale, 18.0F * scale,
+                                20.0F * scale};
   if (m_hover_search_chevron) {
-    surface.fill_rounded_rectangle(device_context, chevron_bounds, surface.m_palette.hover_background, 3.0F * scale);
+    surface.fill_rounded_rectangle(device_context, chevron_bounds,
+                                   surface.m_palette.hover_background,
+                                   3.0F * scale);
   }
-  const std::string search_chevron = m_search_model.is_replace_expanded() ? "chevron-down.svg" : "chevron-right.svg";
+  const std::string search_chevron = m_search_model.is_replace_expanded()
+                                         ? "chevron-down.svg"
+                                         : "chevron-right.svg";
   surface.draw_svg_icon(
       device_context, search_chevron,
       round_to_int(chevron_bounds.x + chevron_bounds.width * 0.5F),
       round_to_int(chevron_bounds.y + chevron_bounds.height * 0.5F),
       std::max(round_to_int(9.0F * scale), 8),
-      m_hover_search_chevron ? surface.m_palette.text_primary : surface.m_palette.text_muted,
+      m_hover_search_chevron ? surface.m_palette.text_primary
+                             : surface.m_palette.text_muted,
       surface.m_palette.sidebar_background);
 
   // Search Input Box
-  const UI::Rect search_bounds{
-      panel.x + 28.0F * scale,
-      input_top,
-      std::max(panel.width - 36.0F * scale, 0.0F),
-      26.0F * scale
-  };
-  const bool search_focused = (m_search_model.get_focused_input() == UI::Editor::SearchInputFocus::Search);
+  const UI::Rect search_bounds{panel.x + 28.0F * scale, input_top,
+                               std::max(panel.width - 36.0F * scale, 0.0F),
+                               26.0F * scale};
+  const bool search_focused = (m_search_model.get_focused_input() ==
+                               UI::Editor::SearchInputFocus::Search);
   const bool caret_visible = ((GetTickCount64() / 500) % 2) == 0;
 
-  surface.fill_rounded_rectangle(device_context, search_bounds, surface.m_palette.editor_background, 3.0F * scale);
-  const UI::Theme::Color search_border_col = search_focused
-      ? UI::Theme::Color{59, 130, 246, 230}
-      : surface.m_palette.border;
+  surface.fill_rounded_rectangle(device_context, search_bounds,
+                                 surface.m_palette.editor_background,
+                                 3.0F * scale);
+  const UI::Theme::Color search_border_col =
+      search_focused ? UI::Theme::Color{59, 130, 246, 230}
+                     : surface.m_palette.border;
   surface.draw_rectangle(device_context, search_bounds, search_border_col);
 
   // Search text or placeholder
   const std::string_view query = m_search_model.get_search_query();
   if (query.empty()) {
-    surface.draw_text(device_context, *surface.m_small_font, "Search (e.g. settings)",
-                      search_bounds.x + 6.0F * scale,
+    surface.draw_text(device_context, *surface.m_small_font,
+                      "Search (e.g. settings)", search_bounds.x + 6.0F * scale,
                       search_bounds.y + search_bounds.height * 0.5F,
                       surface.m_palette.text_muted);
     if (search_focused && caret_visible) {
-      surface.draw_line(device_context, round_to_int(search_bounds.x + 6.0F * scale),
+      surface.draw_line(device_context,
+                        round_to_int(search_bounds.x + 6.0F * scale),
                         round_to_int(search_bounds.y + 4.0F * scale),
                         round_to_int(search_bounds.x + 6.0F * scale),
                         round_to_int(search_bounds.bottom() - 4.0F * scale),
@@ -1944,15 +2467,17 @@ void ToolSidebar::render_search_panel(
     // Selection highlight
     if (search_focused && m_search_model.has_selection()) {
       const auto [s_min, s_max] = m_search_model.get_selection_range();
-      const int w_before = surface.m_small_font->getTextWidth(device_context, std::string{query.substr(0, s_min)});
-      const int w_sel = surface.m_small_font->getTextWidth(device_context, std::string{query.substr(s_min, s_max - s_min)});
+      const int w_before = surface.m_small_font->getTextWidth(
+          device_context, std::string{query.substr(0, s_min)});
+      const int w_sel = surface.m_small_font->getTextWidth(
+          device_context, std::string{query.substr(s_min, s_max - s_min)});
       const UI::Rect sel_rect{
           search_bounds.x + 6.0F * scale + static_cast<float>(w_before),
-          search_bounds.y + 3.0F * scale,
-          static_cast<float>(w_sel),
-          search_bounds.height - 6.0F * scale
-      };
-      surface.fill_rounded_rectangle(device_context, sel_rect, UI::Theme::Color{59, 130, 246, 110}, 2.0F * scale);
+          search_bounds.y + 3.0F * scale, static_cast<float>(w_sel),
+          search_bounds.height - 6.0F * scale};
+      surface.fill_rounded_rectangle(device_context, sel_rect,
+                                     UI::Theme::Color{59, 130, 246, 110},
+                                     2.0F * scale);
     }
 
     surface.draw_text(device_context, *surface.m_small_font, query,
@@ -1960,8 +2485,11 @@ void ToolSidebar::render_search_panel(
                       search_bounds.y + search_bounds.height * 0.5F,
                       surface.m_palette.text_primary);
     if (search_focused && caret_visible && !m_search_model.has_selection()) {
-      const int text_w = surface.m_small_font->getTextWidth(device_context, std::string{query.substr(0, m_search_model.get_search_caret())});
-      const float caret_x = search_bounds.x + 6.0F * scale + static_cast<float>(text_w);
+      const int text_w = surface.m_small_font->getTextWidth(
+          device_context,
+          std::string{query.substr(0, m_search_model.get_search_caret())});
+      const float caret_x =
+          search_bounds.x + 6.0F * scale + static_cast<float>(text_w);
       surface.draw_line(device_context, round_to_int(caret_x),
                         round_to_int(search_bounds.y + 4.0F * scale),
                         round_to_int(caret_x),
@@ -1976,55 +2504,86 @@ void ToolSidebar::render_search_panel(
   const float opt_btn_y = input_top + 3.0F * scale;
 
   // [.*] (Use Regular Expression)
-  const UI::Rect regex_bounds{search_bounds.right() - 22.0F * scale, opt_btn_y, opt_btn_w, opt_btn_h};
+  const UI::Rect regex_bounds{search_bounds.right() - 22.0F * scale, opt_btn_y,
+                              opt_btn_w, opt_btn_h};
   if (m_search_model.is_use_regex()) {
-    surface.fill_rounded_rectangle(device_context, regex_bounds, UI::Theme::Color{59, 130, 246, 75}, 2.5F * scale);
-    surface.draw_rectangle(device_context, regex_bounds, UI::Theme::Color{59, 130, 246, 220});
+    surface.fill_rounded_rectangle(device_context, regex_bounds,
+                                   UI::Theme::Color{59, 130, 246, 75},
+                                   2.5F * scale);
+    surface.draw_rectangle(device_context, regex_bounds,
+                           UI::Theme::Color{59, 130, 246, 220});
   } else if (m_hover_search_use_regex) {
-    surface.fill_rounded_rectangle(device_context, regex_bounds, surface.m_palette.hover_background, 2.5F * scale);
+    surface.fill_rounded_rectangle(device_context, regex_bounds,
+                                   surface.m_palette.hover_background,
+                                   2.5F * scale);
   }
   surface.draw_text(device_context, *surface.m_small_font, ".*",
-                    regex_bounds.x + 4.0F * scale, regex_bounds.y + regex_bounds.height * 0.5F,
-                    m_search_model.is_use_regex() ? UI::Theme::Color{255, 255, 255, 255} : (m_hover_search_use_regex ? surface.m_palette.text_primary : surface.m_palette.text_muted));
+                    regex_bounds.x + 4.0F * scale,
+                    regex_bounds.y + regex_bounds.height * 0.5F,
+                    m_search_model.is_use_regex()
+                        ? UI::Theme::Color{255, 255, 255, 255}
+                        : (m_hover_search_use_regex
+                               ? surface.m_palette.text_primary
+                               : surface.m_palette.text_muted));
 
   // [ab|] (Match Whole Word)
-  const UI::Rect word_bounds{search_bounds.right() - 44.0F * scale, opt_btn_y, opt_btn_w, opt_btn_h};
+  const UI::Rect word_bounds{search_bounds.right() - 44.0F * scale, opt_btn_y,
+                             opt_btn_w, opt_btn_h};
   if (m_search_model.is_match_word()) {
-    surface.fill_rounded_rectangle(device_context, word_bounds, UI::Theme::Color{59, 130, 246, 75}, 2.5F * scale);
-    surface.draw_rectangle(device_context, word_bounds, UI::Theme::Color{59, 130, 246, 220});
+    surface.fill_rounded_rectangle(device_context, word_bounds,
+                                   UI::Theme::Color{59, 130, 246, 75},
+                                   2.5F * scale);
+    surface.draw_rectangle(device_context, word_bounds,
+                           UI::Theme::Color{59, 130, 246, 220});
   } else if (m_hover_search_match_word) {
-    surface.fill_rounded_rectangle(device_context, word_bounds, surface.m_palette.hover_background, 2.5F * scale);
+    surface.fill_rounded_rectangle(device_context, word_bounds,
+                                   surface.m_palette.hover_background,
+                                   2.5F * scale);
   }
-  surface.draw_text(device_context, *surface.m_small_font, "ab",
-                    word_bounds.x + 3.0F * scale, word_bounds.y + word_bounds.height * 0.5F,
-                    m_search_model.is_match_word() ? UI::Theme::Color{255, 255, 255, 255} : (m_hover_search_match_word ? surface.m_palette.text_primary : surface.m_palette.text_muted));
+  surface.draw_text(
+      device_context, *surface.m_small_font, "ab", word_bounds.x + 3.0F * scale,
+      word_bounds.y + word_bounds.height * 0.5F,
+      m_search_model.is_match_word()
+          ? UI::Theme::Color{255, 255, 255, 255}
+          : (m_hover_search_match_word ? surface.m_palette.text_primary
+                                       : surface.m_palette.text_muted));
 
   // [Aa] (Match Case)
-  const UI::Rect case_bounds{search_bounds.right() - 66.0F * scale, opt_btn_y, opt_btn_w, opt_btn_h};
+  const UI::Rect case_bounds{search_bounds.right() - 66.0F * scale, opt_btn_y,
+                             opt_btn_w, opt_btn_h};
   if (m_search_model.is_match_case()) {
-    surface.fill_rounded_rectangle(device_context, case_bounds, UI::Theme::Color{59, 130, 246, 75}, 2.5F * scale);
-    surface.draw_rectangle(device_context, case_bounds, UI::Theme::Color{59, 130, 246, 220});
+    surface.fill_rounded_rectangle(device_context, case_bounds,
+                                   UI::Theme::Color{59, 130, 246, 75},
+                                   2.5F * scale);
+    surface.draw_rectangle(device_context, case_bounds,
+                           UI::Theme::Color{59, 130, 246, 220});
   } else if (m_hover_search_match_case) {
-    surface.fill_rounded_rectangle(device_context, case_bounds, surface.m_palette.hover_background, 2.5F * scale);
+    surface.fill_rounded_rectangle(device_context, case_bounds,
+                                   surface.m_palette.hover_background,
+                                   2.5F * scale);
   }
-  surface.draw_text(device_context, *surface.m_small_font, "Aa",
-                    case_bounds.x + 3.0F * scale, case_bounds.y + case_bounds.height * 0.5F,
-                    m_search_model.is_match_case() ? UI::Theme::Color{255, 255, 255, 255} : (m_hover_search_match_case ? surface.m_palette.text_primary : surface.m_palette.text_muted));
+  surface.draw_text(
+      device_context, *surface.m_small_font, "Aa", case_bounds.x + 3.0F * scale,
+      case_bounds.y + case_bounds.height * 0.5F,
+      m_search_model.is_match_case()
+          ? UI::Theme::Color{255, 255, 255, 255}
+          : (m_hover_search_match_case ? surface.m_palette.text_primary
+                                       : surface.m_palette.text_muted));
 
   // Replace Row (when expanded)
   if (m_search_model.is_replace_expanded()) {
     const float replace_top = input_top + 30.0F * scale;
-    const UI::Rect replace_bounds{
-        panel.x + 28.0F * scale,
-        replace_top,
-        std::max(panel.width - 64.0F * scale, 0.0F),
-        26.0F * scale
-    };
-    const bool replace_focused = (m_search_model.get_focused_input() == UI::Editor::SearchInputFocus::Replace);
-    surface.fill_rounded_rectangle(device_context, replace_bounds, surface.m_palette.editor_background, 3.0F * scale);
-    const UI::Theme::Color replace_border_col = replace_focused
-        ? UI::Theme::Color{59, 130, 246, 230}
-        : surface.m_palette.border;
+    const UI::Rect replace_bounds{panel.x + 28.0F * scale, replace_top,
+                                  std::max(panel.width - 64.0F * scale, 0.0F),
+                                  26.0F * scale};
+    const bool replace_focused = (m_search_model.get_focused_input() ==
+                                  UI::Editor::SearchInputFocus::Replace);
+    surface.fill_rounded_rectangle(device_context, replace_bounds,
+                                   surface.m_palette.editor_background,
+                                   3.0F * scale);
+    const UI::Theme::Color replace_border_col =
+        replace_focused ? UI::Theme::Color{59, 130, 246, 230}
+                        : surface.m_palette.border;
     surface.draw_rectangle(device_context, replace_bounds, replace_border_col);
 
     const std::string_view replace_query = m_search_model.get_replace_query();
@@ -2034,7 +2593,8 @@ void ToolSidebar::render_search_panel(
                         replace_bounds.y + replace_bounds.height * 0.5F,
                         surface.m_palette.text_muted);
       if (replace_focused && caret_visible) {
-        surface.draw_line(device_context, round_to_int(replace_bounds.x + 6.0F * scale),
+        surface.draw_line(device_context,
+                          round_to_int(replace_bounds.x + 6.0F * scale),
                           round_to_int(replace_bounds.y + 4.0F * scale),
                           round_to_int(replace_bounds.x + 6.0F * scale),
                           round_to_int(replace_bounds.bottom() - 4.0F * scale),
@@ -2044,15 +2604,18 @@ void ToolSidebar::render_search_panel(
       // Selection highlight
       if (replace_focused && m_search_model.has_selection()) {
         const auto [s_min, s_max] = m_search_model.get_selection_range();
-        const int w_before = surface.m_small_font->getTextWidth(device_context, std::string{replace_query.substr(0, s_min)});
-        const int w_sel = surface.m_small_font->getTextWidth(device_context, std::string{replace_query.substr(s_min, s_max - s_min)});
+        const int w_before = surface.m_small_font->getTextWidth(
+            device_context, std::string{replace_query.substr(0, s_min)});
+        const int w_sel = surface.m_small_font->getTextWidth(
+            device_context,
+            std::string{replace_query.substr(s_min, s_max - s_min)});
         const UI::Rect sel_rect{
             replace_bounds.x + 6.0F * scale + static_cast<float>(w_before),
-            replace_top + 3.0F * scale,
-            static_cast<float>(w_sel),
-            replace_bounds.height - 6.0F * scale
-        };
-        surface.fill_rounded_rectangle(device_context, sel_rect, UI::Theme::Color{59, 130, 246, 110}, 2.0F * scale);
+            replace_top + 3.0F * scale, static_cast<float>(w_sel),
+            replace_bounds.height - 6.0F * scale};
+        surface.fill_rounded_rectangle(device_context, sel_rect,
+                                       UI::Theme::Color{59, 130, 246, 110},
+                                       2.0F * scale);
       }
 
       surface.draw_text(device_context, *surface.m_small_font, replace_query,
@@ -2060,8 +2623,11 @@ void ToolSidebar::render_search_panel(
                         replace_bounds.y + replace_bounds.height * 0.5F,
                         surface.m_palette.text_primary);
       if (replace_focused && caret_visible && !m_search_model.has_selection()) {
-        const int text_w = surface.m_small_font->getTextWidth(device_context, std::string{replace_query.substr(0, m_search_model.get_replace_caret())});
-        const float caret_x = replace_bounds.x + 6.0F * scale + static_cast<float>(text_w);
+        const int text_w = surface.m_small_font->getTextWidth(
+            device_context, std::string{replace_query.substr(
+                                0, m_search_model.get_replace_caret())});
+        const float caret_x =
+            replace_bounds.x + 6.0F * scale + static_cast<float>(text_w);
         surface.draw_line(device_context, round_to_int(caret_x),
                           round_to_int(replace_bounds.y + 4.0F * scale),
                           round_to_int(caret_x),
@@ -2071,32 +2637,53 @@ void ToolSidebar::render_search_panel(
     }
 
     // [AB] (Preserve Case)
-    const UI::Rect preserve_bounds{replace_bounds.right() - 22.0F * scale, replace_top + 3.0F * scale, opt_btn_w, opt_btn_h};
+    const UI::Rect preserve_bounds{replace_bounds.right() - 22.0F * scale,
+                                   replace_top + 3.0F * scale, opt_btn_w,
+                                   opt_btn_h};
     if (m_search_model.is_preserve_case()) {
-      surface.fill_rounded_rectangle(device_context, preserve_bounds, UI::Theme::Color{59, 130, 246, 75}, 2.5F * scale);
-      surface.draw_rectangle(device_context, preserve_bounds, UI::Theme::Color{59, 130, 246, 220});
+      surface.fill_rounded_rectangle(device_context, preserve_bounds,
+                                     UI::Theme::Color{59, 130, 246, 75},
+                                     2.5F * scale);
+      surface.draw_rectangle(device_context, preserve_bounds,
+                             UI::Theme::Color{59, 130, 246, 220});
     } else if (m_hover_search_preserve_case) {
-      surface.fill_rounded_rectangle(device_context, preserve_bounds, surface.m_palette.hover_background, 2.5F * scale);
+      surface.fill_rounded_rectangle(device_context, preserve_bounds,
+                                     surface.m_palette.hover_background,
+                                     2.5F * scale);
     }
     surface.draw_text(device_context, *surface.m_small_font, "AB",
-                      preserve_bounds.x + 3.0F * scale, preserve_bounds.y + preserve_bounds.height * 0.5F,
-                      m_search_model.is_preserve_case() ? UI::Theme::Color{255, 255, 255, 255} : (m_hover_search_preserve_case ? surface.m_palette.text_primary : surface.m_palette.text_muted));
+                      preserve_bounds.x + 3.0F * scale,
+                      preserve_bounds.y + preserve_bounds.height * 0.5F,
+                      m_search_model.is_preserve_case()
+                          ? UI::Theme::Color{255, 255, 255, 255}
+                          : (m_hover_search_preserve_case
+                                 ? surface.m_palette.text_primary
+                                 : surface.m_palette.text_muted));
 
     // Replace All Action Button
-    const UI::Rect replace_all_bounds{panel.right() - 32.0F * scale, replace_top + 2.0F * scale, 22.0F * scale, 22.0F * scale};
+    const UI::Rect replace_all_bounds{panel.right() - 32.0F * scale,
+                                      replace_top + 2.0F * scale, 22.0F * scale,
+                                      22.0F * scale};
     if (m_hover_search_replace_all) {
-      surface.fill_rounded_rectangle(device_context, replace_all_bounds, surface.m_palette.hover_background, 3.0F * scale);
+      surface.fill_rounded_rectangle(device_context, replace_all_bounds,
+                                     surface.m_palette.hover_background,
+                                     3.0F * scale);
     }
     surface.draw_svg_icon(device_context, "refresh.svg",
                           round_to_int(replace_all_bounds.x + 11.0F * scale),
                           round_to_int(replace_all_bounds.y + 11.0F * scale),
                           round_to_int(13.0F * scale),
-                          m_hover_search_replace_all ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
+                          m_hover_search_replace_all
+                              ? UI::Theme::Color{255, 255, 255, 255}
+                              : surface.m_palette.text_muted,
                           surface.m_palette.sidebar_background);
   }
 
   // 3. Results Summary Line
-  const float summary_top = (m_search_model.is_replace_expanded() ? (input_top + 30.0F * scale + 30.0F * scale) : (input_top + 30.0F * scale)) + 4.0F * scale;
+  const float summary_top = (m_search_model.is_replace_expanded()
+                                 ? (input_top + 30.0F * scale + 30.0F * scale)
+                                 : (input_top + 30.0F * scale)) +
+                            4.0F * scale;
 
   if (!m_search_model.get_search_error().empty()) {
     surface.draw_text(device_context, *surface.m_small_font,
@@ -2104,9 +2691,10 @@ void ToolSidebar::render_search_panel(
                       panel.x + 14.0F * scale, summary_top + 10.0F * scale,
                       UI::Theme::Color{248, 113, 113, 255});
   } else if (!m_search_model.get_search_query().empty()) {
-    std::string summary_text = std::to_string(m_search_model.get_total_match_count()) +
-                               " results in " +
-                               std::to_string(m_search_model.get_total_file_count()) + " files";
+    std::string summary_text =
+        std::to_string(m_search_model.get_total_match_count()) +
+        " results in " + std::to_string(m_search_model.get_total_file_count()) +
+        " files";
     surface.draw_text(device_context, *surface.m_small_font, summary_text,
                       panel.x + 14.0F * scale, summary_top + 10.0F * scale,
                       surface.m_palette.text_primary);
@@ -2115,20 +2703,22 @@ void ToolSidebar::render_search_panel(
   // 4. Tree Results View
   const float tree_top = search_tree_top_y(layout);
   const auto visible_rows = m_search_model.get_visible_rows();
-  const auto& results = m_search_model.get_results();
+  const auto &results = m_search_model.get_results();
 
   if (visible_rows.empty()) {
     if (m_search_model.get_search_query().empty()) {
-      surface.draw_text(device_context, *surface.m_ui_font, "Search across workspace",
-                        panel.x + 14.0F * scale, tree_top + 20.0F * scale,
+      surface.draw_text(device_context, *surface.m_ui_font,
+                        "Search across workspace", panel.x + 14.0F * scale,
+                        tree_top + 20.0F * scale,
                         surface.m_palette.text_primary);
-      surface.draw_text(device_context, *surface.m_small_font, "Search results will appear in this panel.",
+      surface.draw_text(device_context, *surface.m_small_font,
+                        "Search results will appear in this panel.",
                         panel.x + 14.0F * scale, tree_top + 42.0F * scale,
                         surface.m_palette.text_muted);
     } else if (!m_search_model.is_searching()) {
-      surface.draw_text(device_context, *surface.m_small_font, "No results found.",
-                        panel.x + 14.0F * scale, tree_top + 14.0F * scale,
-                        surface.m_palette.text_muted);
+      surface.draw_text(device_context, *surface.m_small_font,
+                        "No results found.", panel.x + 14.0F * scale,
+                        tree_top + 14.0F * scale, surface.m_palette.text_muted);
     }
     return;
   }
@@ -2139,60 +2729,68 @@ void ToolSidebar::render_search_panel(
 
   // Clip tree view strictly to sidebar bounds
   const int clip_saved = SaveDC(device_context);
-  IntersectClipRect(device_context,
-                    round_to_int(panel.x),
-                    round_to_int(tree_top),
-                    round_to_int(panel.right()),
+  IntersectClipRect(device_context, round_to_int(panel.x),
+                    round_to_int(tree_top), round_to_int(panel.right()),
                     round_to_int(panel.bottom()));
 
   for (std::size_t item_index = first; item_index < end; ++item_index) {
     const std::size_t visible_row = item_index - first;
-    const auto& v_row = visible_rows[item_index];
-    const float row_y = tree_top + static_cast<float>(visible_row) * row_height * scale;
+    const auto &v_row = visible_rows[item_index];
+    const float row_y =
+        tree_top + static_cast<float>(visible_row) * row_height * scale;
     const UI::Rect row_bounds{panel.x, row_y, panel.width, row_height * scale};
-    const bool is_hovered = (m_hovered_search_row && *m_hovered_search_row == item_index);
+    const bool is_hovered =
+        (m_hovered_search_row && *m_hovered_search_row == item_index);
 
     if (is_hovered) {
-      surface.fill_rounded_rectangle(device_context,
-          UI::Rect{panel.x + 4.0F * scale, row_y + 1.0F * scale, panel.width - 8.0F * scale, row_height * scale - 2.0F * scale},
+      surface.fill_rounded_rectangle(
+          device_context,
+          UI::Rect{panel.x + 4.0F * scale, row_y + 1.0F * scale,
+                   panel.width - 8.0F * scale,
+                   row_height * scale - 2.0F * scale},
           UI::Theme::Color{255, 255, 255, 14}, 3.0F * scale);
     }
 
     if (v_row.kind == UI::Editor::SearchRowKind::FileHeader) {
-      const auto& file = results[v_row.file_index];
+      const auto &file = results[v_row.file_index];
 
       // Expand/Collapse Chevron SVG
-      const std::string file_chevron = file.expanded ? "chevron-down.svg" : "chevron-right.svg";
-      surface.draw_svg_icon(device_context, file_chevron,
-                            round_to_int(panel.x + 12.0F * scale),
-                            round_to_int(row_y + row_height * 0.5F * scale),
-                            std::max(round_to_int(9.0F * scale), 8),
-                            surface.m_palette.text_muted,
-                            surface.m_palette.sidebar_background);
+      const std::string file_chevron =
+          file.expanded ? "chevron-down.svg" : "chevron-right.svg";
+      surface.draw_svg_icon(
+          device_context, file_chevron, round_to_int(panel.x + 12.0F * scale),
+          round_to_int(row_y + row_height * 0.5F * scale),
+          std::max(round_to_int(9.0F * scale), 8), surface.m_palette.text_muted,
+          surface.m_palette.sidebar_background);
 
       // File Icon
-      const std::string icon_asset = UI::Editor::file_icon_asset_for_path(file.file_path);
-      surface.draw_svg_icon(device_context, icon_asset,
-                            round_to_int(panel.x + 24.0F * scale),
-                            round_to_int(row_y + row_height * 0.5F * scale),
-                            round_to_int(14.0F * scale),
-                            surface.m_palette.text_primary,
-                            surface.m_palette.sidebar_background,
-                            true);
+      const std::string icon_asset =
+          UI::Editor::file_icon_asset_for_path(file.file_path);
+      surface.draw_svg_icon(
+          device_context, icon_asset, round_to_int(panel.x + 24.0F * scale),
+          round_to_int(row_y + row_height * 0.5F * scale),
+          round_to_int(14.0F * scale), surface.m_palette.text_primary,
+          surface.m_palette.sidebar_background, true);
 
       // File Name
       surface.draw_text(device_context, *surface.m_small_font, file.file_name,
-                        panel.x + 36.0F * scale, row_y + row_height * 0.5F * scale,
+                        panel.x + 36.0F * scale,
+                        row_y + row_height * 0.5F * scale,
                         surface.m_palette.text_primary);
 
-      const int fname_w = surface.m_small_font->getTextWidth(device_context, file.file_name);
+      const int fname_w =
+          surface.m_small_font->getTextWidth(device_context, file.file_name);
 
       // Directory Path in muted text
       if (!file.relative_dir.empty()) {
-        const float dir_x = panel.x + 42.0F * scale + static_cast<float>(fname_w);
-        const int avail_dir_w = round_to_int(panel.right() - dir_x - 38.0F * scale);
+        const float dir_x =
+            panel.x + 42.0F * scale + static_cast<float>(fname_w);
+        const int avail_dir_w =
+            round_to_int(panel.right() - dir_x - 38.0F * scale);
         if (avail_dir_w > 20) {
-          const std::string dir_text = ellipsize(device_context, *surface.m_small_font, file.relative_dir, avail_dir_w);
+          const std::string dir_text =
+              ellipsize(device_context, *surface.m_small_font,
+                        file.relative_dir, avail_dir_w);
           surface.draw_text(device_context, *surface.m_small_font, dir_text,
                             dir_x, row_y + row_height * 0.5F * scale,
                             surface.m_palette.text_muted);
@@ -2201,84 +2799,110 @@ void ToolSidebar::render_search_panel(
 
       // Match Count Badge Pill on Right
       const std::string count_str = std::to_string(file.matches.size());
-      const int count_w = surface.m_small_font->getTextWidth(device_context, count_str);
-      const float pill_w = std::max(static_cast<float>(count_w) + 8.0F * scale, 18.0F * scale);
-      const UI::Rect pill_bounds{panel.right() - pill_w - 8.0F * scale, row_y + 2.0F * scale, pill_w, 18.0F * scale};
-      surface.fill_rounded_rectangle(device_context, pill_bounds, UI::Theme::Color{255, 255, 255, 22}, 9.0F * scale);
-      surface.draw_text(device_context, *surface.m_small_font, count_str,
-                        pill_bounds.x + (pill_bounds.width - static_cast<float>(count_w)) * 0.5F,
-                        row_y + row_height * 0.5F * scale,
-                        surface.m_palette.text_primary);
+      const int count_w =
+          surface.m_small_font->getTextWidth(device_context, count_str);
+      const float pill_w =
+          std::max(static_cast<float>(count_w) + 8.0F * scale, 18.0F * scale);
+      const UI::Rect pill_bounds{panel.right() - pill_w - 8.0F * scale,
+                                 row_y + 2.0F * scale, pill_w, 18.0F * scale};
+      surface.fill_rounded_rectangle(device_context, pill_bounds,
+                                     UI::Theme::Color{255, 255, 255, 22},
+                                     9.0F * scale);
+      surface.draw_text(
+          device_context, *surface.m_small_font, count_str,
+          pill_bounds.x +
+              (pill_bounds.width - static_cast<float>(count_w)) * 0.5F,
+          row_y + row_height * 0.5F * scale, surface.m_palette.text_primary);
     } else {
       // Match Line Row
-      const auto& file = results[v_row.file_index];
+      const auto &file = results[v_row.file_index];
       if (v_row.match_index < file.matches.size()) {
-        const auto& match = file.matches[v_row.match_index];
+        const auto &match = file.matches[v_row.match_index];
 
         // Line number (e.g. "45:")
         const std::string lnum_str = std::to_string(match.line_number) + ":";
         surface.draw_text(device_context, *surface.m_small_font, lnum_str,
-                          panel.x + 24.0F * scale, row_y + row_height * 0.5F * scale,
+                          panel.x + 24.0F * scale,
+                          row_y + row_height * 0.5F * scale,
                           surface.m_palette.text_muted);
 
-        const int lnum_w = surface.m_small_font->getTextWidth(device_context, lnum_str);
-        float text_cursor_x = panel.x + 28.0F * scale + static_cast<float>(lnum_w);
+        const int lnum_w =
+            surface.m_small_font->getTextWidth(device_context, lnum_str);
+        float text_cursor_x =
+            panel.x + 28.0F * scale + static_cast<float>(lnum_w);
         const float max_right = panel.right() - 14.0F * scale;
 
-        const std::string& line_text = match.line_content;
+        const std::string &line_text = match.line_content;
         std::size_t curr_pos = 0;
 
-        const auto spans_to_draw = match.spans.empty()
-            ? std::vector<UI::Editor::SearchHighlightSpan>{UI::Editor::SearchHighlightSpan{match.match_preview_start, match.match_preview_length}}
-            : match.spans;
+        const auto spans_to_draw =
+            match.spans.empty()
+                ? std::vector<
+                      UI::Editor::
+                          SearchHighlightSpan>{UI::Editor::SearchHighlightSpan{
+                      match.match_preview_start, match.match_preview_length}}
+                : match.spans;
 
-        for (const auto& span : spans_to_draw) {
-          if (text_cursor_x >= max_right) break;
+        for (const auto &span : spans_to_draw) {
+          if (text_cursor_x >= max_right)
+            break;
 
           // 1. Text before this match span
           if (span.start > curr_pos && curr_pos < line_text.size()) {
-            const std::string before = line_text.substr(curr_pos, span.start - curr_pos);
+            const std::string before =
+                line_text.substr(curr_pos, span.start - curr_pos);
             const int avail_w = round_to_int(max_right - text_cursor_x);
-            if (avail_w <= 0) break;
-            const int before_w = surface.m_small_font->getTextWidth(device_context, before);
+            if (avail_w <= 0)
+              break;
+            const int before_w =
+                surface.m_small_font->getTextWidth(device_context, before);
             if (before_w <= avail_w) {
               surface.draw_text(device_context, *surface.m_small_font, before,
-                                text_cursor_x, row_y + row_height * 0.5F * scale,
+                                text_cursor_x,
+                                row_y + row_height * 0.5F * scale,
                                 surface.m_palette.text_primary);
               text_cursor_x += static_cast<float>(before_w);
             } else {
-              const std::string truncated = ellipsize(device_context, *surface.m_small_font, before, avail_w);
-              surface.draw_text(device_context, *surface.m_small_font, truncated,
-                                text_cursor_x, row_y + row_height * 0.5F * scale,
+              const std::string truncated = ellipsize(
+                  device_context, *surface.m_small_font, before, avail_w);
+              surface.draw_text(device_context, *surface.m_small_font,
+                                truncated, text_cursor_x,
+                                row_y + row_height * 0.5F * scale,
                                 surface.m_palette.text_primary);
               text_cursor_x = max_right;
               break;
             }
           }
 
-          if (text_cursor_x >= max_right) break;
+          if (text_cursor_x >= max_right)
+            break;
 
           // 2. Highlighting Matched Span (soft elegant gold highlight)
           if (span.start < line_text.size()) {
             std::string match_word = line_text.substr(span.start, span.length);
-            int word_w = surface.m_small_font->getTextWidth(device_context, match_word);
+            int word_w =
+                surface.m_small_font->getTextWidth(device_context, match_word);
             const int avail_w = round_to_int(max_right - text_cursor_x);
-            if (avail_w <= 0) break;
+            if (avail_w <= 0)
+              break;
 
             if (word_w > avail_w) {
-              match_word = ellipsize(device_context, *surface.m_small_font, match_word, avail_w);
-              word_w = surface.m_small_font->getTextWidth(device_context, match_word);
+              match_word = ellipsize(device_context, *surface.m_small_font,
+                                     match_word, avail_w);
+              word_w = surface.m_small_font->getTextWidth(device_context,
+                                                          match_word);
             }
 
             const UI::Rect highlight_pill{
-                text_cursor_x - 1.0F * scale,
-                row_y + 3.0F * scale,
+                text_cursor_x - 1.0F * scale, row_y + 3.0F * scale,
                 static_cast<float>(word_w) + 2.0F * scale,
-                row_height * scale - 6.0F * scale
-            };
+                row_height * scale - 6.0F * scale};
             // Soft amber / gold highlight
-            surface.fill_rounded_rectangle(device_context, highlight_pill, UI::Theme::Color{234, 179, 8, 45}, 2.0F * scale);
-            surface.draw_rectangle(device_context, highlight_pill, UI::Theme::Color{234, 179, 8, 120});
+            surface.fill_rounded_rectangle(device_context, highlight_pill,
+                                           UI::Theme::Color{234, 179, 8, 45},
+                                           2.0F * scale);
+            surface.draw_rectangle(device_context, highlight_pill,
+                                   UI::Theme::Color{234, 179, 8, 120});
             surface.draw_text(device_context, *surface.m_small_font, match_word,
                               text_cursor_x, row_y + row_height * 0.5F * scale,
                               UI::Theme::Color{252, 211, 77, 255});
@@ -2293,7 +2917,8 @@ void ToolSidebar::render_search_panel(
           const std::string trailing = line_text.substr(curr_pos);
           const int avail_w = round_to_int(max_right - text_cursor_x);
           if (avail_w > 10) {
-            const std::string truncated = ellipsize(device_context, *surface.m_small_font, trailing, avail_w);
+            const std::string truncated = ellipsize(
+                device_context, *surface.m_small_font, trailing, avail_w);
             surface.draw_text(device_context, *surface.m_small_font, truncated,
                               text_cursor_x, row_y + row_height * 0.5F * scale,
                               surface.m_palette.text_primary);
@@ -2311,37 +2936,34 @@ void ToolSidebar::render_search_panel(
   m_search_scrollbar.scroll_to(first);
   if (m_search_scrollbar.is_needed()) {
     const UI::Rect thumb_bounds = m_search_scrollbar.get_thumb_bounds();
-    const UI::Theme::Color thumb_color = m_search_scrollbar.is_dragging()
-        ? UI::Theme::Color{255, 255, 255, 115}
-        : (m_hovered_search_scrollbar ? UI::Theme::Color{255, 255, 255, 75} : UI::Theme::Color{255, 255, 255, 40});
+    const UI::Theme::Color thumb_color =
+        m_search_scrollbar.is_dragging()
+            ? UI::Theme::Color{255, 255, 255, 115}
+            : (m_hovered_search_scrollbar
+                   ? UI::Theme::Color{255, 255, 255, 75}
+                   : UI::Theme::Color{255, 255, 255, 40});
     surface.fill_rectangle(device_context, thumb_bounds, thumb_color);
   }
 
-  // Draw Right Border separating sidebar from editor with blue accent highlight when hovered or resizing
-  // In modern blurred mode, the sidebar seamlessly floats borderless without a right edge line or blue hover border
+  // Draw Right Border separating sidebar from editor with blue accent highlight
+  // when hovered or resizing In modern blurred mode, the sidebar seamlessly
+  // floats borderless without a right edge line or blue hover border
   if (!is_modern) {
     const bool show_accent = m_resize_hovered || m_resizing;
-    const UI::Theme::Color splitter_color = show_accent
-        ? surface.m_palette.accent
-        : surface.m_palette.border;
+    const UI::Theme::Color splitter_color =
+        show_accent ? surface.m_palette.accent : surface.m_palette.border;
 
     const float splitter_x = panel.right() - scale;
-    surface.draw_line(device_context,
-                      round_to_int(splitter_x),
-                      round_to_int(panel.y),
-                      round_to_int(splitter_x),
-                      round_to_int(panel.bottom()),
-                      splitter_color);
+    surface.draw_line(device_context, round_to_int(splitter_x),
+                      round_to_int(panel.y), round_to_int(splitter_x),
+                      round_to_int(panel.bottom()), splitter_color);
 
     if (show_accent) {
-      surface.fill_rectangle(
-          device_context,
-          UI::Rect{
-              splitter_x - 1.5F * scale,
-              panel.y,
-              std::max(3.5F * scale, 3.0F),
-              panel.height},
-          surface.m_palette.accent);
+      surface.fill_rectangle(device_context,
+                             UI::Rect{splitter_x - 1.5F * scale, panel.y,
+                                      std::max(3.5F * scale, 3.0F),
+                                      panel.height},
+                             surface.m_palette.accent);
     }
   }
 }
@@ -2351,39 +2973,51 @@ void ToolSidebar::render_extensions_panel(
     const UI::Editor::StudioEditorLayoutResult &layout) const {
   const UI::Rect panel = layout.tool_sidebar_bounds;
   const float scale = layout.dpi_scale;
-  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+  const bool is_modern = surface.m_palette.is_modern ||
+                         surface.m_theme.is_modern ||
+                         surface.m_theme.enable_os_blur;
 
   // 1. Header: "Plugins" with Action Buttons (Refresh, More/Ellipsis)
-  surface.draw_text(device_context, *surface.m_ui_font, "Plugins",
-                    panel.x + 14.0F * scale,
-                    panel.y + header_height * 0.5F * scale,
-                    surface.m_palette.text_primary);
+  surface.draw_text(
+      device_context, *surface.m_ui_font, "Plugins", panel.x + 14.0F * scale,
+      panel.y + header_height * 0.5F * scale, surface.m_palette.text_primary);
 
   const float header_center_y = panel.y + header_height * 0.5F * scale;
   const float btn_size = 18.0F * scale;
 
   // Refresh Icon
-  const UI::Rect refresh_rect{panel.right() - 44.0F * scale - btn_size * 0.5F, header_center_y - btn_size * 0.5F, btn_size, btn_size};
+  const UI::Rect refresh_rect{panel.right() - 44.0F * scale - btn_size * 0.5F,
+                              header_center_y - btn_size * 0.5F, btn_size,
+                              btn_size};
   if (m_hover_ext_refresh) {
-    surface.fill_rounded_rectangle(device_context, refresh_rect, surface.m_palette.hover_background, 3.0F * scale);
+    surface.fill_rounded_rectangle(device_context, refresh_rect,
+                                   surface.m_palette.hover_background,
+                                   3.0F * scale);
   }
   surface.draw_svg_icon(device_context, "refresh.svg",
                         round_to_int(refresh_rect.x + btn_size * 0.5F),
                         round_to_int(refresh_rect.y + btn_size * 0.5F),
                         round_to_int(12.0F * scale),
-                        m_hover_ext_refresh ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
+                        m_hover_ext_refresh
+                            ? UI::Theme::Color{255, 255, 255, 255}
+                            : surface.m_palette.text_muted,
                         surface.m_palette.sidebar_background);
 
   // Ellipsis / More Icon
-  const UI::Rect ellipsis_rect{panel.right() - 22.0F * scale - btn_size * 0.5F, header_center_y - btn_size * 0.5F, btn_size, btn_size};
+  const UI::Rect ellipsis_rect{panel.right() - 22.0F * scale - btn_size * 0.5F,
+                               header_center_y - btn_size * 0.5F, btn_size,
+                               btn_size};
   if (m_hover_ext_more) {
-    surface.fill_rounded_rectangle(device_context, ellipsis_rect, surface.m_palette.hover_background, 3.0F * scale);
+    surface.fill_rounded_rectangle(device_context, ellipsis_rect,
+                                   surface.m_palette.hover_background,
+                                   3.0F * scale);
   }
   surface.draw_svg_icon(device_context, "ellipsis.svg",
                         round_to_int(ellipsis_rect.x + btn_size * 0.5F),
                         round_to_int(ellipsis_rect.y + btn_size * 0.5F),
                         round_to_int(14.0F * scale),
-                        m_hover_ext_more ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
+                        m_hover_ext_more ? UI::Theme::Color{255, 255, 255, 255}
+                                         : surface.m_palette.text_muted,
                         surface.m_palette.sidebar_background);
 
   // Bottom border line for header
@@ -2398,17 +3032,16 @@ void ToolSidebar::render_extensions_panel(
   // 2. Search Box
   const float search_top = panel.y + header_height * scale + 8.0F * scale;
   const float search_height = 26.0F * scale;
-  const UI::Rect search_bounds{
-      panel.x + 12.0F * scale,
-      search_top,
-      std::max(panel.width - 24.0F * scale, 0.0F),
-      search_height
-  };
+  const UI::Rect search_bounds{panel.x + 12.0F * scale, search_top,
+                               std::max(panel.width - 24.0F * scale, 0.0F),
+                               search_height};
 
-  surface.fill_rounded_rectangle(device_context, search_bounds, surface.m_palette.editor_background, 3.0F * scale);
-  const UI::Theme::Color search_border_col = m_ext_search_focused
-      ? UI::Theme::Color{59, 130, 246, 230}
-      : surface.m_palette.border;
+  surface.fill_rounded_rectangle(device_context, search_bounds,
+                                 surface.m_palette.editor_background,
+                                 3.0F * scale);
+  const UI::Theme::Color search_border_col =
+      m_ext_search_focused ? UI::Theme::Color{59, 130, 246, 230}
+                           : surface.m_palette.border;
   surface.draw_rectangle(device_context, search_bounds, search_border_col);
 
   // Text inside search or placeholder
@@ -2417,8 +3050,11 @@ void ToolSidebar::render_extensions_panel(
   const float text_y = search_bounds.y + search_bounds.height * 0.5F;
 
   if (m_ext_search_query.empty()) {
-    const int avail_placeholder_w = round_to_int(search_bounds.width - 40.0F * scale);
-    const std::string placeholder = ellipsize(device_context, *surface.m_small_font, "Search Plugins in Marketplace...", avail_placeholder_w);
+    const int avail_placeholder_w =
+        round_to_int(search_bounds.width - 40.0F * scale);
+    const std::string placeholder =
+        ellipsize(device_context, *surface.m_small_font,
+                  "Search Plugins in Marketplace...", avail_placeholder_w);
     surface.draw_text(device_context, *surface.m_small_font, placeholder,
                       text_x, text_y, surface.m_palette.text_muted);
     if (m_ext_search_focused && caret_visible) {
@@ -2432,7 +3068,8 @@ void ToolSidebar::render_extensions_panel(
     surface.draw_text(device_context, *surface.m_small_font, m_ext_search_query,
                       text_x, text_y, surface.m_palette.text_primary);
     if (m_ext_search_focused && caret_visible) {
-      const int text_w = surface.m_small_font->getTextWidth(device_context, m_ext_search_query);
+      const int text_w = surface.m_small_font->getTextWidth(device_context,
+                                                            m_ext_search_query);
       const float caret_x = text_x + static_cast<float>(text_w);
       surface.draw_line(device_context, round_to_int(caret_x),
                         round_to_int(search_bounds.y + 4.0F * scale),
@@ -2442,36 +3079,47 @@ void ToolSidebar::render_extensions_panel(
     }
 
     // Clear icon (x)
-    const UI::Rect clear_rect{search_bounds.right() - 36.0F * scale, search_top + 3.0F * scale, 16.0F * scale, 20.0F * scale};
+    const UI::Rect clear_rect{search_bounds.right() - 36.0F * scale,
+                              search_top + 3.0F * scale, 16.0F * scale,
+                              20.0F * scale};
     surface.draw_svg_icon(device_context, "close-minimal.svg",
                           round_to_int(clear_rect.x + clear_rect.width * 0.5F),
                           round_to_int(clear_rect.y + clear_rect.height * 0.5F),
                           round_to_int(10.0F * scale),
-                          m_hover_ext_clear ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
+                          m_hover_ext_clear
+                              ? UI::Theme::Color{255, 255, 255, 255}
+                              : surface.m_palette.text_muted,
                           surface.m_palette.editor_background);
   }
 
   // Filter Icon inside Search Box
-  const UI::Rect filter_rect{search_bounds.right() - 18.0F * scale, search_top + 3.0F * scale, 16.0F * scale, 20.0F * scale};
+  const UI::Rect filter_rect{search_bounds.right() - 18.0F * scale,
+                             search_top + 3.0F * scale, 16.0F * scale,
+                             20.0F * scale};
   surface.draw_svg_icon(device_context, "vscode-codicons/icons/filter.svg",
                         round_to_int(filter_rect.x + filter_rect.width * 0.5F),
                         round_to_int(filter_rect.y + filter_rect.height * 0.5F),
                         round_to_int(12.0F * scale),
-                        m_hover_ext_filter ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
+                        m_hover_ext_filter
+                            ? UI::Theme::Color{255, 255, 255, 255}
+                            : surface.m_palette.text_muted,
                         surface.m_palette.editor_background);
 
   // 3. Content Area
   const float content_top = search_top + search_height + 8.0F * scale;
 
-  auto& pm = Zenvra::Plugins::PluginManager::instance();
+  auto &pm = Zenvra::Plugins::PluginManager::instance();
   // Filter matching installed
   std::vector<std::shared_ptr<Zenvra::Plugins::Plugin>> matching_installed;
-  for (const auto& p : pm.get_all_plugins()) {
-    if (!p) continue;
+  for (const auto &p : pm.get_all_plugins()) {
+    if (!p)
+      continue;
     std::error_code ec;
-    if (!std::filesystem::exists(p->get_install_path(), ec)) continue;
+    if (!std::filesystem::exists(p->get_install_path(), ec))
+      continue;
     if (!std::filesystem::exists(p->get_install_path() / "plugin.json", ec) &&
-        !std::filesystem::exists(p->get_install_path() / "package.json", ec)) continue;
+        !std::filesystem::exists(p->get_install_path() / "package.json", ec))
+      continue;
 
     if (m_ext_search_query.empty()) {
       matching_installed.push_back(p);
@@ -2480,16 +3128,19 @@ void ToolSidebar::render_extensions_panel(
       if (to_lower(p->get_name()).find(q) != std::string::npos ||
           to_lower(p->get_id()).find(q) != std::string::npos ||
           to_lower(p->get_description()).find(q) != std::string::npos ||
-          to_lower(p->get_manifest().get_publisher()).find(q) != std::string::npos ||
-          to_lower(p->get_manifest().get_category()).find(q) != std::string::npos) {
+          to_lower(p->get_manifest().get_publisher()).find(q) !=
+              std::string::npos ||
+          to_lower(p->get_manifest().get_category()).find(q) !=
+              std::string::npos) {
         matching_installed.push_back(p);
       }
     }
   }
 
   // Filter matching recommended
-  std::vector<Zenvra::Plugins::Marketplace::MarketplacePluginEntry> matching_recommended;
-  for (const auto& e : pm.get_marketplace().get_all_entries()) {
+  std::vector<Zenvra::Plugins::Marketplace::MarketplacePluginEntry>
+      matching_recommended;
+  for (const auto &e : pm.get_marketplace().get_all_entries()) {
     if (pm.get_registry().has_plugin(e.id)) {
       auto p = pm.get_registry().get_plugin(e.id);
       std::error_code ec;
@@ -2501,7 +3152,14 @@ void ToolSidebar::render_extensions_panel(
       matching_recommended.push_back(e);
     } else {
       const std::string q = to_lower(m_ext_search_query);
-      if (to_lower(e.name).find(q) != std::string::npos ||
+      bool tag_matched = false;
+      for (const auto &tag : e.tags) {
+        if (to_lower(tag).find(q) != std::string::npos) {
+          tag_matched = true;
+          break;
+        }
+      }
+      if (tag_matched || to_lower(e.name).find(q) != std::string::npos ||
           to_lower(e.id).find(q) != std::string::npos ||
           to_lower(e.description).find(q) != std::string::npos ||
           to_lower(e.publisher).find(q) != std::string::npos ||
@@ -2512,10 +3170,8 @@ void ToolSidebar::render_extensions_panel(
   }
 
   const int clip_saved = SaveDC(device_context);
-  IntersectClipRect(device_context,
-                    round_to_int(panel.x),
-                    round_to_int(content_top),
-                    round_to_int(panel.right()),
+  IntersectClipRect(device_context, round_to_int(panel.x),
+                    round_to_int(content_top), round_to_int(panel.right()),
                     round_to_int(panel.bottom()));
 
   float cur_y = content_top - m_ext_scroll_y;
@@ -2525,17 +3181,18 @@ void ToolSidebar::render_extensions_panel(
   if (!matching_installed.empty() || m_ext_search_query.empty()) {
     const UI::Rect inst_hdr_rect{panel.x, cur_y, panel.width, header_h};
     if (m_hover_ext_installed_header) {
-      surface.fill_rectangle(device_context, inst_hdr_rect, UI::Theme::Color{255, 255, 255, 8});
+      surface.fill_rectangle(device_context, inst_hdr_rect,
+                             UI::Theme::Color{255, 255, 255, 8});
     }
 
     // Chevron
-    const std::string chevron_icon = m_ext_installed_expanded ? "chevron-down.svg" : "chevron-right.svg";
-    surface.draw_svg_icon(device_context, chevron_icon,
-                          round_to_int(panel.x + 14.0F * scale),
-                          round_to_int(cur_y + header_h * 0.5F),
-                          std::max(round_to_int(9.0F * scale), 8),
-                          surface.m_palette.text_primary,
-                          surface.m_palette.sidebar_background);
+    const std::string chevron_icon =
+        m_ext_installed_expanded ? "chevron-down.svg" : "chevron-right.svg";
+    surface.draw_svg_icon(
+        device_context, chevron_icon, round_to_int(panel.x + 14.0F * scale),
+        round_to_int(cur_y + header_h * 0.5F),
+        std::max(round_to_int(9.0F * scale), 8), surface.m_palette.text_primary,
+        surface.m_palette.sidebar_background);
 
     // Header Title
     surface.draw_text(device_context, *surface.m_ui_font, "Installed",
@@ -2544,34 +3201,43 @@ void ToolSidebar::render_extensions_panel(
 
     // Count Badge Pill
     const std::string count_str = std::to_string(matching_installed.size());
-    const int count_w = surface.m_small_font->getTextWidth(device_context, count_str);
-    const float pill_w = std::max(static_cast<float>(count_w) + 10.0F * scale, 18.0F * scale);
-    const UI::Rect pill_bounds{panel.right() - pill_w - 14.0F * scale, cur_y + 3.0F * scale, pill_w, 18.0F * scale};
-    surface.fill_rounded_rectangle(device_context, pill_bounds, UI::Theme::Color{255, 255, 255, 25}, 9.0F * scale);
+    const int count_w =
+        surface.m_small_font->getTextWidth(device_context, count_str);
+    const float pill_w =
+        std::max(static_cast<float>(count_w) + 10.0F * scale, 18.0F * scale);
+    const UI::Rect pill_bounds{panel.right() - pill_w - 14.0F * scale,
+                               cur_y + 3.0F * scale, pill_w, 18.0F * scale};
+    surface.fill_rounded_rectangle(device_context, pill_bounds,
+                                   UI::Theme::Color{255, 255, 255, 25},
+                                   9.0F * scale);
     surface.draw_text(device_context, *surface.m_small_font, count_str,
-                      pill_bounds.x + (pill_bounds.width - static_cast<float>(count_w)) * 0.5F,
-                      cur_y + header_h * 0.5F,
-                      surface.m_palette.text_primary);
+                      pill_bounds.x +
+                          (pill_bounds.width - static_cast<float>(count_w)) *
+                              0.5F,
+                      cur_y + header_h * 0.5F, surface.m_palette.text_primary);
 
     cur_y += header_h;
 
     // Items
     if (m_ext_installed_expanded) {
       if (matching_installed.empty()) {
-        surface.draw_text(device_context, *surface.m_small_font, "No installed plugins yet.",
-                          panel.x + 26.0F * scale, cur_y + 14.0F * scale,
-                          surface.m_palette.text_muted);
+        surface.draw_text(device_context, *surface.m_small_font,
+                          "No installed plugins yet.", panel.x + 26.0F * scale,
+                          cur_y + 14.0F * scale, surface.m_palette.text_muted);
         cur_y += 28.0F * scale;
       } else {
         for (std::size_t i = 0; i < matching_installed.size(); ++i) {
-          const auto& p = matching_installed[i];
+          const auto &p = matching_installed[i];
           const float item_h = 62.0F * scale;
 
           if (cur_y + item_h >= content_top && cur_y <= panel.bottom()) {
             // Hover background
-            if (m_hovered_ext_installed_idx && *m_hovered_ext_installed_idx == i) {
-              surface.fill_rounded_rectangle(device_context,
-                  UI::Rect{panel.x + 4.0F * scale, cur_y + 1.0F * scale, panel.width - 8.0F * scale, item_h - 2.0F * scale},
+            if (m_hovered_ext_installed_idx &&
+                *m_hovered_ext_installed_idx == i) {
+              surface.fill_rounded_rectangle(
+                  device_context,
+                  UI::Rect{panel.x + 4.0F * scale, cur_y + 1.0F * scale,
+                           panel.width - 8.0F * scale, item_h - 2.0F * scale},
                   UI::Theme::Color{255, 255, 255, 12}, 3.0F * scale);
             }
 
@@ -2587,32 +3253,32 @@ void ToolSidebar::render_extensions_panel(
               }
             };
 
-            auto cached_icon = pm.get_marketplace().get_cached_icon(p->get_id(), "", repaint_cb);
+            auto cached_icon = pm.get_marketplace().get_cached_icon(
+                p->get_id(), "", repaint_cb);
             bool rendered_custom_icon = false;
             if (cached_icon.has_value()) {
               const std::string path_str = cached_icon->string();
-              if (path_str.ends_with(".png") || path_str.ends_with(".jpg") || path_str.ends_with(".jpeg")) {
-                surface.draw_png_icon(device_context, path_str,
-                                      icon_cx, icon_cy, icon_sz,
+              if (path_str.ends_with(".png") || path_str.ends_with(".jpg") ||
+                  path_str.ends_with(".jpeg")) {
+                surface.draw_png_icon(device_context, path_str, icon_cx,
+                                      icon_cy, icon_sz,
                                       surface.m_palette.sidebar_background);
                 rendered_custom_icon = true;
               } else if (path_str.ends_with(".svg")) {
-                surface.draw_svg_icon(device_context, path_str,
-                                      icon_cx, icon_cy, icon_sz,
-                                      surface.m_palette.text_primary,
-                                      surface.m_palette.sidebar_background,
-                                      true);
+                surface.draw_svg_icon(
+                    device_context, path_str, icon_cx, icon_cy, icon_sz,
+                    surface.m_palette.text_primary,
+                    surface.m_palette.sidebar_background, true);
                 rendered_custom_icon = true;
               }
             }
 
             if (!rendered_custom_icon) {
-              const std::string icon_file = extension_icon_for(p->get_id(), p->get_name());
-              surface.draw_svg_icon(device_context, icon_file,
-                                    icon_cx, icon_cy, icon_sz,
-                                    surface.m_palette.text_primary,
-                                    surface.m_palette.sidebar_background,
-                                    true);
+              const std::string icon_file =
+                  extension_icon_for(p->get_id(), p->get_name());
+              surface.draw_svg_icon(device_context, icon_file, icon_cx, icon_cy,
+                                    icon_sz, surface.m_palette.text_primary,
+                                    surface.m_palette.sidebar_background, true);
             }
 
             // Details
@@ -2623,17 +3289,29 @@ void ToolSidebar::render_extensions_panel(
                               text_left, cur_y + 13.0F * scale,
                               surface.m_palette.text_primary);
 
-            const int name_w = surface.m_ui_font->getTextWidth(device_context, p->get_name());
+            const int name_w =
+                surface.m_ui_font->getTextWidth(device_context, p->get_name());
             if (p->get_name() == "clangd" || p->get_name() == "CMake Tools" ||
-                p->get_id().find("clangd") != std::string::npos || p->get_id().find("cmake") != std::string::npos) {
-              const std::string ms_str = (p->get_name() == "clangd" || p->get_id().find("clangd") != std::string::npos) ? "117ms" : "132ms";
-              const float time_x = text_left + static_cast<float>(name_w) + 12.0F * scale;
+                p->get_id().find("clangd") != std::string::npos ||
+                p->get_id().find("cmake") != std::string::npos ||
+                p->get_id().find("jdt") != std::string::npos ||
+                p->get_name().find("Java") != std::string::npos) {
+              const std::string ms_str =
+                  (p->get_id().find("jdt") != std::string::npos ||
+                   p->get_name().find("Java") != std::string::npos)
+                      ? "124ms"
+                      : ((p->get_name() == "clangd" ||
+                          p->get_id().find("clangd") != std::string::npos)
+                             ? "117ms"
+                             : "132ms");
+              const float time_x =
+                  text_left + static_cast<float>(name_w) + 12.0F * scale;
               if (time_x + 50.0F * scale < panel.right() - 108.0F * scale) {
-                surface.draw_svg_icon(device_context, "refresh.svg",
-                                      round_to_int(time_x), round_to_int(cur_y + 13.0F * scale),
-                                      round_to_int(9.0F * scale),
-                                      surface.m_palette.text_muted,
-                                      surface.m_palette.sidebar_background);
+                surface.draw_svg_icon(
+                    device_context, "refresh.svg", round_to_int(time_x),
+                    round_to_int(cur_y + 13.0F * scale),
+                    round_to_int(9.0F * scale), surface.m_palette.text_muted,
+                    surface.m_palette.sidebar_background);
                 surface.draw_text(device_context, *surface.m_small_font, ms_str,
                                   time_x + 8.0F * scale, cur_y + 13.0F * scale,
                                   surface.m_palette.text_muted);
@@ -2641,27 +3319,40 @@ void ToolSidebar::render_extensions_panel(
             }
 
             // Line 2: Description (ellipsized)
-            const int max_desc_w = std::max(round_to_int(panel.right() - text_left - 108.0F * scale), 20);
-            const std::string desc_text = ellipsize(device_context, *surface.m_small_font, p->get_description(), max_desc_w);
+            const int max_desc_w = std::max(
+                round_to_int(panel.right() - text_left - 108.0F * scale), 20);
+            const std::string desc_text =
+                ellipsize(device_context, *surface.m_small_font,
+                          p->get_description(), max_desc_w);
             surface.draw_text(device_context, *surface.m_small_font, desc_text,
                               text_left, cur_y + 29.0F * scale,
                               surface.m_palette.text_muted);
 
             // Line 3: Publisher + Category Badge
-            const std::string pub_name = p->get_manifest().get_publisher().empty() ? "Community" : p->get_manifest().get_publisher();
-            const std::string pub_text = ellipsize(device_context, *surface.m_small_font, pub_name, max_desc_w);
+            const std::string pub_name =
+                p->get_manifest().get_publisher().empty()
+                    ? "Community"
+                    : p->get_manifest().get_publisher();
+            const std::string pub_text = ellipsize(
+                device_context, *surface.m_small_font, pub_name, max_desc_w);
             surface.draw_text(device_context, *surface.m_small_font, pub_text,
                               text_left, cur_y + 44.0F * scale,
                               surface.m_palette.text_muted);
 
-            const int pub_w = surface.m_small_font->getTextWidth(device_context, pub_text);
-            float badge_x = text_left + static_cast<float>(pub_w) + 8.0F * scale;
+            const int pub_w =
+                surface.m_small_font->getTextWidth(device_context, pub_text);
+            float badge_x =
+                text_left + static_cast<float>(pub_w) + 8.0F * scale;
 
             std::string cat_tag = p->get_manifest().get_category();
-            std::transform(cat_tag.begin(), cat_tag.end(), cat_tag.begin(), ::toupper);
-            if (cat_tag == "EMULATORS") cat_tag = "EMULATOR";
-            if (cat_tag == "THEMES") cat_tag = "THEME";
-            if (cat_tag == "TOOLS") cat_tag = "TOOL";
+            std::transform(cat_tag.begin(), cat_tag.end(), cat_tag.begin(),
+                           ::toupper);
+            if (cat_tag == "EMULATORS")
+              cat_tag = "EMULATOR";
+            if (cat_tag == "THEMES")
+              cat_tag = "THEME";
+            if (cat_tag == "TOOLS")
+              cat_tag = "TOOL";
 
             UI::Theme::Color badge_bg{50, 50, 60, 255};
             UI::Theme::Color badge_fg{200, 200, 210, 255};
@@ -2679,13 +3370,16 @@ void ToolSidebar::render_extensions_panel(
               badge_fg = UI::Theme::Color{120, 255, 180, 255};
             }
 
-            const int cat_text_w = surface.m_small_font->getTextWidth(device_context, cat_tag);
+            const int cat_text_w =
+                surface.m_small_font->getTextWidth(device_context, cat_tag);
             const float badge_w = static_cast<float>(cat_text_w) + 8.0F * scale;
             const float badge_h = 13.0F * scale;
             if (badge_x + badge_w < panel.right() - 108.0F * scale) {
-              surface.fill_rounded_rectangle(device_context,
-                                            UI::Rect{badge_x, cur_y + 44.0F * scale - 6.0F * scale, badge_w, badge_h},
-                                            badge_bg, 2.0F * scale);
+              surface.fill_rounded_rectangle(
+                  device_context,
+                  UI::Rect{badge_x, cur_y + 44.0F * scale - 6.0F * scale,
+                           badge_w, badge_h},
+                  badge_bg, 2.0F * scale);
               surface.draw_text(device_context, *surface.m_small_font, cat_tag,
                                 badge_x + 4.0F * scale, cur_y + 44.0F * scale,
                                 badge_fg);
@@ -2694,32 +3388,47 @@ void ToolSidebar::render_extensions_panel(
             // Right [ Uninstall ] Button
             const float uninst_btn_w = 64.0F * scale;
             const float uninst_btn_h = 22.0F * scale;
-            const UI::Rect uninst_btn_rect{panel.right() - uninst_btn_w - 38.0F * scale, cur_y + 18.0F * scale, uninst_btn_w, uninst_btn_h};
-            const bool uninst_hovered = (m_hovered_ext_uninstall_idx && *m_hovered_ext_uninstall_idx == i);
+            const UI::Rect uninst_btn_rect{
+                panel.right() - uninst_btn_w - 38.0F * scale,
+                cur_y + 18.0F * scale, uninst_btn_w, uninst_btn_h};
+            const bool uninst_hovered = (m_hovered_ext_uninstall_idx &&
+                                         *m_hovered_ext_uninstall_idx == i);
 
-            const UI::Theme::Color uninst_bg = uninst_hovered
-                ? UI::Theme::Color{180, 40, 40, 255}
-                : UI::Theme::Color{50, 50, 60, 255};
-            surface.fill_rounded_rectangle(device_context, uninst_btn_rect, uninst_bg, 3.0F * scale);
+            const UI::Theme::Color uninst_bg =
+                uninst_hovered ? UI::Theme::Color{180, 40, 40, 255}
+                               : UI::Theme::Color{50, 50, 60, 255};
+            surface.fill_rounded_rectangle(device_context, uninst_btn_rect,
+                                           uninst_bg, 3.0F * scale);
 
-            const int uninst_text_w = surface.m_small_font->getTextWidth(device_context, "Uninstall");
-            surface.draw_text(device_context, *surface.m_small_font, "Uninstall",
-                              uninst_btn_rect.x + (uninst_btn_rect.width - static_cast<float>(uninst_text_w)) * 0.5F,
-                              uninst_btn_rect.y + uninst_btn_rect.height * 0.5F,
-                              UI::Theme::Color{255, 255, 255, 255});
+            const int uninst_text_w =
+                surface.m_small_font->getTextWidth(device_context, "Uninstall");
+            surface.draw_text(
+                device_context, *surface.m_small_font, "Uninstall",
+                uninst_btn_rect.x + (uninst_btn_rect.width -
+                                     static_cast<float>(uninst_text_w)) *
+                                        0.5F,
+                uninst_btn_rect.y + uninst_btn_rect.height * 0.5F,
+                UI::Theme::Color{255, 255, 255, 255});
 
             // Right Gear Icon
-            const UI::Rect gear_rect{panel.right() - 32.0F * scale, cur_y + 18.0F * scale, 22.0F * scale, 22.0F * scale};
-            const bool gear_hovered = (m_hovered_ext_gear_idx && *m_hovered_ext_gear_idx == i);
+            const UI::Rect gear_rect{panel.right() - 32.0F * scale,
+                                     cur_y + 18.0F * scale, 22.0F * scale,
+                                     22.0F * scale};
+            const bool gear_hovered =
+                (m_hovered_ext_gear_idx && *m_hovered_ext_gear_idx == i);
             if (gear_hovered) {
-              surface.fill_rounded_rectangle(device_context, gear_rect, surface.m_palette.hover_background, 3.0F * scale);
+              surface.fill_rounded_rectangle(device_context, gear_rect,
+                                             surface.m_palette.hover_background,
+                                             3.0F * scale);
             }
-            surface.draw_svg_icon(device_context, "gear.svg",
-                                  round_to_int(gear_rect.x + gear_rect.width * 0.5F),
-                                  round_to_int(gear_rect.y + gear_rect.height * 0.5F),
-                                  round_to_int(13.0F * scale),
-                                  gear_hovered ? surface.m_palette.text_primary : surface.m_palette.text_muted,
-                                  surface.m_palette.sidebar_background);
+            surface.draw_svg_icon(
+                device_context, "gear.svg",
+                round_to_int(gear_rect.x + gear_rect.width * 0.5F),
+                round_to_int(gear_rect.y + gear_rect.height * 0.5F),
+                round_to_int(13.0F * scale),
+                gear_hovered ? surface.m_palette.text_primary
+                             : surface.m_palette.text_muted,
+                surface.m_palette.sidebar_background);
           }
           cur_y += item_h;
         }
@@ -2731,17 +3440,18 @@ void ToolSidebar::render_extensions_panel(
   if (!matching_recommended.empty() || m_ext_search_query.empty()) {
     const UI::Rect rec_hdr_rect{panel.x, cur_y, panel.width, header_h};
     if (m_hover_ext_recommended_header) {
-      surface.fill_rectangle(device_context, rec_hdr_rect, UI::Theme::Color{255, 255, 255, 8});
+      surface.fill_rectangle(device_context, rec_hdr_rect,
+                             UI::Theme::Color{255, 255, 255, 8});
     }
 
     // Chevron
-    const std::string chevron_icon = m_ext_recommended_expanded ? "chevron-down.svg" : "chevron-right.svg";
-    surface.draw_svg_icon(device_context, chevron_icon,
-                          round_to_int(panel.x + 14.0F * scale),
-                          round_to_int(cur_y + header_h * 0.5F),
-                          std::max(round_to_int(9.0F * scale), 8),
-                          surface.m_palette.text_primary,
-                          surface.m_palette.sidebar_background);
+    const std::string chevron_icon =
+        m_ext_recommended_expanded ? "chevron-down.svg" : "chevron-right.svg";
+    surface.draw_svg_icon(
+        device_context, chevron_icon, round_to_int(panel.x + 14.0F * scale),
+        round_to_int(cur_y + header_h * 0.5F),
+        std::max(round_to_int(9.0F * scale), 8), surface.m_palette.text_primary,
+        surface.m_palette.sidebar_background);
 
     // Header Title
     surface.draw_text(device_context, *surface.m_ui_font, "Recommended",
@@ -2750,28 +3460,37 @@ void ToolSidebar::render_extensions_panel(
 
     // Count Badge Pill
     const std::string count_str = std::to_string(matching_recommended.size());
-    const int count_w = surface.m_small_font->getTextWidth(device_context, count_str);
-    const float pill_w = std::max(static_cast<float>(count_w) + 10.0F * scale, 18.0F * scale);
-    const UI::Rect pill_bounds{panel.right() - pill_w - 14.0F * scale, cur_y + 3.0F * scale, pill_w, 18.0F * scale};
-    surface.fill_rounded_rectangle(device_context, pill_bounds, UI::Theme::Color{255, 255, 255, 25}, 9.0F * scale);
+    const int count_w =
+        surface.m_small_font->getTextWidth(device_context, count_str);
+    const float pill_w =
+        std::max(static_cast<float>(count_w) + 10.0F * scale, 18.0F * scale);
+    const UI::Rect pill_bounds{panel.right() - pill_w - 14.0F * scale,
+                               cur_y + 3.0F * scale, pill_w, 18.0F * scale};
+    surface.fill_rounded_rectangle(device_context, pill_bounds,
+                                   UI::Theme::Color{255, 255, 255, 25},
+                                   9.0F * scale);
     surface.draw_text(device_context, *surface.m_small_font, count_str,
-                      pill_bounds.x + (pill_bounds.width - static_cast<float>(count_w)) * 0.5F,
-                      cur_y + header_h * 0.5F,
-                      surface.m_palette.text_primary);
+                      pill_bounds.x +
+                          (pill_bounds.width - static_cast<float>(count_w)) *
+                              0.5F,
+                      cur_y + header_h * 0.5F, surface.m_palette.text_primary);
 
     cur_y += header_h;
 
     // Items
     if (m_ext_recommended_expanded) {
       for (std::size_t j = 0; j < matching_recommended.size(); ++j) {
-        const auto& entry = matching_recommended[j];
+        const auto &entry = matching_recommended[j];
         const float item_h = 64.0F * scale;
 
         if (cur_y + item_h >= content_top && cur_y <= panel.bottom()) {
           // Hover background
-          if (m_hovered_ext_recommended_idx && *m_hovered_ext_recommended_idx == j) {
-            surface.fill_rounded_rectangle(device_context,
-                UI::Rect{panel.x + 4.0F * scale, cur_y + 1.0F * scale, panel.width - 8.0F * scale, item_h - 2.0F * scale},
+          if (m_hovered_ext_recommended_idx &&
+              *m_hovered_ext_recommended_idx == j) {
+            surface.fill_rounded_rectangle(
+                device_context,
+                UI::Rect{panel.x + 4.0F * scale, cur_y + 1.0F * scale,
+                         panel.width - 8.0F * scale, item_h - 2.0F * scale},
                 UI::Theme::Color{255, 255, 255, 12}, 3.0F * scale);
           }
 
@@ -2787,92 +3506,106 @@ void ToolSidebar::render_extensions_panel(
             }
           };
 
-          auto cached_icon = pm.get_marketplace().get_cached_icon(entry.id, entry.icon_url, repaint_cb);
+          auto cached_icon = pm.get_marketplace().get_cached_icon(
+              entry.id, entry.icon_url, repaint_cb);
           bool rendered_custom_icon = false;
           if (cached_icon.has_value()) {
             const std::string path_str = cached_icon->string();
-            if (path_str.ends_with(".png") || path_str.ends_with(".jpg") || path_str.ends_with(".jpeg")) {
-              surface.draw_png_icon(device_context, path_str,
-                                    icon_cx, icon_cy, icon_sz,
+            if (path_str.ends_with(".png") || path_str.ends_with(".jpg") ||
+                path_str.ends_with(".jpeg")) {
+              surface.draw_png_icon(device_context, path_str, icon_cx, icon_cy,
+                                    icon_sz,
                                     surface.m_palette.sidebar_background);
               rendered_custom_icon = true;
             } else if (path_str.ends_with(".svg")) {
-              surface.draw_svg_icon(device_context, path_str,
-                                    icon_cx, icon_cy, icon_sz,
-                                    surface.m_palette.text_primary,
-                                    surface.m_palette.sidebar_background,
-                                    true);
+              surface.draw_svg_icon(device_context, path_str, icon_cx, icon_cy,
+                                    icon_sz, surface.m_palette.text_primary,
+                                    surface.m_palette.sidebar_background, true);
               rendered_custom_icon = true;
             }
           }
 
           if (!rendered_custom_icon) {
-            const std::string icon_file = extension_icon_for(entry.id, entry.name);
-            surface.draw_svg_icon(device_context, icon_file,
-                                  icon_cx, icon_cy, icon_sz,
-                                  surface.m_palette.text_primary,
-                                  surface.m_palette.sidebar_background,
-                                  true);
+            const std::string icon_file =
+                extension_icon_for(entry.id, entry.name);
+            surface.draw_svg_icon(device_context, icon_file, icon_cx, icon_cy,
+                                  icon_sz, surface.m_palette.text_primary,
+                                  surface.m_palette.sidebar_background, true);
           }
 
           // Details
           const float text_left = panel.x + 42.0F * scale;
           const float btn_w = 56.0F * scale;
-          const int max_desc_w = std::max(round_to_int(panel.right() - text_left - btn_w - 20.0F * scale), 20);
+          const int max_desc_w = std::max(
+              round_to_int(panel.right() - text_left - btn_w - 20.0F * scale),
+              20);
 
           // Line 1: Name + stats (downloads, stars)
           surface.draw_text(device_context, *surface.m_ui_font, entry.name,
                             text_left, cur_y + 13.0F * scale,
                             surface.m_palette.text_primary);
 
-          const int name_w = surface.m_ui_font->getTextWidth(device_context, entry.name);
+          const int name_w =
+              surface.m_ui_font->getTextWidth(device_context, entry.name);
           float stat_x = text_left + static_cast<float>(name_w) + 12.0F * scale;
 
           if (stat_x + 70.0F * scale < panel.right() - btn_w - 14.0F * scale) {
             // Download icon + text
-            surface.draw_svg_icon(device_context, "vscode-codicons/icons/cloud-download.svg",
-                                  round_to_int(stat_x), round_to_int(cur_y + 13.0F * scale),
-                                  round_to_int(11.0F * scale),
-                                  surface.m_palette.text_muted,
-                                  surface.m_palette.sidebar_background);
+            surface.draw_svg_icon(
+                device_context, "vscode-codicons/icons/cloud-download.svg",
+                round_to_int(stat_x), round_to_int(cur_y + 13.0F * scale),
+                round_to_int(11.0F * scale), surface.m_palette.text_muted,
+                surface.m_palette.sidebar_background);
             stat_x += 10.0F * scale;
-            surface.draw_text(device_context, *surface.m_small_font, entry.downloads,
-                              stat_x, cur_y + 13.0F * scale,
+            surface.draw_text(device_context, *surface.m_small_font,
+                              entry.downloads, stat_x, cur_y + 13.0F * scale,
                               surface.m_palette.text_muted);
-            stat_x += static_cast<float>(surface.m_small_font->getTextWidth(device_context, entry.downloads)) + 8.0F * scale;
+            stat_x += static_cast<float>(surface.m_small_font->getTextWidth(
+                          device_context, entry.downloads)) +
+                      8.0F * scale;
 
             // Star icon + rating
-            surface.draw_svg_icon(device_context, "vscode-codicons/icons/star-full.svg",
-                                  round_to_int(stat_x), round_to_int(cur_y + 13.0F * scale),
-                                  round_to_int(10.0F * scale),
-                                  UI::Theme::Color{245, 158, 11, 255}, // Amber star
-                                  surface.m_palette.sidebar_background);
+            surface.draw_svg_icon(
+                device_context, "vscode-codicons/icons/star-full.svg",
+                round_to_int(stat_x), round_to_int(cur_y + 13.0F * scale),
+                round_to_int(10.0F * scale),
+                UI::Theme::Color{245, 158, 11, 255}, // Amber star
+                surface.m_palette.sidebar_background);
             stat_x += 8.0F * scale;
-            surface.draw_text(device_context, *surface.m_small_font, entry.rating,
-                              stat_x, cur_y + 13.0F * scale,
+            surface.draw_text(device_context, *surface.m_small_font,
+                              entry.rating, stat_x, cur_y + 13.0F * scale,
                               surface.m_palette.text_muted);
           }
 
           // Line 2: Description
-          const std::string desc_text = ellipsize(device_context, *surface.m_small_font, entry.description, max_desc_w);
+          const std::string desc_text =
+              ellipsize(device_context, *surface.m_small_font,
+                        entry.description, max_desc_w);
           surface.draw_text(device_context, *surface.m_small_font, desc_text,
                             text_left, cur_y + 29.0F * scale,
                             surface.m_palette.text_muted);
 
           // Line 3: Publisher + Category Badge
-          const std::string pub_text = ellipsize(device_context, *surface.m_small_font, entry.publisher, max_desc_w);
+          const std::string pub_text =
+              ellipsize(device_context, *surface.m_small_font, entry.publisher,
+                        max_desc_w);
           surface.draw_text(device_context, *surface.m_small_font, pub_text,
                             text_left, cur_y + 44.0F * scale,
                             surface.m_palette.text_muted);
 
-          const int pub_w = surface.m_small_font->getTextWidth(device_context, pub_text);
+          const int pub_w =
+              surface.m_small_font->getTextWidth(device_context, pub_text);
           float badge_x = text_left + static_cast<float>(pub_w) + 8.0F * scale;
 
           std::string cat_tag = entry.category;
-          std::transform(cat_tag.begin(), cat_tag.end(), cat_tag.begin(), ::toupper);
-          if (cat_tag == "EMULATORS") cat_tag = "EMULATOR";
-          if (cat_tag == "THEMES") cat_tag = "THEME";
-          if (cat_tag == "TOOLS") cat_tag = "TOOL";
+          std::transform(cat_tag.begin(), cat_tag.end(), cat_tag.begin(),
+                         ::toupper);
+          if (cat_tag == "EMULATORS")
+            cat_tag = "EMULATOR";
+          if (cat_tag == "THEMES")
+            cat_tag = "THEME";
+          if (cat_tag == "TOOLS")
+            cat_tag = "TOOL";
 
           UI::Theme::Color badge_bg{50, 50, 60, 255};
           UI::Theme::Color badge_fg{200, 200, 210, 255};
@@ -2890,13 +3623,16 @@ void ToolSidebar::render_extensions_panel(
             badge_fg = UI::Theme::Color{120, 255, 180, 255};
           }
 
-          const int cat_text_w = surface.m_small_font->getTextWidth(device_context, cat_tag);
+          const int cat_text_w =
+              surface.m_small_font->getTextWidth(device_context, cat_tag);
           const float badge_w = static_cast<float>(cat_text_w) + 8.0F * scale;
           const float badge_h = 13.0F * scale;
           if (badge_x + badge_w < panel.right() - btn_w - 14.0F * scale) {
-            surface.fill_rounded_rectangle(device_context,
-                                          UI::Rect{badge_x, cur_y + 44.0F * scale - 6.0F * scale, badge_w, badge_h},
-                                          badge_bg, 2.0F * scale);
+            surface.fill_rounded_rectangle(
+                device_context,
+                UI::Rect{badge_x, cur_y + 44.0F * scale - 6.0F * scale, badge_w,
+                         badge_h},
+                badge_bg, 2.0F * scale);
             surface.draw_text(device_context, *surface.m_small_font, cat_tag,
                               badge_x + 4.0F * scale, cur_y + 44.0F * scale,
                               badge_fg);
@@ -2904,19 +3640,25 @@ void ToolSidebar::render_extensions_panel(
 
           // Right [ Install ] Button
           const float btn_h = 22.0F * scale;
-          const UI::Rect btn_rect{panel.right() - btn_w - 12.0F * scale, cur_y + 36.0F * scale, btn_w, btn_h};
-          const bool btn_hovered = (m_hovered_ext_install_idx && *m_hovered_ext_install_idx == j);
+          const UI::Rect btn_rect{panel.right() - btn_w - 12.0F * scale,
+                                  cur_y + 36.0F * scale, btn_w, btn_h};
+          const bool btn_hovered =
+              (m_hovered_ext_install_idx && *m_hovered_ext_install_idx == j);
 
-          const UI::Theme::Color btn_bg = btn_hovered
-              ? UI::Theme::Color{16, 137, 243, 255}
-              : UI::Theme::Color{0, 120, 212, 255};
-          surface.fill_rounded_rectangle(device_context, btn_rect, btn_bg, 3.0F * scale);
+          const UI::Theme::Color btn_bg =
+              btn_hovered ? UI::Theme::Color{16, 137, 243, 255}
+                          : UI::Theme::Color{0, 120, 212, 255};
+          surface.fill_rounded_rectangle(device_context, btn_rect, btn_bg,
+                                         3.0F * scale);
 
-          const int inst_text_w = surface.m_small_font->getTextWidth(device_context, "Install");
-          surface.draw_text(device_context, *surface.m_small_font, "Install",
-                            btn_rect.x + (btn_rect.width - static_cast<float>(inst_text_w)) * 0.5F,
-                            btn_rect.y + btn_rect.height * 0.5F,
-                            UI::Theme::Color{255, 255, 255, 255});
+          const int inst_text_w =
+              surface.m_small_font->getTextWidth(device_context, "Install");
+          surface.draw_text(
+              device_context, *surface.m_small_font, "Install",
+              btn_rect.x +
+                  (btn_rect.width - static_cast<float>(inst_text_w)) * 0.5F,
+              btn_rect.y + btn_rect.height * 0.5F,
+              UI::Theme::Color{255, 255, 255, 255});
         }
         cur_y += item_h;
       }
@@ -2928,7 +3670,8 @@ void ToolSidebar::render_extensions_panel(
     surface.draw_text(device_context, *surface.m_ui_font, "No plugins found",
                       panel.x + 14.0F * scale, content_top + 20.0F * scale,
                       surface.m_palette.text_primary);
-    surface.draw_text(device_context, *surface.m_small_font, "No matching plugins found in marketplace.",
+    surface.draw_text(device_context, *surface.m_small_font,
+                      "No matching plugins found in marketplace.",
                       panel.x + 14.0F * scale, content_top + 42.0F * scale,
                       surface.m_palette.text_muted);
   }
@@ -2940,23 +3683,28 @@ void ToolSidebar::render_extensions_panel(
   const float viewport_h = std::max(panel.bottom() - content_top, 0.0F);
 
   m_extensions_scrollbar.set_track_bounds(extensions_scrollbar_bounds(layout));
-  m_extensions_scrollbar.set_metrics(static_cast<std::size_t>(total_h), static_cast<std::size_t>(viewport_h));
-  static_cast<void>(m_extensions_scrollbar.scroll_to(static_cast<std::size_t>(m_ext_scroll_y)));
+  m_extensions_scrollbar.set_metrics(static_cast<std::size_t>(total_h),
+                                     static_cast<std::size_t>(viewport_h));
+  static_cast<void>(m_extensions_scrollbar.scroll_to(
+      static_cast<std::size_t>(m_ext_scroll_y)));
   if (m_extensions_scrollbar.is_needed()) {
     const UI::Rect thumb_bounds = m_extensions_scrollbar.get_thumb_bounds();
-    const UI::Theme::Color thumb_color = m_extensions_scrollbar.is_dragging()
-        ? UI::Theme::Color{255, 255, 255, 115}
-        : (m_hovered_extensions_scrollbar ? UI::Theme::Color{255, 255, 255, 75} : UI::Theme::Color{255, 255, 255, 40});
+    const UI::Theme::Color thumb_color =
+        m_extensions_scrollbar.is_dragging()
+            ? UI::Theme::Color{255, 255, 255, 115}
+            : (m_hovered_extensions_scrollbar
+                   ? UI::Theme::Color{255, 255, 255, 75}
+                   : UI::Theme::Color{255, 255, 255, 40});
     surface.fill_rectangle(device_context, thumb_bounds, thumb_color);
   }
 
   // Draw Right Border separating sidebar from editor
-  // In modern blurred mode, the sidebar seamlessly floats borderless without a right edge line or blue hover border
+  // In modern blurred mode, the sidebar seamlessly floats borderless without a
+  // right edge line or blue hover border
   if (!is_modern) {
     const bool show_accent = m_resize_hovered || m_resizing;
-    const UI::Theme::Color splitter_color = show_accent
-        ? surface.m_palette.accent
-        : surface.m_palette.border;
+    const UI::Theme::Color splitter_color =
+        show_accent ? surface.m_palette.accent : surface.m_palette.border;
 
     const float splitter_x = panel.right() - scale;
     surface.draw_line(device_context, round_to_int(splitter_x),
@@ -2970,26 +3718,35 @@ void ToolSidebar::render_tool_plugin_panel(
     const UI::Editor::StudioEditorLayoutResult &layout) const {
   const UI::Rect panel = layout.tool_sidebar_bounds;
   const float scale = layout.dpi_scale;
-  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+  const bool is_modern = surface.m_palette.is_modern ||
+                         surface.m_theme.is_modern ||
+                         surface.m_theme.enable_os_blur;
 
-  auto& pm = Zenvra::Plugins::PluginManager::instance();
+  auto &pm = Zenvra::Plugins::PluginManager::instance();
   auto tool = pm.get_active_tool_plugin();
   const std::string tool_name = tool ? tool->get_name() : "Tool Dashboard";
   const std::string tool_id = tool ? tool->get_id() : "";
   const std::string tool_ver = tool ? tool->get_version() : "1.0.0";
   const std::string tool_desc = tool ? tool->get_description() : "";
-  const std::string tool_cat = tool ? tool->get_manifest().get_category() : "tools";
-  const std::string tool_pub = tool ? tool->get_manifest().get_publisher_name() : "";
+  const std::string tool_cat =
+      tool ? tool->get_manifest().get_category() : "tools";
+  const std::string tool_pub =
+      tool ? tool->get_manifest().get_publisher_name() : "";
 
   std::string lower_id = tool_id;
-  for (char& c : lower_id) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  const bool is_docker = (lower_id.find("docker") != std::string::npos || tool_name.find("Docker") != std::string::npos);
-  const bool is_qemu = (lower_id.find("qemu") != std::string::npos || tool_name.find("QEMU") != std::string::npos);
+  for (char &c : lower_id)
+    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  const bool is_docker = (lower_id.find("docker") != std::string::npos ||
+                          tool_name.find("Docker") != std::string::npos);
+  const bool is_qemu = (lower_id.find("qemu") != std::string::npos ||
+                        tool_name.find("QEMU") != std::string::npos);
 
   // 1. Header: Tool Name with Action Buttons (Refresh, More/Switcher)
   std::string display_title = tool_name;
-  for (char& c : display_title) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-  if (display_title.empty()) display_title = "TOOL DASHBOARD";
+  for (char &c : display_title)
+    c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+  if (display_title.empty())
+    display_title = "TOOL DASHBOARD";
 
   surface.draw_text(device_context, *surface.m_ui_font, display_title,
                     panel.x + 14.0F * scale,
@@ -3000,27 +3757,39 @@ void ToolSidebar::render_tool_plugin_panel(
   const float btn_size = 18.0F * scale;
 
   // Refresh Icon
-  const UI::Rect refresh_rect{panel.right() - 44.0F * scale - btn_size * 0.5F, header_center_y - btn_size * 0.5F, btn_size, btn_size};
+  const UI::Rect refresh_rect{panel.right() - 44.0F * scale - btn_size * 0.5F,
+                              header_center_y - btn_size * 0.5F, btn_size,
+                              btn_size};
   if (m_hover_tool_refresh) {
-    surface.fill_rounded_rectangle(device_context, refresh_rect, surface.m_palette.hover_background, 3.0F * scale);
+    surface.fill_rounded_rectangle(device_context, refresh_rect,
+                                   surface.m_palette.hover_background,
+                                   3.0F * scale);
   }
   surface.draw_svg_icon(device_context, "refresh.svg",
                         round_to_int(refresh_rect.x + btn_size * 0.5F),
                         round_to_int(refresh_rect.y + btn_size * 0.5F),
                         round_to_int(12.0F * scale),
-                        m_hover_tool_refresh ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
+                        m_hover_tool_refresh
+                            ? UI::Theme::Color{255, 255, 255, 255}
+                            : surface.m_palette.text_muted,
                         surface.m_palette.sidebar_background);
 
   // Ellipsis / Switch Tool Icon
-  const UI::Rect switch_rect{panel.right() - 22.0F * scale - btn_size * 0.5F, header_center_y - btn_size * 0.5F, btn_size, btn_size};
+  const UI::Rect switch_rect{panel.right() - 22.0F * scale - btn_size * 0.5F,
+                             header_center_y - btn_size * 0.5F, btn_size,
+                             btn_size};
   if (m_hover_tool_switch) {
-    surface.fill_rounded_rectangle(device_context, switch_rect, surface.m_palette.hover_background, 3.0F * scale);
+    surface.fill_rounded_rectangle(device_context, switch_rect,
+                                   surface.m_palette.hover_background,
+                                   3.0F * scale);
   }
   surface.draw_svg_icon(device_context, "ellipsis.svg",
                         round_to_int(switch_rect.x + btn_size * 0.5F),
                         round_to_int(switch_rect.y + btn_size * 0.5F),
                         round_to_int(14.0F * scale),
-                        m_hover_tool_switch ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.text_muted,
+                        m_hover_tool_switch
+                            ? UI::Theme::Color{255, 255, 255, 255}
+                            : surface.m_palette.text_muted,
                         surface.m_palette.sidebar_background);
 
   // Bottom border line for header
@@ -3039,22 +3808,28 @@ void ToolSidebar::render_tool_plugin_panel(
   // 2. Status Card
   const float card_h = 52.0F * scale;
   const UI::Rect status_card{content_left, cur_y, content_w, card_h};
-  surface.fill_rounded_rectangle(device_context, status_card, surface.m_palette.editor_background, 4.0F * scale);
+  surface.fill_rounded_rectangle(device_context, status_card,
+                                 surface.m_palette.editor_background,
+                                 4.0F * scale);
   surface.draw_rectangle(device_context, status_card, surface.m_palette.border);
 
   // Status Indicator Dot (Green)
   const float dot_x = content_left + 12.0F * scale;
   const float dot_y = cur_y + 16.0F * scale;
-  surface.fill_rounded_rectangle(device_context, UI::Rect{dot_x, dot_y - 4.0F * scale, 8.0F * scale, 8.0F * scale},
-                                 UI::Theme::Color{34, 197, 94, 255}, 4.0F * scale);
+  surface.fill_rounded_rectangle(
+      device_context,
+      UI::Rect{dot_x, dot_y - 4.0F * scale, 8.0F * scale, 8.0F * scale},
+      UI::Theme::Color{34, 197, 94, 255}, 4.0F * scale);
 
-  surface.draw_text(device_context, *surface.m_small_font, "Service Ready & Connected",
-                    dot_x + 14.0F * scale, dot_y,
+  surface.draw_text(device_context, *surface.m_small_font,
+                    "Service Ready & Connected", dot_x + 14.0F * scale, dot_y,
                     UI::Theme::Color{240, 240, 240, 255});
 
-  const std::string sub_info = tool_name + " v" + tool_ver + (tool_pub.empty() ? "" : (" by " + tool_pub));
+  const std::string sub_info = tool_name + " v" + tool_ver +
+                               (tool_pub.empty() ? "" : (" by " + tool_pub));
   const int avail_sub_w = round_to_int(content_w - 24.0F * scale);
-  const std::string sub_ellip = ellipsize(device_context, *surface.m_small_font, sub_info, avail_sub_w);
+  const std::string sub_ellip =
+      ellipsize(device_context, *surface.m_small_font, sub_info, avail_sub_w);
   surface.draw_text(device_context, *surface.m_small_font, sub_ellip,
                     content_left + 12.0F * scale, cur_y + 36.0F * scale,
                     surface.m_palette.text_muted);
@@ -3064,17 +3839,19 @@ void ToolSidebar::render_tool_plugin_panel(
   if (is_docker) {
     // 3. Docker Section 1: CONTAINERS
     const UI::Rect sec1_header{content_left, cur_y, content_w, 24.0F * scale};
-    surface.fill_rounded_rectangle(device_context, sec1_header, surface.m_palette.tab_background, 3.0F * scale);
-    surface.draw_svg_icon(device_context,
-                          m_tool_section1_expanded ? "vscode-codicons/icons/chevron-down.svg" : "vscode-codicons/icons/chevron-right.svg",
-                          round_to_int(content_left + 10.0F * scale),
-                          round_to_int(cur_y + 12.0F * scale),
-                          round_to_int(12.0F * scale),
-                          surface.m_palette.text_muted,
-                          surface.m_palette.tab_background);
-    surface.draw_text(device_context, *surface.m_small_font, "CONTAINERS (2 ACTIVE)",
-                      content_left + 22.0F * scale, cur_y + 12.0F * scale,
-                      surface.m_palette.text_primary);
+    surface.fill_rounded_rectangle(device_context, sec1_header,
+                                   surface.m_palette.tab_background,
+                                   3.0F * scale);
+    surface.draw_svg_icon(
+        device_context,
+        m_tool_section1_expanded ? "vscode-codicons/icons/chevron-down.svg"
+                                 : "vscode-codicons/icons/chevron-right.svg",
+        round_to_int(content_left + 10.0F * scale),
+        round_to_int(cur_y + 12.0F * scale), round_to_int(12.0F * scale),
+        surface.m_palette.text_muted, surface.m_palette.tab_background);
+    surface.draw_text(device_context, *surface.m_small_font,
+                      "CONTAINERS (2 ACTIVE)", content_left + 22.0F * scale,
+                      cur_y + 12.0F * scale, surface.m_palette.text_primary);
     cur_y += 26.0F * scale;
 
     if (m_tool_section1_expanded) {
@@ -3085,35 +3862,42 @@ void ToolSidebar::render_tool_plugin_panel(
         bool running;
       };
       const std::vector<ContainerItem> containers = {
-        {"redis-cache", "redis:7-alpine", ":6379", true},
-        {"web-backend", "node:20-slim", ":3000", true},
-        {"postgres-db", "postgres:16", "Exited (0)", false}
-      };
+          {"redis-cache", "redis:7-alpine", ":6379", true},
+          {"web-backend", "node:20-slim", ":3000", true},
+          {"postgres-db", "postgres:16", "Exited (0)", false}};
 
       for (std::size_t i = 0; i < containers.size(); ++i) {
-        const auto& c = containers[i];
+        const auto &c = containers[i];
         const UI::Rect row_rect{content_left, cur_y, content_w, 32.0F * scale};
         if (m_hovered_tool_item_idx && *m_hovered_tool_item_idx == i) {
-          surface.fill_rounded_rectangle(device_context, row_rect, surface.m_palette.hover_background, 3.0F * scale);
+          surface.fill_rounded_rectangle(device_context, row_rect,
+                                         surface.m_palette.hover_background,
+                                         3.0F * scale);
         }
 
         const float cdot_x = content_left + 8.0F * scale;
         const float cdot_y = cur_y + 16.0F * scale;
-        const UI::Theme::Color dot_col = c.running
-            ? UI::Theme::Color{34, 197, 94, 255}
-            : UI::Theme::Color{130, 130, 130, 255};
-        surface.fill_rounded_rectangle(device_context, UI::Rect{cdot_x, cdot_y - 3.5F * scale, 7.0F * scale, 7.0F * scale},
-                                       dot_col, 3.5F * scale);
+        const UI::Theme::Color dot_col =
+            c.running ? UI::Theme::Color{34, 197, 94, 255}
+                      : UI::Theme::Color{130, 130, 130, 255};
+        surface.fill_rounded_rectangle(
+            device_context,
+            UI::Rect{cdot_x, cdot_y - 3.5F * scale, 7.0F * scale, 7.0F * scale},
+            dot_col, 3.5F * scale);
 
         surface.draw_text(device_context, *surface.m_small_font, c.name,
                           cdot_x + 12.0F * scale, cur_y + 11.0F * scale,
-                          c.running ? UI::Theme::Color{242, 244, 250, 255} : surface.m_palette.text_muted);
+                          c.running ? UI::Theme::Color{242, 244, 250, 255}
+                                    : surface.m_palette.text_muted);
 
-        const int port_w = surface.m_small_font->getTextWidth(device_context, c.port);
+        const int port_w =
+            surface.m_small_font->getTextWidth(device_context, c.port);
         surface.draw_text(device_context, *surface.m_small_font, c.port,
-                          content_left + content_w - static_cast<float>(port_w) - 6.0F * scale,
+                          content_left + content_w -
+                              static_cast<float>(port_w) - 6.0F * scale,
                           cur_y + 11.0F * scale,
-                          c.running ? surface.m_palette.accent : surface.m_palette.text_muted);
+                          c.running ? surface.m_palette.accent
+                                    : surface.m_palette.text_muted);
 
         surface.draw_text(device_context, *surface.m_small_font, c.image,
                           cdot_x + 12.0F * scale, cur_y + 23.0F * scale,
@@ -3127,14 +3911,16 @@ void ToolSidebar::render_tool_plugin_panel(
 
     // Docker Section 2: IMAGES
     const UI::Rect sec2_header{content_left, cur_y, content_w, 24.0F * scale};
-    surface.fill_rounded_rectangle(device_context, sec2_header, surface.m_palette.tab_background, 3.0F * scale);
-    surface.draw_svg_icon(device_context,
-                          m_tool_section2_expanded ? "vscode-codicons/icons/chevron-down.svg" : "vscode-codicons/icons/chevron-right.svg",
-                          round_to_int(content_left + 10.0F * scale),
-                          round_to_int(cur_y + 12.0F * scale),
-                          round_to_int(12.0F * scale),
-                          surface.m_palette.text_muted,
-                          surface.m_palette.tab_background);
+    surface.fill_rounded_rectangle(device_context, sec2_header,
+                                   surface.m_palette.tab_background,
+                                   3.0F * scale);
+    surface.draw_svg_icon(
+        device_context,
+        m_tool_section2_expanded ? "vscode-codicons/icons/chevron-down.svg"
+                                 : "vscode-codicons/icons/chevron-right.svg",
+        round_to_int(content_left + 10.0F * scale),
+        round_to_int(cur_y + 12.0F * scale), round_to_int(12.0F * scale),
+        surface.m_palette.text_muted, surface.m_palette.tab_background);
     surface.draw_text(device_context, *surface.m_small_font, "IMAGES (3 LOCAL)",
                       content_left + 22.0F * scale, cur_y + 12.0F * scale,
                       surface.m_palette.text_primary);
@@ -3142,33 +3928,34 @@ void ToolSidebar::render_tool_plugin_panel(
 
     if (m_tool_section2_expanded) {
       const std::vector<std::pair<std::string, std::string>> images = {
-        {"node:20-slim", "185 MB"},
-        {"redis:7-alpine", "32.4 MB"},
-        {"postgres:16", "379 MB"}
-      };
+          {"node:20-slim", "185 MB"},
+          {"redis:7-alpine", "32.4 MB"},
+          {"postgres:16", "379 MB"}};
       for (std::size_t i = 0; i < images.size(); ++i) {
-        const auto& img = images[i];
+        const auto &img = images[i];
         const UI::Rect row_rect{content_left, cur_y, content_w, 22.0F * scale};
         if (m_hovered_tool_item_idx && *m_hovered_tool_item_idx == (100 + i)) {
-          surface.fill_rounded_rectangle(device_context, row_rect, surface.m_palette.hover_background, 3.0F * scale);
+          surface.fill_rounded_rectangle(device_context, row_rect,
+                                         surface.m_palette.hover_background,
+                                         3.0F * scale);
         }
 
-        surface.draw_svg_icon(device_context, "vscode-codicons/icons/archive.svg",
-                              round_to_int(content_left + 10.0F * scale),
-                              round_to_int(cur_y + 11.0F * scale),
-                              round_to_int(12.0F * scale),
-                              surface.m_palette.text_muted,
-                              surface.m_palette.sidebar_background);
+        surface.draw_svg_icon(
+            device_context, "vscode-codicons/icons/archive.svg",
+            round_to_int(content_left + 10.0F * scale),
+            round_to_int(cur_y + 11.0F * scale), round_to_int(12.0F * scale),
+            surface.m_palette.text_muted, surface.m_palette.sidebar_background);
 
         surface.draw_text(device_context, *surface.m_small_font, img.first,
                           content_left + 22.0F * scale, cur_y + 11.0F * scale,
                           surface.m_palette.text_primary);
 
-        const int size_w = surface.m_small_font->getTextWidth(device_context, img.second);
+        const int size_w =
+            surface.m_small_font->getTextWidth(device_context, img.second);
         surface.draw_text(device_context, *surface.m_small_font, img.second,
-                          content_left + content_w - static_cast<float>(size_w) - 6.0F * scale,
-                          cur_y + 11.0F * scale,
-                          surface.m_palette.text_muted);
+                          content_left + content_w -
+                              static_cast<float>(size_w) - 6.0F * scale,
+                          cur_y + 11.0F * scale, surface.m_palette.text_muted);
 
         cur_y += 24.0F * scale;
       }
@@ -3179,65 +3966,73 @@ void ToolSidebar::render_tool_plugin_panel(
     // Quick Action 1: Open Docker CLI Terminal
     const UI::Rect btn1_rect{content_left, cur_y, content_w, 26.0F * scale};
     const UI::Theme::Color btn1_bg = m_hover_tool_action_btn1
-        ? UI::Theme::Color{16, 137, 243, 255}
-        : UI::Theme::Color{0, 120, 212, 255};
-    surface.fill_rounded_rectangle(device_context, btn1_rect, btn1_bg, 3.0F * scale);
-    const int t1_w = surface.m_small_font->getTextWidth(device_context, "Open Docker Terminal");
-    surface.draw_text(device_context, *surface.m_small_font, "Open Docker Terminal",
-                      btn1_rect.x + (btn1_rect.width - static_cast<float>(t1_w)) * 0.5F,
-                      btn1_rect.y + btn1_rect.height * 0.5F,
-                      UI::Theme::Color{255, 255, 255, 255});
+                                         ? UI::Theme::Color{16, 137, 243, 255}
+                                         : UI::Theme::Color{0, 120, 212, 255};
+    surface.fill_rounded_rectangle(device_context, btn1_rect, btn1_bg,
+                                   3.0F * scale);
+    const int t1_w = surface.m_small_font->getTextWidth(device_context,
+                                                        "Open Docker Terminal");
+    surface.draw_text(
+        device_context, *surface.m_small_font, "Open Docker Terminal",
+        btn1_rect.x + (btn1_rect.width - static_cast<float>(t1_w)) * 0.5F,
+        btn1_rect.y + btn1_rect.height * 0.5F,
+        UI::Theme::Color{255, 255, 255, 255});
     cur_y += 32.0F * scale;
 
     // Quick Action 2: docker-compose up
     const UI::Rect btn2_rect{content_left, cur_y, content_w, 26.0F * scale};
     const UI::Theme::Color btn2_bg = m_hover_tool_action_btn2
-        ? UI::Theme::Color{58, 62, 72, 255}
-        : UI::Theme::Color{45, 48, 56, 255};
-    surface.fill_rounded_rectangle(device_context, btn2_rect, btn2_bg, 3.0F * scale);
+                                         ? UI::Theme::Color{58, 62, 72, 255}
+                                         : UI::Theme::Color{45, 48, 56, 255};
+    surface.fill_rounded_rectangle(device_context, btn2_rect, btn2_bg,
+                                   3.0F * scale);
     surface.draw_rectangle(device_context, btn2_rect, surface.m_palette.border);
-    const int t2_w = surface.m_small_font->getTextWidth(device_context, "Compose Up (All Services)");
-    surface.draw_text(device_context, *surface.m_small_font, "Compose Up (All Services)",
-                      btn2_rect.x + (btn2_rect.width - static_cast<float>(t2_w)) * 0.5F,
-                      btn2_rect.y + btn2_rect.height * 0.5F,
-                      surface.m_palette.text_primary);
+    const int t2_w = surface.m_small_font->getTextWidth(
+        device_context, "Compose Up (All Services)");
+    surface.draw_text(
+        device_context, *surface.m_small_font, "Compose Up (All Services)",
+        btn2_rect.x + (btn2_rect.width - static_cast<float>(t2_w)) * 0.5F,
+        btn2_rect.y + btn2_rect.height * 0.5F, surface.m_palette.text_primary);
 
   } else if (is_qemu) {
     // QEMU Panel
     const UI::Rect sec1_header{content_left, cur_y, content_w, 24.0F * scale};
-    surface.fill_rounded_rectangle(device_context, sec1_header, surface.m_palette.tab_background, 3.0F * scale);
-    surface.draw_svg_icon(device_context,
-                          m_tool_section1_expanded ? "vscode-codicons/icons/chevron-down.svg" : "vscode-codicons/icons/chevron-right.svg",
-                          round_to_int(content_left + 10.0F * scale),
-                          round_to_int(cur_y + 12.0F * scale),
-                          round_to_int(12.0F * scale),
-                          surface.m_palette.text_muted,
-                          surface.m_palette.tab_background);
-    surface.draw_text(device_context, *surface.m_small_font, "TARGET ARCHITECTURES",
-                      content_left + 22.0F * scale, cur_y + 12.0F * scale,
-                      surface.m_palette.text_primary);
+    surface.fill_rounded_rectangle(device_context, sec1_header,
+                                   surface.m_palette.tab_background,
+                                   3.0F * scale);
+    surface.draw_svg_icon(
+        device_context,
+        m_tool_section1_expanded ? "vscode-codicons/icons/chevron-down.svg"
+                                 : "vscode-codicons/icons/chevron-right.svg",
+        round_to_int(content_left + 10.0F * scale),
+        round_to_int(cur_y + 12.0F * scale), round_to_int(12.0F * scale),
+        surface.m_palette.text_muted, surface.m_palette.tab_background);
+    surface.draw_text(device_context, *surface.m_small_font,
+                      "TARGET ARCHITECTURES", content_left + 22.0F * scale,
+                      cur_y + 12.0F * scale, surface.m_palette.text_primary);
     cur_y += 26.0F * scale;
 
     if (m_tool_section1_expanded) {
       const std::vector<std::string> targets = {
-        "x86_64 PC (qemu-system-x86_64)",
-        "aarch64 ARM Virt (qemu-system-aarch64)",
-        "riscv64 RISC-V Virt (qemu-system-riscv64)"
-      };
+          "x86_64 PC (qemu-system-x86_64)",
+          "aarch64 ARM Virt (qemu-system-aarch64)",
+          "riscv64 RISC-V Virt (qemu-system-riscv64)"};
       for (std::size_t i = 0; i < targets.size(); ++i) {
         const UI::Rect row_rect{content_left, cur_y, content_w, 24.0F * scale};
         if (m_hovered_tool_item_idx && *m_hovered_tool_item_idx == i) {
-          surface.fill_rounded_rectangle(device_context, row_rect, surface.m_palette.hover_background, 3.0F * scale);
+          surface.fill_rounded_rectangle(device_context, row_rect,
+                                         surface.m_palette.hover_background,
+                                         3.0F * scale);
         }
-        surface.draw_svg_icon(device_context, "vscode-codicons/icons/chip.svg",
-                              round_to_int(content_left + 10.0F * scale),
-                              round_to_int(cur_y + 12.0F * scale),
-                              round_to_int(12.0F * scale),
-                              surface.m_palette.text_muted,
-                              surface.m_palette.sidebar_background);
+        surface.draw_svg_icon(
+            device_context, "vscode-codicons/icons/chip.svg",
+            round_to_int(content_left + 10.0F * scale),
+            round_to_int(cur_y + 12.0F * scale), round_to_int(12.0F * scale),
+            surface.m_palette.text_muted, surface.m_palette.sidebar_background);
         surface.draw_text(device_context, *surface.m_small_font, targets[i],
                           content_left + 24.0F * scale, cur_y + 12.0F * scale,
-                          i == 0 ? UI::Theme::Color{242, 244, 250, 255} : surface.m_palette.text_muted);
+                          i == 0 ? UI::Theme::Color{242, 244, 250, 255}
+                                 : surface.m_palette.text_muted);
         cur_y += 26.0F * scale;
       }
     }
@@ -3247,39 +4042,47 @@ void ToolSidebar::render_tool_plugin_panel(
     // Quick Action: Launch QEMU Console
     const UI::Rect btn1_rect{content_left, cur_y, content_w, 26.0F * scale};
     const UI::Theme::Color btn1_bg = m_hover_tool_action_btn1
-        ? UI::Theme::Color{16, 137, 243, 255}
-        : UI::Theme::Color{0, 120, 212, 255};
-    surface.fill_rounded_rectangle(device_context, btn1_rect, btn1_bg, 3.0F * scale);
-    const int t1_w = surface.m_small_font->getTextWidth(device_context, "Launch QEMU Console");
-    surface.draw_text(device_context, *surface.m_small_font, "Launch QEMU Console",
-                      btn1_rect.x + (btn1_rect.width - static_cast<float>(t1_w)) * 0.5F,
-                      btn1_rect.y + btn1_rect.height * 0.5F,
-                      UI::Theme::Color{255, 255, 255, 255});
+                                         ? UI::Theme::Color{16, 137, 243, 255}
+                                         : UI::Theme::Color{0, 120, 212, 255};
+    surface.fill_rounded_rectangle(device_context, btn1_rect, btn1_bg,
+                                   3.0F * scale);
+    const int t1_w = surface.m_small_font->getTextWidth(device_context,
+                                                        "Launch QEMU Console");
+    surface.draw_text(
+        device_context, *surface.m_small_font, "Launch QEMU Console",
+        btn1_rect.x + (btn1_rect.width - static_cast<float>(t1_w)) * 0.5F,
+        btn1_rect.y + btn1_rect.height * 0.5F,
+        UI::Theme::Color{255, 255, 255, 255});
     cur_y += 32.0F * scale;
 
     const UI::Rect btn2_rect{content_left, cur_y, content_w, 26.0F * scale};
     const UI::Theme::Color btn2_bg = m_hover_tool_action_btn2
-        ? UI::Theme::Color{58, 62, 72, 255}
-        : UI::Theme::Color{45, 48, 56, 255};
-    surface.fill_rounded_rectangle(device_context, btn2_rect, btn2_bg, 3.0F * scale);
+                                         ? UI::Theme::Color{58, 62, 72, 255}
+                                         : UI::Theme::Color{45, 48, 56, 255};
+    surface.fill_rounded_rectangle(device_context, btn2_rect, btn2_bg,
+                                   3.0F * scale);
     surface.draw_rectangle(device_context, btn2_rect, surface.m_palette.border);
-    const int t2_w = surface.m_small_font->getTextWidth(device_context, "Attach GDB Stub (:1234)");
-    surface.draw_text(device_context, *surface.m_small_font, "Attach GDB Stub (:1234)",
-                      btn2_rect.x + (btn2_rect.width - static_cast<float>(t2_w)) * 0.5F,
-                      btn2_rect.y + btn2_rect.height * 0.5F,
-                      surface.m_palette.text_primary);
+    const int t2_w = surface.m_small_font->getTextWidth(
+        device_context, "Attach GDB Stub (:1234)");
+    surface.draw_text(
+        device_context, *surface.m_small_font, "Attach GDB Stub (:1234)",
+        btn2_rect.x + (btn2_rect.width - static_cast<float>(t2_w)) * 0.5F,
+        btn2_rect.y + btn2_rect.height * 0.5F, surface.m_palette.text_primary);
 
   } else {
     // Generic Tool Panel
     surface.draw_text(device_context, *surface.m_small_font, "Plugin Details",
-                      content_left, cur_y + 10.0F * scale, surface.m_palette.text_primary);
+                      content_left, cur_y + 10.0F * scale,
+                      surface.m_palette.text_primary);
     cur_y += 24.0F * scale;
 
     if (!tool_desc.empty()) {
       const int max_w = round_to_int(content_w);
-      const std::string ellip_desc = ellipsize(device_context, *surface.m_small_font, tool_desc, max_w);
+      const std::string ellip_desc =
+          ellipsize(device_context, *surface.m_small_font, tool_desc, max_w);
       surface.draw_text(device_context, *surface.m_small_font, ellip_desc,
-                        content_left, cur_y + 10.0F * scale, surface.m_palette.text_muted);
+                        content_left, cur_y + 10.0F * scale,
+                        surface.m_palette.text_muted);
       cur_y += 24.0F * scale;
     }
 
@@ -3287,23 +4090,26 @@ void ToolSidebar::render_tool_plugin_panel(
 
     const UI::Rect btn1_rect{content_left, cur_y, content_w, 26.0F * scale};
     const UI::Theme::Color btn1_bg = m_hover_tool_action_btn1
-        ? UI::Theme::Color{16, 137, 243, 255}
-        : UI::Theme::Color{0, 120, 212, 255};
-    surface.fill_rounded_rectangle(device_context, btn1_rect, btn1_bg, 3.0F * scale);
-    const int t1_w = surface.m_small_font->getTextWidth(device_context, "Open Terminal in Tool Dir");
-    surface.draw_text(device_context, *surface.m_small_font, "Open Terminal in Tool Dir",
-                      btn1_rect.x + (btn1_rect.width - static_cast<float>(t1_w)) * 0.5F,
-                      btn1_rect.y + btn1_rect.height * 0.5F,
-                      UI::Theme::Color{255, 255, 255, 255});
+                                         ? UI::Theme::Color{16, 137, 243, 255}
+                                         : UI::Theme::Color{0, 120, 212, 255};
+    surface.fill_rounded_rectangle(device_context, btn1_rect, btn1_bg,
+                                   3.0F * scale);
+    const int t1_w = surface.m_small_font->getTextWidth(
+        device_context, "Open Terminal in Tool Dir");
+    surface.draw_text(
+        device_context, *surface.m_small_font, "Open Terminal in Tool Dir",
+        btn1_rect.x + (btn1_rect.width - static_cast<float>(t1_w)) * 0.5F,
+        btn1_rect.y + btn1_rect.height * 0.5F,
+        UI::Theme::Color{255, 255, 255, 255});
   }
 
   // Draw Right Border separating sidebar from editor
-  // In modern blurred mode, the sidebar seamlessly floats borderless without a right edge line or blue hover border
+  // In modern blurred mode, the sidebar seamlessly floats borderless without a
+  // right edge line or blue hover border
   if (!is_modern) {
     const bool show_accent = m_resize_hovered || m_resizing;
-    const UI::Theme::Color splitter_color = show_accent
-        ? surface.m_palette.accent
-        : surface.m_palette.border;
+    const UI::Theme::Color splitter_color =
+        show_accent ? surface.m_palette.accent : surface.m_palette.border;
 
     const float splitter_x = panel.right() - scale;
     surface.draw_line(device_context, round_to_int(splitter_x),
@@ -3317,20 +4123,21 @@ void ToolSidebar::render(
     const UI::Editor::StudioEditorLayoutResult &layout) const {
   const UI::Rect panel = layout.tool_sidebar_bounds;
   const float scale = layout.dpi_scale;
-  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+  const bool is_modern = surface.m_palette.is_modern ||
+                         surface.m_theme.is_modern ||
+                         surface.m_theme.enable_os_blur;
 
   if (!is_visible() || panel.is_empty()) {
     if (!is_modern && (m_resize_hovered || m_resizing)) {
       surface.draw_line(device_context, round_to_int(panel.right() - scale),
-                        round_to_int(panel.y), round_to_int(panel.right() - scale),
+                        round_to_int(panel.y),
+                        round_to_int(panel.right() - scale),
                         round_to_int(panel.bottom()), surface.m_palette.accent);
       surface.fill_rectangle(device_context,
-          UI::Rect{
-              panel.right() - scale - scale,
-              panel.y,
-              std::max(2.0F * scale, 2.0F),
-              panel.height},
-          surface.m_palette.accent);
+                             UI::Rect{panel.right() - scale - scale, panel.y,
+                                      std::max(2.0F * scale, 2.0F),
+                                      panel.height},
+                             surface.m_palette.accent);
     }
     return;
   }
@@ -3339,7 +4146,7 @@ void ToolSidebar::render(
     surface.fill_rectangle(device_context, panel,
                            surface.m_palette.sidebar_background);
   }
-  
+
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Search) {
     render_search_panel(surface, device_context, layout);
     return;
@@ -3357,7 +4164,8 @@ void ToolSidebar::render(
 
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
     const bool show_actions = !m_model.get_project_items().empty();
-    m_explorer_header.render(surface, device_context, layout, std::string{m_model.get_title()}, show_actions);
+    m_explorer_header.render(surface, device_context, layout,
+                             std::string{m_model.get_title()}, show_actions);
   } else {
     surface.draw_text(device_context, *surface.m_ui_font, m_model.get_title(),
                       panel.x + 14.0F * scale,
@@ -3382,25 +4190,25 @@ void ToolSidebar::render(
 
   if (m_model.get_active_icon() != UI::Editor::SidebarIcon::Project) {
     const int clip_saved = SaveDC(device_context);
-    IntersectClipRect(device_context,
-                      round_to_int(panel.x),
+    IntersectClipRect(device_context, round_to_int(panel.x),
                       round_to_int(panel.y + header_height * scale),
                       round_to_int(panel.right()),
                       round_to_int(panel.bottom()));
 
     const float content_y = panel.y + (header_height + 22.0F) * scale;
-    const int max_content_w = std::max(round_to_int(panel.width - 28.0F * scale), 0);
-    const std::string heading = ellipsize(
-        device_context, *surface.m_ui_font, std::string{m_model.get_content_heading()},
-        max_content_w);
+    const int max_content_w =
+        std::max(round_to_int(panel.width - 28.0F * scale), 0);
+    const std::string heading =
+        ellipsize(device_context, *surface.m_ui_font,
+                  std::string{m_model.get_content_heading()}, max_content_w);
     if (!heading.empty()) {
-      surface.draw_text(device_context, *surface.m_ui_font,
-                        heading, panel.x + 14.0F * scale,
-                        content_y, surface.m_palette.text_primary);
+      surface.draw_text(device_context, *surface.m_ui_font, heading,
+                        panel.x + 14.0F * scale, content_y,
+                        surface.m_palette.text_primary);
     }
-    const std::string detail = ellipsize(
-        device_context, *surface.m_small_font, std::string{m_model.get_content_detail()},
-        max_content_w);
+    const std::string detail =
+        ellipsize(device_context, *surface.m_small_font,
+                  std::string{m_model.get_content_detail()}, max_content_w);
     if (!detail.empty()) {
       surface.draw_text(device_context, *surface.m_small_font, detail,
                         panel.x + 14.0F * scale, content_y + 24.0F * scale,
@@ -3408,32 +4216,34 @@ void ToolSidebar::render(
     }
     RestoreDC(device_context, clip_saved);
   } else {
-    const std::span<const UI::Editor::ProjectTreeItem> items = m_model.get_project_items();
+    const std::span<const UI::Editor::ProjectTreeItem> items =
+        m_model.get_project_items();
     if (items.empty()) {
       const int clip_saved = SaveDC(device_context);
-      IntersectClipRect(device_context,
-                        round_to_int(panel.x),
+      IntersectClipRect(device_context, round_to_int(panel.x),
                         round_to_int(panel.y + header_height * scale),
                         round_to_int(panel.right()),
                         round_to_int(panel.bottom()));
 
-      const int max_text_w = std::max(round_to_int(panel.width - 28.0F * scale), 0);
+      const int max_text_w =
+          std::max(round_to_int(panel.width - 28.0F * scale), 0);
       const float msg_y = panel.y + (header_height + 22.0F) * scale;
 
       const std::string title_text = ellipsize(
           device_context, *surface.m_ui_font, "No Folder Opened", max_text_w);
       if (!title_text.empty()) {
-        surface.draw_text(device_context, *surface.m_ui_font,
-                          title_text, panel.x + 14.0F * scale,
-                          msg_y, surface.m_palette.text_primary);
+        surface.draw_text(device_context, *surface.m_ui_font, title_text,
+                          panel.x + 14.0F * scale, msg_y,
+                          surface.m_palette.text_primary);
       }
 
-      const std::string desc_text = ellipsize(
-          device_context, *surface.m_small_font, "You have not yet opened a folder.", max_text_w);
+      const std::string desc_text =
+          ellipsize(device_context, *surface.m_small_font,
+                    "You have not yet opened a folder.", max_text_w);
       if (!desc_text.empty()) {
-        surface.draw_text(device_context, *surface.m_small_font,
-                          desc_text, panel.x + 14.0F * scale,
-                          msg_y + 20.0F * scale, surface.m_palette.text_muted);
+        surface.draw_text(device_context, *surface.m_small_font, desc_text,
+                          panel.x + 14.0F * scale, msg_y + 20.0F * scale,
+                          surface.m_palette.text_muted);
       }
 
       float btn_y = msg_y + 36.0F * scale;
@@ -3453,22 +4263,25 @@ void ToolSidebar::render(
         const std::string open_btn_text = ellipsize(
             device_context, *surface.m_small_font, "Open Folder", max_btn_w);
         if (!open_btn_text.empty()) {
-          const int open_text_w = surface.m_small_font->getTextWidth(device_context, open_btn_text);
-          const float open_text_x = std::max(btn_x + 6.0F * scale, btn_x + (btn_w - static_cast<float>(open_text_w)) * 0.5F);
-          surface.draw_text(
-              device_context, *surface.m_small_font, open_btn_text,
-              open_text_x, btn_y + btn_h * 0.5F,
-              UI::Theme::Color{255, 255, 255, 255});
+          const int open_text_w =
+              surface.m_small_font->getTextWidth(device_context, open_btn_text);
+          const float open_text_x = std::max(
+              btn_x + 6.0F * scale,
+              btn_x + (btn_w - static_cast<float>(open_text_w)) * 0.5F);
+          surface.draw_text(device_context, *surface.m_small_font,
+                            open_btn_text, open_text_x, btn_y + btn_h * 0.5F,
+                            UI::Theme::Color{255, 255, 255, 255});
         }
       }
 
       btn_y += btn_h + 20.0F * scale;
-      const std::string clone_msg = ellipsize(
-          device_context, *surface.m_small_font, "Clone from a remote repository.", max_text_w);
+      const std::string clone_msg =
+          ellipsize(device_context, *surface.m_small_font,
+                    "Clone from a remote repository.", max_text_w);
       if (!clone_msg.empty()) {
-        surface.draw_text(device_context, *surface.m_small_font,
-                          clone_msg,
-                          panel.x + 14.0F * scale, btn_y, surface.m_palette.text_muted);
+        surface.draw_text(device_context, *surface.m_small_font, clone_msg,
+                          panel.x + 14.0F * scale, btn_y,
+                          surface.m_palette.text_muted);
       }
 
       btn_y += 14.0F * scale;
@@ -3481,15 +4294,18 @@ void ToolSidebar::render(
                 : UI::Theme::Color{44, 48, 56, 255},
             4.0F * scale);
         const int max_btn_w = std::max(round_to_int(btn_w - 12.0F * scale), 0);
-        const std::string clone_btn_text = ellipsize(
-            device_context, *surface.m_small_font, "Clone Repository", max_btn_w);
+        const std::string clone_btn_text =
+            ellipsize(device_context, *surface.m_small_font, "Clone Repository",
+                      max_btn_w);
         if (!clone_btn_text.empty()) {
-          const int clone_text_w = surface.m_small_font->getTextWidth(device_context, clone_btn_text);
-          const float clone_text_x = std::max(btn_x + 6.0F * scale, btn_x + (btn_w - static_cast<float>(clone_text_w)) * 0.5F);
-          surface.draw_text(
-              device_context, *surface.m_small_font, clone_btn_text,
-              clone_text_x, btn_y + btn_h * 0.5F,
-              UI::Theme::Color{215, 220, 228, 255});
+          const int clone_text_w = surface.m_small_font->getTextWidth(
+              device_context, clone_btn_text);
+          const float clone_text_x = std::max(
+              btn_x + 6.0F * scale,
+              btn_x + (btn_w - static_cast<float>(clone_text_w)) * 0.5F);
+          surface.draw_text(device_context, *surface.m_small_font,
+                            clone_btn_text, clone_text_x, btn_y + btn_h * 0.5F,
+                            UI::Theme::Color{215, 220, 228, 255});
         }
       }
 
@@ -3500,12 +4316,11 @@ void ToolSidebar::render(
       const std::size_t end = std::min(items.size(), first + row_count + 1);
       const float tree_top = panel.y + header_height * scale;
 
-      // Clip tree view strictly to sidebar bounds so scrolling rows don't overflow
+      // Clip tree view strictly to sidebar bounds so scrolling rows don't
+      // overflow
       const int clip_saved = SaveDC(device_context);
-      IntersectClipRect(device_context,
-                        round_to_int(panel.x),
-                        round_to_int(tree_top),
-                        round_to_int(panel.right()),
+      IntersectClipRect(device_context, round_to_int(panel.x),
+                        round_to_int(tree_top), round_to_int(panel.right()),
                         round_to_int(panel.bottom()));
 
       for (std::size_t item_index = first; item_index < end; ++item_index) {
@@ -3518,22 +4333,27 @@ void ToolSidebar::render(
             row_height * scale,
         };
         const bool is_selected = m_model.is_selected(item.path);
-        const bool is_hovered = (m_hovered_row && *m_hovered_row == visible_row);
-        const bool is_drag_source = m_is_dragging_item && m_drag_source_row.has_value() && *m_drag_source_row == visible_row;
-        const bool is_drop_target = m_is_dragging_item && m_drag_target_row.has_value() && *m_drag_target_row == visible_row;
+        const bool is_hovered =
+            (m_hovered_row && *m_hovered_row == visible_row);
+        const bool is_drag_source = m_is_dragging_item &&
+                                    m_drag_source_row.has_value() &&
+                                    *m_drag_source_row == visible_row;
+        const bool is_drop_target = m_is_dragging_item &&
+                                    m_drag_target_row.has_value() &&
+                                    *m_drag_target_row == visible_row;
 
         const UI::Rect highlight_rect{
-            panel.x + 4.0F * scale,
-            row_bounds.y + 1.0F * scale,
-            panel.width - 8.0F * scale,
-            row_height * scale - 2.0F * scale
-        };
+            panel.x + 4.0F * scale, row_bounds.y + 1.0F * scale,
+            panel.width - 8.0F * scale, row_height * scale - 2.0F * scale};
 
         if (is_drop_target) {
-          surface.fill_rectangle(device_context, row_bounds, UI::Theme::Color{35, 110, 190, 90});
-          surface.draw_rectangle(device_context, row_bounds, surface.m_palette.accent);
+          surface.fill_rectangle(device_context, row_bounds,
+                                 UI::Theme::Color{35, 110, 190, 90});
+          surface.draw_rectangle(device_context, row_bounds,
+                                 surface.m_palette.accent);
         } else if (is_drag_source) {
-          surface.fill_rectangle(device_context, row_bounds, UI::Theme::Color{255, 255, 255, 20});
+          surface.fill_rectangle(device_context, row_bounds,
+                                 UI::Theme::Color{255, 255, 255, 20});
         } else if (is_selected) {
           if (is_modern) {
             surface.fill_rounded_rectangle(device_context, highlight_rect,
@@ -3574,7 +4394,8 @@ void ToolSidebar::render(
                        : (is_modern ? UI::Theme::Color{0, 0, 0, 0}
                                     : surface.m_palette.sidebar_background));
 
-        const float indent_x = panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
+        const float indent_x =
+            panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
         const UI::Theme::Color guide_color{85, 92, 105, 190};
 
         for (std::size_t level = 0; level < item.depth; ++level) {
@@ -3590,71 +4411,69 @@ void ToolSidebar::render(
           }
 
           if (level == item.depth - 1 || line_active) {
-            surface.draw_line(device_context, guide_x, round_to_int(row_bounds.y),
-                              guide_x, round_to_int(row_bounds.bottom()),
-                              guide_color);
+            surface.draw_line(device_context, guide_x,
+                              round_to_int(row_bounds.y), guide_x,
+                              round_to_int(row_bounds.bottom()), guide_color);
           }
         }
 
         const bool is_cut = m_model.is_cut_path(item.path);
-        const UI::Theme::Color icon_color = is_cut
-            ? UI::Theme::Color{140, 140, 140, 120}
-            : (is_selected
-                   ? (surface.m_palette.is_dark ? UI::Theme::Color{255, 255, 255, 255} : surface.m_palette.accent)
-                   : surface.m_palette.text_muted);
+        const UI::Theme::Color icon_color =
+            is_cut ? UI::Theme::Color{140, 140, 140, 120}
+                   : (is_selected ? (surface.m_palette.is_dark
+                                         ? UI::Theme::Color{255, 255, 255, 255}
+                                         : surface.m_palette.accent)
+                                  : surface.m_palette.text_muted);
 
         if (item.directory) {
           const int arrow_x = round_to_int(indent_x + 3.0F * scale);
-          const int arrow_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
+          const int arrow_y =
+              round_to_int(row_bounds.y + row_bounds.height * 0.5F);
           if (arrow_x + 8.0F * scale < panel.right()) {
-            const std::string chevron_path = item.expanded
-                                                 ? "chevron-down.svg"
-                                                 : "chevron-right.svg";
-            surface.draw_svg_icon(
-                device_context, chevron_path, arrow_x, arrow_y,
-                std::max(round_to_int(8.0F * scale), 7),
-                icon_color,
-                current_row_bg);
+            const std::string chevron_path =
+                item.expanded ? "chevron-down.svg" : "chevron-right.svg";
+            surface.draw_svg_icon(device_context, chevron_path, arrow_x,
+                                  arrow_y,
+                                  std::max(round_to_int(8.0F * scale), 7),
+                                  icon_color, current_row_bg);
           }
           const int folder_x = round_to_int(indent_x + 19.0F * scale);
           if (folder_x + 16.0F * scale < panel.right()) {
             const std::string folder_path =
-                UI::Editor::folder_icon_asset_for_path(item.path, item.expanded);
+                UI::Editor::folder_icon_asset_for_path(item.path,
+                                                       item.expanded);
             const int folder_size = std::max(round_to_int(14.0F * scale), 11);
-            surface.draw_svg_icon(
-                device_context, folder_path, folder_x, arrow_y,
-                folder_size,
-                icon_color,
-                current_row_bg,
-                !is_cut);
+            surface.draw_svg_icon(device_context, folder_path, folder_x,
+                                  arrow_y, folder_size, icon_color,
+                                  current_row_bg, !is_cut);
           }
         } else {
           const int icon_x = round_to_int(indent_x + 19.0F * scale);
-          const int icon_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
+          const int icon_y =
+              round_to_int(row_bounds.y + row_bounds.height * 0.5F);
           if (icon_x + 14.0F * scale < panel.right()) {
             const std::string icon_asset =
                 UI::Editor::file_icon_asset_for_path(item.path);
-            surface.draw_svg_icon(
-                device_context, icon_asset, icon_x, icon_y,
-                std::max(round_to_int(14.0F * scale), 11),
-                icon_color,
-                current_row_bg,
-                !is_cut);
+            surface.draw_svg_icon(device_context, icon_asset, icon_x, icon_y,
+                                  std::max(round_to_int(14.0F * scale), 11),
+                                  icon_color, current_row_bg, !is_cut);
           }
         }
 
-        const float label_x = indent_x + (item.directory ? 30.0F : 36.0F) * scale;
+        const float label_x =
+            indent_x + (item.directory ? 30.0F : 36.0F) * scale;
         if (label_x < panel.right()) {
           const float available_width = panel.right() - label_x - 10.0F * scale;
           if (available_width > 0.0F) {
-            const std::string label = ellipsize(
-                device_context, *surface.m_small_font, item.label,
-                round_to_int(available_width));
-            const UI::Theme::Color text_color = is_cut
-                ? UI::Theme::Color{160, 165, 175, 130}
-                : (is_selected ? UI::Theme::Color{255, 255, 255, 255} : UI::Theme::Color{242, 244, 250, 255});
-            surface.draw_text(device_context, *surface.m_small_font, label, label_x,
-                              row_bounds.y + row_bounds.height * 0.5F,
+            const std::string label =
+                ellipsize(device_context, *surface.m_small_font, item.label,
+                          round_to_int(available_width));
+            const UI::Theme::Color text_color =
+                is_cut ? UI::Theme::Color{160, 165, 175, 130}
+                       : (is_selected ? UI::Theme::Color{255, 255, 255, 255}
+                                      : UI::Theme::Color{242, 244, 250, 255});
+            surface.draw_text(device_context, *surface.m_small_font, label,
+                              label_x, row_bounds.y + row_bounds.height * 0.5F,
                               text_color);
           }
         }
@@ -3663,62 +4482,62 @@ void ToolSidebar::render(
       // Sticky Explorer Headers
       const auto sticky_indices = get_sticky_items();
       for (std::size_t i = 0; i < sticky_indices.size(); ++i) {
-          const std::size_t item_index = sticky_indices[i];
-          if (item_index >= items.size()) continue;
+        const std::size_t item_index = sticky_indices[i];
+        if (item_index >= items.size())
+          continue;
 
-          const UI::Editor::ProjectTreeItem &item = items[item_index];
-          const float sticky_y = tree_top + static_cast<float>(i) * row_height * scale;
-          const UI::Rect sticky_bounds{
-              panel.x,
-              sticky_y,
-              panel.width,
-              row_height * scale,
-          };
+        const UI::Editor::ProjectTreeItem &item = items[item_index];
+        const float sticky_y =
+            tree_top + static_cast<float>(i) * row_height * scale;
+        const UI::Rect sticky_bounds{
+            panel.x,
+            sticky_y,
+            panel.width,
+            row_height * scale,
+        };
 
-          const bool is_sticky_hovered = (m_hovered_sticky_index && *m_hovered_sticky_index == item_index);
-          const UI::Theme::Color sticky_bg = is_modern
-              ? (is_sticky_hovered ? UI::Theme::Color{255, 255, 255, 25} : UI::Theme::Color{0, 0, 0, 0})
-              : (is_sticky_hovered ? surface.m_palette.hover_background : surface.m_palette.sidebar_background);
-          if (!is_modern || is_sticky_hovered) {
-            surface.fill_rectangle(device_context, sticky_bounds, sticky_bg);
-          }
-          if (!is_modern && i == sticky_indices.size() - 1) {
-            surface.draw_line(device_context, round_to_int(panel.x), round_to_int(sticky_bounds.bottom()),
-                              round_to_int(panel.right()), round_to_int(sticky_bounds.bottom()),
-                              surface.m_palette.border);
-          }
+        const bool is_sticky_hovered =
+            (m_hovered_sticky_index && *m_hovered_sticky_index == item_index);
+        const UI::Theme::Color sticky_bg =
+            is_modern
+                ? (is_sticky_hovered ? UI::Theme::Color{255, 255, 255, 25}
+                                     : UI::Theme::Color{0, 0, 0, 0})
+                : (is_sticky_hovered ? surface.m_palette.hover_background
+                                     : surface.m_palette.sidebar_background);
+        if (!is_modern || is_sticky_hovered) {
+          surface.fill_rectangle(device_context, sticky_bounds, sticky_bg);
+        }
+        if (!is_modern && i == sticky_indices.size() - 1) {
+          surface.draw_line(
+              device_context, round_to_int(panel.x),
+              round_to_int(sticky_bounds.bottom()), round_to_int(panel.right()),
+              round_to_int(sticky_bounds.bottom()), surface.m_palette.border);
+        }
 
-          const float indent_x = panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
-          const int arrow_x = round_to_int(indent_x + 3.0F * scale);
-          const int arrow_y = round_to_int(sticky_bounds.y + row_height * 0.5F * scale);
+        const float indent_x =
+            panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
+        const int arrow_x = round_to_int(indent_x + 3.0F * scale);
+        const int arrow_y =
+            round_to_int(sticky_bounds.y + row_height * 0.5F * scale);
 
-          surface.draw_svg_icon(
-              device_context, "chevron-down.svg",
-              arrow_x,
-              arrow_y,
-              std::max(round_to_int(8.0F * scale), 7),
-              UI::Theme::Color{220, 225, 235, 255},
-              sticky_bg);
+        surface.draw_svg_icon(device_context, "chevron-down.svg", arrow_x,
+                              arrow_y, std::max(round_to_int(8.0F * scale), 7),
+                              UI::Theme::Color{220, 225, 235, 255}, sticky_bg);
 
-          const int folder_x = round_to_int(indent_x + 19.0F * scale);
-          const std::string folder_path =
-              UI::Editor::folder_icon_asset_for_path(item.path, true);
-          surface.draw_svg_icon(
-              device_context, folder_path,
-              folder_x,
-              arrow_y,
-              std::max(round_to_int(14.0F * scale), 11),
-              UI::Theme::Color{235, 240, 250, 255},
-              sticky_bg,
-              true);
+        const int folder_x = round_to_int(indent_x + 19.0F * scale);
+        const std::string folder_path =
+            UI::Editor::folder_icon_asset_for_path(item.path, true);
+        surface.draw_svg_icon(device_context, folder_path, folder_x, arrow_y,
+                              std::max(round_to_int(14.0F * scale), 11),
+                              UI::Theme::Color{235, 240, 250, 255}, sticky_bg,
+                              true);
 
-          const float label_x = indent_x + 30.0F * scale;
-          const std::string label = ellipsize(
-              device_context, *surface.m_small_font, item.label,
-              std::max(round_to_int(panel.right() - label_x - 8.0F * scale), 1));
-          surface.draw_text(device_context, *surface.m_small_font, label, label_x,
-                            arrow_y,
-                            UI::Theme::Color{250, 252, 255, 255});
+        const float label_x = indent_x + 30.0F * scale;
+        const std::string label = ellipsize(
+            device_context, *surface.m_small_font, item.label,
+            std::max(round_to_int(panel.right() - label_x - 8.0F * scale), 1));
+        surface.draw_text(device_context, *surface.m_small_font, label, label_x,
+                          arrow_y, UI::Theme::Color{250, 252, 255, 255});
       }
 
       RestoreDC(device_context, clip_saved);
@@ -3729,40 +4548,54 @@ void ToolSidebar::render(
       m_project_scrollbar.scroll_to(first);
       if (m_project_scrollbar.is_needed()) {
         const UI::Rect thumb_bounds = m_project_scrollbar.get_thumb_bounds();
-        const UI::Theme::Color thumb_color = m_project_scrollbar.is_dragging()
-            ? UI::Theme::Color{255, 255, 255, 115}
-            : (m_hovered_scrollbar ? UI::Theme::Color{255, 255, 255, 75} : UI::Theme::Color{255, 255, 255, 40});
+        const UI::Theme::Color thumb_color =
+            m_project_scrollbar.is_dragging()
+                ? UI::Theme::Color{255, 255, 255, 115}
+                : (m_hovered_scrollbar ? UI::Theme::Color{255, 255, 255, 75}
+                                       : UI::Theme::Color{255, 255, 255, 40});
         surface.fill_rectangle(device_context, thumb_bounds, thumb_color);
       }
     }
 
     // Ghost drag preview badge
-    if (m_is_dragging_item && m_drag_source_row.has_value() && *m_drag_source_row < items.size()) {
-      const auto& dragged = items[*m_drag_source_row];
+    if (m_is_dragging_item && m_drag_source_row.has_value() &&
+        *m_drag_source_row < items.size()) {
+      const auto &dragged = items[*m_drag_source_row];
       const std::string badge_label = dragged.label;
-      const int text_w = surface.m_small_font ? surface.m_small_font->getTextWidth(device_context, badge_label) : 40;
+      const int text_w =
+          surface.m_small_font
+              ? surface.m_small_font->getTextWidth(device_context, badge_label)
+              : 40;
       const float badge_w = static_cast<float>(text_w) + 36.0F * scale;
       const float badge_h = 24.0F * scale;
-      const UI::Rect badge_rect{m_drag_current_x + 12.0F * scale, m_drag_current_y + 12.0F * scale, badge_w, badge_h};
+      const UI::Rect badge_rect{m_drag_current_x + 12.0F * scale,
+                                m_drag_current_y + 12.0F * scale, badge_w,
+                                badge_h};
 
-      surface.fill_rounded_rectangle(device_context, badge_rect, UI::Theme::Color{24, 28, 38, 245}, 4.0F * scale);
-      surface.draw_rectangle(device_context, badge_rect, surface.m_palette.accent);
+      surface.fill_rounded_rectangle(device_context, badge_rect,
+                                     UI::Theme::Color{24, 28, 38, 245},
+                                     4.0F * scale);
+      surface.draw_rectangle(device_context, badge_rect,
+                             surface.m_palette.accent);
 
       const int badge_icon_x = round_to_int(badge_rect.x + 12.0F * scale);
       const int badge_icon_y = round_to_int(badge_rect.y + badge_h * 0.5F);
       if (dragged.directory) {
         const std::string folder_path =
             UI::Editor::folder_icon_asset_for_path(dragged.path, false);
-        surface.draw_svg_icon(device_context, folder_path, badge_icon_x, badge_icon_y,
+        surface.draw_svg_icon(device_context, folder_path, badge_icon_x,
+                              badge_icon_y,
                               std::max(round_to_int(12.0F * scale), 10),
-                              UI::Theme::Color{255, 255, 255, 255}, UI::Theme::Color{24, 28, 38, 255},
-                              true);
+                              UI::Theme::Color{255, 255, 255, 255},
+                              UI::Theme::Color{24, 28, 38, 255}, true);
       } else {
-        const std::string icon_asset = UI::Editor::file_icon_asset_for_path(dragged.path);
-        surface.draw_svg_icon(device_context, icon_asset, badge_icon_x, badge_icon_y,
+        const std::string icon_asset =
+            UI::Editor::file_icon_asset_for_path(dragged.path);
+        surface.draw_svg_icon(device_context, icon_asset, badge_icon_x,
+                              badge_icon_y,
                               std::max(round_to_int(12.0F * scale), 10),
-                              UI::Theme::Color{255, 255, 255, 255}, UI::Theme::Color{24, 28, 38, 255},
-                              true);
+                              UI::Theme::Color{255, 255, 255, 255},
+                              UI::Theme::Color{24, 28, 38, 255}, true);
       }
 
       if (surface.m_small_font) {
@@ -3774,31 +4607,24 @@ void ToolSidebar::render(
     }
   }
 
-  // Draw Right Border separating sidebar from editor with blue accent highlight when hovered or resizing.
-  // In modern blurred mode, the sidebar seamlessly floats borderless without a right edge line or blue hover border.
+  // Draw Right Border separating sidebar from editor with blue accent highlight
+  // when hovered or resizing. In modern blurred mode, the sidebar seamlessly
+  // floats borderless without a right edge line or blue hover border.
   if (!is_modern) {
     const bool show_accent = m_resize_hovered || m_resizing;
-    const UI::Theme::Color splitter_color = show_accent
-        ? surface.m_palette.accent
-        : surface.m_palette.border;
+    const UI::Theme::Color splitter_color =
+        show_accent ? surface.m_palette.accent : surface.m_palette.border;
 
     const float splitter_x = panel.right() - scale;
-    surface.draw_line(device_context,
-                      round_to_int(splitter_x),
-                      round_to_int(panel.y),
-                      round_to_int(splitter_x),
-                      round_to_int(panel.bottom()),
-                      splitter_color);
+    surface.draw_line(device_context, round_to_int(splitter_x),
+                      round_to_int(panel.y), round_to_int(splitter_x),
+                      round_to_int(panel.bottom()), splitter_color);
 
     if (show_accent) {
-      surface.fill_rectangle(
-          device_context,
-          UI::Rect{
-              splitter_x - 1.0F * scale,
-              panel.y,
-              2.0F * scale,
-              panel.height},
-          surface.m_palette.accent);
+      surface.fill_rectangle(device_context,
+                             UI::Rect{splitter_x - 1.0F * scale, panel.y,
+                                      2.0F * scale, panel.height},
+                             surface.m_palette.accent);
     }
   }
 }
@@ -3806,20 +4632,23 @@ void ToolSidebar::render(
 std::size_t ToolSidebar::viewport_row_count(
     const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
-  const float available = layout.tool_sidebar_bounds.height - header_height * scale;
-  if (available <= 0.0F) return 0;
+  const float available =
+      layout.tool_sidebar_bounds.height - header_height * scale;
+  if (available <= 0.0F)
+    return 0;
   return static_cast<std::size_t>(available / (row_height * scale));
 }
 
-std::optional<std::size_t> ToolSidebar::row_from_point(
-    const UI::Editor::StudioEditorLayoutResult &layout,
-    float point_y) const noexcept {
+std::optional<std::size_t>
+ToolSidebar::row_from_point(const UI::Editor::StudioEditorLayoutResult &layout,
+                            float point_y) const noexcept {
   const float scale = layout.dpi_scale;
   const float tree_top = layout.tool_sidebar_bounds.y + header_height * scale;
   if (point_y < tree_top || point_y >= layout.tool_sidebar_bounds.bottom()) {
     return std::nullopt;
   }
-  const auto idx = static_cast<std::size_t>((point_y - tree_top) / (row_height * scale));
+  const auto idx =
+      static_cast<std::size_t>((point_y - tree_top) / (row_height * scale));
   const auto items = m_model.get_project_items();
   const std::size_t actual_idx = m_model.get_scroll_offset() + idx;
   if (actual_idx < items.size()) {
@@ -3833,12 +4662,8 @@ UI::Rect ToolSidebar::scrollbar_bounds(
   const float scale = layout.dpi_scale;
   const float top = layout.tool_sidebar_bounds.y + header_height * scale;
   const float width = 8.0F * scale;
-  return UI::Rect{
-      layout.tool_sidebar_bounds.right() - width,
-      top,
-      width,
-      std::max(layout.tool_sidebar_bounds.bottom() - top, 0.0F)
-  };
+  return UI::Rect{layout.tool_sidebar_bounds.right() - width, top, width,
+                  std::max(layout.tool_sidebar_bounds.bottom() - top, 0.0F)};
 }
 
 std::vector<std::size_t> ToolSidebar::get_sticky_items() const {
@@ -3846,19 +4671,21 @@ std::vector<std::size_t> ToolSidebar::get_sticky_items() const {
   const auto items = m_model.get_project_items();
   const std::size_t scroll_offset = m_model.get_scroll_offset();
   if (scroll_offset == 0 || items.empty()) {
-      return sticky;
+    return sticky;
   }
 
   std::size_t current_idx = std::min(scroll_offset, items.size() - 1);
   std::size_t current_depth = items[current_idx].depth;
 
-  for (std::ptrdiff_t i = static_cast<std::ptrdiff_t>(current_idx); i >= 0; --i) {
-      const auto &item = items[static_cast<std::size_t>(i)];
-      if (item.directory && item.depth < current_depth) {
-          sticky.push_back(static_cast<std::size_t>(i));
-          current_depth = item.depth;
-          if (current_depth == 0) break;
-      }
+  for (std::ptrdiff_t i = static_cast<std::ptrdiff_t>(current_idx); i >= 0;
+       --i) {
+    const auto &item = items[static_cast<std::size_t>(i)];
+    if (item.directory && item.depth < current_depth) {
+      sticky.push_back(static_cast<std::size_t>(i));
+      current_depth = item.depth;
+      if (current_depth == 0)
+        break;
+    }
   }
 
   std::reverse(sticky.begin(), sticky.end());

@@ -84,6 +84,10 @@ public:
     /// Stop a specific language client (e.g. when an extension is uninstalled or disabled)
     void stop_client_for_language(std::string_view language_id);
 
+    /// Clear unavailable languages cache so servers can be retried (e.g. after plugin install)
+    void clear_unavailable_language(std::string_view language_id);
+    void clear_all_unavailable_languages();
+
     /// Checks if a language is currently supported by an installed & registered plugin
     [[nodiscard]] bool is_language_supported(std::string_view language_id) const;
 

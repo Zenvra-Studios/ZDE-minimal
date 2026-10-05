@@ -179,31 +179,95 @@ bool TerminalPanel::handle_pointer_press(
     return true;
   }
 
-  if (add_button_bounds(layout).contains(point_x, point_y)) {
-    m_active_channel = PanelChannel::Terminal;
-    return m_model.create_session(
-        current_terminal_directory(m_working_directory));
-  }
-  const std::span<const Terminal::TerminalSessionEntry> sessions =
-      m_model.get_sessions();
-  for (std::size_t index = 0; index < sessions.size(); ++index) {
-    UI::Rect tab = session_tab_bounds(layout, index);
-    const std::size_t id = sessions[index].identifier;
-    if (m_tab_animated_offset_x.contains(id)) {
-      tab.x += m_tab_animated_offset_x[id];
-    }
-    if (tab.contains(point_x, point_y)) {
-      const float close_btn_w = 22.0F * layout.dpi_scale;
-      if (point_x >= tab.right() - close_btn_w) {
-        const float shift = tab.width;
-        static_cast<void>(m_model.close_session(index));
-        const auto remaining = m_model.get_sessions();
-        for (std::size_t k = index; k < remaining.size(); ++k) {
-          m_tab_animated_offset_x[remaining[k].identifier] += shift;
-        }
+  if (m_active_channel == PanelChannel::Terminal) {
+    const float scale = layout.dpi_scale;
+
+    // 1. Scroll buttons (◀ and ▶)
+    if (m_max_tab_scroll > 0.0F) {
+      if (scroll_left_button_bounds(layout).contains(point_x, point_y)) {
+        m_tab_scroll_offset = std::clamp(
+            m_tab_scroll_offset - 112.0F * scale, 0.0F, m_max_tab_scroll);
         return true;
       }
-      static_cast<void>(m_model.activate_session(index));
+      if (scroll_right_button_bounds(layout).contains(point_x, point_y)) {
+        m_tab_scroll_offset = std::clamp(
+            m_tab_scroll_offset + 112.0F * scale, 0.0F, m_max_tab_scroll);
+        return true;
+      }
+
+      // 2. Scrollbar track & thumb
+      const UI::Rect track = tab_scrollbar_track_bounds(layout);
+      if (track.contains(point_x, point_y)) {
+        const UI::Rect thumb = tab_scrollbar_thumb_bounds(layout);
+        const float thumb_hit_pad = 4.0F * scale;
+        const UI::Rect thumb_hit{thumb.x, track.y - thumb_hit_pad, thumb.width,
+                                 track.height + thumb_hit_pad * 2.0F};
+        if (thumb_hit.contains(point_x, point_y)) {
+          m_dragging_tab_scrollbar = true;
+          m_tab_scroll_drag_start_x = point_x;
+          m_tab_scroll_drag_initial_offset = m_tab_scroll_offset;
+          return true;
+        } else {
+          const float travel = track.width - thumb.width;
+          if (travel > 0.0F) {
+            const float rel = point_x - track.x - thumb.width * 0.5F;
+            m_tab_scroll_offset = std::clamp(
+                (rel / travel) * m_max_tab_scroll, 0.0F, m_max_tab_scroll);
+            m_dragging_tab_scrollbar = true;
+            m_tab_scroll_drag_start_x = point_x;
+            m_tab_scroll_drag_initial_offset = m_tab_scroll_offset;
+            return true;
+          }
+        }
+      }
+    }
+
+    // 3. Tab viewport
+    const UI::Rect viewport = tab_viewport_bounds(layout);
+    if (viewport.contains(point_x, point_y)) {
+      if (add_button_bounds(layout).contains(point_x, point_y)) {
+        const bool created = m_model.create_session(
+            current_terminal_directory(m_working_directory));
+        if (created) {
+          const auto current_sessions = m_model.get_sessions();
+          if (!current_sessions.empty()) {
+            ensure_tab_visible(layout, current_sessions.size() - 1);
+          }
+        }
+        return created;
+      }
+
+      const std::span<const Terminal::TerminalSessionEntry> sessions =
+          m_model.get_sessions();
+      for (std::size_t index = 0; index < sessions.size(); ++index) {
+        UI::Rect tab = session_tab_bounds(layout, index);
+        const std::size_t id = sessions[index].identifier;
+        if (m_tab_animated_offset_x.contains(id)) {
+          tab.x += m_tab_animated_offset_x[id];
+        }
+        if (tab.contains(point_x, point_y)) {
+          const float close_btn_w = 22.0F * layout.dpi_scale;
+          if (point_x >= tab.right() - close_btn_w) {
+            const float shift = tab.width;
+            static_cast<void>(m_model.close_session(index));
+            const auto remaining = m_model.get_sessions();
+            for (std::size_t k = index; k < remaining.size(); ++k) {
+              m_tab_animated_offset_x[remaining[k].identifier] += shift;
+            }
+            const float total_w =
+                static_cast<float>(remaining.size()) * 112.0F * scale +
+                28.0F * scale;
+            const float view_w = tab_viewport_bounds(layout).width;
+            m_max_tab_scroll = std::max(0.0F, total_w - view_w);
+            m_tab_scroll_offset =
+                std::clamp(m_tab_scroll_offset, 0.0F, m_max_tab_scroll);
+            return true;
+          }
+          static_cast<void>(m_model.activate_session(index));
+          ensure_tab_visible(layout, index);
+          return true;
+        }
+      }
       return true;
     }
   }
@@ -295,13 +359,55 @@ bool TerminalPanel::handle_double_click(
 bool TerminalPanel::handle_pointer_move(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) noexcept {
-  return m_resize_model.set_hovered(
+  m_last_header_bounds = layout.terminal_header_bounds;
+  m_last_scale = layout.dpi_scale;
+
+  bool changed = false;
+  if (m_active_channel == PanelChannel::Terminal && m_max_tab_scroll > 0.0F) {
+    const bool prev_sb = m_hovered_tab_scrollbar;
+    const bool prev_l = m_hovered_scroll_left;
+    const bool prev_r = m_hovered_scroll_right;
+
+    m_hovered_tab_scrollbar = tab_scrollbar_thumb_bounds(layout).contains(point_x, point_y);
+    m_hovered_scroll_left = scroll_left_button_bounds(layout).contains(point_x, point_y);
+    m_hovered_scroll_right = scroll_right_button_bounds(layout).contains(point_x, point_y);
+
+    if (m_hovered_tab_scrollbar != prev_sb ||
+        m_hovered_scroll_left != prev_l ||
+        m_hovered_scroll_right != prev_r) {
+      changed = true;
+    }
+  } else {
+    if (m_hovered_tab_scrollbar || m_hovered_scroll_left || m_hovered_scroll_right) {
+      m_hovered_tab_scrollbar = false;
+      m_hovered_scroll_left = false;
+      m_hovered_scroll_right = false;
+      changed = true;
+    }
+  }
+
+  const bool resize_changed = m_resize_model.set_hovered(
       is_resizing() || is_resize_handle_point(layout, point_x, point_y));
+  return changed || resize_changed;
 }
 
 bool TerminalPanel::handle_pointer_drag(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) noexcept {
+  if (m_dragging_tab_scrollbar) {
+    const UI::Rect track = tab_scrollbar_track_bounds(layout);
+    const float thumb_width = std::clamp(
+        track.width * (track.width / (track.width + m_max_tab_scroll)),
+        24.0F * layout.dpi_scale, track.width);
+    const float travel = track.width - thumb_width;
+    if (travel > 0.0F && m_max_tab_scroll > 0.0F) {
+      const float delta_x = point_x - m_tab_scroll_drag_start_x;
+      const float scroll_delta = (delta_x / travel) * m_max_tab_scroll;
+      m_tab_scroll_offset = std::clamp(
+          m_tab_scroll_drag_initial_offset + scroll_delta, 0.0F, m_max_tab_scroll);
+    }
+    return true;
+  }
   if (m_selecting_text) {
     // FIX drag selection: samakan dengan render virtual session (padding 14, top 8)
     const float line_height =
@@ -353,6 +459,7 @@ bool TerminalPanel::handle_pointer_drag(
 
 bool TerminalPanel::handle_pointer_release() noexcept {
   m_selecting_text = false;
+  m_dragging_tab_scrollbar = false;
   return m_resize_model.end_resize();
 }
 
@@ -380,6 +487,21 @@ bool TerminalPanel::handle_control(char letter) {
 }
 
 bool TerminalPanel::handle_scroll(const Event::ScrollEvent &event) noexcept {
+  // If mouse is over the terminal header / tab strip, scroll tabs horizontally!
+  if (m_last_header_bounds.contains(event.point_x, event.point_y)) {
+    if (m_max_tab_scroll > 0.0F) {
+      const float speed = 32.0F * m_last_scale;
+      const float delta = (event.delta_x != 0) ? static_cast<float>(event.delta_x)
+                                               : static_cast<float>(event.delta_y);
+      if (delta != 0.0F) {
+        m_tab_scroll_offset = std::clamp(
+            m_tab_scroll_offset + delta * speed, 0.0F, m_max_tab_scroll);
+        return true;
+      }
+    }
+    return false;
+  }
+
   if (event.delta_y != 0) {
     const std::size_t maximum_offset =
         m_last_total_rows > m_last_visible_rows
@@ -457,16 +579,35 @@ bool TerminalPanel::is_interactive_point(
   if (!is_visible()) {
     return false;
   }
-  const std::span<const Terminal::TerminalSessionEntry> sessions =
-      m_model.get_sessions();
-  for (std::size_t index = 0; index < sessions.size(); ++index) {
-    if (session_tab_bounds(layout, index).contains(point_x, point_y)) {
+  if (terminal_channel_tab_bounds(layout).contains(point_x, point_y) ||
+      output_channel_tab_bounds(layout).contains(point_x, point_y)) {
+    return true;
+  }
+  if (m_active_channel == PanelChannel::Output) {
+    if (clear_output_button_bounds(layout).contains(point_x, point_y)) {
       return true;
     }
-  }
-  if (add_button_bounds(layout).contains(point_x, point_y) ||
-      close_button_bounds(layout).contains(point_x, point_y)) {
-    return true;
+  } else {
+    if (m_max_tab_scroll > 0.0F) {
+      if (scroll_left_button_bounds(layout).contains(point_x, point_y) ||
+          scroll_right_button_bounds(layout).contains(point_x, point_y) ||
+          tab_scrollbar_track_bounds(layout).contains(point_x, point_y)) {
+        return true;
+      }
+    }
+    const UI::Rect viewport = tab_viewport_bounds(layout);
+    if (viewport.contains(point_x, point_y)) {
+      const std::span<const Terminal::TerminalSessionEntry> sessions =
+          m_model.get_sessions();
+      for (std::size_t index = 0; index < sessions.size(); ++index) {
+        if (session_tab_bounds(layout, index).contains(point_x, point_y)) {
+          return true;
+        }
+      }
+      if (add_button_bounds(layout).contains(point_x, point_y)) {
+        return true;
+      }
+    }
   }
   return false;
 }
@@ -578,10 +719,29 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
     return;
   }
 
+  m_last_header_bounds = layout.terminal_header_bounds;
+  m_last_scale = scale;
+
   // 2. Terminal Sessions Tabs (VS Code style flush active/inactive tabs)
   const std::span<const Terminal::TerminalSessionEntry> sessions =
       m_model.get_sessions();
   const std::optional<std::size_t> active_index = m_model.get_active_index();
+
+  const float total_tabs_width =
+      static_cast<float>(sessions.size()) * 112.0F * scale + 28.0F * scale;
+  const float viewport_w = tab_viewport_bounds(layout).width;
+  m_max_tab_scroll = std::max(0.0F, total_tabs_width - viewport_w);
+  m_tab_scroll_offset = std::clamp(m_tab_scroll_offset, 0.0F, m_max_tab_scroll);
+
+  const UI::Rect viewport = tab_viewport_bounds(layout);
+  SaveDC(device_context);
+  IntersectClipRect(
+      device_context,
+      round_to_int(viewport.x),
+      round_to_int(layout.terminal_header_bounds.y),
+      round_to_int(viewport.right()),
+      round_to_int(layout.terminal_header_bounds.bottom()));
+
   for (std::size_t index = 0; index < sessions.size(); ++index) {
     UI::Rect tab = session_tab_bounds(layout, index);
     const std::size_t id = sessions[index].identifier;
@@ -666,6 +826,87 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
                           std::max(round_to_int(10.0F * scale), 9),
                           surface.m_palette.text_muted,
                           surface.m_palette.tab_active_background);
+  }
+
+  RestoreDC(device_context, -1);
+
+  // 5. Scroll components: Horizontal scrollbar & navigation buttons
+  if (m_max_tab_scroll > 0.0F) {
+    // 5a. Horizontal Scrollbar track & thumb
+    const UI::Rect track = tab_scrollbar_track_bounds(layout);
+    const UI::Rect thumb = tab_scrollbar_thumb_bounds(layout);
+
+    surface.fill_rectangle(
+        device_context, track,
+        UI::Theme::Color{surface.m_palette.border.red,
+                         surface.m_palette.border.green,
+                         surface.m_palette.border.blue, 60});
+
+    const UI::Theme::Color thumb_color =
+        (m_dragging_tab_scrollbar || m_hovered_tab_scrollbar)
+            ? surface.m_palette.accent
+            : surface.m_palette.text_muted;
+    surface.fill_rectangle(device_context, thumb, thumb_color);
+
+    // 5b. Scroll navigation buttons (◀ and ▶)
+    const UI::Rect left_btn = scroll_left_button_bounds(layout);
+    const UI::Rect right_btn = scroll_right_button_bounds(layout);
+
+    surface.draw_line(
+        device_context, round_to_int(left_btn.x - 2.0F * scale),
+        round_to_int(layout.terminal_header_bounds.y + 4.0F * scale),
+        round_to_int(left_btn.x - 2.0F * scale),
+        round_to_int(layout.terminal_header_bounds.bottom() - 4.0F * scale),
+        surface.m_palette.border);
+
+    // Left button (◀)
+    if (m_hovered_scroll_left) {
+      surface.fill_rectangle(device_context, left_btn,
+                             surface.m_palette.tab_active_background);
+    }
+    const bool can_scroll_left = m_tab_scroll_offset > 0.5F;
+    const UI::Theme::Color left_color =
+        can_scroll_left
+            ? (m_hovered_scroll_left ? surface.m_palette.text_primary
+                                     : surface.m_palette.text_muted)
+            : UI::Theme::Color{surface.m_palette.text_muted.red,
+                               surface.m_palette.text_muted.green,
+                               surface.m_palette.text_muted.blue, 80};
+    const float l_cx = left_btn.x + left_btn.width * 0.5F;
+    const float l_cy = left_btn.y + left_btn.height * 0.5F;
+    const float chev_sz = 3.5F * scale;
+    surface.draw_line(device_context, round_to_int(l_cx + chev_sz * 0.5F),
+                      round_to_int(l_cy - chev_sz),
+                      round_to_int(l_cx - chev_sz * 0.5F),
+                      round_to_int(l_cy), left_color);
+    surface.draw_line(device_context, round_to_int(l_cx - chev_sz * 0.5F),
+                      round_to_int(l_cy),
+                      round_to_int(l_cx + chev_sz * 0.5F),
+                      round_to_int(l_cy + chev_sz), left_color);
+
+    // Right button (▶)
+    if (m_hovered_scroll_right) {
+      surface.fill_rectangle(device_context, right_btn,
+                             surface.m_palette.tab_active_background);
+    }
+    const bool can_scroll_right = m_tab_scroll_offset < m_max_tab_scroll - 0.5F;
+    const UI::Theme::Color right_color =
+        can_scroll_right
+            ? (m_hovered_scroll_right ? surface.m_palette.text_primary
+                                      : surface.m_palette.text_muted)
+            : UI::Theme::Color{surface.m_palette.text_muted.red,
+                               surface.m_palette.text_muted.green,
+                               surface.m_palette.text_muted.blue, 80};
+    const float r_cx = right_btn.x + right_btn.width * 0.5F;
+    const float r_cy = right_btn.y + right_btn.height * 0.5F;
+    surface.draw_line(device_context, round_to_int(r_cx - chev_sz * 0.5F),
+                      round_to_int(r_cy - chev_sz),
+                      round_to_int(r_cx + chev_sz * 0.5F),
+                      round_to_int(r_cy), right_color);
+    surface.draw_line(device_context, round_to_int(r_cx + chev_sz * 0.5F),
+                      round_to_int(r_cy),
+                      round_to_int(r_cx - chev_sz * 0.5F),
+                      round_to_int(r_cy + chev_sz), right_color);
   }
 
   const Terminal::TerminalSession *session = m_model.get_active_session();
@@ -949,13 +1190,105 @@ UI::Rect TerminalPanel::clear_output_button_bounds(
                   layout.terminal_header_bounds.height - 8.0F * scale};
 }
 
+float TerminalPanel::tab_strip_start_x(
+    const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
+  return layout.terminal_header_bounds.x + 134.0F * layout.dpi_scale;
+}
+
+float TerminalPanel::tab_strip_end_x(
+    const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
+  const float controls_width = (m_max_tab_scroll > 0.0F) ? 44.0F * layout.dpi_scale : 0.0F;
+  return layout.terminal_header_bounds.right() - controls_width;
+}
+
+UI::Rect TerminalPanel::tab_viewport_bounds(
+    const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
+  const float start_x = tab_strip_start_x(layout);
+  const float end_x = tab_strip_end_x(layout);
+  return UI::Rect{start_x, layout.terminal_header_bounds.y,
+                  std::max(0.0F, end_x - start_x),
+                  layout.terminal_header_bounds.height};
+}
+
+UI::Rect TerminalPanel::scroll_left_button_bounds(
+    const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
+  if (m_max_tab_scroll <= 0.0F) {
+    return UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
+  }
+  const float scale = layout.dpi_scale;
+  const float end_x = tab_strip_end_x(layout);
+  return UI::Rect{end_x + 2.0F * scale, layout.terminal_header_bounds.y + 4.0F * scale,
+                  18.0F * scale, layout.terminal_header_bounds.height - 8.0F * scale};
+}
+
+UI::Rect TerminalPanel::scroll_right_button_bounds(
+    const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
+  if (m_max_tab_scroll <= 0.0F) {
+    return UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
+  }
+  const float scale = layout.dpi_scale;
+  const float end_x = tab_strip_end_x(layout);
+  return UI::Rect{end_x + 22.0F * scale, layout.terminal_header_bounds.y + 4.0F * scale,
+                  18.0F * scale, layout.terminal_header_bounds.height - 8.0F * scale};
+}
+
+UI::Rect TerminalPanel::tab_scrollbar_track_bounds(
+    const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
+  if (m_max_tab_scroll <= 0.0F) {
+    return UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
+  }
+  const float scale = layout.dpi_scale;
+  const float start_x = tab_strip_start_x(layout);
+  const float end_x = tab_strip_end_x(layout);
+  const float sb_h = 3.0F * scale;
+  return UI::Rect{start_x, layout.terminal_header_bounds.bottom() - sb_h,
+                  std::max(0.0F, end_x - start_x), sb_h};
+}
+
+UI::Rect TerminalPanel::tab_scrollbar_thumb_bounds(
+    const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
+  const UI::Rect track = tab_scrollbar_track_bounds(layout);
+  if (track.width <= 0.0F || m_max_tab_scroll <= 0.0F) {
+    return UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
+  }
+  const float scale = layout.dpi_scale;
+  const float thumb_width = std::clamp(
+      track.width * (track.width / (track.width + m_max_tab_scroll)),
+      24.0F * scale, track.width);
+  const float travel = track.width - thumb_width;
+  const float thumb_x = track.x + (travel > 0.0F ? (m_tab_scroll_offset / m_max_tab_scroll) * travel : 0.0F);
+  return UI::Rect{thumb_x, track.y, thumb_width, track.height};
+}
+
+void TerminalPanel::ensure_tab_visible(
+    const UI::Editor::StudioEditorLayoutResult &layout,
+    std::size_t index) noexcept {
+  const float scale = layout.dpi_scale;
+  const float tab_width = 112.0F * scale;
+  const float add_btn_w = 28.0F * scale;
+  const auto sessions = m_model.get_sessions();
+  const float total_w = static_cast<float>(sessions.size()) * tab_width + add_btn_w;
+  const float viewport_w = tab_viewport_bounds(layout).width;
+  m_max_tab_scroll = std::max(0.0F, total_w - viewport_w);
+
+  const float tab_left_rel = static_cast<float>(index) * tab_width;
+  const float tab_right_rel = tab_left_rel + tab_width + (index + 1 >= sessions.size() ? add_btn_w : 0.0F);
+
+  if (tab_left_rel < m_tab_scroll_offset) {
+    m_tab_scroll_offset = tab_left_rel;
+  } else if (tab_right_rel > m_tab_scroll_offset + viewport_w) {
+    m_tab_scroll_offset = tab_right_rel - viewport_w;
+  }
+  m_tab_scroll_offset = std::clamp(m_tab_scroll_offset, 0.0F, m_max_tab_scroll);
+}
+
 UI::Rect TerminalPanel::session_tab_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout,
     std::size_t index) const noexcept {
   const float scale = layout.dpi_scale;
-  const float start_x = layout.terminal_header_bounds.x + 134.0F * scale;
+  const float start_x = tab_strip_start_x(layout);
   const float tab_width = 112.0F * scale;
-  const float x = start_x + static_cast<float>(index) * tab_width;
+  const float x = start_x + static_cast<float>(index) * tab_width - m_tab_scroll_offset;
   return UI::Rect{x, layout.terminal_header_bounds.y, tab_width,
                   layout.terminal_header_bounds.height};
 }
@@ -963,10 +1296,11 @@ UI::Rect TerminalPanel::session_tab_bounds(
 UI::Rect TerminalPanel::add_button_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
-  const float start_x = layout.terminal_header_bounds.x + 134.0F * scale;
+  const float start_x = tab_strip_start_x(layout);
   const float tab_width = 112.0F * scale;
   const float x = start_x +
-                  static_cast<float>(m_model.get_sessions().size()) * tab_width;
+                  static_cast<float>(m_model.get_sessions().size()) * tab_width -
+                  m_tab_scroll_offset;
   return UI::Rect{x, layout.terminal_header_bounds.y,
                   28.0F * scale,
                   layout.terminal_header_bounds.height};

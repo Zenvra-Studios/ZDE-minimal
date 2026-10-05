@@ -369,16 +369,7 @@ bool TextEditor::open_file(const std::filesystem::path &path) {
     if (const auto *doc = m_controller.get_active_document(); doc != nullptr) {
       const std::string uri = get_active_document_uri();
       const std::string fname = get_active_document_filename();
-      std::string content;
-      std::size_t approx_size = 0;
-      for (std::size_t i = 0; i < doc->get_line_count(); ++i) {
-        approx_size += doc->get_line(i).size() + 1;
-      }
-      content.reserve(approx_size);
-      for (std::size_t i = 0; i < doc->get_line_count(); ++i) {
-        content += doc->get_line(i);
-        content += "\n";
-      }
+      const std::string content = doc->get_lines_text(0, doc->get_line_count());
       Language::LanguageServerManager::instance().on_document_opened(
           uri, fname, 1, content);
 
@@ -790,8 +781,13 @@ void TextEditor::draw_editor_header(
   }
 
   // 1. Container background (sleek header bar directly above gutter and code)
-  surface.fill_rectangle(device_context, header_bounds,
-                         surface.m_palette.editor_background);
+  const bool is_modern = surface.m_palette.is_modern ||
+                         surface.m_theme.is_modern ||
+                         surface.m_theme.enable_os_blur;
+  if (!is_modern) {
+    surface.fill_rectangle(device_context, header_bounds,
+                           surface.m_palette.editor_background);
+  }
 
   const UI::Editor::TextDocumentModel *document =
       m_controller.get_active_document();
@@ -818,11 +814,12 @@ void TextEditor::draw_editor_header(
                                     (splitter_x + 2.0F * scale),
                                 header_bounds.height};
 
-    // Solid Background Fills for both headers
-    surface.fill_rectangle(device_context, left_header,
-                           surface.m_palette.editor_background);
-    surface.fill_rectangle(device_context, right_header,
-                           surface.m_palette.editor_background);
+    if (!is_modern) {
+      surface.fill_rectangle(device_context, left_header,
+                             surface.m_palette.editor_background);
+      surface.fill_rectangle(device_context, right_header,
+                             surface.m_palette.editor_background);
+    }
 
     // Left Header File Title with Icon
     SaveDC(device_context);
@@ -1726,11 +1723,7 @@ bool TextEditor::handle_pointer_press(
               doc != nullptr) {
             const std::string uri = get_active_document_uri();
             const std::string fname = get_active_document_filename();
-            std::string content;
-            for (std::size_t i = 0; i < doc->get_line_count(); ++i) {
-              content += doc->get_line(i);
-              content += "\n";
-            }
+            const std::string content = doc->get_lines_text(0, doc->get_line_count());
             Language::LanguageServerManager::instance().on_document_opened(
                 uri, fname, 1, content);
           }
@@ -4710,24 +4703,21 @@ void TextEditor::render(
         const float track_w = layout.scrollbar_bounds.width;
         const float track_h = layout.scrollbar_bounds.height;
 
-        for (std::size_t line_idx = 0; line_idx < total_lines; ++line_idx) {
-          const auto diags = left_doc->get_diagnostics_for_line(line_idx);
-          if (diags.empty())
+        const auto all_diags = left_doc->get_diagnostics();
+        for (const auto &d : all_diags) {
+          const std::size_t line_idx = d.range.start.line;
+          if (line_idx >= total_lines)
             continue;
 
-          bool has_err = false;
-          bool has_warn = false;
-          for (const auto &d : diags) {
-            if (d.severity == Language::Protocol::DiagnosticSeverity::Error)
-              has_err = true;
-            else if (d.severity ==
-                     Language::Protocol::DiagnosticSeverity::Warning)
-              has_warn = true;
-          }
+          const bool has_err =
+              (d.severity == Language::Protocol::DiagnosticSeverity::Error);
+          const bool has_warn =
+              (d.severity == Language::Protocol::DiagnosticSeverity::Warning);
 
-          const float stripe_y = track_y + (static_cast<float>(line_idx) /
-                                            static_cast<float>(total_lines)) *
-                                               track_h;
+          const float stripe_y =
+              track_y + (static_cast<float>(line_idx) /
+                         static_cast<float>(total_lines)) *
+                            track_h;
           const UI::Theme::Color stripe_color =
               has_err ? UI::Theme::Color{247, 84, 100, 255}
                       : (has_warn ? UI::Theme::Color{240, 167, 50, 255}
@@ -4814,19 +4804,15 @@ void TextEditor::render(
         // Right Overview Ruler
         const std::size_t total_lines = right_doc->get_line_count();
         if (total_lines > 0) {
-          for (std::size_t line_idx = 0; line_idx < total_lines; ++line_idx) {
-            const auto diags = right_doc->get_diagnostics_for_line(line_idx);
-            if (diags.empty())
+          const auto all_diags = right_doc->get_diagnostics();
+          for (const auto &d : all_diags) {
+            const std::size_t line_idx = d.range.start.line;
+            if (line_idx >= total_lines)
               continue;
-            bool has_err = false;
-            bool has_warn = false;
-            for (const auto &d : diags) {
-              if (d.severity == Language::Protocol::DiagnosticSeverity::Error)
-                has_err = true;
-              else if (d.severity ==
-                       Language::Protocol::DiagnosticSeverity::Warning)
-                has_warn = true;
-            }
+            const bool has_err =
+                (d.severity == Language::Protocol::DiagnosticSeverity::Error);
+            const bool has_warn =
+                (d.severity == Language::Protocol::DiagnosticSeverity::Warning);
             const float stripe_y =
                 right_scrollbar.y + (static_cast<float>(line_idx) /
                                      static_cast<float>(total_lines)) *
@@ -5668,8 +5654,13 @@ void TextEditor::draw_document(
     if (m_media_player_view.is_open()) {
       const_cast<TextEditor *>(this)->m_media_player_view.close();
     }
-    surface.fill_rectangle(device_context, layout.editor_bounds,
-                           surface.m_palette.editor_background);
+    const bool is_modern = surface.m_palette.is_modern ||
+                           surface.m_theme.is_modern ||
+                           surface.m_theme.enable_os_blur;
+    if (!is_modern) {
+      surface.fill_rectangle(device_context, layout.editor_bounds,
+                             surface.m_palette.editor_background);
+    }
 
     m_empty_state_open_btn.set_bounds(UI::Rect{});
     m_empty_state_clone_btn.set_bounds(UI::Rect{});
@@ -5885,11 +5876,16 @@ void TextEditor::draw_document(
     if (m_media_player_view.is_open()) {
       const_cast<TextEditor *>(this)->m_media_player_view.close();
     }
-    surface.fill_rectangle(device_context, left_pane,
-                           surface.m_palette.editor_background);
-    if (!layout.gutter_bounds.is_empty()) {
-      surface.fill_rectangle(device_context, layout.gutter_bounds,
+    const bool is_modern = surface.m_palette.is_modern ||
+                           surface.m_theme.is_modern ||
+                           surface.m_theme.enable_os_blur;
+    if (!is_modern) {
+      surface.fill_rectangle(device_context, left_pane,
                              surface.m_palette.editor_background);
+      if (!layout.gutter_bounds.is_empty()) {
+        surface.fill_rectangle(device_context, layout.gutter_bounds,
+                               surface.m_palette.editor_background);
+      }
     }
     const std::size_t total_lines = document->get_line_count();
 
@@ -5933,7 +5929,7 @@ void TextEditor::draw_document(
     // Rebuild folding model windowed around visible line (instant on 5M+ line
     // documents)
     const bool needs_window_shift =
-        (total_lines > 25000 &&
+        (total_lines > 5000 &&
          (first_line < m_folding.get_window_offset() ||
           first_line + visible_count >=
               m_folding.get_window_offset() + m_folding.get_window_size()));
@@ -6932,11 +6928,16 @@ void TextEditor::draw_document(
             std::max(right_code_limit - right_gutter.right(), 0.0F),
             right_pane.height};
 
-        // 3. SOLID Editor Background Fill and Gutter Background Fill
-        surface.fill_rectangle(device_context, right_pane,
-                               surface.m_palette.editor_background);
-        surface.fill_rectangle(device_context, right_gutter,
-                               surface.m_palette.editor_background);
+        // 3. Editor Background Fill and Gutter Background Fill
+        const bool is_modern = surface.m_palette.is_modern ||
+                               surface.m_theme.is_modern ||
+                               surface.m_theme.enable_os_blur;
+        if (!is_modern) {
+          surface.fill_rectangle(device_context, right_pane,
+                                 surface.m_palette.editor_background);
+          surface.fill_rectangle(device_context, right_gutter,
+                                 surface.m_palette.editor_background);
+        }
 
         // 4. Gutter separator line for right pane
         const float fold_margin =

@@ -241,7 +241,9 @@ public:
         float shader_panel_width = 380.0F,
         std::optional<float> custom_nav_width = std::nullopt,
         std::size_t line_count = 1,
-        std::optional<float> custom_tab_width = std::nullopt) const noexcept;
+        std::optional<float> custom_tab_width = std::nullopt,
+        std::string_view activity_bar_location = "Default",
+        bool sidebar_on_right = false) const noexcept;
 };
 
 [[nodiscard]] std::span<const SidebarItem> get_studio_sidebar_items() noexcept;

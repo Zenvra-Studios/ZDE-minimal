@@ -227,12 +227,21 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
     bool shader_panel_visible, float shader_panel_width,
     std::optional<float> custom_nav_width,
     std::size_t line_count,
-    std::optional<float> custom_tab_width) const noexcept {
+    std::optional<float> custom_tab_width,
+    std::string_view activity_bar_location,
+    bool sidebar_on_right) const noexcept {
   const float safe_width = std::max(client_width, 0.0F);
   const float safe_height = std::max(client_height, 0.0F);
   const float safe_scale = std::max(dpi_scale, 0.5F);
   const float safe_top = std::clamp(content_top, 0.0F, safe_height);
-  const float activity_width = StudioEditorMetrics::activity_width * safe_scale;
+
+  const bool is_hidden = (activity_bar_location == "Hidden" || activity_bar_location == "hidden" || activity_bar_location == "off");
+  const bool is_top = (activity_bar_location == "Top" || activity_bar_location == "top");
+  const bool is_bottom = (activity_bar_location == "Bottom" || activity_bar_location == "bottom");
+  const bool is_vertical = !is_hidden && !is_top && !is_bottom;
+
+  const float activity_width = is_vertical ? (StudioEditorMetrics::activity_width * safe_scale) : 0.0F;
+  const float horizontal_bar_h = (is_top || is_bottom) ? (35.0F * safe_scale) : 0.0F;
   const float status_height = StudioEditorMetrics::status_height * safe_scale;
   const float gutter_width = StudioEditorMetrics::calculate_gutter_width(line_count, safe_scale);
   const float scrollbar_width = 14.0F * safe_scale;
@@ -276,20 +285,62 @@ StudioEditorLayoutResult StudioEditorLayout::calculate(
   const UI::Rect content_bounds = root.items[0];
   const UI::Rect status_bounds = root.items[1];
 
-  const std::array content_items{
-      Utility::FlexItem::fixed(activity_width),
-      Utility::FlexItem::fixed(sidebar_width),
-      Utility::FlexItem::flexible(),
-      Utility::FlexItem::fixed(splitter_width),
-      Utility::FlexItem::fixed(requested_shader_width),
-  };
-  const Utility::FlexLayoutResult content =
-      Utility::Row::calculate(content_bounds, content_items);
-  const UI::Rect activity_bounds = content.items[0];
-  const UI::Rect sidebar_bounds = content.items[1];
-  const UI::Rect editor_workspace_bounds = content.items[2];
-  const UI::Rect shader_splitter_bounds = content.items[3];
-  const UI::Rect shader_panel_bounds = content.items[4];
+  UI::Rect activity_bounds;
+  UI::Rect sidebar_bounds;
+  UI::Rect editor_workspace_bounds;
+  UI::Rect shader_splitter_bounds;
+  UI::Rect shader_panel_bounds;
+
+  if (sidebar_on_right) {
+    const std::array content_items{
+        Utility::FlexItem::flexible(),
+        Utility::FlexItem::fixed(splitter_width),
+        Utility::FlexItem::fixed(requested_shader_width),
+        Utility::FlexItem::fixed(sidebar_width),
+        Utility::FlexItem::fixed(activity_width),
+    };
+    const Utility::FlexLayoutResult content =
+        Utility::Row::calculate(content_bounds, content_items);
+    editor_workspace_bounds = content.items[0];
+    shader_splitter_bounds = content.items[1];
+    shader_panel_bounds = content.items[2];
+    sidebar_bounds = content.items[3];
+    activity_bounds = content.items[4];
+  } else {
+    const std::array content_items{
+        Utility::FlexItem::fixed(activity_width),
+        Utility::FlexItem::fixed(sidebar_width),
+        Utility::FlexItem::flexible(),
+        Utility::FlexItem::fixed(splitter_width),
+        Utility::FlexItem::fixed(requested_shader_width),
+    };
+    const Utility::FlexLayoutResult content =
+        Utility::Row::calculate(content_bounds, content_items);
+    activity_bounds = content.items[0];
+    sidebar_bounds = content.items[1];
+    editor_workspace_bounds = content.items[2];
+    shader_splitter_bounds = content.items[3];
+    shader_panel_bounds = content.items[4];
+  }
+
+  if (is_top) {
+    if (tool_sidebar_visible && sidebar_width > 0.0F) {
+      activity_bounds = UI::Rect{sidebar_bounds.x, sidebar_bounds.y, sidebar_bounds.width, horizontal_bar_h};
+      sidebar_bounds.y += horizontal_bar_h;
+      sidebar_bounds.height = std::max(0.0F, sidebar_bounds.height - horizontal_bar_h);
+    } else {
+      activity_bounds = UI::Rect{0, 0, 0, 0};
+    }
+  } else if (is_bottom) {
+    if (tool_sidebar_visible && sidebar_width > 0.0F) {
+      sidebar_bounds.height = std::max(0.0F, sidebar_bounds.height - horizontal_bar_h);
+      activity_bounds = UI::Rect{sidebar_bounds.x, sidebar_bounds.bottom(), sidebar_bounds.width, horizontal_bar_h};
+    } else {
+      activity_bounds = UI::Rect{0, 0, 0, 0};
+    }
+  } else if (is_hidden) {
+    activity_bounds = UI::Rect{0, 0, 0, 0};
+  }
 
   const float integrated_tab_y = 0.0F;
   const float integrated_tab_height = effective_tab_height;
@@ -444,10 +495,23 @@ void clear_active_tool_sidebar_item() noexcept {
 Rect calculate_studio_sidebar_item_bounds(
     const StudioEditorLayoutResult &layout, std::size_t item_index) noexcept {
   const std::span<const SidebarItem> items = get_studio_sidebar_items();
-  if (item_index >= items.size()) {
+  if (item_index >= items.size() || layout.activity_bar_bounds.is_empty()) {
     return {};
   }
   const float scale = layout.dpi_scale;
+  const bool is_horizontal =
+      layout.activity_bar_bounds.width > layout.activity_bar_bounds.height;
+  if (is_horizontal) {
+    const float item_w = 30.0F * scale;
+    const float item_h = 30.0F * scale;
+    const float gap = 4.0F * scale;
+    const float start_x = layout.activity_bar_bounds.x + 8.0F * scale;
+    const float item_x = start_x + static_cast<float>(item_index) * (item_w + gap);
+    const float item_y = layout.activity_bar_bounds.y +
+                         (layout.activity_bar_bounds.height - item_h) * 0.5F;
+    return Rect{item_x, item_y, item_w, item_h};
+  }
+
   const SidebarItem &target = items[item_index];
   std::size_t placement_index = 0;
   std::size_t placement_count = 0;

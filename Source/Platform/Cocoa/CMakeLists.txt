@@ -7,8 +7,8 @@ add_library(ZDEPlatformCocoa
     Runtime/CocoaContext.mm
     Runtime/CocoaMenuBridge.mm
     Components/ActivitySidebar.mm
-    Components/CocoaChromeRenderer.mm
-    Components/CocoaPromptDialog.mm
+    Components/ChromeRenderer.mm
+    Components/PromptDialog.mm
     Components/EditorMinimap.mm
     Components/EditorScrollbar.mm
     Components/ExplorerHeader.mm

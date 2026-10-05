@@ -331,6 +331,30 @@ bool PluginManager::activate_plugin(std::shared_ptr<Plugin> plugin)
                     }
                 }
 
+                // Check if local bundled binary exists in plugin install path
+                std::string exe_name = profile.executable_name;
+                std::filesystem::path local_candidates[] = {
+                    plugin->get_install_path() / exe_name,
+                    plugin->get_install_path() / "bin" / exe_name,
+#if defined(_WIN32)
+                    plugin->get_install_path() / (exe_name + ".exe"),
+                    plugin->get_install_path() / "bin" / (exe_name + ".exe"),
+                    plugin->get_install_path() / (exe_name + ".bat"),
+                    plugin->get_install_path() / "bin" / (exe_name + ".bat"),
+                    plugin->get_install_path() / (exe_name + ".cmd"),
+                    plugin->get_install_path() / "bin" / (exe_name + ".cmd"),
+#endif
+                };
+                for (const auto& lc : local_candidates)
+                {
+                    if (std::filesystem::exists(lc, ec) && std::filesystem::is_regular_file(lc, ec))
+                    {
+                        profile.custom_executable_path = lc;
+                        break;
+                    }
+                }
+
+                Language::LanguageServerManager::instance().clear_unavailable_language(profile.language_id);
                 Language::Registry::ServerRegistry::instance().register_profile(std::move(profile));
                 registered_any_profile = true;
             }
@@ -383,6 +407,31 @@ bool PluginManager::activate_plugin(std::shared_ptr<Plugin> plugin)
                             if (arg.is_string()) profile.default_args.push_back(arg.get<std::string>());
                         }
                     }
+
+                    // Check if local bundled binary exists in plugin install path
+                    std::string exe_name = profile.executable_name.empty() ? exe : profile.executable_name;
+                    std::filesystem::path local_candidates[] = {
+                        plugin->get_install_path() / exe_name,
+                        plugin->get_install_path() / "bin" / exe_name,
+#if defined(_WIN32)
+                        plugin->get_install_path() / (exe_name + ".exe"),
+                        plugin->get_install_path() / "bin" / (exe_name + ".exe"),
+                        plugin->get_install_path() / (exe_name + ".bat"),
+                        plugin->get_install_path() / "bin" / (exe_name + ".bat"),
+                        plugin->get_install_path() / (exe_name + ".cmd"),
+                        plugin->get_install_path() / "bin" / (exe_name + ".cmd"),
+#endif
+                    };
+                    for (const auto& lc : local_candidates)
+                    {
+                        if (std::filesystem::exists(lc, ec) && std::filesystem::is_regular_file(lc, ec))
+                        {
+                            profile.custom_executable_path = lc;
+                            break;
+                        }
+                    }
+
+                    Language::LanguageServerManager::instance().clear_unavailable_language(profile.language_id);
                     Language::Registry::ServerRegistry::instance().register_profile(std::move(profile));
                     registered_any_profile = true;
                 }
@@ -427,6 +476,10 @@ bool PluginManager::activate_plugin(std::shared_ptr<Plugin> plugin)
 #if defined(_WIN32)
                 plugin->get_install_path() / (exe_name + ".exe"),
                 plugin->get_install_path() / "bin" / (exe_name + ".exe"),
+                plugin->get_install_path() / (exe_name + ".bat"),
+                plugin->get_install_path() / "bin" / (exe_name + ".bat"),
+                plugin->get_install_path() / (exe_name + ".cmd"),
+                plugin->get_install_path() / "bin" / (exe_name + ".cmd"),
 #endif
             };
             for (const auto& lc : local_candidates)
@@ -438,6 +491,7 @@ bool PluginManager::activate_plugin(std::shared_ptr<Plugin> plugin)
                 }
             }
 
+            Language::LanguageServerManager::instance().clear_unavailable_language(deduced->language_id);
             Language::Registry::ServerRegistry::instance().register_profile(std::move(*deduced));
             registered_any_profile = true;
         }

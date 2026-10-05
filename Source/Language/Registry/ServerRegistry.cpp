@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdlib>
+#include <fstream>
 #include <sstream>
 #include <unordered_set>
 
@@ -23,7 +24,7 @@ ServerRegistry& ServerRegistry::instance() noexcept
 
 ServerRegistry::ServerRegistry()
 {
-    // Profiles are registered dynamically from installed and enabled plugins
+    initialize_default_profiles();
 }
 
 void ServerRegistry::register_profile(ServerProfile profile)
@@ -289,12 +290,17 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
     {
         candidate_names = { "shader-language-server", "shader-ls", "shaderserver" };
     }
+    else if (exe_str == "jdtls" || exe_str == "eclipse-jdtls" || exe_str == "jdt-language-server" ||
+             exe_str == "jdtls-launcher" || exe_str == "eclipse.jdtls" || exe_str == "redhat.java")
+    {
+        candidate_names = { "jdtls", "jdtls.bat", "jdtls.cmd", "jdt-language-server", "eclipse-jdtls" };
+    }
 
     for (const auto& cur_name : candidate_names)
     {
         std::string exe_with_ext = cur_name;
 #if defined(_WIN32)
-        if (!exe_with_ext.ends_with(".exe"))
+        if (!exe_with_ext.ends_with(".exe") && !exe_with_ext.ends_with(".bat") && !exe_with_ext.ends_with(".cmd"))
         {
             exe_with_ext += ".exe";
         }
@@ -311,6 +317,12 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                 app_dir / "plugins" / "lsp" / exe_with_ext,
                 app_dir / "plugins" / "lsp" / cur_name / exe_with_ext,
                 app_dir / "plugins" / "lsp" / cur_name / "bin" / exe_with_ext,
+                app_dir / "plugins" / "lsp" / "eclipse.jdtls" / "bin" / "jdtls.bat",
+                app_dir / "plugins" / "lsp" / "eclipse.jdtls" / "bin" / "jdtls.cmd",
+                app_dir / "plugins" / "lsp" / "redhat.java" / "bin" / "jdtls.bat",
+                app_dir / "plugins" / "lsp" / "redhat.java" / "bin" / "jdtls.cmd",
+                app_dir / "plugins" / "lsp" / "jdtls" / "bin" / "jdtls.bat",
+                app_dir / "plugins" / "lsp" / "jdtls" / "bin" / "jdtls.cmd",
                 app_dir / "plugins" / exe_with_ext,
                 app_dir / "bin" / exe_with_ext,
                 app_dir / exe_with_ext,
@@ -333,6 +345,12 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                     check_dir / "plugins" / "lsp" / exe_with_ext,
                     check_dir / "plugins" / "lsp" / cur_name / exe_with_ext,
                     check_dir / "plugins" / "lsp" / cur_name / "bin" / exe_with_ext,
+                    check_dir / "plugins" / "lsp" / "eclipse.jdtls" / "bin" / "jdtls.bat",
+                    check_dir / "plugins" / "lsp" / "eclipse.jdtls" / "bin" / "jdtls.cmd",
+                    check_dir / "plugins" / "lsp" / "redhat.java" / "bin" / "jdtls.bat",
+                    check_dir / "plugins" / "lsp" / "redhat.java" / "bin" / "jdtls.cmd",
+                    check_dir / "plugins" / "lsp" / "jdtls" / "bin" / "jdtls.bat",
+                    check_dir / "plugins" / "lsp" / "jdtls" / "bin" / "jdtls.cmd",
                     check_dir / "plugins" / "tools" / cur_name / exe_with_ext,
                     check_dir / "plugins" / "tools" / cur_name / "bin" / exe_with_ext,
                     check_dir / "plugins" / "lsp" / "shader-ls" / "win" / exe_with_ext,
@@ -384,6 +402,11 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                                 }
                                 if ((cur_name.starts_with("shader") || cur_name == "shader-language-server" || cur_name == "shader-ls") &&
                                     (filename == "shader-language-server.exe" || filename == "shader-language-server"))
+                                {
+                                    return cache_and_return(entry.path());
+                                }
+                                if ((cur_name.starts_with("jdtls") || cur_name.starts_with("jdt") || cur_name.starts_with("eclipse-jdtls") || cur_name == "eclipse.jdtls" || cur_name == "redhat.java" || exe_str == "jdtls" || exe_str == "eclipse.jdtls" || exe_str == "redhat.java") &&
+                                    (filename == "jdtls.bat" || filename == "jdtls.cmd" || filename == "jdtls.exe" || filename == "jdtls"))
                                 {
                                     return cache_and_return(entry.path());
                                 }
@@ -458,6 +481,12 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                 base / "plugins" / "lsp" / exe_with_ext,
                 base / "plugins" / "lsp" / cur_name / exe_with_ext,
                 base / "plugins" / "lsp" / cur_name / "bin" / exe_with_ext,
+                base / "plugins" / "lsp" / "eclipse.jdtls" / "bin" / "jdtls.bat",
+                base / "plugins" / "lsp" / "eclipse.jdtls" / "bin" / "jdtls.cmd",
+                base / "plugins" / "lsp" / "redhat.java" / "bin" / "jdtls.bat",
+                base / "plugins" / "lsp" / "redhat.java" / "bin" / "jdtls.cmd",
+                base / "plugins" / "lsp" / "jdtls" / "bin" / "jdtls.bat",
+                base / "plugins" / "lsp" / "jdtls" / "bin" / "jdtls.cmd",
                 base / "plugins" / "tools" / cur_name / exe_with_ext,
                 base / "plugins" / "tools" / cur_name / "bin" / exe_with_ext,
                 base / "plugins" / exe_with_ext,
@@ -551,18 +580,37 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
         {
             const std::filesystem::path up(user_profile_w);
             const std::filesystem::path user_candidates[] = {
-                // Scoop LLVM / clangd / cmake-ls
+                // Scoop LLVM / clangd / cmake-ls / jdtls
                 up / "scoop" / "apps" / "llvm" / "current" / "bin" / exe_with_ext,
                 up / "scoop" / "apps" / cur_name / "current" / "bin" / exe_with_ext,
+                up / "scoop" / "apps" / "jdtls" / "current" / "bin" / "jdtls.bat",
+                up / "scoop" / "apps" / "jdtls" / "current" / "bin" / exe_with_ext,
                 up / "scoop" / "shims" / exe_with_ext,
+                up / "scoop" / "shims" / (cur_name + ".cmd"),
+                up / "scoop" / "shims" / (cur_name + ".bat"),
+                up / "scoop" / "shims" / "jdtls.cmd",
+                up / "scoop" / "shims" / "jdtls.bat",
+                up / "scoop" / "shims" / "jdtls.exe",
                 // WinGet Links / Packages
                 up / "AppData" / "Local" / "Microsoft" / "WinGet" / "Links" / exe_with_ext,
+                up / "AppData" / "Local" / "Microsoft" / "WinGet" / "Links" / "jdtls.bat",
+                up / "AppData" / "Local" / "Microsoft" / "WinGet" / "Links" / "jdtls.cmd",
                 // NuGet package fallbacks
                 up / ".nuget" / "packages" / cur_name / exe_with_ext,
                 // Cargo / Rust bin
                 up / ".cargo" / "bin" / exe_with_ext,
                 // Go bin
                 up / "go" / "bin" / exe_with_ext,
+                // Eclipse / jdtls standard user locations
+                up / ".jdtls" / "bin" / "jdtls.bat",
+                up / ".jdtls" / "bin" / "jdtls.cmd",
+                up / ".jdtls" / "bin" / exe_with_ext,
+                up / "Documents" / "jdtls" / "bin" / "jdtls.bat",
+                up / "Documents" / "jdtls" / "bin" / "jdtls.cmd",
+                up / "Documents" / "jdtls-win32" / "bin" / "jdtls.bat",
+                up / "Documents" / "jdtls-win32" / "bin" / "jdtls.cmd",
+                up / "Downloads" / "jdtls" / "bin" / "jdtls.bat",
+                up / "Downloads" / "jdtls" / "bin" / "jdtls.cmd",
             };
 
             for (const auto& candidate : user_candidates)
@@ -571,6 +619,36 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                 if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
                 {
                     return cache_and_return(candidate);
+                }
+            }
+
+            // Auto-unpack jdtls-win32.zip from Documents/Downloads if available
+            if (exe_str == "jdtls" || exe_str == "eclipse.jdtls" || exe_str == "redhat.java")
+            {
+                std::error_code ec_zip;
+                const std::filesystem::path zip_candidates[] = {
+                    up / "Documents" / "jdtls-win32.zip",
+                    up / "Downloads" / "jdtls-win32.zip"
+                };
+                for (const auto& zcand : zip_candidates)
+                {
+                    if (std::filesystem::exists(zcand, ec_zip))
+                    {
+                        const auto dest = up / ".jdtls";
+                        std::filesystem::create_directories(dest, ec_zip);
+                        const std::string unpack_cmd = "tar -xf \"" + zcand.string() + "\" -C \"" + dest.string() + "\"";
+                        std::system(unpack_cmd.c_str());
+                        const auto bat_path = dest / "bin" / "jdtls.bat";
+                        const auto cmd_path = dest / "bin" / "jdtls.cmd";
+                        std::ofstream b_out(bat_path);
+                        if (b_out.is_open()) b_out << "@echo off\npython \"%~dp0jdtls\" %*\n";
+                        std::ofstream c_out(cmd_path);
+                        if (c_out.is_open()) c_out << "@echo off\npython \"%~dp0jdtls\" %*\n";
+                        if (std::filesystem::exists(bat_path, ec_zip))
+                        {
+                            return cache_and_return(bat_path);
+                        }
+                    }
                 }
             }
         }
@@ -636,8 +714,14 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
             return cache_and_return(std::filesystem::path(resolved.data()));
         }
 
-        // 4. Fourth Priority: Program Files LLVM / CMake, and dynamic Visual Studio installation scanning
+        // 4. Fourth Priority: Program Files LLVM / CMake / Eclipse, and dynamic Visual Studio installation scanning
         const std::filesystem::path standard_program_files[] = {
+            std::filesystem::path("C:/Program Files/Eclipse/jdtls/bin") / "jdtls.bat",
+            std::filesystem::path("C:/Program Files/Eclipse/jdtls/bin") / exe_with_ext,
+            std::filesystem::path("C:/Program Files/jdtls/bin") / "jdtls.bat",
+            std::filesystem::path("C:/Program Files/jdtls/bin") / exe_with_ext,
+            std::filesystem::path("C:/jdtls/bin") / "jdtls.bat",
+            std::filesystem::path("C:/jdtls/bin") / exe_with_ext,
             std::filesystem::path("C:/Program Files/LLVM/bin") / exe_with_ext,
             std::filesystem::path("C:/Program Files (x86)/LLVM/bin") / exe_with_ext,
             std::filesystem::path("C:/LLVM/bin") / exe_with_ext,
@@ -752,6 +836,7 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
         const std::filesystem::path unix_system_candidates[] = {
             // Homebrew macOS (Apple Silicon M1/M2/M3/M4)
             std::filesystem::path("/opt/homebrew/bin") / cur_name,
+            std::filesystem::path("/opt/homebrew/opt/jdtls/bin") / cur_name,
             std::filesystem::path("/opt/homebrew/opt/llvm/bin") / cur_name,
             std::filesystem::path("/opt/homebrew/opt/llvm@19/bin") / cur_name,
             std::filesystem::path("/opt/homebrew/opt/llvm@18/bin") / cur_name,
@@ -1040,15 +1125,18 @@ std::optional<ServerProfile> ServerRegistry::create_standard_profile_for(std::st
         return p;
     }
 
-    // 14. Java
-    if (key == "java")
+    // 14. Java (jdtls / Eclipse JDT Language Server)
+    if (key == "java" || key == "jdtls" || key == "eclipse.jdtls" || key == "redhat.java" ||
+        key == "eclipse.jdt.ls" || key == "vscode-java" ||
+        key.find("jdtls") != std::string::npos || key.find("jdt") != std::string::npos ||
+        (key.find("java") != std::string::npos && key.find("javascript") == std::string::npos))
     {
         ServerProfile p;
         p.language_id = "java";
-        p.extensions = {".java"};
+        p.extensions = {".java", ".jav"};
         p.executable_name = "jdtls";
         p.default_args = {};
-        p.root_markers = {"pom.xml", "build.gradle", ".git"};
+        p.root_markers = {"pom.xml", "build.gradle", "settings.gradle", ".git"};
         return p;
     }
 

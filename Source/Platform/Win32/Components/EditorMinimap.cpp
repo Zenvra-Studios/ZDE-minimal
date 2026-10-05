@@ -213,6 +213,8 @@ void EditorMinimap::render(const StudioWorkspaceRenderer &surface,
     return base;
   };
 
+  const bool has_any_diags = document.has_diagnostics();
+
   for (std::size_t line_index = start_line; line_index < end_line;
        ++line_index) {
     const std::string_view line = document.get_line(line_index);
@@ -225,7 +227,9 @@ void EditorMinimap::render(const StudioWorkspaceRenderer &surface,
     }
 
     const bool is_line_inactive = document.is_line_inactive(line_index);
-    const auto line_diags = document.get_diagnostics_for_line(line_index);
+    const auto line_diags = has_any_diags
+                                ? document.get_diagnostics_for_line(line_index)
+                                : std::vector<Language::Protocol::Diagnostic>{};
     auto is_token_unused = [&](std::size_t tok_start, std::size_t tok_len) -> bool {
       if (is_line_inactive) return true;
       const std::size_t tok_end = tok_start + tok_len;

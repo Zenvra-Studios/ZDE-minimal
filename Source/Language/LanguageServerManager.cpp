@@ -1820,6 +1820,109 @@ std::vector<Protocol::CompletionItem> get_shader_templates(std::string_view ext)
   return items;
 }
 
+static std::vector<Protocol::CompletionItem> get_java_templates() {
+  std::vector<Protocol::CompletionItem> items;
+  items.reserve(16);
+
+  items.push_back(Protocol::CompletionItem{
+      .label = "main",
+      .kind = Protocol::CompletionItemKind::Snippet,
+      .detail = "(Template) public static void main(String[] args)",
+      .documentation = "Standard Java main method entrypoint.",
+      .insert_text = "public static void main(String[] args) {\n    $0\n}",
+      .filter_text = "main"});
+
+  items.push_back(Protocol::CompletionItem{
+      .label = "psvm",
+      .kind = Protocol::CompletionItemKind::Snippet,
+      .detail = "(Template) public static void main(String[] args)",
+      .documentation = "Shortcut for Java main method entrypoint.",
+      .insert_text = "public static void main(String[] args) {\n    $0\n}",
+      .filter_text = "psvm"});
+
+  items.push_back(Protocol::CompletionItem{
+      .label = "sout",
+      .kind = Protocol::CompletionItemKind::Snippet,
+      .detail = "(Template) System.out.println(...)",
+      .documentation = "Prints to standard output with a newline.",
+      .insert_text = "System.out.println($0);",
+      .filter_text = "sout"});
+
+  items.push_back(Protocol::CompletionItem{
+      .label = "serr",
+      .kind = Protocol::CompletionItemKind::Snippet,
+      .detail = "(Template) System.err.println(...)",
+      .documentation = "Prints to standard error with a newline.",
+      .insert_text = "System.err.println($0);",
+      .filter_text = "serr"});
+
+  items.push_back(Protocol::CompletionItem{
+      .label = "class",
+      .kind = Protocol::CompletionItemKind::Class,
+      .detail = "(Template) public class Name { ... }",
+      .documentation = "Generates a public Java class declaration.",
+      .insert_text = "public class ${1:ClassName} {\n    $0\n}",
+      .filter_text = "class"});
+
+  items.push_back(Protocol::CompletionItem{
+      .label = "interface",
+      .kind = Protocol::CompletionItemKind::Interface,
+      .detail = "(Template) public interface Name { ... }",
+      .documentation = "Generates a public Java interface declaration.",
+      .insert_text = "public interface ${1:InterfaceName} {\n    $0\n}",
+      .filter_text = "interface"});
+
+  items.push_back(Protocol::CompletionItem{
+      .label = "record",
+      .kind = Protocol::CompletionItemKind::Class,
+      .detail = "(Template) public record Name(...) { }",
+      .documentation = "Generates a Java record declaration.",
+      .insert_text = "public record ${1:RecordName}(${2:/*components*/}) {\n    $0\n}",
+      .filter_text = "record"});
+
+  items.push_back(Protocol::CompletionItem{
+      .label = "fori",
+      .kind = Protocol::CompletionItemKind::Snippet,
+      .detail = "(Template) for (int i = 0; i < max; i++)",
+      .documentation = "Standard indexed for loop in Java.",
+      .insert_text = "for (int ${1:i} = 0; ${1:i} < ${2:max}; ${1:i}++) {\n    $0\n}",
+      .filter_text = "fori"});
+
+  items.push_back(Protocol::CompletionItem{
+      .label = "foreach",
+      .kind = Protocol::CompletionItemKind::Snippet,
+      .detail = "(Template) for (Type item : collection)",
+      .documentation = "Enhanced for-each loop in Java.",
+      .insert_text = "for (${1:var} ${2:item} : ${3:collection}) {\n    $0\n}",
+      .filter_text = "foreach"});
+
+  items.push_back(Protocol::CompletionItem{
+      .label = "trycatch",
+      .kind = Protocol::CompletionItemKind::Snippet,
+      .detail = "(Template) try { ... } catch (Exception e) { ... }",
+      .documentation = "Java try-catch error handling block.",
+      .insert_text = "try {\n    $1\n} catch (Exception ${2:e}) {\n    ${2:e}.printStackTrace();\n}",
+      .filter_text = "trycatch"});
+
+  items.push_back(Protocol::CompletionItem{
+      .label = "trywith",
+      .kind = Protocol::CompletionItemKind::Snippet,
+      .detail = "(Template) try (Resource res = ...) { ... }",
+      .documentation = "Java try-with-resources statement.",
+      .insert_text = "try (${1:AutoCloseable} ${2:res} = ${3:init}) {\n    $0\n}",
+      .filter_text = "trywith"});
+
+  items.push_back(Protocol::CompletionItem{
+      .label = "constructor",
+      .kind = Protocol::CompletionItemKind::Constructor,
+      .detail = "(Template) public ClassName(...) { ... }",
+      .documentation = "Public class constructor.",
+      .insert_text = "public ${1:ClassName}(${2:/*args*/}) {\n    $0\n}",
+      .filter_text = "constructor"});
+
+  return items;
+}
+
 } // namespace
 
 std::vector<Protocol::CompletionItem>
@@ -1831,6 +1934,9 @@ LanguageServerManager::get_templates_for_filename(std::string_view filename) {
   if (fname == "CMakeLists.txt" || fname == "cmakelists.txt" ||
       ext == ".cmake") {
     return CMake::CMakeLanguageDatabase::instance().get_all_completions();
+  }
+  if (ext == ".java" || ext == ".jav") {
+    return get_java_templates();
   }
   if (ext == ".cpp" || ext == ".cc" || ext == ".cxx" || ext == ".h" ||
       ext == ".hpp" || ext == ".hxx" || ext == ".c" || ext == ".inl") {
@@ -2113,7 +2219,8 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
          ext != ".tsx" && ext != ".mjs" && ext != ".cjs" && ext != ".mts" &&
          ext != ".cts" && ext != ".cmake" && ext != ".html" && ext != ".htm" &&
          ext != ".xhtml" && ext != ".css" && ext != ".json" && ext != ".asm" &&
-         ext != ".s" && ext != ".S" && ext != ".nasm" && ext != ".inc")) {
+         ext != ".s" && ext != ".S" && ext != ".nasm" && ext != ".inc" &&
+         ext != ".java" && ext != ".jav")) {
       return nullptr;
     }
   }
@@ -2128,8 +2235,21 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
   if (auto it = m_clients.find(profile->language_id); it != m_clients.end()) {
     return it->second.get();
   }
+  // If custom_executable_path is set and exists, allow retry even if previously marked unavailable
+  if (!profile->custom_executable_path.empty()) {
+    std::error_code ec;
+    if (std::filesystem::exists(profile->custom_executable_path, ec)) {
+      m_unavailable_languages.erase(profile->language_id);
+    }
+  }
+
   if (m_unavailable_languages.contains(profile->language_id)) {
-    return nullptr;
+    auto quick_check = Registry::ServerRegistry::instance().find_executable_in_system(profile->executable_name);
+    if (!quick_check.empty()) {
+      m_unavailable_languages.erase(profile->language_id);
+    } else {
+      return nullptr;
+    }
   }
 
   // Locate the language server executable (e.g. clangd.exe, rust-analyzer.exe, etc.)
@@ -2370,6 +2490,21 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
     init_opts["showAbbreviationSuggestions"] = true;
     init_opts["showSuggestionsAsSnippets"] = true;
     client->set_initialization_options(std::move(init_opts));
+  } else if (profile->language_id == "java" ||
+             profile->executable_name == "jdtls") {
+    nlohmann::json init_opts = nlohmann::json::object();
+    nlohmann::json settings = nlohmann::json::object();
+    settings["java"] = {
+        {"autobuild", {{"enabled", true}}},
+        {"completion", {
+            {"enabled", true},
+            {"guessMethodArguments", true}
+        }},
+        {"signatureHelp", {{"enabled", true}}},
+        {"hover", {{"enabled", true}}}
+    };
+    init_opts["settings"] = settings;
+    client->set_initialization_options(std::move(init_opts));
   }
 
   client->set_diagnostics_handler(
@@ -2421,6 +2556,8 @@ determine_lsp_language_id(std::string_view filename,
     return "html";
   if (ext == ".go" || ext == ".mod" || ext == ".work")
     return "go";
+  if (ext == ".java" || ext == ".jav")
+    return "java";
   return default_lang_id;
 }
 
@@ -2831,6 +2968,16 @@ void LanguageServerManager::stop_client_for_language(std::string_view language_i
     const auto *p = Registry::ServerRegistry::instance().find_profile_for_filename(item.first);
     return p != nullptr && p->language_id == lang;
   });
+}
+
+void LanguageServerManager::clear_unavailable_language(std::string_view language_id) {
+  std::lock_guard<std::mutex> lock(m_clients_mutex);
+  m_unavailable_languages.erase(std::string(language_id));
+}
+
+void LanguageServerManager::clear_all_unavailable_languages() {
+  std::lock_guard<std::mutex> lock(m_clients_mutex);
+  m_unavailable_languages.clear();
 }
 
 bool LanguageServerManager::is_language_supported(std::string_view language_id) const {

@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+
 #include <chrono>
 #include <thread>
 #if defined(_WIN32)
@@ -433,6 +434,22 @@ TEST(TerminalDirectoryTests, TerminalPanelShutdownClosesSessions)
     EXPECT_FALSE(model.is_visible());
     EXPECT_EQ(model.get_sessions().size(), 0U);
     EXPECT_FALSE(model.is_focused());
+}
+
+TEST(TerminalUnlimitedSessionsTests, CanCreateMoreThanEightSessions)
+{
+    TerminalPanelModel model;
+    const auto home = Zenvra::Platform::HostSystem::get_user_home_directory();
+
+    // Create 10 sessions (previously capped at 8)
+    for (std::size_t i = 0; i < 10; ++i) {
+        EXPECT_TRUE(model.create_session(home));
+    }
+    EXPECT_EQ(model.get_sessions().size(), 10U);
+    EXPECT_EQ(model.get_active_index().value_or(0), 9U);
+
+    model.shutdown();
+    EXPECT_EQ(model.get_sessions().size(), 0U);
 }
 
 TEST(InteractiveControlsTests, ChromeLayoutButtonsAndModeButtonHitTest)

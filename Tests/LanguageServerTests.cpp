@@ -193,6 +193,28 @@ TEST(LanguageServerTests, ServerRegistryProfileLookup) {
   ASSERT_NE(jsx_prof, nullptr);
   EXPECT_EQ(jsx_prof->language_id, "typescript");
   EXPECT_EQ(jsx_prof->executable_name, "typescript-language-server");
+
+  const auto *java_prof = registry.find_profile_for_extension(".java");
+  ASSERT_NE(java_prof, nullptr);
+  EXPECT_EQ(java_prof->language_id, "java");
+  EXPECT_EQ(java_prof->executable_name, "jdtls");
+}
+
+TEST(LanguageServerTests, JavaSnippetsAndTemplateCompletions) {
+  auto templates = Language::LanguageServerManager::get_templates_for_filename("Application.java");
+  ASSERT_FALSE(templates.empty());
+
+  bool found_main = false;
+  bool found_sout = false;
+  bool found_class = false;
+  for (const auto& item : templates) {
+    if (item.label == "main") found_main = true;
+    if (item.label == "sout") found_sout = true;
+    if (item.label == "class") found_class = true;
+  }
+  EXPECT_TRUE(found_main);
+  EXPECT_TRUE(found_sout);
+  EXPECT_TRUE(found_class);
 }
 
 TEST(LanguageServerTests, SystemOrPluginBinaryClangdDiscovery) {
@@ -217,6 +239,14 @@ TEST(LanguageServerTests, PluginBinaryDiscoveryInPluginsDirectory) {
   EXPECT_FALSE(tls_path.empty());
   EXPECT_TRUE(tls_path.string().find("typescript-language-server") != std::string::npos);
   std::filesystem::remove(dummy_exe, ec);
+}
+
+TEST(LanguageServerTests, SystemOrPluginBinaryJdtlsDiscovery) {
+  auto &registry = Language::Registry::ServerRegistry::instance();
+  registry.clear_cache();
+  const auto jdtls_path = registry.find_executable_in_system("jdtls");
+  ASSERT_FALSE(jdtls_path.empty());
+  EXPECT_TRUE(jdtls_path.string().find("jdtls") != std::string::npos);
 }
 
 TEST(LanguageServerTests, ProjectSwitchingAndLspLifecycle) {
@@ -1590,6 +1620,38 @@ TEST(LanguageServerTests, LargeDocumentFoldingAndNavigationPerformance5M) {
   EXPECT_TRUE(scope.valid);
   EXPECT_EQ(scope.start_line, 5196800u);
   EXPECT_EQ(scope.end_line, 5196820u);
+}
+
+TEST(LanguageServerTests, LargeDocumentDiagnosticsPerformance10k) {
+  UI::Editor::TextDocumentModel doc;
+  std::vector<std::string> lines(15000, "    int x = 42;");
+  doc.replace_contents(lines, "spectrax_editor_view_mac.mm", {}, "LF");
+
+  EXPECT_EQ(doc.get_line_count(), 15000u);
+  EXPECT_FALSE(doc.has_diagnostics());
+  EXPECT_TRUE(doc.get_diagnostics().empty());
+  EXPECT_TRUE(doc.get_diagnostics_for_line(5000).empty());
+
+  // Test get_lines_text on 15k lines (preallocated buffer)
+  const std::string text = doc.get_lines_text(0, 15000);
+  EXPECT_FALSE(text.empty());
+
+  // Add diagnostics and verify has_diagnostics
+  Language::Protocol::Diagnostic d;
+  d.range.start.line = 1000;
+  d.range.end.line = 1000;
+  d.severity = Language::Protocol::DiagnosticSeverity::Error;
+  doc.set_diagnostics({d});
+
+  EXPECT_TRUE(doc.has_diagnostics());
+  EXPECT_EQ(doc.get_diagnostics().size(), 1u);
+  EXPECT_EQ(doc.get_diagnostics_for_line(1000).size(), 1u);
+  EXPECT_TRUE(doc.get_diagnostics_for_line(1001).empty());
+
+  // Verify windowed folding works on 15k line document (threshold > 5000)
+  Zenvra::UI::Components::EditorFoldingModel folding;
+  folding.rebuild(doc.get_lines(), 4, 1000, 2500);
+  EXPECT_EQ(folding.get_window_offset(), 0u);
 }
 
 TEST(LanguageServerTests, CurlyBraceFoldingBasicAndNested) {

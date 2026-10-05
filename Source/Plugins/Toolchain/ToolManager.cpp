@@ -246,6 +246,24 @@ std::optional<std::filesystem::path> ToolManager::find_in_system(std::string_vie
         standard_candidates.push_back("/opt/homebrew/bin/ninja");
 #endif
     }
+    else if (executable_name == "jdtls")
+    {
+#if defined(_WIN32)
+        standard_candidates.push_back(home / "scoop" / "apps" / "jdtls" / "current" / "bin" / "jdtls.bat");
+        standard_candidates.push_back(home / "scoop" / "shims" / "jdtls.cmd");
+        standard_candidates.push_back(home / "scoop" / "shims" / "jdtls.bat");
+        standard_candidates.push_back(home / "scoop" / "shims" / "jdtls.exe");
+        standard_candidates.push_back(home / ".jdtls" / "bin" / "jdtls.bat");
+        standard_candidates.push_back("C:\\Program Files\\Eclipse\\jdtls\\bin\\jdtls.bat");
+        standard_candidates.push_back("C:\\Program Files\\jdtls\\bin\\jdtls.bat");
+        standard_candidates.push_back("C:\\jdtls\\bin\\jdtls.bat");
+#else
+        standard_candidates.push_back("/usr/bin/jdtls");
+        standard_candidates.push_back("/usr/local/bin/jdtls");
+        standard_candidates.push_back("/opt/homebrew/bin/jdtls");
+        standard_candidates.push_back(home / ".local" / "bin" / "jdtls");
+#endif
+    }
 
     for (const auto& cand : standard_candidates)
     {
@@ -362,7 +380,8 @@ void ToolManager::scan_and_register_known_tools(const std::filesystem::path& wor
         "ninja",
         "cmake",
         "gopls",
-        "pyright"
+        "pyright",
+        "jdtls"
     };
 
     for (const auto& tid : known_tools)

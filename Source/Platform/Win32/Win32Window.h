@@ -12,6 +12,7 @@
 #include <windows.h>
 
 #include <array>
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -122,6 +123,8 @@ private:
   void show_explorer_context_menu(const std::filesystem::path &target_path,
                                   int client_x, int client_y);
   void show_editor_context_menu(int client_x, int client_y);
+  void show_activity_bar_context_menu(int client_x, int client_y);
+  void open_context_submenu(std::size_t item_index);
   void close_explorer_context_menu();
   void draw_explorer_context_menu(HDC device_context) const;
   void execute_explorer_context_menu_item(std::size_t item_index);
@@ -138,6 +141,18 @@ private:
     bool separator = false;
     uint32_t command_id = 0;
     std::string command_str;
+    bool checked = false;
+    std::function<void()> action = nullptr;
+    std::vector<ExplorerContextMenuItem> sub_items{};
+
+    ExplorerContextMenuItem() = default;
+    ExplorerContextMenuItem(std::string l, std::string s = "", bool sep = false,
+                            uint32_t cid = 0, std::string cstr = "", bool chk = false,
+                            std::function<void()> act = nullptr,
+                            std::vector<ExplorerContextMenuItem> subs = {})
+        : label(std::move(l)), shortcut(std::move(s)), separator(sep),
+          command_id(cid), command_str(std::move(cstr)), checked(chk),
+          action(std::move(act)), sub_items(std::move(subs)) {}
   };
 
   struct ExplorerContextMenuState {
@@ -147,6 +162,11 @@ private:
     std::optional<std::size_t> hovered_index;
     UI::Rect bounds{};
     std::vector<UI::Rect> item_bounds;
+
+    std::optional<std::size_t> active_submenu_index;
+    UI::Rect submenu_bounds{};
+    std::vector<UI::Rect> submenu_item_bounds;
+    std::optional<std::size_t> hovered_sub_index;
   };
 
   HWND m_window_handle = nullptr;

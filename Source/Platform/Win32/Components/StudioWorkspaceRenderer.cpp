@@ -412,6 +412,8 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
             InvalidateRect(m_window_handle, nullptr, FALSE);
         } else if (event.id == "editor.minimap.enabled" ||
                    event.id == "workbench.activityBar.visible" ||
+                   event.id == "workbench.activityBar.location" ||
+                   event.id == "workbench.sidebar.position" ||
                    event.id == "theme.current" ||
                    event.id == "workbench.mascot.image" ||
                    event.id == "workbench.mascot.renderMode" ||
@@ -476,13 +478,33 @@ StudioWorkspaceRenderer::calculate_layout(int client_width, int client_height,
       m_file_buffer_bounds.has_value()
           ? std::optional<float>(m_file_buffer_bounds->width)
           : std::nullopt;
+  auto &settings = Settings::SettingsService::instance();
+  std::string activity_bar_loc = "Default";
+  if (settings.has("workbench.activityBar.location")) {
+    activity_bar_loc = settings.get<std::string>("workbench.activityBar.location");
+  }
+  bool activity_bar_visible = true;
+  if (settings.has("workbench.activityBar.visible")) {
+    activity_bar_visible = settings.get<bool>("workbench.activityBar.visible");
+  }
+  if (!activity_bar_visible || activity_bar_loc == "Hidden") {
+    activity_bar_loc = "Hidden";
+  }
+
+  bool sidebar_on_right = false;
+  if (settings.has("workbench.sidebar.position")) {
+    const std::string sidebar_pos = settings.get<std::string>("workbench.sidebar.position");
+    sidebar_on_right = (sidebar_pos == "Right" || sidebar_pos == "right");
+  }
+
   auto result = m_layout_engine.calculate(
       static_cast<float>(client_width), static_cast<float>(client_height),
       content_top, m_dpi_scale, m_terminal_panel.is_visible(),
       m_terminal_panel.get_height(), m_terminal_panel.is_maximized(),
       m_tool_sidebar.is_visible(), m_tool_sidebar.get_width(),
       m_shader_sandbox_panel.is_visible(), m_shader_sandbox_panel.get_width(),
-      custom_nav, line_count, custom_tab_w);
+      custom_nav, line_count, custom_tab_w,
+      activity_bar_loc, sidebar_on_right);
   if (m_file_buffer_bounds.has_value() && !m_file_buffer_bounds->is_empty()) {
     result.tab_bar_bounds.x = m_file_buffer_bounds->x;
     result.tab_bar_bounds.width = m_file_buffer_bounds->width;
@@ -949,6 +971,10 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(HDC device_context,
   if (m_terminal_panel.is_resizing()) {
     return m_terminal_panel.handle_pointer_drag(layout, point_y);
   }
+  if (m_terminal_panel.is_dragging_tab_scrollbar() ||
+      m_terminal_panel.is_selecting_text()) {
+    return m_terminal_panel.handle_pointer_drag(layout, point_x, point_y);
+  }
   if (m_shader_sandbox_panel.is_resizing()) {
     return m_shader_sandbox_panel.handle_pointer_drag(layout, point_x, point_y);
   }
@@ -1261,6 +1287,14 @@ bool StudioWorkspaceRenderer::is_activity_bar_point(
   return UI::Editor::hit_test_studio_sidebar(layout, point_x, point_y).has_value();
 }
 
+bool StudioWorkspaceRenderer::is_activity_bar_area(
+    float point_x, float point_y, int client_width, int client_height,
+    float content_top) const noexcept {
+  const UI::Editor::StudioEditorLayoutResult layout =
+      calculate_layout(client_width, client_height, content_top);
+  return layout.activity_bar_bounds.contains(point_x, point_y);
+}
+
 bool StudioWorkspaceRenderer::is_tab_bar_point(
     float point_x, float point_y, int client_width, int client_height,
     float content_top) const noexcept {
@@ -1359,6 +1393,15 @@ bool StudioWorkspaceRenderer::is_terminal_point(
       calculate_layout(client_width, client_height, content_top);
   return m_terminal_panel.is_visible() &&
          layout.terminal_content_bounds.contains(point_x, point_y);
+}
+
+bool StudioWorkspaceRenderer::is_terminal_panel_point(
+    float point_x, float point_y, int client_width, int client_height,
+    float content_top) const noexcept {
+  const UI::Editor::StudioEditorLayoutResult layout =
+      calculate_layout(client_width, client_height, content_top);
+  return m_terminal_panel.is_visible() &&
+         layout.terminal_panel_bounds.contains(point_x, point_y);
 }
 
 bool StudioWorkspaceRenderer::is_tool_sidebar_point(
@@ -1570,20 +1613,42 @@ StudioWorkspaceRenderer::get_modern_card_geometry(
 
   const bool has_sidebar =
       m_tool_sidebar.is_visible() && !layout.tool_sidebar_bounds.is_empty();
+  const bool sidebar_on_right =
+      has_sidebar && (layout.tool_sidebar_bounds.x > layout.editor_bounds.x);
   // In modern blurred style, the sidebar seamlessly floats on the blurred window
   // surface rather than being enclosed in an opaque solid card.
   geom.sidebar_card = UI::Rect{};
 
-  const float editor_col_left =
-      has_sidebar ? (layout.tool_sidebar_bounds.right() + sep_gap * 0.5F)
-                  : (layout.activity_bar_bounds.right() + outer_gap);
-
+  float editor_col_left = outer_gap;
+  float editor_col_right = layout.workspace_bounds.right() - outer_gap;
   const float shader_split_x =
       layout.shader_splitter_bounds.x + layout.shader_splitter_bounds.width * 0.5F;
-  const float editor_col_right =
-      layout.shader_panel_visible
-          ? (shader_split_x - sep_gap * 0.5F)
-          : (layout.workspace_bounds.right() - outer_gap);
+
+  if (sidebar_on_right) {
+    if (!layout.activity_bar_bounds.is_empty() &&
+        layout.activity_bar_bounds.width < 100.0F &&
+        layout.activity_bar_bounds.x < layout.editor_bounds.x) {
+      editor_col_left = layout.activity_bar_bounds.right() + outer_gap;
+    } else {
+      editor_col_left = outer_gap;
+    }
+    if (layout.shader_panel_visible) {
+      editor_col_right = shader_split_x - sep_gap * 0.5F;
+    } else {
+      editor_col_right = layout.tool_sidebar_bounds.x - sep_gap * 0.5F;
+    }
+  } else {
+    editor_col_left =
+        has_sidebar ? (layout.tool_sidebar_bounds.right() + sep_gap * 0.5F)
+                    : (!layout.activity_bar_bounds.is_empty() &&
+                               layout.activity_bar_bounds.width < 100.0F
+                           ? (layout.activity_bar_bounds.right() + outer_gap)
+                           : outer_gap);
+
+    editor_col_right = layout.shader_panel_visible
+                           ? (shader_split_x - sep_gap * 0.5F)
+                           : (layout.workspace_bounds.right() - outer_gap);
+  }
 
   const float editor_col_top = (layout.editor_header_bounds.is_empty()
                                     ? layout.gutter_bounds.y
@@ -1701,8 +1766,10 @@ void StudioWorkspaceRenderer::apply_solid_card_alpha(
     set_card_alpha_channel(pixels, client_width, client_height, geom.sidebar_card,
                            geom.card_radius);
   }
-  set_card_alpha_channel(pixels, client_width, client_height, geom.editor_card,
-                         geom.card_radius);
+  if (!geom.editor_card.is_empty()) {
+    set_card_alpha_channel(pixels, client_width, client_height, geom.editor_card,
+                           geom.card_radius);
+  }
   set_card_alpha_channel(pixels, client_width, client_height, geom.terminal_card,
                          geom.card_radius);
   set_card_alpha_channel(pixels, client_width, client_height, geom.shader_card,
@@ -1795,7 +1862,7 @@ void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
         layout.tab_bar_bounds.bottom() <= layout.activity_bar_bounds.y;
     if (tabs_are_in_titlebar) {
       m_text_editor.draw_tab_strip(*this, device_context, layout);
-    } else {
+    } else if (!is_modern_style) {
       fill_rectangle(device_context, layout.tab_bar_bounds,
                      m_palette.tab_background);
     }
@@ -1833,7 +1900,6 @@ void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
 
     // 4. Text Editor Card Wrapper
     if (!geom.editor_card.is_empty()) {
-      // Solid wrapper background with rounded corners for Text Editor
       fill_rounded_rectangle(device_context, geom.editor_card,
                              m_palette.editor_background, card_radius);
 

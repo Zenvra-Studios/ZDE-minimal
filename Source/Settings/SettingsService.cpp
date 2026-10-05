@@ -629,6 +629,23 @@ void SettingsService::register_default_settings()
     });
 
     m_schema.register_setting({
+        .id = "workbench.activityBar.location",
+        .title = "Activity Bar Location",
+        .description = "Controls the position of the activity bar. 'Default' places it on the side, 'Top' places it at the top of the sidebar, 'Bottom' at the bottom, and 'Hidden' hides it.",
+        .type = SettingType::Enum,
+        .defaultValue = "Default",
+        .category = "Workbench",
+        .subcategory = "Layout",
+        .tags = {"activity", "bar", "location", "position", "top", "bottom", "hidden"},
+        .enum_values = {
+            {"Default", "Default"},
+            {"Top", "Top"},
+            {"Bottom", "Bottom"},
+            {"Hidden", "Hidden"}
+        },
+    });
+
+    m_schema.register_setting({
         .id = "workbench.app.title",
         .title = "App Title",
         .description = "Controls the application title displayed on the empty welcome screen.",

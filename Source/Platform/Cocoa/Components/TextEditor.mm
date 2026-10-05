@@ -2594,7 +2594,7 @@ void TextEditor::render_pane(const StudioWorkspaceRenderer &surface,
 
   // Rebuild folding model windowed around visible line (instant on 5M+ line documents)
   const bool needs_window_shift =
-      (total_lines > 25000 &&
+      (total_lines > 5000 &&
        (first_line < folding.get_window_offset() ||
         first_line + visible_count >=
             folding.get_window_offset() + folding.get_window_size()));
