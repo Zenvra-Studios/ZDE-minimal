@@ -50,6 +50,10 @@ videos/
 *.avi
 *.mov
 
+# --- Runtime / bundled binaries ------------------------------------------
+/bin/
+/plugins/lsp/
+
 # --- Others ------------------------------------------------------------
 .idea
 .cache
