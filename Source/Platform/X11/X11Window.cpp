@@ -363,6 +363,11 @@ bool X11Window::initialize() {
   apply_theme(UI::Theme::ThemeManager::instance().get_current_theme());
 
   apply_window_icon();
+  auto &state = m_chrome_renderer.get_run_config_state();
+  if (state.active_target_name.empty()) {
+    state.active_target_name = "No Configuration";
+  }
+  UI::Components::set_dynamic_binary_targets({});
   refresh_chrome_layout();
   apply_size_hints();
   set_custom_chrome_enabled(m_specification.custom_chrome_enabled);
@@ -504,6 +509,8 @@ void X11Window::poll_events() {
             render();
           } else if (command->starts_with("zde.explorer.")) {
             execute_explorer_command(*command);
+          } else if (command->starts_with("zde.activitybar.")) {
+            execute_activity_bar_command(*command);
           } else if (*command == Commands::CommandIds::open_settings) {
             if (m_settings_dialog.is_open()) {
               m_settings_dialog.close();
@@ -773,6 +780,23 @@ bool X11Window::set_workspace_root(const std::filesystem::path& root) {
     Utility::MultiContextManager::instance().set_workspace_root(ctx->context_id, root);
   }
 
+  const auto detected_targets =
+      Tools::Classification::ProjectToolClassifier::detect_configurations(root);
+  auto &state = m_chrome_renderer.get_run_config_state();
+  if (!detected_targets.empty()) {
+    state.available_targets = detected_targets;
+    state.active_target_name = detected_targets.front().name;
+    state.active_classification = detected_targets.front().classification;
+    state.active_icon_asset = detected_targets.front().icon_asset;
+    UI::Components::set_dynamic_binary_targets(state.available_targets, "GCC");
+  } else {
+    state.available_targets.clear();
+    state.active_target_name = "No Configuration";
+    state.active_classification = UI::Toolbar::ToolClassification::CMake;
+    state.active_icon_asset = "Assets/icons/gear.svg";
+    UI::Components::set_dynamic_binary_targets({});
+  }
+
   std::error_code path_error;
   const std::filesystem::path canonical =
       std::filesystem::weakly_canonical(root, path_error);
@@ -793,6 +817,7 @@ bool X11Window::set_workspace_root(const std::filesystem::path& root) {
     }
     XSetIconName(m_display, m_window_handle, m_specification.title.c_str());
   }
+  refresh_chrome_layout();
   render();
   return true;
 }
@@ -940,6 +965,7 @@ void X11Window::initialize_cursors() {
   m_split_resize_cursor = XCreateFontCursor(m_display, XC_sb_v_double_arrow);
   m_horizontal_split_resize_cursor =
       XCreateFontCursor(m_display, XC_sb_h_double_arrow);
+  m_corner_resize_cursor = XCreateFontCursor(m_display, XC_fleur);
   m_move_resize_cursors[static_cast<std::size_t>(
       MoveResizeDirection::SizeTopLeft)] =
       XCreateFontCursor(m_display, XC_top_left_corner);
@@ -979,9 +1005,11 @@ void X11Window::release_native_resources() {
     XUngrabPointer(m_display, CurrentTime);
     m_manual_move_resize_direction.reset();
   }
-  if (m_chrome_renderer.is_terminal_resizing() ||
+  if (m_chrome_renderer.is_corner_resizing() ||
+      m_chrome_renderer.is_terminal_resizing() ||
       m_chrome_renderer.is_shader_panel_resizing() ||
-      m_chrome_renderer.is_sidebar_resizing()) {
+      m_chrome_renderer.is_sidebar_resizing() ||
+      m_chrome_renderer.is_editor_split_resizing()) {
     XUngrabPointer(m_display, CurrentTime);
     static_cast<void>(m_chrome_renderer.handle_workspace_pointer_release());
   }
@@ -997,6 +1025,10 @@ void X11Window::release_native_resources() {
       XFreeCursor(m_display, cursor);
       cursor = None;
     }
+  }
+  if (m_corner_resize_cursor != None) {
+    XFreeCursor(m_display, m_corner_resize_cursor);
+    m_corner_resize_cursor = None;
   }
   if (m_default_cursor != None) {
     XFreeCursor(m_display, m_default_cursor);
@@ -1150,7 +1182,7 @@ void X11Window::apply_size_hints() const {
 void X11Window::refresh_chrome_layout() {
   const auto root = get_workspace_root();
   const auto *active_doc =
-      m_workspace_renderer.get_text_editor().get_document();
+      m_chrome_renderer.get_text_editor().get_document();
   std::filesystem::path active_file;
   if (active_doc != nullptr) {
     active_file = active_doc->get_file_name();
@@ -1167,10 +1199,13 @@ void X11Window::refresh_chrome_layout() {
       UI::Chrome::WindowChromeLayoutOptions{
           .show_window_controls = m_custom_chrome_enabled,
           .hamburger_only = true,
+          .binary_label =
+              m_chrome_renderer.get_run_config_state().active_target_name.empty()
+                  ? "No Configuration"
+                  : m_chrome_renderer.get_run_config_state().active_target_name,
           .show_build_tools = !is_web_interpreter,
-          .binary_label = m_chrome_renderer.get_run_config_state().active_target_name,
       });
-  m_workspace_renderer.set_file_buffer_bounds(m_chrome_layout.file_buffer_bounds);
+  m_chrome_renderer.get_workspace_renderer().set_file_buffer_bounds(m_chrome_layout.file_buffer_bounds);
 }
 
 void X11Window::refresh_window_state() {
@@ -1782,14 +1817,27 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
     const float point_y = static_cast<float>(event.y);
     const float content_top = m_chrome_layout.titlebar_bounds.bottom();
 
+    // Trigger context menu when right-clicking anywhere in the Activity Bar region
+    if (m_chrome_renderer.is_activity_bar_area(
+            point_x, point_y, m_client_width, m_client_height, content_top)) {
+      show_activity_bar_context_menu(event.x, event.y);
+      return;
+    }
+
+    // Handle right-clicking within the Tool Sidebar region
     if (m_chrome_renderer.is_tool_sidebar_point(
             point_x, point_y, m_client_width, m_client_height, content_top)) {
       const auto opt_target = m_chrome_renderer.handle_right_click(
           point_x, point_y, m_client_width, m_client_height, content_top);
-      if (opt_target) {
+      if (opt_target && !opt_target->empty()) {
+        // Right-clicking a valid file or folder item opens the Explorer context menu
         show_explorer_context_menu(*opt_target, event.x, event.y);
-        return;
+      } else {
+        // Right-clicking empty sidebar space, header, or when no project is open
+        // opens the Activity Bar / Sidebar configuration context menu
+        show_activity_bar_context_menu(event.x, event.y);
       }
+      return;
     }
 
     const bool over_editor =
@@ -2120,12 +2168,17 @@ void X11Window::handle_button_press(const XButtonEvent &event) {
         m_command_invoked_callback(command_out);
       }
     }
-    if (m_chrome_renderer.is_terminal_resizing()) {
+    if (m_chrome_renderer.is_corner_resizing()) {
+      XGrabPointer(m_display, m_window_handle, False,
+                   ButtonReleaseMask | PointerMotionMask, GrabModeAsync,
+                   GrabModeAsync, None, m_corner_resize_cursor, event.time);
+    } else if (m_chrome_renderer.is_terminal_resizing()) {
       XGrabPointer(m_display, m_window_handle, False,
                    ButtonReleaseMask | PointerMotionMask, GrabModeAsync,
                    GrabModeAsync, None, m_split_resize_cursor, event.time);
     } else if (m_chrome_renderer.is_shader_panel_resizing() ||
-               m_chrome_renderer.is_sidebar_resizing()) {
+               m_chrome_renderer.is_sidebar_resizing() ||
+               m_chrome_renderer.is_editor_split_resizing()) {
       XGrabPointer(m_display, m_window_handle, False,
                    ButtonReleaseMask | PointerMotionMask, GrabModeAsync,
                    GrabModeAsync, None, m_horizontal_split_resize_cursor,
@@ -2204,11 +2257,14 @@ void X11Window::handle_button_release(const XButtonEvent &event) {
     return;
   }
 
+  const bool corner_was_resizing = m_chrome_renderer.is_corner_resizing();
   const bool terminal_was_resizing = m_chrome_renderer.is_terminal_resizing();
   const bool shader_was_resizing = m_chrome_renderer.is_shader_panel_resizing();
   const bool sidebar_was_resizing = m_chrome_renderer.is_sidebar_resizing();
+  const bool editor_split_was_resizing = m_chrome_renderer.is_editor_split_resizing();
   if (m_chrome_renderer.handle_workspace_pointer_release()) {
-    if (terminal_was_resizing || shader_was_resizing || sidebar_was_resizing) {
+    if (corner_was_resizing || terminal_was_resizing || shader_was_resizing ||
+        sidebar_was_resizing || editor_split_was_resizing) {
       XUngrabPointer(m_display, event.time);
     }
     render();
@@ -3043,6 +3099,12 @@ void X11Window::update_cursor(int point_x, int point_y) {
   if (direction) {
     desired_cursor =
         m_move_resize_cursors[static_cast<std::size_t>(*direction)];
+  } else if (m_chrome_renderer.is_corner_resize_handle_point(
+                 static_cast<float>(point_x), static_cast<float>(point_y),
+                 m_client_width, m_client_height,
+                 m_chrome_layout.titlebar_bounds.bottom()) ||
+             m_chrome_renderer.is_corner_resizing()) {
+    desired_cursor = m_corner_resize_cursor;
   } else if (m_chrome_renderer.is_terminal_resize_handle_point(
                  static_cast<float>(point_x), static_cast<float>(point_y),
                  m_client_width, m_client_height,
@@ -3360,10 +3422,24 @@ void X11Window::execute_popup_selection() {
   } else if (command_id.starts_with("zde.target.select:")) {
     const std::string_view target_name = command_id.substr(std::string_view("zde.target.select:").size());
     m_chrome_renderer.set_active_target(std::string(target_name));
+    auto &state = m_chrome_renderer.get_run_config_state();
+    for (const auto &t : state.available_targets) {
+      if (t.name == target_name) {
+        state.active_classification = t.classification;
+        state.active_icon_asset = t.icon_asset;
+        break;
+      }
+    }
+    refresh_chrome_layout();
+    render();
   } else if (command_id == Commands::CommandIds::run_zde) {
     m_chrome_renderer.set_active_target("ZDE");
+    refresh_chrome_layout();
+    render();
   } else if (command_id == Commands::CommandIds::run_tests) {
     m_chrome_renderer.set_active_target("ZDEUnitTests");
+    refresh_chrome_layout();
+    render();
   }
 
   const std::optional<bool> editor_result =
@@ -3923,6 +3999,214 @@ void X11Window::execute_explorer_command(std::string_view command) {
   }
 }
 
+/**
+ * @brief Displays the context menu for the Activity Bar and empty sidebar area.
+ * 
+ * Provides quick toggles for main workbench tool views (Explorer, Search, SCM,
+ * Run & Debug, Extensions, Shader Sandbox, More Tools, Terminal), layout positioning
+ * for the activity bar and primary sidebar, visibility controls, and layout reset.
+ * 
+ * @param client_x Window-relative X coordinate where the context menu was triggered.
+ * @param client_y Window-relative Y coordinate where the context menu was triggered.
+ */
+void X11Window::show_activity_bar_context_menu(int client_x, int client_y) {
+  // Query workspace renderer and tool sidebar to determine active view checkmarks
+  auto &workspace = m_chrome_renderer.get_workspace_renderer();
+  const auto &tool_sidebar = workspace.get_tool_sidebar();
+  const bool sidebar_vis = tool_sidebar.is_visible();
+  const auto active_icon = tool_sidebar.get_model().get_active_icon();
+
+  const bool is_explorer_active =
+      sidebar_vis && (active_icon == UI::Editor::SidebarIcon::Project);
+  const bool is_search_active =
+      sidebar_vis && (active_icon == UI::Editor::SidebarIcon::Search);
+  const bool is_scm_active =
+      sidebar_vis && (active_icon == UI::Editor::SidebarIcon::VersionControl);
+  const bool is_debug_active =
+      sidebar_vis && (active_icon == UI::Editor::SidebarIcon::Run);
+  const bool is_extensions_active =
+      sidebar_vis && (active_icon == UI::Editor::SidebarIcon::Services);
+  const bool is_shader_active =
+      workspace.is_shader_sandbox_visible();
+  const bool is_more_active =
+      sidebar_vis && (active_icon == UI::Editor::SidebarIcon::More);
+  const bool is_terminal_active =
+      workspace.is_terminal_visible();
+
+  // Retrieve current activity bar location and sidebar position settings
+  auto &settings = Settings::SettingsService::instance();
+  std::string activity_loc = "Default";
+  if (settings.has("workbench.activityBar.location")) {
+    activity_loc = settings.get<std::string>("workbench.activityBar.location");
+  }
+  const bool is_act_visible = settings.has("workbench.activityBar.visible")
+      ? settings.get<bool>("workbench.activityBar.visible")
+      : true;
+  if (!is_act_visible) {
+    activity_loc = "Hidden";
+  }
+
+  std::string sidebar_pos = "Left";
+  if (settings.has("workbench.sidebar.position")) {
+    sidebar_pos = settings.get<std::string>("workbench.sidebar.position");
+  }
+  const bool sidebar_is_right = (sidebar_pos == "Right" || sidebar_pos == "right");
+
+  // Construct context menu items following Win32 / VS Code behavior
+  const std::vector<Components::PopupMenuItem> items = {
+      // 1. Tool view toggles with checkmarks
+      {"Explorer", "zde.activitybar.toggleExplorer", false, true, is_explorer_active, "Ctrl+Shift+E"},
+      {"Code Search", "zde.activitybar.toggleSearch", false, true, is_search_active, "Ctrl+Shift+F"},
+      {"Source Control", "zde.activitybar.toggleSCM", false, true, is_scm_active, "Ctrl+Shift+G"},
+      {"Run and Debug", "zde.activitybar.toggleDebug", false, true, is_debug_active, "Ctrl+Shift+D"},
+      {"Extensions", "zde.activitybar.toggleExtensions", false, true, is_extensions_active, "Ctrl+Shift+X"},
+      {"Shader Sandbox", "zde.activitybar.toggleShader", false, true, is_shader_active, ""},
+      {"More Tools", "zde.activitybar.toggleMore", false, true, is_more_active, ""},
+      {"Terminal", "zde.activitybar.toggleTerminal", false, true, is_terminal_active, "Ctrl+`"},
+      {"", "", true, true, false, ""}, // Separator
+
+      // 2. Activity Bar position options (Side / Top / Bottom)
+      {"Activity Bar: Side", "zde.activitybar.posDefault", false, true, (is_act_visible && activity_loc == "Default"), ""},
+      {"Activity Bar: Top", "zde.activitybar.posTop", false, true, (is_act_visible && activity_loc == "Top"), ""},
+      {"Activity Bar: Bottom", "zde.activitybar.posBottom", false, true, (is_act_visible && activity_loc == "Bottom"), ""},
+      {"", "", true, true, false, ""}, // Separator
+
+      // 3. Side Bar positioning and visibility controls
+      {sidebar_is_right ? "Move Primary Side Bar Left" : "Move Primary Side Bar Right",
+       "zde.activitybar.toggleSidebarPos", false, true, false, ""},
+      {sidebar_vis ? "Hide Primary Side Bar" : "Show Primary Side Bar",
+       "zde.activitybar.toggleSidebar", false, true, false, "Ctrl+B"},
+      {"Hide Activity Bar", "zde.activitybar.hideActivityBar", false, true, false, ""},
+      {"", "", true, true, false, ""}, // Separator
+
+      // 4. Reset Layout
+      {"Reset View Locations", "zde.activitybar.resetViews", false, true, false, ""}
+  };
+
+  const UI::Rect anchor{static_cast<float>(client_x),
+                        static_cast<float>(client_y), 0.0F, 0.0F};
+  static_cast<void>(m_chrome_renderer.open_popup(m_window_handle, anchor, items,
+                                                 false, false));
+}
+
+/**
+ * @brief Executes activity bar and sidebar context menu commands.
+ * 
+ * Handles switching tool views, toggling panels, persisting layout preferences,
+ * and refreshing the application window layout.
+ * 
+ * @param command Command identifier string (e.g. "zde.activitybar.toggleExplorer").
+ */
+void X11Window::execute_activity_bar_command(std::string_view command) {
+  auto &workspace = m_chrome_renderer.get_workspace_renderer();
+  auto &tool_sidebar = workspace.get_tool_sidebar();
+  auto &settings = Settings::SettingsService::instance();
+
+  if (command == "zde.activitybar.toggleExplorer") {
+    // Toggle Explorer pane visibility or activate if different tool is active
+    if (tool_sidebar.is_visible() &&
+        tool_sidebar.is_active(UI::Editor::SidebarIcon::Project)) {
+      tool_sidebar.get_model().set_visible(false);
+    } else {
+      tool_sidebar.get_model().set_visible(true);
+      static_cast<void>(tool_sidebar.activate(UI::Editor::SidebarIcon::Project));
+    }
+  } else if (command == "zde.activitybar.toggleSearch") {
+    // Toggle Search pane visibility and focus input
+    if (tool_sidebar.is_visible() &&
+        tool_sidebar.is_active(UI::Editor::SidebarIcon::Search)) {
+      tool_sidebar.get_model().set_visible(false);
+    } else {
+      tool_sidebar.get_model().set_visible(true);
+      static_cast<void>(tool_sidebar.activate(UI::Editor::SidebarIcon::Search));
+      tool_sidebar.get_search_input().set_focused(true);
+      tool_sidebar.get_search_input().reset_blink();
+      tool_sidebar.set_focused(true);
+    }
+  } else if (command == "zde.activitybar.toggleSCM") {
+    // Toggle Source Control pane visibility
+    if (tool_sidebar.is_visible() &&
+        tool_sidebar.is_active(UI::Editor::SidebarIcon::VersionControl)) {
+      tool_sidebar.get_model().set_visible(false);
+    } else {
+      tool_sidebar.get_model().set_visible(true);
+      static_cast<void>(tool_sidebar.activate(UI::Editor::SidebarIcon::VersionControl));
+    }
+  } else if (command == "zde.activitybar.toggleDebug") {
+    // Toggle Run and Debug pane visibility
+    if (tool_sidebar.is_visible() &&
+        tool_sidebar.is_active(UI::Editor::SidebarIcon::Run)) {
+      tool_sidebar.get_model().set_visible(false);
+    } else {
+      tool_sidebar.get_model().set_visible(true);
+      static_cast<void>(tool_sidebar.activate(UI::Editor::SidebarIcon::Run));
+    }
+  } else if (command == "zde.activitybar.toggleExtensions") {
+    // Toggle Extensions pane visibility
+    if (tool_sidebar.is_visible() &&
+        tool_sidebar.is_active(UI::Editor::SidebarIcon::Services)) {
+      tool_sidebar.get_model().set_visible(false);
+    } else {
+      tool_sidebar.get_model().set_visible(true);
+      static_cast<void>(tool_sidebar.activate(UI::Editor::SidebarIcon::Services));
+    }
+  } else if (command == "zde.activitybar.toggleShader") {
+    // Toggle Shader Sandbox panel
+    toggle_shader_sandbox();
+  } else if (command == "zde.activitybar.toggleMore") {
+    // Toggle More Tools pane visibility
+    if (tool_sidebar.is_visible() &&
+        tool_sidebar.is_active(UI::Editor::SidebarIcon::More)) {
+      tool_sidebar.get_model().set_visible(false);
+    } else {
+      tool_sidebar.get_model().set_visible(true);
+      static_cast<void>(tool_sidebar.activate(UI::Editor::SidebarIcon::More));
+    }
+  } else if (command == "zde.activitybar.toggleTerminal") {
+    // Toggle integrated terminal panel
+    toggle_terminal();
+  } else if (command == "zde.activitybar.posDefault") {
+    // Configure Activity Bar to default side location
+    settings.set("workbench.activityBar.visible", true, Settings::SettingsScope::User);
+    settings.set("workbench.activityBar.location", std::string("Default"), Settings::SettingsScope::User);
+  } else if (command == "zde.activitybar.posTop") {
+    // Configure Activity Bar to Top horizontal layout
+    settings.set("workbench.activityBar.visible", true, Settings::SettingsScope::User);
+    settings.set("workbench.activityBar.location", std::string("Top"), Settings::SettingsScope::User);
+    tool_sidebar.get_model().set_visible(true);
+  } else if (command == "zde.activitybar.posBottom") {
+    // Configure Activity Bar to Bottom horizontal layout
+    settings.set("workbench.activityBar.visible", true, Settings::SettingsScope::User);
+    settings.set("workbench.activityBar.location", std::string("Bottom"), Settings::SettingsScope::User);
+    tool_sidebar.get_model().set_visible(true);
+  } else if (command == "zde.activitybar.posHidden") {
+    // Hide Activity Bar
+    settings.set("workbench.activityBar.visible", false, Settings::SettingsScope::User);
+    settings.set("workbench.activityBar.location", std::string("Hidden"), Settings::SettingsScope::User);
+  } else if (command == "zde.activitybar.toggleSidebarPos") {
+    // Flip Primary Side Bar position (Left <-> Right)
+    std::string sidebar_pos = "Left";
+    if (settings.has("workbench.sidebar.position")) {
+      sidebar_pos = settings.get<std::string>("workbench.sidebar.position");
+    }
+    const bool is_right = (sidebar_pos == "Right" || sidebar_pos == "right");
+    settings.set("workbench.sidebar.position", std::string(is_right ? "Left" : "Right"), Settings::SettingsScope::User);
+  } else if (command == "zde.activitybar.toggleSidebar") {
+    // Toggle Primary Side Bar visibility
+    tool_sidebar.get_model().set_visible(!tool_sidebar.is_visible());
+  } else if (command == "zde.activitybar.hideActivityBar") {
+    // Hide Activity Bar completely
+    settings.set("workbench.activityBar.visible", false, Settings::SettingsScope::User);
+    settings.set("workbench.activityBar.location", std::string("Hidden"), Settings::SettingsScope::User);
+  } else if (command == "zde.activitybar.resetViews") {
+    // Reset layout configuration to default
+    static_cast<void>(m_chrome_renderer.handle_editor_command(Commands::CommandIds::window_reset_layout));
+  }
+
+  // Request window repaint to update workspace layout
+  render();
+}
+
 bool X11Window::close_project() {
   const bool res = m_chrome_renderer.close_workspace_project();
   Language::LanguageServerManager::instance().set_workspace_root({});
@@ -3932,6 +4216,14 @@ bool X11Window::close_project() {
   if (m_workspace_changed_callback) {
     m_workspace_changed_callback({});
   }
+
+  auto &state = m_chrome_renderer.get_run_config_state();
+  state.available_targets.clear();
+  state.active_target_name = "No Configuration";
+  state.active_classification = UI::Toolbar::ToolClassification::CMake;
+  state.active_icon_asset = "Assets/icons/gear.svg";
+  UI::Components::set_dynamic_binary_targets({});
+
   // Restore base title (Win32 keeps m_window_title separate; X11 previously
   // mutated m_specification.title, so restore from m_base_title instead).
   const std::string base = m_base_title.empty() ? m_specification.title : m_base_title;
@@ -3947,6 +4239,7 @@ bool X11Window::close_project() {
     }
     XSetIconName(m_display, m_window_handle, m_specification.title.c_str());
   }
+  refresh_chrome_layout();
   render();
   return res;
 }
@@ -3994,6 +4287,7 @@ void X11Window::refresh_configurations() {
   if (m_workspace_changed_callback) {
     m_workspace_changed_callback(root);
   }
+  refresh_chrome_layout();
   render();
 }
 

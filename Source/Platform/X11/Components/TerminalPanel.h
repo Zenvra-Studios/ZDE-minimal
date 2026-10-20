@@ -62,6 +62,8 @@ public:
     [[nodiscard]] bool is_maximized() const noexcept;
     [[nodiscard]] bool is_selecting_text() const noexcept { return m_selecting_text || m_cli_mouse_down; }
     [[nodiscard]] float get_height() const noexcept;
+    bool set_resize_hovered(bool hovered) noexcept { return m_resize_model.set_hovered(hovered); }
+    bool begin_resize() noexcept { return m_resize_model.begin_resize(); }
     void set_focused(bool focused) noexcept;
     void set_working_directory(const std::filesystem::path& directory) noexcept;
 

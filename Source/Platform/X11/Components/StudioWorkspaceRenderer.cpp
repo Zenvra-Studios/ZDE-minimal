@@ -12,6 +12,7 @@
 #include "Utility/Fonts.h"
 #include "Utility/MathUtil.h"
 #include "Utility/X11Rounded.h"
+
 #include <lunasvg.h>
 
 #include <algorithm>
@@ -67,20 +68,30 @@ bool StudioWorkspaceRenderer::initialize(Display *display, int screen,
         UI::Editor::EditorFileSystem::find_project_root(current_path);
   }
   if (!project_root && !exe_dir.empty()) {
-    project_root =
-        UI::Editor::EditorFileSystem::find_project_root(exe_dir);
+    project_root = UI::Editor::EditorFileSystem::find_project_root(exe_dir);
   }
 
-  // 1. Resolve Icon Directory (prioritizes project_root/Assets/icons then local/installed Resources/icons)
+  // 1. Resolve Icon Directory (prioritizes project_root/Assets/icons then
+  // local/installed Resources/icons)
   const std::vector<std::filesystem::path> icon_candidates = {
-      project_root ? (*project_root / "Assets" / "icons") : std::filesystem::path{},
-      project_root ? (*project_root / "Resources" / "icons") : std::filesystem::path{},
-      exe_dir.empty() ? std::filesystem::path{} : (exe_dir / "Resources" / "icons"),
-      exe_dir.empty() ? std::filesystem::path{} : (exe_dir / "Assets" / "icons"),
-      exe_dir.empty() ? std::filesystem::path{} : (exe_dir.parent_path() / "Resources" / "icons"),
-      exe_dir.empty() ? std::filesystem::path{} : (exe_dir.parent_path() / "Assets" / "icons"),
-      exe_dir.empty() ? std::filesystem::path{} : (exe_dir.parent_path().parent_path() / "Resources" / "icons"),
-      exe_dir.empty() ? std::filesystem::path{} : (exe_dir.parent_path().parent_path() / "Assets" / "icons"),
+      project_root ? (*project_root / "Assets" / "icons")
+                   : std::filesystem::path{},
+      project_root ? (*project_root / "Resources" / "icons")
+                   : std::filesystem::path{},
+      exe_dir.empty() ? std::filesystem::path{}
+                      : (exe_dir / "Resources" / "icons"),
+      exe_dir.empty() ? std::filesystem::path{}
+                      : (exe_dir / "Assets" / "icons"),
+      exe_dir.empty() ? std::filesystem::path{}
+                      : (exe_dir.parent_path() / "Resources" / "icons"),
+      exe_dir.empty() ? std::filesystem::path{}
+                      : (exe_dir.parent_path() / "Assets" / "icons"),
+      exe_dir.empty()
+          ? std::filesystem::path{}
+          : (exe_dir.parent_path().parent_path() / "Resources" / "icons"),
+      exe_dir.empty()
+          ? std::filesystem::path{}
+          : (exe_dir.parent_path().parent_path() / "Assets" / "icons"),
       current_path / "Assets" / "icons",
       current_path / "Resources" / "icons",
       std::filesystem::path{"/usr/share/zde/Assets/icons"},
@@ -89,7 +100,8 @@ bool StudioWorkspaceRenderer::initialize(Display *display, int screen,
       std::filesystem::path{"/usr/local/share/zde/Resources/icons"},
   };
   for (const auto &candidate : icon_candidates) {
-    if (!candidate.empty() && std::filesystem::is_directory(candidate, path_error)) {
+    if (!candidate.empty() &&
+        std::filesystem::is_directory(candidate, path_error)) {
       m_icon_asset_root = candidate;
       break;
     }
@@ -105,14 +117,24 @@ bool StudioWorkspaceRenderer::initialize(Display *display, int screen,
   // 2. Resolve Fonts Directory
   std::filesystem::path fonts_dir;
   const std::vector<std::filesystem::path> font_candidates = {
-      project_root ? (*project_root / "Assets" / "fonts") : std::filesystem::path{},
-      project_root ? (*project_root / "Resources" / "fonts") : std::filesystem::path{},
-      exe_dir.empty() ? std::filesystem::path{} : (exe_dir / "Resources" / "fonts"),
-      exe_dir.empty() ? std::filesystem::path{} : (exe_dir / "Assets" / "fonts"),
-      exe_dir.empty() ? std::filesystem::path{} : (exe_dir.parent_path() / "Resources" / "fonts"),
-      exe_dir.empty() ? std::filesystem::path{} : (exe_dir.parent_path() / "Assets" / "fonts"),
-      exe_dir.empty() ? std::filesystem::path{} : (exe_dir.parent_path().parent_path() / "Resources" / "fonts"),
-      exe_dir.empty() ? std::filesystem::path{} : (exe_dir.parent_path().parent_path() / "Assets" / "fonts"),
+      project_root ? (*project_root / "Assets" / "fonts")
+                   : std::filesystem::path{},
+      project_root ? (*project_root / "Resources" / "fonts")
+                   : std::filesystem::path{},
+      exe_dir.empty() ? std::filesystem::path{}
+                      : (exe_dir / "Resources" / "fonts"),
+      exe_dir.empty() ? std::filesystem::path{}
+                      : (exe_dir / "Assets" / "fonts"),
+      exe_dir.empty() ? std::filesystem::path{}
+                      : (exe_dir.parent_path() / "Resources" / "fonts"),
+      exe_dir.empty() ? std::filesystem::path{}
+                      : (exe_dir.parent_path() / "Assets" / "fonts"),
+      exe_dir.empty()
+          ? std::filesystem::path{}
+          : (exe_dir.parent_path().parent_path() / "Resources" / "fonts"),
+      exe_dir.empty()
+          ? std::filesystem::path{}
+          : (exe_dir.parent_path().parent_path() / "Assets" / "fonts"),
       current_path / "Assets" / "fonts",
       current_path / "Resources" / "fonts",
       std::filesystem::path{"/usr/share/zde/Assets/fonts"},
@@ -121,16 +143,17 @@ bool StudioWorkspaceRenderer::initialize(Display *display, int screen,
       std::filesystem::path{"/usr/local/share/zde/Resources/fonts"},
   };
   for (const auto &candidate : font_candidates) {
-    if (!candidate.empty() && std::filesystem::is_directory(candidate, path_error)) {
+    if (!candidate.empty() &&
+        std::filesystem::is_directory(candidate, path_error)) {
       fonts_dir = candidate;
       break;
     }
   }
 
   // Load bundled fonts from fonts_dir into Fontconfig
-  if (!fonts_dir.empty() && std::filesystem::is_directory(fonts_dir, path_error)) {
-    for (const auto &entry :
-         std::filesystem::recursive_directory_iterator(
+  if (!fonts_dir.empty() &&
+      std::filesystem::is_directory(fonts_dir, path_error)) {
+    for (const auto &entry : std::filesystem::recursive_directory_iterator(
              fonts_dir,
              std::filesystem::directory_options::skip_permission_denied,
              path_error)) {
@@ -142,8 +165,10 @@ bool StudioWorkspaceRenderer::initialize(Display *display, int screen,
     }
   }
 
-  const char *editor_font_family = "Hack, JetBrainsMono Nerd Font, JetBrains Mono, monospace";
-  const char *ui_font_family = "Open Sans, Adwaita Sans, Inter, Cantarell, sans-serif";
+  const char *editor_font_family =
+      "Hack, JetBrainsMono Nerd Font, JetBrains Mono, monospace";
+  const char *ui_font_family =
+      "Open Sans, Adwaita Sans, Inter, Cantarell, sans-serif";
 
   char ui_pattern[256]{};
   char small_pattern[256]{};
@@ -163,14 +188,15 @@ bool StudioWorkspaceRenderer::initialize(Display *display, int screen,
       editor_pattern, sizeof(editor_pattern),
       "%s:pixelsize=%d:antialias=true:hinting=true:hintstyle=hintslight",
       editor_font_family, std::max(round_to_int(14.0F * m_dpi_scale), 11));
-  std::snprintf(
-      minimap_pattern, sizeof(minimap_pattern),
-      "%s:pixelsize=%d:antialias=true:hinting=false",
-      editor_font_family, std::max(round_to_int(3.0F * m_dpi_scale), 3));
-  std::snprintf(
-      large_pattern, sizeof(large_pattern),
-      "%s:pixelsize=%d:weight=bold:antialias=true:hinting=true:hintstyle=hintslight",
-      ui_font_family, std::max(round_to_int(22.0F * m_dpi_scale), 16));
+  std::snprintf(minimap_pattern, sizeof(minimap_pattern),
+                "%s:pixelsize=%d:antialias=true:hinting=false",
+                editor_font_family,
+                std::max(round_to_int(3.0F * m_dpi_scale), 3));
+  std::snprintf(large_pattern, sizeof(large_pattern),
+                "%s:pixelsize=%d:weight=bold:antialias=true:hinting=true:"
+                "hintstyle=hintslight",
+                ui_font_family,
+                std::max(round_to_int(22.0F * m_dpi_scale), 16));
 
   m_ui_font =
       std::make_unique<AntialiasedFont>(m_display, m_screen, ui_pattern);
@@ -222,22 +248,33 @@ bool StudioWorkspaceRenderer::initialize(Display *display, int screen,
   m_text.warning = to_xft_color(m_palette.warning);
   m_text.success = to_xft_color(m_palette.success);
 
-  m_text_dimmed.primary = to_xft_color(UI::Theme::dim_color(m_palette.text_primary, m_palette.editor_background));
-  m_text_dimmed.muted = to_xft_color(UI::Theme::dim_color(m_palette.text_muted, m_palette.editor_background));
-  m_text_dimmed.keyword = to_xft_color(UI::Theme::dim_color(m_palette.keyword, m_palette.editor_background));
-  m_text_dimmed.number = to_xft_color(UI::Theme::dim_color(m_palette.number, m_palette.editor_background));
-  m_text_dimmed.label = to_xft_color(UI::Theme::dim_color(m_palette.label, m_palette.editor_background));
-  m_text_dimmed.type = to_xft_color(UI::Theme::dim_color(m_palette.type, m_palette.editor_background));
-  m_text_dimmed.comment = to_xft_color(UI::Theme::dim_color(m_palette.comment, m_palette.editor_background));
-  m_text_dimmed.accent = to_xft_color(UI::Theme::dim_color(m_palette.accent, m_palette.editor_background));
-  m_text_dimmed.warning = to_xft_color(UI::Theme::dim_color(m_palette.warning, m_palette.editor_background));
-  m_text_dimmed.success = to_xft_color(UI::Theme::dim_color(m_palette.success, m_palette.editor_background));
+  m_text_dimmed.primary = to_xft_color(UI::Theme::dim_color(
+      m_palette.text_primary, m_palette.editor_background));
+  m_text_dimmed.muted = to_xft_color(
+      UI::Theme::dim_color(m_palette.text_muted, m_palette.editor_background));
+  m_text_dimmed.keyword = to_xft_color(
+      UI::Theme::dim_color(m_palette.keyword, m_palette.editor_background));
+  m_text_dimmed.number = to_xft_color(
+      UI::Theme::dim_color(m_palette.number, m_palette.editor_background));
+  m_text_dimmed.label = to_xft_color(
+      UI::Theme::dim_color(m_palette.label, m_palette.editor_background));
+  m_text_dimmed.type = to_xft_color(
+      UI::Theme::dim_color(m_palette.type, m_palette.editor_background));
+  m_text_dimmed.comment = to_xft_color(
+      UI::Theme::dim_color(m_palette.comment, m_palette.editor_background));
+  m_text_dimmed.accent = to_xft_color(
+      UI::Theme::dim_color(m_palette.accent, m_palette.editor_background));
+  m_text_dimmed.warning = to_xft_color(
+      UI::Theme::dim_color(m_palette.warning, m_palette.editor_background));
+  m_text_dimmed.success = to_xft_color(
+      UI::Theme::dim_color(m_palette.success, m_palette.editor_background));
   static_cast<void>(m_tool_sidebar.initialize());
   const auto active_workspace = m_tool_sidebar.get_model().get_workspace_root();
   if (!active_workspace.empty()) {
     m_terminal_panel.set_working_directory(active_workspace);
   } else {
-    m_terminal_panel.set_working_directory(Platform::HostSystem::get_user_home_directory());
+    m_terminal_panel.set_working_directory(
+        Platform::HostSystem::get_user_home_directory());
   }
   static_cast<void>(m_shader_sandbox_panel.initialize());
   return true;
@@ -247,8 +284,7 @@ void StudioWorkspaceRenderer::sync_shader_sandbox() const {
   if (!m_shader_sandbox_panel.is_visible()) {
     return;
   }
-  if (const UI::Editor::TextDocumentModel *doc =
-          m_text_editor.get_document()) {
+  if (const UI::Editor::TextDocumentModel *doc = m_text_editor.get_document()) {
     const std::string filename = std::string(doc->get_file_name());
     const std::filesystem::path file_path(filename);
     const std::string ext = file_path.extension().string();
@@ -259,13 +295,15 @@ void StudioWorkspaceRenderer::sync_shader_sandbox() const {
       full_text += '\n';
     }
 
-    const bool is_shader_ext = (ext == ".glsl" || ext == ".frag" || ext == ".vert" || 
-                                ext == ".comp" || ext == ".shader" || ext == ".hlsl" ||
-                                ext == ".geom" || ext == ".tesc" || ext == ".tese");
-    const bool is_shader_content = (full_text.find("mainImage") != std::string::npos ||
-                                    full_text.find("gl_FragColor") != std::string::npos ||
-                                    full_text.find("gl_FragCoord") != std::string::npos ||
-                                    full_text.find("#version") != std::string::npos);
+    const bool is_shader_ext =
+        (ext == ".glsl" || ext == ".frag" || ext == ".vert" || ext == ".comp" ||
+         ext == ".shader" || ext == ".hlsl" || ext == ".geom" ||
+         ext == ".tesc" || ext == ".tese");
+    const bool is_shader_content =
+        (full_text.find("mainImage") != std::string::npos ||
+         full_text.find("gl_FragColor") != std::string::npos ||
+         full_text.find("gl_FragCoord") != std::string::npos ||
+         full_text.find("#version") != std::string::npos);
 
     if ((is_shader_ext || is_shader_content) && !full_text.empty()) {
       m_shader_sandbox_panel.set_source_code(full_text);
@@ -287,9 +325,7 @@ bool StudioWorkspaceRenderer::open_file(const std::filesystem::path &path) {
 }
 
 bool StudioWorkspaceRenderer::open_file_at_location(
-    const std::filesystem::path &path,
-    std::size_t line,
-    std::size_t column) {
+    const std::filesystem::path &path, std::size_t line, std::size_t column) {
   const bool opened = m_text_editor.open_file_at_location(path, line, column);
   if (opened) {
     m_terminal_panel.set_focused(false);
@@ -317,7 +353,8 @@ bool StudioWorkspaceRenderer::close_project() {
   static_cast<void>(m_text_editor.close_all_files());
   m_tool_sidebar.clear_workspace();
   m_terminal_panel.shutdown();
-  m_terminal_panel.set_working_directory(Platform::HostSystem::get_user_home_directory());
+  m_terminal_panel.set_working_directory(
+      Platform::HostSystem::get_user_home_directory());
   m_shader_sandbox_panel.set_visible(false);
   Language::LanguageServerManager::instance().shutdown_all();
   Language::LanguageServerManager::instance().set_workspace_root({});
@@ -346,11 +383,11 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
         point_x, point_y, m_dpi_scale);
     if (pop_res.handled) {
       if (!pop_res.switched_tool_id.empty()) {
-        auto& pm = Zenvra::Plugins::PluginManager::instance();
+        auto &pm = Zenvra::Plugins::PluginManager::instance();
         pm.set_active_tool_plugin_id(pop_res.switched_tool_id);
         if (auto active_tool = pm.get_active_tool_plugin()) {
-          UI::Editor::set_active_tool_sidebar_item(
-              active_tool->get_id(), active_tool->get_name());
+          UI::Editor::set_active_tool_sidebar_item(active_tool->get_id(),
+                                                   active_tool->get_name());
         }
       } else if (pop_res.open_marketplace) {
         command_out = "zde.marketplace.open";
@@ -367,8 +404,8 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     const auto settings_layout = m_settings_window.calculate_layout(
         static_cast<float>(client_width), static_cast<float>(client_height),
         m_dpi_scale);
-    if (m_settings_window.handle_pointer_press(
-            point_x, point_y, settings_layout)) {
+    if (m_settings_window.handle_pointer_press(point_x, point_y,
+                                               settings_layout)) {
       return true;
     }
     // Click outside dialog dismisses (matches Win32 overlay behavior).
@@ -384,11 +421,14 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
         UI::Editor::get_studio_sidebar_items();
     if (items[*sidebar_index].icon == UI::Editor::SidebarIcon::Terminal) {
       if (!m_terminal_panel.is_visible()) {
-        m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+        m_terminal_panel.set_active_channel(
+            TerminalPanel::PanelChannel::Terminal);
         return m_terminal_panel.toggle();
       }
-      if (m_terminal_panel.get_active_channel() != TerminalPanel::PanelChannel::Terminal) {
-        m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+      if (m_terminal_panel.get_active_channel() !=
+          TerminalPanel::PanelChannel::Terminal) {
+        m_terminal_panel.set_active_channel(
+            TerminalPanel::PanelChannel::Terminal);
         m_terminal_panel.set_focused(true);
         return true;
       }
@@ -403,13 +443,40 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
     }
     if (items[*sidebar_index].icon == UI::Editor::SidebarIcon::More) {
       const UI::Rect item_bounds =
-          UI::Editor::calculate_studio_sidebar_item_bounds(layout, *sidebar_index);
-      m_tool_switcher_popup.show(
-          item_bounds.right() + 4.0F * m_dpi_scale, item_bounds.y);
+          UI::Editor::calculate_studio_sidebar_item_bounds(layout,
+                                                           *sidebar_index);
+      m_tool_switcher_popup.show(item_bounds.right() + 4.0F * m_dpi_scale,
+                                 item_bounds.y);
       return true;
     }
     return m_tool_sidebar.activate(items[*sidebar_index].icon);
   }
+
+  // Check 2D Corner Splitter Resizing First!
+  const SplitterCornerKind corner =
+      get_splitter_corner_at(layout, point_x, point_y);
+  if (corner == SplitterCornerKind::SidebarTerminal) {
+    m_active_corner_resizing = SplitterCornerKind::SidebarTerminal;
+    m_tool_sidebar.begin_resize(point_x);
+    static_cast<void>(m_terminal_panel.begin_resize());
+    m_terminal_panel.set_focused(false);
+    return true;
+  }
+  if (corner == SplitterCornerKind::ShaderTerminal) {
+    m_active_corner_resizing = SplitterCornerKind::ShaderTerminal;
+    m_shader_sandbox_panel.begin_resize(point_x);
+    static_cast<void>(m_terminal_panel.begin_resize());
+    m_terminal_panel.set_focused(false);
+    return true;
+  }
+  if (corner == SplitterCornerKind::EditorSplitTerminal) {
+    m_active_corner_resizing = SplitterCornerKind::EditorSplitTerminal;
+    m_text_editor.begin_split_resize();
+    static_cast<void>(m_terminal_panel.begin_resize());
+    m_terminal_panel.set_focused(false);
+    return true;
+  }
+
   if (m_shader_sandbox_panel.handle_pointer_press(layout, point_x, point_y)) {
     return true;
   }
@@ -417,13 +484,14 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
       m_tool_sidebar.handle_pointer_press(layout, point_x, point_y);
   if (sidebar_result.handled) {
     m_terminal_panel.set_focused(false);
-    if (sidebar_result.action == SidebarActionKind::OpenFile && sidebar_result.path) {
+    if (sidebar_result.action == SidebarActionKind::OpenFile &&
+        sidebar_result.path) {
       if (sidebar_result.path->string() == "::OPEN_FOLDER::") {
         command_out = "zde.project.open";
-      } else if (sidebar_result.line.has_value() || sidebar_result.column.has_value()) {
+      } else if (sidebar_result.line.has_value() ||
+                 sidebar_result.column.has_value()) {
         static_cast<void>(open_file_at_location(
-            *sidebar_result.path,
-            sidebar_result.line.value_or(0),
+            *sidebar_result.path, sidebar_result.line.value_or(0),
             sidebar_result.column.value_or(0)));
       } else {
         static_cast<void>(open_file(*sidebar_result.path));
@@ -438,13 +506,27 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
       command_out = "zde.explorer.collapseAll";
     } else if (sidebar_result.action == SidebarActionKind::CloneRepository) {
       command_out = "zde.git.clone";
+    } else if (sidebar_result.action == SidebarActionKind::SwitchTool) {
+      // Show tool switcher popup menu aligned to sidebar
+      const UI::Rect panel = layout.tool_sidebar_bounds;
+      m_tool_switcher_popup.show(panel.right() + 4.0F * m_dpi_scale,
+                                 panel.y + 10.0F * m_dpi_scale);
+      return true;
+    } else if (sidebar_result.action == SidebarActionKind::OpenTerminal) {
+      // Toggle or activate integrated terminal panel
+      m_terminal_panel.set_active_channel(
+          TerminalPanel::PanelChannel::Terminal);
+      if (!m_terminal_panel.is_visible()) {
+        static_cast<void>(m_terminal_panel.toggle());
+      }
+      m_terminal_panel.set_focused(true);
+      return true;
     }
     return true;
   }
-  if (m_terminal_panel.is_visible() &&
-      m_terminal_panel.handle_pointer_press(layout, point_x, point_y,
-                                            event_time, click_count,
-                                            extend_selection)) {
+  if (m_terminal_panel.is_visible() && m_terminal_panel.handle_pointer_press(
+                                           layout, point_x, point_y, event_time,
+                                           click_count, extend_selection)) {
     m_tool_sidebar.set_focused(false);
     return true;
   }
@@ -480,16 +562,16 @@ bool StudioWorkspaceRenderer::handle_pointer_move(float point_x, float point_y,
       m_shader_sandbox_panel.handle_pointer_move(layout, point_x, point_y);
   bool popup_changed = false;
   if (m_tool_switcher_popup.is_visible()) {
-    popup_changed = m_tool_switcher_popup.handle_pointer_move(
-        point_x, point_y, m_dpi_scale);
+    popup_changed = m_tool_switcher_popup.handle_pointer_move(point_x, point_y,
+                                                              m_dpi_scale);
   }
   bool settings_changed = false;
   if (m_settings_window.is_visible()) {
     const auto settings_layout = m_settings_window.calculate_layout(
         static_cast<float>(client_width), static_cast<float>(client_height),
         m_dpi_scale);
-    settings_changed = m_settings_window.handle_pointer_move(
-        point_x, point_y, settings_layout);
+    settings_changed = m_settings_window.handle_pointer_move(point_x, point_y,
+                                                             settings_layout);
   }
   return sidebar_changed || terminal_changed || editor_changed ||
          shader_changed || popup_changed || settings_changed;
@@ -506,14 +588,16 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(float point_x, float point_y,
     if (m_settings_window.is_dragging_scrollbar() ||
         m_settings_window.is_dragging_sidebar_scrollbar() ||
         m_settings_window.get_dropdown().is_dragging_scrollbar()) {
-      return m_settings_window.handle_pointer_move(point_x, point_y, settings_layout);
+      return m_settings_window.handle_pointer_move(point_x, point_y,
+                                                   settings_layout);
     }
   }
 
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
-  if (m_text_editor.is_pointer_selecting() || m_text_editor.is_resizing_split() ||
-      m_text_editor.is_tab_dragging() || m_text_editor.is_scrollbar_dragging()) {
+  if (m_text_editor.is_pointer_selecting() ||
+      m_text_editor.is_resizing_split() || m_text_editor.is_tab_dragging() ||
+      m_text_editor.is_scrollbar_dragging()) {
     return m_text_editor.handle_pointer_drag(*this, layout, point_x, point_y);
   }
   if (m_tool_sidebar.is_resizing() || m_tool_sidebar.is_dragging_item() ||
@@ -526,12 +610,14 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(float point_x, float point_y,
   if (m_shader_sandbox_panel.is_resizing()) {
     return m_shader_sandbox_panel.handle_pointer_drag(layout, point_x, point_y);
   }
-  if (m_tool_sidebar.is_visible() && m_tool_sidebar.contains(layout, point_x, point_y)) {
+  if (m_tool_sidebar.is_visible() &&
+      m_tool_sidebar.contains(layout, point_x, point_y)) {
     if (m_tool_sidebar.handle_pointer_drag(layout, point_x, point_y)) {
       return true;
     }
   }
-  if (m_terminal_panel.is_visible() && m_terminal_panel.contains(layout, point_x, point_y)) {
+  if (m_terminal_panel.is_visible() &&
+      m_terminal_panel.contains(layout, point_x, point_y)) {
     if (m_terminal_panel.handle_pointer_drag(layout, point_x, point_y)) {
       return true;
     }
@@ -546,6 +632,9 @@ bool StudioWorkspaceRenderer::handle_pointer_drag(float point_x, float point_y,
 }
 
 bool StudioWorkspaceRenderer::handle_pointer_release() noexcept {
+  const bool was_corner_resizing =
+      (m_active_corner_resizing != SplitterCornerKind::NoCorner);
+  m_active_corner_resizing = SplitterCornerKind::NoCorner;
   bool settings_changed = false;
   if (m_settings_window.is_visible()) {
     settings_changed = m_settings_window.handle_pointer_release(0.0F, 0.0F, {});
@@ -554,8 +643,8 @@ bool StudioWorkspaceRenderer::handle_pointer_release() noexcept {
   const bool sidebar_changed = m_tool_sidebar.handle_pointer_release();
   const bool editor_changed = m_text_editor.handle_pointer_release();
   const bool shader_changed = m_shader_sandbox_panel.handle_pointer_release();
-  return settings_changed || terminal_changed || sidebar_changed || editor_changed ||
-         shader_changed;
+  return was_corner_resizing || settings_changed || terminal_changed ||
+         sidebar_changed || editor_changed || shader_changed;
 }
 
 bool StudioWorkspaceRenderer::handle_scroll(float point_x, float point_y,
@@ -568,7 +657,8 @@ bool StudioWorkspaceRenderer::handle_scroll(float point_x, float point_y,
     const auto settings_layout = m_settings_window.calculate_layout(
         static_cast<float>(client_width), static_cast<float>(client_height),
         m_dpi_scale);
-    m_settings_window.handle_scroll(static_cast<float>(line_delta), settings_layout, point_x, point_y);
+    m_settings_window.handle_scroll(static_cast<float>(line_delta),
+                                    settings_layout, point_x, point_y);
     return true;
   }
   const UI::Editor::StudioEditorLayoutResult layout =
@@ -621,11 +711,14 @@ StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id) {
   }
   if (command_id == Commands::CommandIds::view_terminal_panel) {
     if (!m_terminal_panel.is_visible()) {
-      m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+      m_terminal_panel.set_active_channel(
+          TerminalPanel::PanelChannel::Terminal);
       return m_terminal_panel.toggle();
     }
-    if (m_terminal_panel.get_active_channel() != TerminalPanel::PanelChannel::Terminal) {
-      m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Terminal);
+    if (m_terminal_panel.get_active_channel() !=
+        TerminalPanel::PanelChannel::Terminal) {
+      m_terminal_panel.set_active_channel(
+          TerminalPanel::PanelChannel::Terminal);
       m_terminal_panel.set_focused(true);
       return true;
     }
@@ -636,7 +729,8 @@ StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id) {
       m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Output);
       return m_terminal_panel.toggle();
     }
-    if (m_terminal_panel.get_active_channel() != TerminalPanel::PanelChannel::Output) {
+    if (m_terminal_panel.get_active_channel() !=
+        TerminalPanel::PanelChannel::Output) {
       m_terminal_panel.set_active_channel(TerminalPanel::PanelChannel::Output);
       m_terminal_panel.set_focused(true);
       return true;
@@ -657,7 +751,8 @@ StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id) {
       command_id == Commands::CommandIds::view_project_panel ||
       command_id == Commands::CommandIds::view_outline_panel) {
     m_tool_sidebar.get_model().set_visible(true);
-    static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::Project));
+    static_cast<void>(
+        m_tool_sidebar.activate(UI::Editor::SidebarIcon::Project));
     return true;
   }
   if (command_id == Commands::CommandIds::view_search ||
@@ -671,7 +766,8 @@ StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id) {
   }
   if (command_id == Commands::CommandIds::view_git_panel) {
     m_tool_sidebar.get_model().set_visible(true);
-    static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::VersionControl));
+    static_cast<void>(
+        m_tool_sidebar.activate(UI::Editor::SidebarIcon::VersionControl));
     return true;
   }
   if (command_id == Commands::CommandIds::view_debugger_panel) {
@@ -681,7 +777,8 @@ StudioWorkspaceRenderer::handle_editor_command(std::string_view command_id) {
   }
   if (command_id == Commands::CommandIds::open_plugins) {
     m_tool_sidebar.get_model().set_visible(true);
-    static_cast<void>(m_tool_sidebar.activate(UI::Editor::SidebarIcon::Services));
+    static_cast<void>(
+        m_tool_sidebar.activate(UI::Editor::SidebarIcon::Services));
     return true;
   }
   if (command_id == Commands::CommandIds::open_settings) {
@@ -785,12 +882,14 @@ bool StudioWorkspaceRenderer::is_search_focused() const noexcept {
   return m_tool_sidebar.is_search_focused();
 }
 
-bool StudioWorkspaceRenderer::handle_search_key(KeySym sym, unsigned int state) {
+bool StudioWorkspaceRenderer::handle_search_key(KeySym sym,
+                                                unsigned int state) {
   return m_tool_sidebar.handle_key(sym, state);
 }
 
 bool StudioWorkspaceRenderer::is_editor_focused() const noexcept {
-  return !m_terminal_panel.is_focused() && !m_tool_sidebar.is_search_focused() && m_text_editor.is_focused();
+  return !m_terminal_panel.is_focused() &&
+         !m_tool_sidebar.is_search_focused() && m_text_editor.is_focused();
 }
 
 bool StudioWorkspaceRenderer::is_terminal_focused() const noexcept {
@@ -805,7 +904,16 @@ bool StudioWorkspaceRenderer::is_activity_bar_point(
   if (!layout.activity_bar_bounds.contains(point_x, point_y)) {
     return false;
   }
-  return UI::Editor::hit_test_studio_sidebar(layout, point_x, point_y).has_value();
+  return UI::Editor::hit_test_studio_sidebar(layout, point_x, point_y)
+      .has_value();
+}
+
+bool StudioWorkspaceRenderer::is_activity_bar_area(
+    float point_x, float point_y, int client_width, int client_height,
+    float content_top) const noexcept {
+  const UI::Editor::StudioEditorLayoutResult layout =
+      calculate_layout(client_width, client_height, content_top);
+  return layout.activity_bar_bounds.contains(point_x, point_y);
 }
 
 bool StudioWorkspaceRenderer::is_tab_bar_point(
@@ -879,6 +987,64 @@ bool StudioWorkspaceRenderer::is_tool_sidebar_point(
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
   return m_tool_sidebar.contains(layout, point_x, point_y);
+}
+
+StudioWorkspaceRenderer::SplitterCornerKind
+StudioWorkspaceRenderer::get_splitter_corner_at(
+    const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
+    float point_y) const noexcept {
+  const float scale = layout.dpi_scale;
+  const float radius = std::max(10.0F * scale, 10.0F);
+
+  // 1. Sidebar + Terminal corner
+  if (m_tool_sidebar.is_visible() && m_terminal_panel.is_visible() &&
+      !layout.tool_sidebar_bounds.is_empty() &&
+      !layout.terminal_panel_bounds.is_empty()) {
+    const bool on_right = layout.tool_sidebar_bounds.x > layout.editor_bounds.x;
+    const float cx = on_right ? layout.tool_sidebar_bounds.x : layout.tool_sidebar_bounds.right();
+    const float cy = layout.terminal_panel_bounds.y;
+    if (point_x >= (cx - radius) && point_x <= (cx + radius) &&
+        point_y >= (cy - radius) && point_y <= (cy + radius)) {
+      return SplitterCornerKind::SidebarTerminal;
+    }
+  }
+
+  // 2. Shader Sandbox + Terminal corner
+  if (m_shader_sandbox_panel.is_visible() && m_terminal_panel.is_visible() &&
+      !layout.shader_panel_bounds.is_empty() &&
+      !layout.terminal_panel_bounds.is_empty()) {
+    const float cx = layout.shader_panel_bounds.x;
+    const float cy = layout.terminal_panel_bounds.y;
+    if (point_x >= (cx - radius) && point_x <= (cx + radius) &&
+        point_y >= (cy - radius) && point_y <= (cy + radius)) {
+      return SplitterCornerKind::ShaderTerminal;
+    }
+  }
+
+  // 3. Editor Split + Terminal corner
+  if (m_text_editor.is_split_active() && m_terminal_panel.is_visible() &&
+      !layout.editor_bounds.is_empty() &&
+      !layout.terminal_panel_bounds.is_empty()) {
+    const float splitter_x =
+        layout.editor_bounds.x + (layout.editor_bounds.width - 2.0F * scale) *
+                                     m_text_editor.get_split_ratio();
+    const float cy = layout.terminal_panel_bounds.y;
+    if (point_x >= (splitter_x - radius) && point_x <= (splitter_x + radius) &&
+        point_y >= (cy - radius) && point_y <= (cy + radius)) {
+      return SplitterCornerKind::EditorSplitTerminal;
+    }
+  }
+
+  return SplitterCornerKind::NoCorner;
+}
+
+bool StudioWorkspaceRenderer::is_corner_resize_handle_point(
+    float point_x, float point_y, int client_width, int client_height,
+    float content_top) const noexcept {
+  const UI::Editor::StudioEditorLayoutResult layout =
+      calculate_layout(client_width, client_height, content_top);
+  return get_splitter_corner_at(layout, point_x, point_y) !=
+         SplitterCornerKind::NoCorner;
 }
 
 bool StudioWorkspaceRenderer::is_terminal_resize_handle_point(
@@ -967,6 +1133,10 @@ bool StudioWorkspaceRenderer::toggle_terminal() noexcept {
   return m_terminal_panel.toggle();
 }
 
+bool StudioWorkspaceRenderer::is_terminal_visible() const noexcept {
+  return m_terminal_panel.is_visible();
+}
+
 bool StudioWorkspaceRenderer::is_empty_state_button_hovered() const noexcept {
   return m_text_editor.is_empty_state_button_hovered() ||
          m_tool_sidebar.is_empty_state_button_hovered();
@@ -974,12 +1144,17 @@ bool StudioWorkspaceRenderer::is_empty_state_button_hovered() const noexcept {
 
 bool StudioWorkspaceRenderer::tick_animations() noexcept {
   const bool caret_changed = m_text_editor.tick_animations();
-  const bool terminal_changed = m_terminal_panel.is_visible() ? m_terminal_panel.poll() : false;
-  const bool terminal_blink_changed = m_terminal_panel.is_visible() ? m_terminal_panel.tick_animations() : false;
+  const bool terminal_changed =
+      m_terminal_panel.is_visible() ? m_terminal_panel.poll() : false;
+  const bool terminal_blink_changed = m_terminal_panel.is_visible()
+                                          ? m_terminal_panel.tick_animations()
+                                          : false;
   const bool shader_changed = m_shader_sandbox_panel.tick_animations();
-  const bool prompt_modal_changed = m_prompt_modal.is_visible() ? m_prompt_modal.tick() : false;
+  const bool prompt_modal_changed =
+      m_prompt_modal.is_visible() ? m_prompt_modal.tick() : false;
   const bool sidebar_changed = m_tool_sidebar.tick_animations();
-  return caret_changed || terminal_changed || terminal_blink_changed || shader_changed || prompt_modal_changed || sidebar_changed;
+  return caret_changed || terminal_changed || terminal_blink_changed ||
+         shader_changed || prompt_modal_changed || sidebar_changed;
 }
 
 void StudioWorkspaceRenderer::shutdown() {
@@ -1017,13 +1192,35 @@ StudioWorkspaceRenderer::calculate_layout(int client_width, int client_height,
       m_file_buffer_bounds.has_value()
           ? std::optional<float>(m_file_buffer_bounds->width)
           : std::nullopt;
+
+  auto &settings = Settings::SettingsService::instance();
+  std::string activity_bar_loc = "Default";
+  if (settings.has("workbench.activityBar.location")) {
+    activity_bar_loc =
+        settings.get<std::string>("workbench.activityBar.location");
+  }
+  bool activity_bar_visible = true;
+  if (settings.has("workbench.activityBar.visible")) {
+    activity_bar_visible = settings.get<bool>("workbench.activityBar.visible");
+  }
+  if (!activity_bar_visible || activity_bar_loc == "Hidden") {
+    activity_bar_loc = "Hidden";
+  }
+
+  bool sidebar_on_right = false;
+  if (settings.has("workbench.sidebar.position")) {
+    const std::string sidebar_pos =
+        settings.get<std::string>("workbench.sidebar.position");
+    sidebar_on_right = (sidebar_pos == "Right" || sidebar_pos == "right");
+  }
+
   auto result = m_layout_engine.calculate(
       static_cast<float>(client_width), static_cast<float>(client_height),
       content_top, m_dpi_scale, m_terminal_panel.is_visible(),
       m_terminal_panel.get_height(), m_terminal_panel.is_maximized(),
       m_tool_sidebar.is_visible(), m_tool_sidebar.get_width(),
       m_shader_sandbox_panel.is_visible(), m_shader_sandbox_panel.get_width(),
-      custom_nav, line_count, custom_tab_w);
+      custom_nav, line_count, custom_tab_w, activity_bar_loc, sidebar_on_right);
   if (m_file_buffer_bounds.has_value() && !m_file_buffer_bounds->is_empty()) {
     result.tab_bar_bounds.x = m_file_buffer_bounds->x;
     result.tab_bar_bounds.width = m_file_buffer_bounds->width;
@@ -1041,34 +1238,68 @@ StudioWorkspaceRenderer::get_modern_card_geometry(
   const float outer_gap = std::max(std::round(5.0F * scale), 4.0F);
   const float card_radius = std::max(std::round(8.0F * scale), 8.0F);
 
+  auto &settings = Settings::SettingsService::instance();
+  bool sidebar_on_right = false;
+  if (settings.has("workbench.sidebar.position")) {
+    const std::string sidebar_pos =
+        settings.get<std::string>("workbench.sidebar.position");
+    sidebar_on_right = (sidebar_pos == "Right" || sidebar_pos == "right");
+  }
+
   ModernCardGeometry geom;
   geom.card_radius = card_radius;
 
   const bool has_sidebar =
       m_tool_sidebar.is_visible() && !layout.tool_sidebar_bounds.is_empty();
-  // In modern blurred style, the sidebar seamlessly floats on the blurred window
-  // surface rather than being enclosed in an opaque solid card.
+  // In modern blurred style, the sidebar seamlessly floats on the blurred
+  // window surface rather than being enclosed in an opaque solid card.
   geom.sidebar_card = UI::Rect{};
 
-  const float editor_col_left =
-      has_sidebar ? (layout.tool_sidebar_bounds.right() + sep_gap * 0.5F)
-                  : (layout.activity_bar_bounds.right() + outer_gap);
+  float editor_col_left = outer_gap;
+  float editor_col_right = layout.workspace_bounds.right() - outer_gap;
+  const float shader_split_x = layout.shader_splitter_bounds.x +
+                               layout.shader_splitter_bounds.width * 0.5F;
 
-  const float shader_split_x =
-      layout.shader_splitter_bounds.x + layout.shader_splitter_bounds.width * 0.5F;
-  const float editor_col_right =
-      layout.shader_panel_visible
-          ? (shader_split_x - sep_gap * 0.5F)
-          : (layout.workspace_bounds.right() - outer_gap);
+  if (sidebar_on_right) {
+    if (!layout.activity_bar_bounds.is_empty() &&
+        layout.activity_bar_bounds.width < 100.0F &&
+        layout.activity_bar_bounds.x < layout.editor_bounds.x) {
+      editor_col_left = layout.activity_bar_bounds.right() + outer_gap;
+    } else {
+      editor_col_left = outer_gap;
+    }
+    if (layout.shader_panel_visible) {
+      editor_col_right = shader_split_x - sep_gap * 0.5F;
+    } else if (has_sidebar) {
+      editor_col_right = layout.tool_sidebar_bounds.x - sep_gap * 0.5F;
+    } else if (!layout.activity_bar_bounds.is_empty() &&
+               layout.activity_bar_bounds.width < 100.0F &&
+               layout.activity_bar_bounds.x > layout.editor_bounds.x) {
+      editor_col_right = layout.activity_bar_bounds.x - outer_gap;
+    } else {
+      editor_col_right = layout.workspace_bounds.right() - outer_gap;
+    }
+  } else {
+    editor_col_left =
+        has_sidebar ? (layout.tool_sidebar_bounds.right() + sep_gap * 0.5F)
+                    : (!layout.activity_bar_bounds.is_empty() &&
+                               layout.activity_bar_bounds.width < 100.0F
+                           ? (layout.activity_bar_bounds.right() + outer_gap)
+                           : outer_gap);
 
-  const float editor_col_top = (layout.editor_header_bounds.is_empty()
-                                    ? layout.gutter_bounds.y
-                                    : layout.editor_header_bounds.y) +
-                               outer_gap;
+    editor_col_right = layout.shader_panel_visible
+                           ? (shader_split_x - sep_gap * 0.5F)
+                           : (layout.workspace_bounds.right() - outer_gap);
+  }
+
+  const float editor_col_top =
+      (layout.editor_header_bounds.is_empty() ? layout.gutter_bounds.y
+                                              : layout.editor_header_bounds.y) +
+      outer_gap;
   const float editor_col_bottom = layout.status_bar_bounds.y - outer_gap;
 
-  const bool has_terminal = m_terminal_panel.is_visible() &&
-                            !layout.terminal_panel_bounds.is_empty();
+  const bool has_terminal =
+      m_terminal_panel.is_visible() && !layout.terminal_panel_bounds.is_empty();
 
   const float editor_card_bottom =
       has_terminal ? (layout.terminal_panel_bounds.y - sep_gap * 0.5F)
@@ -1097,7 +1328,8 @@ StudioWorkspaceRenderer::get_modern_card_geometry(
     geom.shader_card = UI::Rect{
         shader_left,
         layout.shader_panel_bounds.y + outer_gap,
-        std::max(0.0F, layout.shader_panel_bounds.right() - outer_gap - shader_left),
+        std::max(0.0F,
+                 layout.shader_panel_bounds.right() - outer_gap - shader_left),
         std::max(0.0F, layout.shader_panel_bounds.height - outer_gap * 2.0F),
     };
   }
@@ -1160,8 +1392,8 @@ void StudioWorkspaceRenderer::apply_solid_card_alpha(
       m_palette.is_modern || m_theme.is_modern || m_theme.enable_os_blur;
 
   if (!is_modern_style) {
-    const int top_y = std::clamp(static_cast<int>(std::round(content_top)), 0,
-                                 client_height);
+    const int top_y =
+        std::clamp(static_cast<int>(std::round(content_top)), 0, client_height);
     for (int y = top_y; y < client_height; ++y) {
       uint32_t *row = &pixels[y * client_width];
       for (int x = 0; x < client_width; ++x) {
@@ -1174,13 +1406,13 @@ void StudioWorkspaceRenderer::apply_solid_card_alpha(
   const auto geom =
       get_modern_card_geometry(client_width, client_height, content_top);
   if (!geom.sidebar_card.is_empty()) {
-    set_card_alpha_channel(pixels, client_width, client_height, geom.sidebar_card,
-                           geom.card_radius);
+    set_card_alpha_channel(pixels, client_width, client_height,
+                           geom.sidebar_card, geom.card_radius);
   }
   set_card_alpha_channel(pixels, client_width, client_height, geom.editor_card,
                          geom.card_radius);
-  set_card_alpha_channel(pixels, client_width, client_height, geom.terminal_card,
-                         geom.card_radius);
+  set_card_alpha_channel(pixels, client_width, client_height,
+                         geom.terminal_card, geom.card_radius);
   set_card_alpha_channel(pixels, client_width, client_height, geom.shader_card,
                          geom.card_radius);
 
@@ -1191,8 +1423,9 @@ void StudioWorkspaceRenderer::apply_solid_card_alpha(
   }
 }
 
-Graphics::BlurUniforms StudioWorkspaceRenderer::to_blur_uniforms(
-    int client_width, int client_height, float content_top) const noexcept {
+Graphics::BlurUniforms
+StudioWorkspaceRenderer::to_blur_uniforms(int client_width, int client_height,
+                                          float content_top) const noexcept {
   Graphics::BlurUniforms uniforms{};
   if (client_width > 0 && client_height > 0) {
     uniforms.texel_width = 1.0F / static_cast<float>(client_width);
@@ -1204,16 +1437,18 @@ Graphics::BlurUniforms StudioWorkspaceRenderer::to_blur_uniforms(
 
   if (!geom.sidebar_card.is_empty()) {
     uniforms.explorer_card = {geom.sidebar_card.x, geom.sidebar_card.y,
-                             geom.sidebar_card.width, geom.sidebar_card.height};
+                              geom.sidebar_card.width,
+                              geom.sidebar_card.height};
   } else {
     uniforms.explorer_card = {0.0F, 0.0F, 0.0F, 0.0F};
   }
   uniforms.editor_card = {geom.editor_card.x, geom.editor_card.y,
-                         geom.editor_card.width, geom.editor_card.height};
+                          geom.editor_card.width, geom.editor_card.height};
   uniforms.terminal_card = {geom.terminal_card.x, geom.terminal_card.y,
-                           geom.terminal_card.width, geom.terminal_card.height};
+                            geom.terminal_card.width,
+                            geom.terminal_card.height};
   uniforms.shader_card = {geom.shader_card.x, geom.shader_card.y,
-                         geom.shader_card.width, geom.shader_card.height};
+                          geom.shader_card.width, geom.shader_card.height};
   if (m_tool_switcher_popup.is_visible()) {
     const auto pb = m_tool_switcher_popup.calculate_bounds(m_dpi_scale);
     uniforms.popup_card = {pb.x, pb.y, pb.width, pb.height};
@@ -1258,8 +1493,7 @@ void StudioWorkspaceRenderer::render(Drawable drawable, int client_width,
     if (tabs_are_in_titlebar) {
       m_text_editor.draw_tab_strip(*this, drawable, layout);
     } else {
-      fill_rectangle(drawable, layout.tab_bar_bounds,
-                     m_pixels.tab_background);
+      fill_rectangle(drawable, layout.tab_bar_bounds, m_pixels.tab_background);
       m_text_editor.draw_tab_strip(*this, drawable, layout);
     }
     fill_rectangle(drawable, layout.tool_sidebar_bounds,
@@ -1291,7 +1525,7 @@ void StudioWorkspaceRenderer::render(Drawable drawable, int client_width,
         get_modern_card_geometry(client_width, client_height, content_top);
     const float card_radius = geom.card_radius;
 
-      // Sidebar card wrapper
+    // Sidebar card wrapper
     if (!geom.sidebar_card.is_empty()) {
       fill_rounded_rectangle(drawable, geom.sidebar_card,
                              m_pixels.sidebar_background, card_radius,
@@ -1358,7 +1592,8 @@ void StudioWorkspaceRenderer::render(Drawable drawable, int client_width,
                             UI::Editor::FooterEditorStatus{});
   }
 
-  // Floating overlays (e.g. completions, diagnostics, menus) rendered on top of cards
+  // Floating overlays (e.g. completions, diagnostics, menus) rendered on top of
+  // cards
   m_text_editor.render_overlays(*this, drawable, layout);
 }
 
@@ -1429,9 +1664,9 @@ void StudioWorkspaceRenderer::render_prompt_modal(Drawable drawable,
   if (m_prompt_modal.get_mode() != UI::Components::PromptMode::ConfirmDelete) {
     const auto &input = m_prompt_modal.get_input();
     const UI::Theme::Color input_bg{20, 20, 24, 255};
-    const UI::Theme::Color input_border = input.get_state().focused
-                                              ? UI::Theme::Color{0, 122, 204, 255}
-                                              : border_col;
+    const UI::Theme::Color input_border =
+        input.get_state().focused ? UI::Theme::Color{0, 122, 204, 255}
+                                  : border_col;
     fill_rounded_rectangle(drawable, layout.input_bounds,
                            allocate_color(input_bg), 3.0F * m_dpi_scale,
                            allocate_color(dialog_bg));
@@ -1499,8 +1734,9 @@ bool StudioWorkspaceRenderer::is_settings_window_visible() const noexcept {
   return m_settings_window.is_visible();
 }
 
-void StudioWorkspaceRenderer::render_settings_window(
-    Drawable drawable, int client_width, int client_height) const {
+void StudioWorkspaceRenderer::render_settings_window(Drawable drawable,
+                                                     int client_width,
+                                                     int client_height) const {
   if (!m_settings_window.is_visible()) {
     return;
   }
@@ -1508,9 +1744,9 @@ void StudioWorkspaceRenderer::render_settings_window(
       static_cast<float>(client_width), static_cast<float>(client_height),
       m_dpi_scale);
   const float scale = m_dpi_scale;
-  const auto& theme = m_settings_window.get_theme();
+  const auto &theme = m_settings_window.get_theme();
 
-  auto centered_x = [&](AntialiasedFont& font, const UI::Rect& rc,
+  auto centered_x = [&](AntialiasedFont &font, const UI::Rect &rc,
                         std::string_view text) -> float {
     const int tw = get_text_width(font, text);
     return rc.x + (rc.width - static_cast<float>(tw)) * 0.5F;
@@ -1529,11 +1765,12 @@ void StudioWorkspaceRenderer::render_settings_window(
                          6.0F * scale);
 
   // 2. Header: gear icon + "Settings" + close X (Win32 §2).
-  draw_svg_icon(drawable, "Assets/icons/gear.svg",
-                round_to_int(layout.header_bounds.x + 14.0F * scale + 7.5F * scale),
-                round_to_int(layout.header_bounds.y + layout.header_bounds.height * 0.5F),
-                std::max(round_to_int(15.0F * scale), 12),
-                theme.text_secondary, dialog_bg, false);
+  draw_svg_icon(
+      drawable, "Assets/icons/gear.svg",
+      round_to_int(layout.header_bounds.x + 14.0F * scale + 7.5F * scale),
+      round_to_int(layout.header_bounds.y + layout.header_bounds.height * 0.5F),
+      std::max(round_to_int(15.0F * scale), 12), theme.text_secondary,
+      dialog_bg, false);
   if (m_ui_font) {
     draw_text(drawable, *m_ui_font, "Settings", layout.title_bounds.x,
               layout.title_bounds.y + layout.title_bounds.height * 0.5F,
@@ -1544,8 +1781,10 @@ void StudioWorkspaceRenderer::render_settings_window(
                    allocate_color(UI::Theme::Color{232, 17, 35, 255}));
   }
   {
-    const float cx = layout.close_btn_bounds.x + layout.close_btn_bounds.width * 0.5F;
-    const float cy = layout.close_btn_bounds.y + layout.close_btn_bounds.height * 0.5F;
+    const float cx =
+        layout.close_btn_bounds.x + layout.close_btn_bounds.width * 0.5F;
+    const float cy =
+        layout.close_btn_bounds.y + layout.close_btn_bounds.height * 0.5F;
     const float h = 5.0F * scale;
     const unsigned long col = allocate_color(
         layout.close_hovered ? UI::Theme::Color{255, 255, 255, 255}
@@ -1559,46 +1798,52 @@ void StudioWorkspaceRenderer::render_settings_window(
   // 3. Search bar (Win32 §3).
   if (!layout.search_bar_bounds.is_empty()) {
     const bool search_focused = !m_settings_window.get_search_query().empty();
-    fill_rounded_rectangle(
-        drawable, layout.search_bar_bounds,
-        allocate_color(theme.command_center_background), 3.0F * scale, dialog_px);
-    draw_rounded_rectangle(
-        drawable, layout.search_bar_bounds,
-        allocate_color(search_focused ? theme.accent : theme.command_center_border),
-        3.0F * scale);
-    draw_svg_icon(drawable, "Assets/icons/search.svg",
-                  round_to_int(layout.search_bar_bounds.x + 10.0F * scale + 7.0F * scale),
-                  round_to_int(layout.search_bar_bounds.y + layout.search_bar_bounds.height * 0.5F),
-                  std::max(round_to_int(14.0F * scale), 11),
-                  theme.text_secondary, theme.command_center_background, false);
+    fill_rounded_rectangle(drawable, layout.search_bar_bounds,
+                           allocate_color(theme.command_center_background),
+                           3.0F * scale, dialog_px);
+    draw_rounded_rectangle(drawable, layout.search_bar_bounds,
+                           allocate_color(search_focused
+                                              ? theme.accent
+                                              : theme.command_center_border),
+                           3.0F * scale);
+    draw_svg_icon(
+        drawable, "Assets/icons/search.svg",
+        round_to_int(layout.search_bar_bounds.x + 10.0F * scale + 7.0F * scale),
+        round_to_int(layout.search_bar_bounds.y +
+                     layout.search_bar_bounds.height * 0.5F),
+        std::max(round_to_int(14.0F * scale), 11), theme.text_secondary,
+        theme.command_center_background, false);
     if (m_ui_font) {
       const std::string query = m_settings_window.get_search_query();
-      draw_text(drawable, *m_ui_font,
-                query.empty() ? "Search settings" : query,
+      draw_text(drawable, *m_ui_font, query.empty() ? "Search settings" : query,
                 layout.search_bar_bounds.x + 32.0F * scale,
-                layout.search_bar_bounds.y + layout.search_bar_bounds.height * 0.5F,
+                layout.search_bar_bounds.y +
+                    layout.search_bar_bounds.height * 0.5F,
                 query.empty() ? m_text.muted : m_text.primary);
     }
     if (!layout.search_clear_btn_bounds.is_empty() && m_small_font) {
       draw_text(drawable, *m_small_font, "x",
                 layout.search_clear_btn_bounds.x + 4.0F * scale,
-                layout.search_clear_btn_bounds.y + layout.search_clear_btn_bounds.height * 0.5F,
+                layout.search_clear_btn_bounds.y +
+                    layout.search_clear_btn_bounds.height * 0.5F,
                 m_text.muted);
     }
   }
 
   // 4. Scope tabs User | Workspace + underline (Win32 §4).
   if (m_ui_font) {
-    const bool user_active =
-        m_settings_window.get_active_scope() == Zenvra::Settings::SettingsScope::User;
+    const bool user_active = m_settings_window.get_active_scope() ==
+                             Zenvra::Settings::SettingsScope::User;
     draw_text(drawable, *m_ui_font, "User", layout.user_tab_bounds.x,
               layout.user_tab_bounds.y + layout.user_tab_bounds.height * 0.5F,
               user_active ? m_text.primary : m_text.muted);
     draw_text(drawable, *m_ui_font, "Workspace", layout.workspace_tab_bounds.x,
-              layout.workspace_tab_bounds.y + layout.workspace_tab_bounds.height * 0.5F,
+              layout.workspace_tab_bounds.y +
+                  layout.workspace_tab_bounds.height * 0.5F,
               !user_active ? m_text.primary : m_text.muted);
   }
-  // 4.5 Borders: header separator + active underline + sidebar divider (Win32 §4.5).
+  // 4.5 Borders: header separator + active underline + sidebar divider (Win32
+  // §4.5).
   if (!layout.header_separator_bounds.is_empty()) {
     draw_line(drawable, round_to_int(layout.dialog_bounds.x),
               round_to_int(layout.header_separator_bounds.y),
@@ -1618,7 +1863,7 @@ void StudioWorkspaceRenderer::render_settings_window(
 
   // 5. Sidebar category tree with clip (Win32 §5).
   push_clip(layout.sidebar_bounds);
-  for (const auto& item : layout.category_items) {
+  for (const auto &item : layout.category_items) {
     if (item.bounds.bottom() < layout.sidebar_bounds.y ||
         item.bounds.y > layout.sidebar_bounds.bottom()) {
       continue;
@@ -1630,8 +1875,8 @@ void StudioWorkspaceRenderer::render_settings_window(
     const bool is_hovered = (item.id == layout.hovered_category ||
                              item.name == layout.hovered_category);
     if (is_active) {
-      draw_rounded_rectangle(drawable, item.bounds, allocate_color(theme.accent),
-                             2.0F * scale);
+      draw_rounded_rectangle(drawable, item.bounds,
+                             allocate_color(theme.accent), 2.0F * scale);
     } else if (is_hovered) {
       fill_rounded_rectangle(drawable, item.bounds, m_pixels.hover_background,
                              2.0F * scale, dialog_px);
@@ -1646,10 +1891,11 @@ void StudioWorkspaceRenderer::render_settings_window(
                     ch_sz, theme.text_secondary, dialog_bg, false);
     }
     if (m_small_font) {
-      const float indent = item.has_children
-                               ? (item.bounds.x + 22.0F * scale)
-                               : (item.depth == 0 ? (item.bounds.x + 22.0F * scale)
-                                                  : (item.bounds.x + 36.0F * scale));
+      const float indent =
+          item.has_children
+              ? (item.bounds.x + 22.0F * scale)
+              : (item.depth == 0 ? (item.bounds.x + 22.0F * scale)
+                                 : (item.bounds.x + 36.0F * scale));
       draw_text(drawable, *m_small_font, item.name, indent,
                 item.bounds.y + item.bounds.height * 0.5F,
                 is_active ? m_text.primary : m_text.muted);
@@ -1659,24 +1905,25 @@ void StudioWorkspaceRenderer::render_settings_window(
 
   // Sidebar scrollbar track & thumb (Win32 §5 tail).
   if (!layout.sidebar_scrollbar_track.is_empty()) {
-    fill_rounded_rectangle(
-        drawable, layout.sidebar_scrollbar_track,
-        allocate_color(UI::Theme::Color{18, 19, 22, 160}),
-        2.0F * scale, dialog_px);
+    fill_rounded_rectangle(drawable, layout.sidebar_scrollbar_track,
+                           allocate_color(UI::Theme::Color{18, 19, 22, 160}),
+                           2.0F * scale, dialog_px);
   }
   if (!layout.sidebar_scrollbar_thumb.is_empty()) {
     const bool hot = layout.sidebar_scrollbar_thumb_hovered ||
                      m_settings_window.is_dragging_sidebar_scrollbar();
     fill_rounded_rectangle(
         drawable, layout.sidebar_scrollbar_thumb,
-        allocate_color(hot ? UI::Theme::Color{95, 100, 110, 255} : (theme.is_dark ? UI::Theme::Color{65, 70, 80, 255} : theme.hover)),
+        allocate_color(hot ? UI::Theme::Color{95, 100, 110, 255}
+                           : (theme.is_dark ? UI::Theme::Color{65, 70, 80, 255}
+                                            : theme.hover)),
         2.0F * scale, dialog_px);
   }
 
   // 6. Content area with clip: section headers + rows (Win32 §6).
-  auto& service = Zenvra::Settings::SettingsService::instance();
+  auto &service = Zenvra::Settings::SettingsService::instance();
   push_clip(layout.content_bounds);
-  for (const auto& hdr : layout.section_headers) {
+  for (const auto &hdr : layout.section_headers) {
     if (hdr.bounds.bottom() < layout.content_bounds.y ||
         hdr.bounds.y > layout.content_bounds.bottom()) {
       continue;
@@ -1686,21 +1933,24 @@ void StudioWorkspaceRenderer::render_settings_window(
                 hdr.bounds.y + hdr.bounds.height * 0.5F, m_text.primary);
     }
   }
-  for (const auto& row : layout.rows) {
-    if (!row.def) continue;
+  for (const auto &row : layout.rows) {
+    if (!row.def)
+      continue;
     if (row.bounds.bottom() < layout.content_bounds.y ||
         row.bounds.y > layout.content_bounds.bottom()) {
       continue;
     }
-    const auto* def = row.def;
+    const auto *def = row.def;
 
     // Focus box + gear (Win32 row header).
     if (row.is_focused) {
       draw_rounded_rectangle(drawable, row.focus_box_bounds,
                              allocate_color(theme.accent), 2.0F * scale);
       draw_svg_icon(drawable, "Assets/icons/gear.svg",
-                    round_to_int(row.gear_btn_bounds.x + row.gear_btn_bounds.width * 0.5F),
-                    round_to_int(row.gear_btn_bounds.y + row.gear_btn_bounds.height * 0.5F),
+                    round_to_int(row.gear_btn_bounds.x +
+                                 row.gear_btn_bounds.width * 0.5F),
+                    round_to_int(row.gear_btn_bounds.y +
+                                 row.gear_btn_bounds.height * 0.5F),
                     std::max(round_to_int(15.0F * scale), 12),
                     theme.text_secondary, dialog_bg, false);
     }
@@ -1723,9 +1973,10 @@ void StudioWorkspaceRenderer::render_settings_window(
     // Controls per type.
     if (def->type == Zenvra::Settings::SettingType::Boolean) {
       const bool val = service.get<bool>(def->id);
-      const UI::Theme::Color bg = val ? theme.accent
-          : (row.is_checkbox_hovered ? theme.command_center_background
-                                     : UI::Theme::Color{24, 25, 28, 255});
+      const UI::Theme::Color bg =
+          val ? theme.accent
+              : (row.is_checkbox_hovered ? theme.command_center_background
+                                         : UI::Theme::Color{24, 25, 28, 255});
       const UI::Theme::Color bd = (val || row.is_checkbox_hovered)
                                       ? theme.accent
                                       : theme.command_center_border;
@@ -1734,41 +1985,49 @@ void StudioWorkspaceRenderer::render_settings_window(
       draw_rounded_rectangle(drawable, row.checkbox_bounds, allocate_color(bd),
                              2.0F * scale);
       if (val) {
-        const unsigned long white = allocate_color(UI::Theme::Color{255, 255, 255, 255});
+        const unsigned long white =
+            allocate_color(UI::Theme::Color{255, 255, 255, 255});
         const int cx = round_to_int(row.checkbox_bounds.x);
         const int cy = round_to_int(row.checkbox_bounds.y);
         const int s = std::max(round_to_int(scale), 1);
-        draw_line(drawable, cx + 4 * s, cy + 9 * s, cx + 7 * s, cy + 13 * s, white);
-        draw_line(drawable, cx + 7 * s, cy + 13 * s, cx + 14 * s, cy + 5 * s, white);
+        draw_line(drawable, cx + 4 * s, cy + 9 * s, cx + 7 * s, cy + 13 * s,
+                  white);
+        draw_line(drawable, cx + 7 * s, cy + 13 * s, cx + 14 * s, cy + 5 * s,
+                  white);
       }
     } else if (def->id == "editor.fontFamily") {
       const bool is_open = m_settings_window.get_dropdown().is_open() &&
-                           (m_settings_window.get_dropdown().get_owner_id() == "editor.fontFamily");
-      fill_rounded_rectangle(
-          drawable, row.input_bounds,
-          allocate_color(theme.command_center_background), 2.5F * scale, dialog_px);
+                           (m_settings_window.get_dropdown().get_owner_id() ==
+                            "editor.fontFamily");
+      fill_rounded_rectangle(drawable, row.input_bounds,
+                             allocate_color(theme.command_center_background),
+                             2.5F * scale, dialog_px);
       draw_rounded_rectangle(
           drawable, row.input_bounds,
           allocate_color(is_open ? theme.accent
-                         : (row.is_input_hovered ? theme.hover : theme.command_center_border)),
+                                 : (row.is_input_hovered
+                                        ? theme.hover
+                                        : theme.command_center_border)),
           2.5F * scale);
       if (m_ui_font) {
         const std::string cur = service.get<std::string>(def->id);
-        draw_text(drawable, *m_ui_font, cur,
-                  row.input_bounds.x + 8.0F * scale,
+        draw_text(drawable, *m_ui_font, cur, row.input_bounds.x + 8.0F * scale,
                   row.input_bounds.y + row.input_bounds.height * 0.5F,
                   m_text.primary);
       }
       draw_svg_icon(drawable, "Assets/icons/chevron-down.svg",
-                    round_to_int(row.dropdown_btn_bounds.x + row.dropdown_btn_bounds.width * 0.5F),
-                    round_to_int(row.dropdown_btn_bounds.y + row.dropdown_btn_bounds.height * 0.5F),
+                    round_to_int(row.dropdown_btn_bounds.x +
+                                 row.dropdown_btn_bounds.width * 0.5F),
+                    round_to_int(row.dropdown_btn_bounds.y +
+                                 row.dropdown_btn_bounds.height * 0.5F),
                     std::max(round_to_int(9.0F * scale), 8),
-                    theme.text_secondary, theme.command_center_background, false);
+                    theme.text_secondary, theme.command_center_background,
+                    false);
     } else if (def->id == "workbench.mascot.image") {
       const std::string img_path = service.get<std::string>(def->id);
       const UI::Theme::Color thumb_bg{20, 21, 24, 255};
-      fill_rounded_rectangle(drawable, row.thumbnail_bounds, allocate_color(thumb_bg),
-                             3.0F * scale, dialog_px);
+      fill_rounded_rectangle(drawable, row.thumbnail_bounds,
+                             allocate_color(thumb_bg), 3.0F * scale, dialog_px);
       draw_rounded_rectangle(
           drawable, row.thumbnail_bounds,
           allocate_color((row.is_thumbnail_hovered || row.is_focused)
@@ -1778,54 +2037,67 @@ void StudioWorkspaceRenderer::render_settings_window(
       // Thumbnail placeholder: draw icon + filename (full bitmap blit is
       // Win32-GDI only; X11 shows asset-slot style box).
       draw_svg_icon(drawable, "Assets/icons/image.svg",
-                    round_to_int(row.thumbnail_bounds.x + row.thumbnail_bounds.width * 0.5F),
-                    round_to_int(row.thumbnail_bounds.y + row.thumbnail_bounds.height * 0.5F - 8.0F * scale),
+                    round_to_int(row.thumbnail_bounds.x +
+                                 row.thumbnail_bounds.width * 0.5F),
+                    round_to_int(row.thumbnail_bounds.y +
+                                 row.thumbnail_bounds.height * 0.5F -
+                                 8.0F * scale),
                     std::max(round_to_int(22.0F * scale), 16),
                     theme.text_secondary, thumb_bg, false);
       if (m_small_font) {
         std::string mode;
-        try { mode = service.get<std::string>("workbench.mascot.renderMode"); }
-        catch (...) { mode = "default"; }
+        try {
+          mode = service.get<std::string>("workbench.mascot.renderMode");
+        } catch (...) {
+          mode = "default";
+        }
         std::string ext = (mode == "ascii") ? "ASCII" : "";
         if (ext.empty()) {
           const auto dot = img_path.find_last_of('.');
           ext = (dot == std::string::npos) ? "PNG" : img_path.substr(dot + 1);
-          for (auto& c : ext) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-          if (ext.empty()) ext = "PNG";
+          for (auto &c : ext)
+            c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+          if (ext.empty())
+            ext = "PNG";
         }
-        const UI::Rect badge{row.thumbnail_bounds.x + 3.0F * scale,
-                             row.thumbnail_bounds.bottom() - 13.0F * scale - 3.0F * scale,
-                             (ext == "ASCII" ? 38.0F : 28.0F) * scale, 13.0F * scale};
-        fill_rounded_rectangle(drawable, badge,
-                               allocate_color(UI::Theme::Color{12, 14, 18, 255}),
-                               2.0F * scale, allocate_color(thumb_bg));
-        draw_text(drawable, *m_small_font, ext,
-                  badge.x + 4.0F * scale, badge.y + badge.height * 0.5F,
-                  m_text.muted);
-        std::string disp = img_path.empty() ? "zenvra_logo.png (Default Mascot)" : img_path;
+        const UI::Rect badge{
+            row.thumbnail_bounds.x + 3.0F * scale,
+            row.thumbnail_bounds.bottom() - 13.0F * scale - 3.0F * scale,
+            (ext == "ASCII" ? 38.0F : 28.0F) * scale, 13.0F * scale};
+        fill_rounded_rectangle(
+            drawable, badge, allocate_color(UI::Theme::Color{12, 14, 18, 255}),
+            2.0F * scale, allocate_color(thumb_bg));
+        draw_text(drawable, *m_small_font, ext, badge.x + 4.0F * scale,
+                  badge.y + badge.height * 0.5F, m_text.muted);
+        std::string disp =
+            img_path.empty() ? "zenvra_logo.png (Default Mascot)" : img_path;
         draw_text(drawable, *m_small_font, disp,
                   row.input_bounds.x + 8.0F * scale,
                   row.input_bounds.y + row.input_bounds.height * 0.5F,
                   m_text.primary);
       }
-      auto button = [&](const UI::Rect& rc, std::string_view label, bool hovered,
-                        bool enabled = true) {
+      auto button = [&](const UI::Rect &rc, std::string_view label,
+                        bool hovered, bool enabled = true) {
         fill_rounded_rectangle(
             drawable, rc,
-            allocate_color(hovered && enabled ? theme.hover : theme.command_center_background),
+            allocate_color(hovered && enabled
+                               ? theme.hover
+                               : theme.command_center_background),
             2.5F * scale, dialog_px);
         draw_rounded_rectangle(
             drawable, rc,
-            allocate_color(hovered && enabled ? theme.accent : theme.command_center_border),
+            allocate_color(hovered && enabled ? theme.accent
+                                              : theme.command_center_border),
             2.5F * scale);
         if (m_ui_font) {
-          draw_text(drawable, *m_ui_font, label, centered_x(*m_ui_font, rc, label),
-                    rc.y + rc.height * 0.5F,
+          draw_text(drawable, *m_ui_font, label,
+                    centered_x(*m_ui_font, rc, label), rc.y + rc.height * 0.5F,
                     enabled ? m_text.primary : m_text.muted);
         }
       };
       button(row.browse_btn_bounds, "Browse...", row.is_browse_hovered);
-      button(row.reset_btn_bounds, "Reset", row.is_reset_hovered, row.is_modified);
+      button(row.reset_btn_bounds, "Reset", row.is_reset_hovered,
+             row.is_modified);
       if (m_small_font) {
         draw_text(drawable, *m_small_font, "Drop image here (.png, .jpg, .bmp)",
                   row.reset_btn_bounds.right() + 12.0F * scale,
@@ -1835,20 +2107,25 @@ void StudioWorkspaceRenderer::render_settings_window(
     } else if (def->id == "workbench.mascot.renderMode") {
       const bool is_ascii =
           (service.get<std::string>("workbench.mascot.renderMode") == "ascii");
-      auto switch_btn = [&](const UI::Rect& rc, std::string_view label, bool active,
-                            bool hovered) {
+      auto switch_btn = [&](const UI::Rect &rc, std::string_view label,
+                            bool active, bool hovered) {
         const UI::Theme::Color bg =
-            active ? theme.accent : (hovered ? theme.hover : theme.command_center_background);
+            active ? theme.accent
+                   : (hovered ? theme.hover : theme.command_center_background);
         const UI::Theme::Color bd =
-            active ? theme.accent : (hovered ? theme.accent : theme.command_center_border);
-        fill_rounded_rectangle(drawable, rc, allocate_color(bg), 3.0F * scale, dialog_px);
+            active ? theme.accent
+                   : (hovered ? theme.accent : theme.command_center_border);
+        fill_rounded_rectangle(drawable, rc, allocate_color(bg), 3.0F * scale,
+                               dialog_px);
         draw_rounded_rectangle(drawable, rc, allocate_color(bd), 3.0F * scale);
         if (m_ui_font) {
           if (active) {
-            draw_text(drawable, *m_ui_font, label, centered_x(*m_ui_font, rc, label),
+            draw_text(drawable, *m_ui_font, label,
+                      centered_x(*m_ui_font, rc, label),
                       rc.y + rc.height * 0.5F, "#ffffff");
           } else {
-            draw_text(drawable, *m_ui_font, label, centered_x(*m_ui_font, rc, label),
+            draw_text(drawable, *m_ui_font, label,
+                      centered_x(*m_ui_font, rc, label),
                       rc.y + rc.height * 0.5F, m_text.muted);
           }
         }
@@ -1869,38 +2146,45 @@ void StudioWorkspaceRenderer::render_settings_window(
       draw_rounded_rectangle(
           drawable, row.input_bounds,
           allocate_color(is_editing ? theme.accent
-                         : (row.is_input_hovered ? theme.hover : theme.command_center_border)),
+                                    : (row.is_input_hovered
+                                           ? theme.hover
+                                           : theme.command_center_border)),
           2.5F * scale);
       if (m_ui_font) {
-        const std::string val = is_editing ? m_settings_window.get_editing_text()
-                                           : service.get(def->id).to_display_string();
-        draw_text(drawable, *m_ui_font, val,
-                  row.input_bounds.x + 8.0F * scale,
+        const std::string val = is_editing
+                                    ? m_settings_window.get_editing_text()
+                                    : service.get(def->id).to_display_string();
+        draw_text(drawable, *m_ui_font, val, row.input_bounds.x + 8.0F * scale,
                   row.input_bounds.y + row.input_bounds.height * 0.5F,
                   m_text.primary);
         if (is_editing && m_settings_window.is_caret_visible()) {
           const int tw = get_text_width(*m_ui_font, val);
-          const int cx = round_to_int(row.input_bounds.x + 8.0F * scale + tw + 1);
-          const int top = round_to_int(row.input_bounds.y +
-                                       (row.input_bounds.height - 16.0F * scale) * 0.5F);
+          const int cx =
+              round_to_int(row.input_bounds.x + 8.0F * scale + tw + 1);
+          const int top =
+              round_to_int(row.input_bounds.y +
+                           (row.input_bounds.height - 16.0F * scale) * 0.5F);
           const int bot = top + round_to_int(16.0F * scale);
-          draw_line(drawable, cx, top, cx, bot, allocate_color(theme.text_primary));
+          draw_line(drawable, cx, top, cx, bot,
+                    allocate_color(theme.text_primary));
         }
       }
     } else if (def->type == Zenvra::Settings::SettingType::Enum &&
                def->id != "workbench.mascot.renderMode") {
-      const bool is_open = m_settings_window.get_dropdown().is_open() &&
-                           (m_settings_window.get_dropdown().get_owner_id() == def->id);
+      const bool is_open =
+          m_settings_window.get_dropdown().is_open() &&
+          (m_settings_window.get_dropdown().get_owner_id() == def->id);
       fill_rounded_rectangle(
           drawable, row.option_btn_bounds,
-          allocate_color((row.is_option_hovered || is_open) ? theme.hover
-                                                            : theme.command_center_background),
+          allocate_color((row.is_option_hovered || is_open)
+                             ? theme.hover
+                             : theme.command_center_background),
           2.5F * scale, dialog_px);
-      draw_rounded_rectangle(
-          drawable, row.option_btn_bounds,
-          allocate_color((row.is_option_hovered || is_open) ? theme.accent
-                                                            : theme.command_center_border),
-          2.5F * scale);
+      draw_rounded_rectangle(drawable, row.option_btn_bounds,
+                             allocate_color((row.is_option_hovered || is_open)
+                                                ? theme.accent
+                                                : theme.command_center_border),
+                             2.5F * scale);
       if (m_ui_font) {
         const std::string cur = service.get<std::string>(def->id);
         draw_text(drawable, *m_ui_font, cur,
@@ -1910,83 +2194,94 @@ void StudioWorkspaceRenderer::render_settings_window(
       }
       draw_svg_icon(drawable, "Assets/icons/chevron-down.svg",
                     round_to_int(row.option_btn_bounds.right() - 16.0F * scale),
-                    round_to_int(row.option_btn_bounds.y + row.option_btn_bounds.height * 0.5F),
+                    round_to_int(row.option_btn_bounds.y +
+                                 row.option_btn_bounds.height * 0.5F),
                     std::max(round_to_int(9.0F * scale), 8),
-                    theme.text_secondary, theme.command_center_background, false);
+                    theme.text_secondary, theme.command_center_background,
+                    false);
     }
   }
   pop_clip();
 
   // 7. Content scrollbar (Win32 §7).
   if (!layout.scrollbar_track.is_empty()) {
-    fill_rounded_rectangle(
-        drawable, layout.scrollbar_track,
-        allocate_color(UI::Theme::Color{18, 19, 22, 160}),
-        3.0F * scale, dialog_px);
+    fill_rounded_rectangle(drawable, layout.scrollbar_track,
+                           allocate_color(UI::Theme::Color{18, 19, 22, 160}),
+                           3.0F * scale, dialog_px);
   }
   if (!layout.scrollbar_thumb.is_empty()) {
     const bool hot = layout.scrollbar_thumb_hovered ||
                      m_settings_window.is_dragging_scrollbar();
     fill_rounded_rectangle(
         drawable, layout.scrollbar_thumb,
-        allocate_color(hot ? UI::Theme::Color{100, 106, 120, 255} : (theme.is_dark ? UI::Theme::Color{65, 70, 80, 255} : theme.hover)),
+        allocate_color(hot ? UI::Theme::Color{100, 106, 120, 255}
+                           : (theme.is_dark ? UI::Theme::Color{65, 70, 80, 255}
+                                            : theme.hover)),
         3.0F * scale, dialog_px);
   }
 
   // 8. Dropdown popover from cross-platform layout data (Win32 §8).
   {
-    const auto& dd = m_settings_window.get_dropdown();
+    const auto &dd = m_settings_window.get_dropdown();
     if (dd.is_open() && m_small_font && m_ui_font) {
-      const UI::Rect& b = dd.get_bounds();
+      const UI::Rect &b = dd.get_bounds();
       if (!b.is_empty()) {
         const unsigned long dd_bg = allocate_color(theme.panel_background);
         const unsigned long dd_border = allocate_color(theme.titlebar_border);
         fill_rounded_rectangle(drawable, b, dd_bg, 6.0F * scale, dialog_px);
         draw_rounded_rectangle(drawable, b, dd_border, 6.0F * scale);
         push_clip(b);
-        for (const auto& it : dd.get_layout_items()) {
-          if (it.bounds.is_empty()) continue;
+        for (const auto &it : dd.get_layout_items()) {
+          if (it.bounds.is_empty())
+            continue;
           if (it.is_hovered) {
-            fill_rounded_rectangle(drawable, it.bounds, m_pixels.hover_background,
-                                   3.0F * scale, dd_bg);
+            fill_rounded_rectangle(drawable, it.bounds,
+                                   m_pixels.hover_background, 3.0F * scale,
+                                   dd_bg);
           }
           float text_x = it.bounds.x + 10.0F * scale;
           if (!it.item.preview_colors.empty()) {
             float swatch_x = text_x;
             const float swatch_w = 14.0F * scale;
             const float swatch_h = 14.0F * scale;
-            const float swatch_y = it.bounds.y + (it.bounds.height - swatch_h) * 0.5F;
-            for (const auto& color : it.item.preview_colors) {
-              fill_rounded_rectangle(drawable, UI::Rect{swatch_x, swatch_y, swatch_w, swatch_h},
-                                     allocate_color(color), 2.0F * scale, dd_bg);
+            const float swatch_y =
+                it.bounds.y + (it.bounds.height - swatch_h) * 0.5F;
+            for (const auto &color : it.item.preview_colors) {
+              fill_rounded_rectangle(
+                  drawable, UI::Rect{swatch_x, swatch_y, swatch_w, swatch_h},
+                  allocate_color(color), 2.0F * scale, dd_bg);
               swatch_x += swatch_w + 3.0F * scale;
             }
             text_x = swatch_x + 6.0F * scale;
           }
-          draw_text(drawable, *m_small_font, it.item.label,
-                    text_x,
+          draw_text(drawable, *m_small_font, it.item.label, text_x,
                     it.bounds.y + it.bounds.height * 0.5F,
                     it.is_selected ? m_text.primary : m_text.muted);
           if (!it.item.description.empty()) {
-            const int desc_w = get_text_width(*m_small_font, it.item.description);
-            draw_text(drawable, *m_small_font, it.item.description,
-                      it.bounds.right() - static_cast<float>(desc_w) - 10.0F * scale,
-                      it.bounds.y + it.bounds.height * 0.5F,
-                      m_text_dimmed.muted);
+            const int desc_w =
+                get_text_width(*m_small_font, it.item.description);
+            draw_text(
+                drawable, *m_small_font, it.item.description,
+                it.bounds.right() - static_cast<float>(desc_w) - 10.0F * scale,
+                it.bounds.y + it.bounds.height * 0.5F, m_text_dimmed.muted);
           }
         }
         pop_clip();
 
-        const auto& dd_track = dd.get_scrollbar_track();
-        const auto& dd_thumb = dd.get_scrollbar_thumb();
+        const auto &dd_track = dd.get_scrollbar_track();
+        const auto &dd_thumb = dd.get_scrollbar_thumb();
         if (!dd_track.is_empty() && !dd_thumb.is_empty()) {
-          fill_rounded_rectangle(drawable, dd_track,
-                                 allocate_color(UI::Theme::Color{15, 16, 18, 160}),
-                                 2.0F * scale, dd_bg);
-          const bool dd_hot = dd.is_scrollbar_thumb_hovered() || dd.is_dragging_scrollbar();
-          fill_rounded_rectangle(drawable, dd_thumb,
-                                 allocate_color(dd_hot ? UI::Theme::Color{110, 115, 130, 255} : UI::Theme::Color{70, 75, 85, 255}),
-                                 2.0F * scale, dd_bg);
+          fill_rounded_rectangle(
+              drawable, dd_track,
+              allocate_color(UI::Theme::Color{15, 16, 18, 160}), 2.0F * scale,
+              dd_bg);
+          const bool dd_hot =
+              dd.is_scrollbar_thumb_hovered() || dd.is_dragging_scrollbar();
+          fill_rounded_rectangle(
+              drawable, dd_thumb,
+              allocate_color(dd_hot ? UI::Theme::Color{110, 115, 130, 255}
+                                    : UI::Theme::Color{70, 75, 85, 255}),
+              2.0F * scale, dd_bg);
         }
       }
     }
@@ -2049,7 +2344,8 @@ void StudioWorkspaceRenderer::pop_clip() const {
         static_cast<unsigned short>(std::max(round_to_int(eff.width), 0));
     xrect.height =
         static_cast<unsigned short>(std::max(round_to_int(eff.height), 0));
-    XSetClipRectangles(m_display, m_graphics_context, 0, 0, &xrect, 1, Unsorted);
+    XSetClipRectangles(m_display, m_graphics_context, 0, 0, &xrect, 1,
+                       Unsorted);
   }
 }
 
@@ -2109,16 +2405,22 @@ void StudioWorkspaceRenderer::draw_rectangle(Drawable drawable,
 }
 
 void StudioWorkspaceRenderer::reset_font_drawables() noexcept {
-  if (m_ui_font) m_ui_font->resetDrawable();
-  if (m_small_font) m_small_font->resetDrawable();
-  if (m_editor_font) m_editor_font->resetDrawable();
-  if (m_minimap_font) m_minimap_font->resetDrawable();
-  if (m_large_font) m_large_font->resetDrawable();
+  if (m_ui_font)
+    m_ui_font->resetDrawable();
+  if (m_small_font)
+    m_small_font->resetDrawable();
+  if (m_editor_font)
+    m_editor_font->resetDrawable();
+  if (m_minimap_font)
+    m_minimap_font->resetDrawable();
+  if (m_large_font)
+    m_large_font->resetDrawable();
 }
 
-void StudioWorkspaceRenderer::draw_rounded_rectangle(
-    Drawable drawable, const UI::Rect &rectangle, unsigned long color,
-    float radius) const {
+void StudioWorkspaceRenderer::draw_rounded_rectangle(Drawable drawable,
+                                                     const UI::Rect &rectangle,
+                                                     unsigned long color,
+                                                     float radius) const {
   if (rectangle.is_empty()) {
     return;
   }
@@ -2163,8 +2465,7 @@ void StudioWorkspaceRenderer::draw_text(Drawable drawable,
     XRectangle x_clip;
     x_clip.x = static_cast<short>(eff_clip->x);
     x_clip.y = static_cast<short>(eff_clip->y);
-    x_clip.width =
-        static_cast<unsigned short>(std::max(0.0f, eff_clip->width));
+    x_clip.width = static_cast<unsigned short>(std::max(0.0f, eff_clip->width));
     x_clip.height =
         static_cast<unsigned short>(std::max(0.0f, eff_clip->height));
     font.drawString(drawable, color, round_to_int(point_x), baseline,
@@ -2222,32 +2523,53 @@ void StudioWorkspaceRenderer::draw_svg_icon(
   std::filesystem::path resolved_path{path};
   if (resolved_path.is_relative() && !m_icon_asset_root.empty()) {
     std::string rel_str = resolved_path.string();
-    if (rel_str.starts_with("Assets/icons/") || rel_str.starts_with("Assets\\icons\\")) {
+    if (rel_str.starts_with("Assets/icons/") ||
+        rel_str.starts_with("Assets\\icons\\")) {
       rel_str = rel_str.substr(13);
-    } else if (rel_str.starts_with("Resources/icons/") || rel_str.starts_with("Resources\\icons\\")) {
+    } else if (rel_str.starts_with("Resources/icons/") ||
+               rel_str.starts_with("Resources\\icons\\")) {
       rel_str = rel_str.substr(16);
-    } else if (rel_str.starts_with("Assets/") || rel_str.starts_with("Assets\\")) {
+    } else if (rel_str.starts_with("Assets/") ||
+               rel_str.starts_with("Assets\\")) {
       rel_str = rel_str.substr(7);
-    } else if (rel_str.starts_with("Resources/") || rel_str.starts_with("Resources\\")) {
+    } else if (rel_str.starts_with("Resources/") ||
+               rel_str.starts_with("Resources\\")) {
       rel_str = rel_str.substr(10);
-    } else if (rel_str.starts_with("vscode-codicons/icons/")) {
+    }
+    if (rel_str.starts_with("vscode-codicons/icons/")) {
       // Submodule layout: codicon SVGs live under src/icons/
       rel_str = "vscode-codicons/src/icons/" + rel_str.substr(22);
+    } else if (rel_str.starts_with("vscode-codicons/") &&
+               !rel_str.starts_with("vscode-codicons/src/")) {
+      rel_str = "vscode-codicons/src/icons/" + rel_str.substr(16);
     }
 
     const std::filesystem::path filename = resolved_path.filename();
     const std::filesystem::path direct_path = m_icon_asset_root / rel_str;
-    const std::filesystem::path symbol_file_1 = m_icon_asset_root / "vscode-symbols" / "icons" / "files" / filename;
-    const std::filesystem::path symbol_folder_1 = m_icon_asset_root / "vscode-symbols" / "icons" / "folders" / filename;
-    const std::filesystem::path symbol_file_src = m_icon_asset_root / "vscode-symbols" / "src" / "icons" / "files" / filename;
-    const std::filesystem::path symbol_folder_src = m_icon_asset_root / "vscode-symbols" / "src" / "icons" / "folders" / filename;
-    const std::filesystem::path symbol_file_2 = m_icon_asset_root / "vscode-symbols" / "files" / filename;
-    const std::filesystem::path symbol_folder_2 = m_icon_asset_root / "vscode-symbols" / "folders" / filename;
-    const std::filesystem::path codicon_direct = m_icon_asset_root / "vscode-codicons" / "icons" / rel_str;
-    const std::filesystem::path codicon_file = m_icon_asset_root / "vscode-codicons" / "icons" / filename;
-    const std::filesystem::path codicon_src = m_icon_asset_root / "vscode-codicons" / "src" / "icons" / filename;
-    const std::filesystem::path vsicon_file = m_icon_asset_root / "vscode-icons" / "icons" / filename;
-    const std::filesystem::path material_file = m_icon_asset_root / "material-icon-theme" / filename;
+    const std::filesystem::path symbol_file_1 =
+        m_icon_asset_root / "vscode-symbols" / "icons" / "files" / filename;
+    const std::filesystem::path symbol_folder_1 =
+        m_icon_asset_root / "vscode-symbols" / "icons" / "folders" / filename;
+    const std::filesystem::path symbol_file_src = m_icon_asset_root /
+                                                  "vscode-symbols" / "src" /
+                                                  "icons" / "files" / filename;
+    const std::filesystem::path symbol_folder_src =
+        m_icon_asset_root / "vscode-symbols" / "src" / "icons" / "folders" /
+        filename;
+    const std::filesystem::path symbol_file_2 =
+        m_icon_asset_root / "vscode-symbols" / "files" / filename;
+    const std::filesystem::path symbol_folder_2 =
+        m_icon_asset_root / "vscode-symbols" / "folders" / filename;
+    const std::filesystem::path codicon_direct =
+        m_icon_asset_root / "vscode-codicons" / "icons" / rel_str;
+    const std::filesystem::path codicon_file =
+        m_icon_asset_root / "vscode-codicons" / "icons" / filename;
+    const std::filesystem::path codicon_src =
+        m_icon_asset_root / "vscode-codicons" / "src" / "icons" / filename;
+    const std::filesystem::path vsicon_file =
+        m_icon_asset_root / "vscode-icons" / "icons" / filename;
+    const std::filesystem::path material_file =
+        m_icon_asset_root / "material-icon-theme" / filename;
 
     if (std::filesystem::is_regular_file(direct_path, path_error)) {
       resolved_path = direct_path;
@@ -2257,7 +2579,8 @@ void StudioWorkspaceRenderer::draw_svg_icon(
       resolved_path = symbol_folder_1;
     } else if (std::filesystem::is_regular_file(symbol_file_src, path_error)) {
       resolved_path = symbol_file_src;
-    } else if (std::filesystem::is_regular_file(symbol_folder_src, path_error)) {
+    } else if (std::filesystem::is_regular_file(symbol_folder_src,
+                                                path_error)) {
       resolved_path = symbol_folder_src;
     } else if (std::filesystem::is_regular_file(symbol_file_2, path_error)) {
       resolved_path = symbol_file_2;
@@ -2274,12 +2597,12 @@ void StudioWorkspaceRenderer::draw_svg_icon(
     } else if (std::filesystem::is_regular_file(material_file, path_error)) {
       resolved_path = material_file;
     } else {
-      const std::filesystem::path themed_path = m_icon_asset_root / resolved_path;
+      const std::filesystem::path themed_path =
+          m_icon_asset_root / resolved_path;
       if (std::filesystem::is_regular_file(themed_path, path_error)) {
         resolved_path = themed_path;
       } else {
-        const std::filesystem::path legacy_path =
-            m_icon_asset_root / filename;
+        const std::filesystem::path legacy_path = m_icon_asset_root / filename;
         if (std::filesystem::is_regular_file(legacy_path, path_error)) {
           resolved_path = legacy_path;
         }
@@ -2300,10 +2623,9 @@ void StudioWorkspaceRenderer::draw_svg_icon(
   const int draw_y = center_y - half;
 
   const std::string resolved_string = resolved_path.string();
-  const std::string cache_key = resolved_string + "@" + std::to_string(size) +
-                                "#" + to_xft_color(color) + "/" +
-                                to_xft_color(background) +
-                                (preserve_source_colors ? "_p" : "");
+  const std::string cache_key =
+      resolved_string + "@" + std::to_string(size) + "#" + to_xft_color(color) +
+      "/" + to_xft_color(background) + (preserve_source_colors ? "_p" : "");
   XImage *image = nullptr;
   auto it = m_svg_cache.find(cache_key);
   if (it != m_svg_cache.end()) {
@@ -2343,15 +2665,18 @@ void StudioWorkspaceRenderer::draw_svg_icon(
       const uint32_t source_r = (pixel >> 16) & 0xFF;
       const uint32_t source_g = (pixel >> 8) & 0xFF;
       const uint32_t source_b = pixel & 0xFF;
-      const uint32_t out_r = preserve_source_colors
-                                 ? std::min(255U, source_r + (bg_r * (255 - a)) / 255)
-                                 : (tint_r * a + bg_r * (255 - a)) / 255;
-      const uint32_t out_g = preserve_source_colors
-                                 ? std::min(255U, source_g + (bg_g * (255 - a)) / 255)
-                                 : (tint_g * a + bg_g * (255 - a)) / 255;
-      const uint32_t out_b = preserve_source_colors
-                                 ? std::min(255U, source_b + (bg_b * (255 - a)) / 255)
-                                 : (tint_b * a + bg_b * (255 - a)) / 255;
+      const uint32_t out_r =
+          preserve_source_colors
+              ? std::min(255U, source_r + (bg_r * (255 - a)) / 255)
+              : (tint_r * a + bg_r * (255 - a)) / 255;
+      const uint32_t out_g =
+          preserve_source_colors
+              ? std::min(255U, source_g + (bg_g * (255 - a)) / 255)
+              : (tint_g * a + bg_g * (255 - a)) / 255;
+      const uint32_t out_b =
+          preserve_source_colors
+              ? std::min(255U, source_b + (bg_b * (255 - a)) / 255)
+              : (tint_b * a + bg_b * (255 - a)) / 255;
 
       // X11 ZPixmap expects 0x00RRGGBB on Little-Endian 24/32-bit visual
       dst[i] = (out_r << 16) | (out_g << 8) | out_b;
@@ -2384,22 +2709,30 @@ void StudioWorkspaceRenderer::draw_png_icon(
 
   std::error_code path_error;
   std::filesystem::path resolved_path{asset_path};
-  if (!std::filesystem::is_regular_file(resolved_path, path_error) && !m_icon_asset_root.empty()) {
+  if (!std::filesystem::is_regular_file(resolved_path, path_error) &&
+      !m_icon_asset_root.empty()) {
     std::string rel_str = resolved_path.string();
-    if (rel_str.starts_with("Assets/icons/") || rel_str.starts_with("Assets\\icons\\")) {
+    if (rel_str.starts_with("Assets/icons/") ||
+        rel_str.starts_with("Assets\\icons\\")) {
       rel_str = rel_str.substr(13);
-    } else if (rel_str.starts_with("Resources/icons/") || rel_str.starts_with("Resources\\icons\\")) {
+    } else if (rel_str.starts_with("Resources/icons/") ||
+               rel_str.starts_with("Resources\\icons\\")) {
       rel_str = rel_str.substr(16);
-    } else if (rel_str.starts_with("Assets/") || rel_str.starts_with("Assets\\")) {
+    } else if (rel_str.starts_with("Assets/") ||
+               rel_str.starts_with("Assets\\")) {
       rel_str = rel_str.substr(7);
-    } else if (rel_str.starts_with("Resources/") || rel_str.starts_with("Resources\\")) {
+    } else if (rel_str.starts_with("Resources/") ||
+               rel_str.starts_with("Resources\\")) {
       rel_str = rel_str.substr(10);
     } else if (rel_str.starts_with("vscode-codicons/icons/")) {
       rel_str = "vscode-codicons/src/icons/" + rel_str.substr(22);
     }
     const std::filesystem::path direct_path = m_icon_asset_root / rel_str;
-    const std::filesystem::path filename_path = m_icon_asset_root / resolved_path.filename();
-    const std::filesystem::path codicon_src = m_icon_asset_root / "vscode-codicons" / "src" / "icons" / resolved_path.filename();
+    const std::filesystem::path filename_path =
+        m_icon_asset_root / resolved_path.filename();
+    const std::filesystem::path codicon_src =
+        m_icon_asset_root / "vscode-codicons" / "src" / "icons" /
+        resolved_path.filename();
     const std::filesystem::path themed_path = m_icon_asset_root / resolved_path;
     if (std::filesystem::is_regular_file(direct_path, path_error)) {
       resolved_path = direct_path;
@@ -2626,13 +2959,17 @@ bool StudioWorkspaceRenderer::draw_ico_icon(
 void StudioWorkspaceRenderer::apply_theme(const UI::Theme::StudioTheme &theme) {
   m_theme = theme;
   m_palette = UI::Editor::StudioEditorPalette::from_theme(theme);
-  m_pixels.workspace_background = allocate_color(m_palette.workspace_background);
+  m_pixels.workspace_background =
+      allocate_color(m_palette.workspace_background);
   m_pixels.tab_background = allocate_color(m_palette.tab_background);
-  m_pixels.tab_active_background = allocate_color(m_palette.tab_active_background);
+  m_pixels.tab_active_background =
+      allocate_color(m_palette.tab_active_background);
   m_pixels.sidebar_background = allocate_color(m_palette.sidebar_background);
   m_pixels.editor_background = allocate_color(m_palette.editor_background);
-  m_pixels.active_line_background = allocate_color(m_palette.active_line_background);
-  m_pixels.selection_background = allocate_color(m_palette.selection_background);
+  m_pixels.active_line_background =
+      allocate_color(m_palette.active_line_background);
+  m_pixels.selection_background =
+      allocate_color(m_palette.selection_background);
   m_pixels.status_background = allocate_color(m_palette.status_background);
   m_pixels.border = allocate_color(m_palette.border);
   m_pixels.text_primary = allocate_color(m_palette.text_primary);
@@ -2655,19 +2992,28 @@ void StudioWorkspaceRenderer::apply_theme(const UI::Theme::StudioTheme &theme) {
   m_text.warning = to_xft_color(m_palette.warning);
   m_text.success = to_xft_color(m_palette.success);
 
-  m_text_dimmed.primary = to_xft_color(UI::Theme::dim_color(m_palette.text_primary, m_palette.editor_background));
-  m_text_dimmed.muted = to_xft_color(UI::Theme::dim_color(m_palette.text_muted, m_palette.editor_background));
-  m_text_dimmed.keyword = to_xft_color(UI::Theme::dim_color(m_palette.keyword, m_palette.editor_background));
-  m_text_dimmed.number = to_xft_color(UI::Theme::dim_color(m_palette.number, m_palette.editor_background));
-  m_text_dimmed.label = to_xft_color(UI::Theme::dim_color(m_palette.label, m_palette.editor_background));
-  m_text_dimmed.type = to_xft_color(UI::Theme::dim_color(m_palette.type, m_palette.editor_background));
-  m_text_dimmed.comment = to_xft_color(UI::Theme::dim_color(m_palette.comment, m_palette.editor_background));
-  m_text_dimmed.accent = to_xft_color(UI::Theme::dim_color(m_palette.accent, m_palette.editor_background));
-  m_text_dimmed.warning = to_xft_color(UI::Theme::dim_color(m_palette.warning, m_palette.editor_background));
-  m_text_dimmed.success = to_xft_color(UI::Theme::dim_color(m_palette.success, m_palette.editor_background));
+  m_text_dimmed.primary = to_xft_color(UI::Theme::dim_color(
+      m_palette.text_primary, m_palette.editor_background));
+  m_text_dimmed.muted = to_xft_color(
+      UI::Theme::dim_color(m_palette.text_muted, m_palette.editor_background));
+  m_text_dimmed.keyword = to_xft_color(
+      UI::Theme::dim_color(m_palette.keyword, m_palette.editor_background));
+  m_text_dimmed.number = to_xft_color(
+      UI::Theme::dim_color(m_palette.number, m_palette.editor_background));
+  m_text_dimmed.label = to_xft_color(
+      UI::Theme::dim_color(m_palette.label, m_palette.editor_background));
+  m_text_dimmed.type = to_xft_color(
+      UI::Theme::dim_color(m_palette.type, m_palette.editor_background));
+  m_text_dimmed.comment = to_xft_color(
+      UI::Theme::dim_color(m_palette.comment, m_palette.editor_background));
+  m_text_dimmed.accent = to_xft_color(
+      UI::Theme::dim_color(m_palette.accent, m_palette.editor_background));
+  m_text_dimmed.warning = to_xft_color(
+      UI::Theme::dim_color(m_palette.warning, m_palette.editor_background));
+  m_text_dimmed.success = to_xft_color(
+      UI::Theme::dim_color(m_palette.success, m_palette.editor_background));
 
   m_settings_window.set_theme(theme);
 }
 
 } // namespace Zenvra::Platform::X11::Components
-

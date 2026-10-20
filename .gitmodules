@@ -10,3 +10,11 @@
 	path = Assets/icons/vscode-symbols
 	url = https://github.com/miguelsolorio/vscode-symbols.git
 
+[submodule "plugins/general/bmewburn.vscode-intelephense-client"]
+	path = plugins/general/bmewburn.vscode-intelephense-client
+	url = https://github.com/bmewburn/vscode-intelephense.git
+
+[submodule "plugins/tools/shufo.vscode-blade-formatter"]
+	path = plugins/tools/shufo.vscode-blade-formatter
+	url = https://github.com/shufo/vscode-blade-formatter.git
+

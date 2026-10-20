@@ -160,8 +160,10 @@ private:
     void execute_popup_selection();
     void show_explorer_context_menu(const std::filesystem::path& target_path, int client_x, int client_y);
     void show_editor_context_menu(int client_x, int client_y);
+    void show_activity_bar_context_menu(int client_x, int client_y);
     void show_tray_menu(int root_x, int root_y);
     void execute_explorer_command(std::string_view command);
+    void execute_activity_bar_command(std::string_view command);
     void copy_to_clipboard(const std::string& text);
     void discard_pointer_events();
     void on_modal_dialog_closed();
@@ -210,6 +212,7 @@ private:
     Cursor m_text_cursor = None;
     Cursor m_split_resize_cursor = None;
     Cursor m_horizontal_split_resize_cursor = None;
+    Cursor m_corner_resize_cursor = None;
     Cursor m_active_cursor = None;
     std::array<Cursor, 9> m_move_resize_cursors{};
     TitlebarHitTestCallback m_titlebar_hit_test_callback;

@@ -119,6 +119,12 @@ public:
         int client_width,
         int client_height,
         float content_top) const noexcept;
+    [[nodiscard]] bool is_activity_bar_area(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
     [[nodiscard]] bool is_tab_bar_point(
         float point_x,
         float point_y,
@@ -193,6 +199,25 @@ public:
     [[nodiscard]] const TerminalPanel& get_terminal_panel() const noexcept { return m_terminal_panel; }
     [[nodiscard]] TextEditor& get_text_editor() noexcept { return m_text_editor; }
     [[nodiscard]] const TextEditor& get_text_editor() const noexcept { return m_text_editor; }
+    enum class SplitterCornerKind {
+        NoCorner,
+        SidebarTerminal,
+        ShaderTerminal,
+        EditorSplitTerminal,
+    };
+    [[nodiscard]] SplitterCornerKind get_splitter_corner_at(
+        const UI::Editor::StudioEditorLayoutResult& layout,
+        float point_x,
+        float point_y) const noexcept;
+    [[nodiscard]] bool is_corner_resize_handle_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_corner_resizing() const noexcept {
+        return m_active_corner_resizing != SplitterCornerKind::NoCorner;
+    }
     [[nodiscard]] bool is_terminal_resize_handle_point(
         float point_x,
         float point_y,
@@ -259,7 +284,9 @@ public:
 
     [[nodiscard]] bool toggle_shader_panel() noexcept;
     [[nodiscard]] bool is_shader_panel_visible() const noexcept;
+    [[nodiscard]] bool is_shader_sandbox_visible() const noexcept { return is_shader_panel_visible(); }
     [[nodiscard]] bool toggle_terminal() noexcept;
+    [[nodiscard]] bool is_terminal_visible() const noexcept;
     void sync_shader_sandbox() const;
     [[nodiscard]] bool is_empty_state_button_hovered() const noexcept;
     [[nodiscard]] bool tick_animations() noexcept;
@@ -408,6 +435,7 @@ private:
     void store_cached_image(const std::string& key, XImage* image) const;
     mutable std::unordered_map<std::string, XImage*> m_svg_cache;
     std::optional<UI::Rect> m_file_buffer_bounds;
+    SplitterCornerKind m_active_corner_resizing = SplitterCornerKind::NoCorner;
 };
 
 } // namespace Zenvra::Platform::X11::Components

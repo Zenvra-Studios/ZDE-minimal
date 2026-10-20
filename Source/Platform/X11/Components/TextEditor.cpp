@@ -2915,7 +2915,8 @@ void TextEditor::render(
     }
 
     // Draw continuous split divider line on TOP of minimap and scrollbar (full height from tab bar to editor bottom)
-    const bool split_highlight = m_is_resizing_split || m_hovered_split_resize;
+    const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+    const bool split_highlight = !is_modern && (m_is_resizing_split || m_hovered_split_resize);
     const unsigned long divider_col = split_highlight
                                           ? surface.m_pixels.accent
                                           : surface.m_pixels.border;

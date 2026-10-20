@@ -1,9 +1,10 @@
 #include "Tools/Classification/ProjectToolClassifier.h"
 
 #include <algorithm>
-#include <cctype>
 #include <array>
+#include <cctype>
 #include <cstdint>
+#include <cstring>
 #include <fstream>
 #include <regex>
 

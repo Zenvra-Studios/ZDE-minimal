@@ -44,6 +44,7 @@ X11ChromeRenderer::X11ChromeRenderer()
     m_run_config_state.active_architecture = UI::Toolbar::TargetArchitecture::X86_64;
   }
   m_run_config_state.active_preset_name = HostSystem::get_system_info().default_preset_debug;
+  m_run_config_state.active_target_name = "No Configuration";
 }
 
 X11ChromeRenderer::~X11ChromeRenderer() { shutdown(); }
@@ -338,6 +339,13 @@ bool X11ChromeRenderer::is_activity_bar_point(
       point_x, point_y, client_width, client_height, content_top);
 }
 
+bool X11ChromeRenderer::is_activity_bar_area(
+    float point_x, float point_y, int client_width, int client_height,
+    float content_top) const noexcept {
+  return m_workspace_renderer.is_activity_bar_area(
+      point_x, point_y, client_width, client_height, content_top);
+}
+
 bool X11ChromeRenderer::is_tab_bar_area_point(
     float point_x, float point_y, int client_width, int client_height,
     float content_top) const noexcept {
@@ -509,7 +517,9 @@ void X11ChromeRenderer::render(
         UI::Chrome::WindowChromeLayoutOptions{
             .show_window_controls = true,
             .hamburger_only = true,
-            .binary_label = m_run_config_state.active_target_name,
+            .binary_label = m_run_config_state.active_target_name.empty()
+                                ? "No Configuration"
+                                : m_run_config_state.active_target_name,
         });
   }
 
@@ -798,21 +808,44 @@ void X11ChromeRenderer::render(
     if (interaction_state.binary_button_hovered) {
       draw_toolbar_hover(effective_layout.binary_bounds);
     }
+    const bool has_targets = !m_run_config_state.available_targets.empty();
     const int binary_icon_size = std::max(round_to_int(16.0F * scale), 14);
+    const std::string target_icon =
+        !has_targets
+            ? (m_run_config_state.active_icon_asset.empty()
+                   ? "Assets/icons/terminal.svg"
+                   : m_run_config_state.active_icon_asset)
+            : (m_run_config_state.active_icon_asset.empty()
+                   ? "Assets/icons/material-icon-theme/cmake.svg"
+                   : m_run_config_state.active_icon_asset);
+
     m_workspace_renderer.draw_svg_icon(
-        back_buffer, "Assets/icons/terminal.svg",
+        back_buffer, target_icon,
         round_to_int(effective_layout.binary_bounds.x + 16.0F * scale),
         round_to_int(effective_layout.binary_bounds.y +
                      effective_layout.binary_bounds.height * 0.5F),
-        binary_icon_size, m_workspace_renderer.m_palette.text_primary,
+        binary_icon_size,
+        has_targets ? m_workspace_renderer.m_palette.text_primary
+                    : m_workspace_renderer.m_palette.text_muted,
         interaction_state.binary_button_hovered ? m_hover_color
                                                 : unhovered_chrome_bg);
+
+    std::string display_name =
+        has_targets ? m_run_config_state.active_target_name : "No Configuration";
+    if (display_name.empty()) {
+      display_name = "No Configuration";
+    }
+
     const UI::Rect text_rect{
         effective_layout.binary_bounds.x + 36.0F * scale,
         effective_layout.binary_bounds.y,
         std::max(0.0F, effective_layout.binary_bounds.width - 52.0F * scale),
         effective_layout.binary_bounds.height};
-    draw_centered_text(back_buffer, m_run_config_state.active_target_name, text_rect, m_text_colors.primary);
+    draw_centered_text(
+        back_buffer, display_name, text_rect,
+        (has_targets && display_name != "No Configuration")
+            ? m_text_colors.primary
+            : m_text_colors.secondary);
     const int chevron_x =
         round_to_int(effective_layout.binary_bounds.right() - 14.0F * scale);
     const int chevron_y =
@@ -958,6 +991,7 @@ PopupMenuGeometry X11ChromeRenderer::calculate_popup_geometry(
   const float row_height = 24.0F * scale;
   const float separator_height = 7.0F * scale;
   const float vertical_padding = 4.0F * scale;
+  const float floating_gap = 4.0F * scale;
   const float max_popup_limit = (menu_index == 12) ? 560.0F * scale : 460.0F * scale;
   const float base_pad = (menu_index == 12) ? 48.0F * scale : 42.0F * scale;
   const float char_w = (menu_index == 12) ? 7.8F : 7.0F;

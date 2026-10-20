@@ -22,16 +22,120 @@ void ActivitySidebar::render(
     Drawable drawable,
     const UI::Editor::StudioEditorLayoutResult& layout) const
 {
+    // Skip rendering if activity bar is hidden or has no dimensions
+    if (layout.activity_bar_bounds.is_empty() ||
+        layout.activity_bar_bounds.width <= 0.0F ||
+        layout.activity_bar_bounds.height <= 0.0F)
+    {
+        return;
+    }
+
+    const bool is_horizontal = layout.activity_bar_bounds.width > layout.activity_bar_bounds.height;
+    const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+    const std::span<const UI::Editor::SidebarItem> items = UI::Editor::get_studio_sidebar_items();
+
+    // 1. Horizontal activity bar rendering (when located at Top or Bottom)
+    if (is_horizontal)
+    {
+        if (!is_modern)
+        {
+            surface.fill_rectangle(drawable, layout.activity_bar_bounds, surface.m_pixels.sidebar_background);
+
+            const bool is_at_bottom = (layout.activity_bar_bounds.y > layout.tool_sidebar_bounds.y);
+            const int line_y = is_at_bottom
+                ? round_to_int(layout.activity_bar_bounds.y)
+                : round_to_int(layout.activity_bar_bounds.bottom() - 1.0F);
+            surface.draw_line(
+                drawable,
+                round_to_int(layout.activity_bar_bounds.x),
+                line_y,
+                round_to_int(layout.activity_bar_bounds.right()),
+                line_y,
+                surface.m_pixels.border);
+        }
+
+        for (std::size_t i = 0; i < items.size(); ++i)
+        {
+            const auto& item = items[i];
+            const UI::Rect item_rect = UI::Editor::calculate_studio_sidebar_item_bounds(layout, i);
+            if (item_rect.is_empty() || item_rect.right() > layout.activity_bar_bounds.right())
+            {
+                continue;
+            }
+
+            const bool active = item.icon == UI::Editor::SidebarIcon::Terminal
+                ? surface.m_terminal_panel.is_visible()
+                : item.icon == UI::Editor::SidebarIcon::Shader
+                    ? surface.m_shader_sandbox_panel.is_visible()
+                    : surface.m_tool_sidebar.is_active(item.icon);
+            const bool hovered = surface.m_tool_sidebar.is_hovered(item.icon);
+
+            const float box_radius = 5.0F * surface.m_dpi_scale;
+            UI::Theme::Color item_bg = is_modern ? surface.m_palette.workspace_background : surface.m_palette.sidebar_background;
+            const auto bg_px = is_modern ? surface.m_pixels.workspace_background : surface.m_pixels.sidebar_background;
+
+            if (active)
+            {
+                if (is_modern)
+                {
+                    const UI::Theme::Color active_tint = surface.m_palette.is_dark
+                        ? UI::Theme::Color{255, 255, 255, 28}
+                        : UI::Theme::Color{0, 102, 204, 28};
+                    const uint32_t a = active_tint.alpha;
+                    const auto& sbg = surface.m_palette.workspace_background;
+                    item_bg = UI::Theme::Color{
+                        static_cast<uint8_t>((active_tint.red * a + sbg.red * (255 - a) + 127) / 255),
+                        static_cast<uint8_t>((active_tint.green * a + sbg.green * (255 - a) + 127) / 255),
+                        static_cast<uint8_t>((active_tint.blue * a + sbg.blue * (255 - a) + 127) / 255),
+                        255
+                    };
+                    surface.fill_rounded_rectangle(
+                        drawable, item_rect, surface.allocate_color(item_bg), box_radius,
+                        bg_px);
+                }
+                else
+                {
+                    surface.fill_rounded_rectangle(
+                        drawable,
+                        item_rect,
+                        surface.m_palette.is_dark ? surface.m_pixels.text_primary : surface.m_pixels.accent,
+                        box_radius,
+                        surface.m_pixels.sidebar_background);
+                }
+            }
+            else if (hovered)
+            {
+                const UI::Theme::Color hover_tint = surface.m_palette.is_dark
+                    ? UI::Theme::Color{255, 255, 255, 18}
+                    : UI::Theme::Color{0, 0, 0, 16};
+                const uint32_t a = hover_tint.alpha;
+                const auto& sbg = is_modern ? surface.m_palette.workspace_background : surface.m_palette.sidebar_background;
+                item_bg = UI::Theme::Color{
+                    static_cast<uint8_t>((hover_tint.red * a + sbg.red * (255 - a) + 127) / 255),
+                    static_cast<uint8_t>((hover_tint.green * a + sbg.green * (255 - a) + 127) / 255),
+                    static_cast<uint8_t>((hover_tint.blue * a + sbg.blue * (255 - a) + 127) / 255),
+                    255
+                };
+                surface.fill_rounded_rectangle(
+                    drawable, item_rect, surface.allocate_color(item_bg), box_radius,
+                    bg_px);
+            }
+
+            const int icon_cx = round_to_int(item_rect.x + item_rect.width * 0.5F);
+            const int icon_cy = round_to_int(item_rect.y + item_rect.height * 0.5F);
+            draw_icon(surface, drawable, item.icon, icon_cx, icon_cy, active, hovered, item_bg);
+        }
+        return;
+    }
+
+    // 2. Vertical activity bar rendering (classic side position)
     const int center_x = round_to_int(layout.activity_bar_bounds.x + layout.activity_bar_bounds.width * 0.5F);
     std::size_t top_index = 0;
     std::size_t bottom_index = 0;
-    const std::span<const UI::Editor::SidebarItem> items = UI::Editor::get_studio_sidebar_items();
     const std::size_t bottom_count = static_cast<std::size_t>(std::count_if(
         items.begin(), items.end(), [](const UI::Editor::SidebarItem& item) {
             return item.placement == UI::Editor::SidebarPlacement::Bottom;
         }));
-        
-    const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
 
     for (const UI::Editor::SidebarItem& item : items)
     {
@@ -139,11 +243,14 @@ void ActivitySidebar::render(
     }
 
     if (!is_modern) {
+        const float line_x = (layout.activity_bar_bounds.x > layout.editor_bounds.x)
+            ? layout.activity_bar_bounds.x
+            : (layout.activity_bar_bounds.right() - 1.0F);
         surface.draw_line(
             drawable,
-            round_to_int(layout.activity_bar_bounds.right() - 1.0F),
+            round_to_int(line_x),
             round_to_int(layout.activity_bar_bounds.y),
-            round_to_int(layout.activity_bar_bounds.right() - 1.0F),
+            round_to_int(line_x),
             round_to_int(layout.activity_bar_bounds.bottom()),
             surface.m_pixels.border);
     }

@@ -454,10 +454,14 @@ bool ToolSidebar::is_resize_handle_point(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) const noexcept {
   const float scale = layout.dpi_scale;
+  const bool on_right = layout.tool_sidebar_bounds.x > layout.editor_bounds.x;
+  const float handle_x = on_right
+      ? (layout.tool_sidebar_bounds.x - 4.0F * scale)
+      : (layout.tool_sidebar_bounds.right() - 4.0F * scale);
   const UI::Rect handle_bounds{
-      layout.tool_sidebar_bounds.right() - 3.0F * scale,
+      handle_x,
       layout.tool_sidebar_bounds.y,
-      6.0F * scale,
+      8.0F * scale,
       layout.tool_sidebar_bounds.height,
   };
   return handle_bounds.contains(point_x, point_y);
@@ -471,7 +475,8 @@ bool ToolSidebar::handle_pointer_drag(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) noexcept {
   if (m_resizing) {
-    const float delta = point_x - m_drag_start_x;
+    const bool on_right = layout.tool_sidebar_bounds.x > layout.editor_bounds.x;
+    const float delta = on_right ? (m_drag_start_x - point_x) : (point_x - m_drag_start_x);
     float new_width = m_drag_start_width + delta / layout.dpi_scale;
 
     if (!m_model.is_visible()) {
@@ -588,22 +593,24 @@ void ToolSidebar::render(
   const UI::Rect panel = layout.tool_sidebar_bounds;
   const float scale = layout.dpi_scale;
 
+  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
   if (!is_visible() || panel.is_empty()) {
-    if (m_resize_hovered || m_resizing) {
-      surface.draw_line(drawable, round_to_int(panel.right() - scale),
+    if (!is_modern && (m_resize_hovered || m_resizing)) {
+      const bool on_right = panel.x > layout.editor_bounds.x;
+      const float edge_x = on_right ? panel.x : (panel.right() - scale);
+      surface.draw_line(drawable, round_to_int(edge_x),
                         round_to_int(panel.y),
-                        round_to_int(panel.right() - scale),
+                        round_to_int(edge_x),
                         round_to_int(panel.bottom()), surface.m_pixels.accent);
       surface.fill_rectangle(
           drawable,
-          UI::Rect{panel.right() - scale - scale, panel.y,
+          UI::Rect{on_right ? panel.x : (panel.right() - scale - scale), panel.y,
                    std::max(2.0F * scale, 2.0F), panel.height},
           surface.m_pixels.accent);
     }
     return;
   }
 
-  const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
   if (!is_modern) {
     surface.fill_rectangle(drawable, panel, surface.m_pixels.sidebar_background);
   }
@@ -1121,19 +1128,21 @@ void ToolSidebar::render(
     }
   }
 
-  // Draw right border
-  // In modern blurred mode, the sidebar seamlessly floats borderless without a right edge line or blue hover border
+  // Draw border
+  // In modern blurred mode, the sidebar seamlessly floats borderless without a dividing line or blue hover border
   if (!is_modern) {
     const bool show_accent = m_resize_hovered || m_resizing;
     const unsigned long splitter_color = show_accent ? surface.m_pixels.accent : surface.m_pixels.border;
+    const bool on_right = panel.x > layout.editor_bounds.x;
+    const float split_x = on_right ? panel.x : (panel.right() - 1.0F);
     surface.draw_line(
-        drawable, round_to_int(panel.right() - 1.0F), round_to_int(panel.y),
-        round_to_int(panel.right() - 1.0F), round_to_int(panel.bottom()),
+        drawable, round_to_int(split_x), round_to_int(panel.y),
+        round_to_int(split_x), round_to_int(panel.bottom()),
         splitter_color);
     if (show_accent) {
       surface.fill_rectangle(
           drawable,
-          UI::Rect{panel.right() - 1.0F * scale, panel.y, 2.0F * scale, panel.height},
+          UI::Rect{on_right ? (panel.x - 1.0F * scale) : (panel.right() - 1.0F * scale), panel.y, 2.0F * scale, panel.height},
           surface.m_pixels.accent);
     }
   }

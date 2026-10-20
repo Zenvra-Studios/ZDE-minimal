@@ -24,7 +24,7 @@ class AntialiasedFont;
 namespace Zenvra::Platform::X11::Components
 {
 
-inline constexpr std::size_t max_popup_menu_items = 16;
+inline constexpr std::size_t max_popup_menu_items = 32;
 
 struct PopupMenuGeometry
 {
@@ -109,7 +109,8 @@ public:
     }
     [[nodiscard]] bool toggle_shader_sandbox() { return m_workspace_renderer.toggle_shader_panel(); }
     [[nodiscard]] bool close_workspace_project() { return m_workspace_renderer.close_project(); }
-    [[nodiscard]] Components::StudioWorkspaceRenderer& get_workspace_renderer() noexcept { return m_workspace_renderer; }
+    [[nodiscard]] StudioWorkspaceRenderer& get_workspace_renderer() noexcept { return m_workspace_renderer; }
+    [[nodiscard]] const StudioWorkspaceRenderer& get_workspace_renderer() const noexcept { return m_workspace_renderer; }
 
     void set_active_target(std::string_view target) { m_run_config_state.active_target_name = std::string(target); }
     void set_active_mode(UI::Toolbar::BuildConfigurationMode mode) { m_run_config_state.active_mode = mode; }
@@ -178,6 +179,12 @@ public:
     [[nodiscard]] bool is_editor_focused() const noexcept;
     [[nodiscard]] bool is_terminal_focused() const noexcept;
     [[nodiscard]] bool is_activity_bar_point(
+        float point_x,
+        float point_y,
+        int client_width,
+        int client_height,
+        float content_top) const noexcept;
+    [[nodiscard]] bool is_activity_bar_area(
         float point_x,
         float point_y,
         int client_width,
@@ -278,12 +285,19 @@ public:
     [[nodiscard]] bool is_editor_split_resizing() const noexcept {
       return m_workspace_renderer.is_editor_split_resizing();
     }
+    [[nodiscard]] bool is_corner_resize_handle_point(
+        float point_x, float point_y, int client_width, int client_height,
+        float content_top) const noexcept {
+      return m_workspace_renderer.is_corner_resize_handle_point(
+          point_x, point_y, client_width, client_height, content_top);
+    }
+    [[nodiscard]] bool is_corner_resizing() const noexcept {
+      return m_workspace_renderer.is_corner_resizing();
+    }
     [[nodiscard]] bool tick_animations() noexcept;
 
     [[nodiscard]] TextEditor& get_text_editor() noexcept { return m_workspace_renderer.m_text_editor; }
     [[nodiscard]] const TextEditor& get_text_editor() const noexcept { return m_workspace_renderer.m_text_editor; }
-    [[nodiscard]] StudioWorkspaceRenderer& get_workspace_renderer() noexcept { return m_workspace_renderer; }
-    [[nodiscard]] const StudioWorkspaceRenderer& get_workspace_renderer() const noexcept { return m_workspace_renderer; }
     void apply_theme(const UI::Theme::StudioTheme& theme);
 
     [[nodiscard]] std::optional<std::filesystem::path> handle_right_click(
