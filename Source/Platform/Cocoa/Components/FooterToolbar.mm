@@ -33,6 +33,9 @@ static std::string breadcrumb_icon_svg(UI::Editor::BreadcrumbIconKind kind,
   return "Assets/icons/file.svg";
 }
 
+/**
+ *
+ * */
 void FooterToolbar::render(
     const StudioWorkspaceRenderer &surface, CGContextRef context,
     const UI::Editor::StudioEditorLayoutResult &layout,

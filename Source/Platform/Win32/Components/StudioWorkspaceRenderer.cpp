@@ -1766,10 +1766,7 @@ void StudioWorkspaceRenderer::apply_solid_card_alpha(
     set_card_alpha_channel(pixels, client_width, client_height, geom.sidebar_card,
                            geom.card_radius);
   }
-  if (!geom.editor_card.is_empty()) {
-    set_card_alpha_channel(pixels, client_width, client_height, geom.editor_card,
-                           geom.card_radius);
-  }
+  // In modern blurred style, editor card floats transparently on the frosted glass blur
   set_card_alpha_channel(pixels, client_width, client_height, geom.terminal_card,
                          geom.card_radius);
   set_card_alpha_channel(pixels, client_width, client_height, geom.shader_card,
@@ -1900,8 +1897,10 @@ void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
 
     // 4. Text Editor Card Wrapper
     if (!geom.editor_card.is_empty()) {
-      fill_rounded_rectangle(device_context, geom.editor_card,
-                             m_palette.editor_background, card_radius);
+      if (!is_modern_style) {
+        fill_rounded_rectangle(device_context, geom.editor_card,
+                               m_palette.editor_background, card_radius);
+      }
 
       const int saved = SaveDC(device_context);
       HRGN rgn = CreateRoundRectRgn(

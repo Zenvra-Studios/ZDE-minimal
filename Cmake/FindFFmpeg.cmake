@@ -43,9 +43,6 @@ set(_FFMPEG_SEARCH_PATHS
     $ENV{FFMPEG_DIR}
     "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg"
     "${CMAKE_SOURCE_DIR}/ThirdParty/FFmpeg"
-    "c:/Users/Administrator/Documents/ZDE-minimal/ThirdParty/ffmpeg"
-    "C:/ThirdParty/ffmpeg"
-    "C:/ThirdParty/FFmpeg"
     "${CMAKE_SOURCE_DIR}/lib/ffmpeg"
     /usr/local
     /usr

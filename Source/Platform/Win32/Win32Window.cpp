@@ -41,6 +41,8 @@ namespace Zenvra::Platform::Win32 {
 
 namespace {
 
+using Zenvra::Utility::round_to_int;
+
 constexpr DWORD dwm_immersive_dark_mode_attribute = 20;
 constexpr UINT_PTR editor_caret_timer_id = 1;
 
@@ -103,8 +105,6 @@ void enable_menu_dark_mode(HWND hwnd, bool is_dark = true) {
 COLORREF to_color_ref(const UI::Theme::Color &color) {
   return RGB(color.red, color.green, color.blue);
 }
-
-using Zenvra::Utility::round_to_int;
 
 RECT to_native_rect(const UI::Rect &rectangle) {
   return RECT{
