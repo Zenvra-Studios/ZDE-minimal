@@ -635,7 +635,9 @@ std::size_t GenericGrammarEngine::tokenize_line(
                         ((line[cursor] == '&' && line[cursor + 1] == '&') ||
                          (line[cursor] == '|' && line[cursor + 1] == '|') ||
                          (line[cursor] == '=' && line[cursor + 1] == '=') ||
-                         (line[cursor] == '!' && line[cursor + 1] == '=')))
+                         (line[cursor] == '!' && line[cursor + 1] == '=') ||
+                         (line[cursor] == '<' && line[cursor + 1] == '=') ||
+                         (line[cursor] == '>' && line[cursor + 1] == '=')))
                     {
                         cursor += 2;
                     }
@@ -1421,12 +1423,48 @@ std::size_t GenericGrammarEngine::tokenize_line(
         {
             decl_context = DeclContext::None;
         }
-        else if (punct == ':' && cursor + 1 < line.size() && line[cursor + 1] == ':')
+
+        // Keep brackets and standard delimiters as single-character tokens for brace matching/folding
+        if (punct == ';' || punct == '{' || punct == '}' || punct == '(' || punct == ')' ||
+            punct == '[' || punct == ']' || punct == ',')
         {
-            append(line.substr(cursor, 2), UI::Editor::EditorTokenKind::Plain);
-            cursor += 2;
+            ++cursor;
+            append(line.substr(token_start, 1), UI::Editor::EditorTokenKind::Plain);
             continue;
         }
+
+        // Match 3-character operators first (e.g. ===, !==, <=>, -->, <!--, ..., etc.)
+        if (cursor + 3 <= line.size())
+        {
+            const std::string_view op3 = line.substr(cursor, 3);
+            if (op3 == "===" || op3 == "!==" || op3 == "<=>" || op3 == "-->" ||
+                op3 == "<!--" || op3 == "..." || op3 == "..=" || op3 == "->>" ||
+                op3 == "<<=" || op3 == ">>=" || op3 == "??=" || op3 == "**=")
+            {
+                append(op3, UI::Editor::EditorTokenKind::Plain);
+                cursor += 3;
+                continue;
+            }
+        }
+
+        // Match 2-character operators (e.g. ->, =>, ::, ==, !=, <=, >=, :=, &&, ||, ++, --, etc.)
+        if (cursor + 2 <= line.size())
+        {
+            const std::string_view op2 = line.substr(cursor, 2);
+            if (op2 == "->" || op2 == "=>" || op2 == "::" || op2 == "==" ||
+                op2 == "!=" || op2 == "<=" || op2 == ">=" || op2 == ":=" ||
+                op2 == "&&" || op2 == "||" || op2 == "++" || op2 == "--" ||
+                op2 == "+=" || op2 == "-=" || op2 == "*=" || op2 == "/=" ||
+                op2 == "%=" || op2 == "&=" || op2 == "|=" || op2 == "^=" ||
+                op2 == "<<" || op2 == ">>" || op2 == "??" || op2 == "**" ||
+                op2 == ".." || op2 == "=~" || op2 == "!~")
+            {
+                append(op2, UI::Editor::EditorTokenKind::Plain);
+                cursor += 2;
+                continue;
+            }
+        }
+
         ++cursor;
         append(line.substr(token_start, 1), UI::Editor::EditorTokenKind::Plain);
     }

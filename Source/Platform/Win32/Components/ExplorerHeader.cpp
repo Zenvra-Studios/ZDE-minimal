@@ -11,7 +11,7 @@ namespace Zenvra::Platform::Win32::Components
 using Zenvra::Utility::round_to_int;
 
 constexpr float header_height = UI::Editor::StudioEditorMetrics::tab_height;
-constexpr float icon_spacing = 20.0F;
+constexpr float icon_spacing = 22.0F;
 constexpr float right_margin = 14.0F;
 
 ExplorerHeader::ActionIcon ExplorerHeader::get_icon_at_point(
@@ -28,7 +28,7 @@ ExplorerHeader::ActionIcon ExplorerHeader::get_icon_at_point(
     }
     
     float current_x = panel.right() - right_margin * scale;
-    const float hit_radius = 10.0F * scale;
+    const float hit_radius = 11.0F * scale;
     
     // More (ellipsis)
     if (std::abs(point_x - current_x) <= hit_radius) return ActionIcon::More;
@@ -79,7 +79,7 @@ void ExplorerHeader::render(
                       center_y, surface.m_palette.text_primary);
 
     const int header_center_y = round_to_int(center_y);
-    const int icon_size = std::max(round_to_int(14.0F * scale), 11);
+    const int icon_size = std::max(round_to_int(16.0F * scale), 13);
     
     auto draw_icon = [&](ActionIcon icon_type, const char* path, float center_x) {
         const bool is_hovered = (m_hovered_icon == icon_type);
@@ -88,12 +88,12 @@ void ExplorerHeader::render(
         
         if (is_hovered) {
             UI::Rect hover_bg{
-                center_x - 11.0F * scale,
-                panel.y + (header_height * 0.5F - 11.0F) * scale,
-                22.0F * scale,
-                22.0F * scale
+                center_x - 12.0F * scale,
+                panel.y + (header_height * 0.5F - 12.0F) * scale,
+                24.0F * scale,
+                24.0F * scale
             };
-            surface.fill_rounded_rectangle(device_context, hover_bg, surface.m_palette.hover_background, 3.0F * scale);
+            surface.fill_rounded_rectangle(device_context, hover_bg, surface.m_palette.hover_background, 4.0F * scale);
         }
         
         surface.draw_svg_icon(device_context, path, round_to_int(center_x), header_center_y, icon_size, color, bg_color);

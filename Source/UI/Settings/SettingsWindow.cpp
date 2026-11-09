@@ -616,6 +616,7 @@ void SettingsWindow::open(HWND parent_hwnd) {
 }
 
 void SettingsWindow::close() {
+  commit_editing_setting();
   if (m_hwnd != nullptr && IsWindow(m_hwnd)) {
     KillTimer(m_hwnd, 1);
     HWND hwnd = m_hwnd;
@@ -942,7 +943,6 @@ LRESULT SettingsWindow::handle_message(HWND hwnd, UINT message, WPARAM w_param,
               (row.def->type == Zenvra::Settings::SettingType::Integer ||
                row.def->type == Zenvra::Settings::SettingType::Float ||
                row.def->type == Zenvra::Settings::SettingType::String) &&
-              row.def->id != "editor.fontFamily" &&
               row.def->id != "workbench.mascot.image") {
             SetCursor(LoadCursor(nullptr, IDC_IBEAM));
             return TRUE;
@@ -1261,7 +1261,7 @@ static int CALLBACK EnumFontFamCheckProc(const LOGFONTW * /*lpelfe*/,
   return 0; // stop enumeration on first match
 }
 
-static bool is_font_installed_on_os(const std::string &font_name) {
+[[maybe_unused]] static bool is_font_installed_on_os(const std::string &font_name) {
   if (font_name.empty())
     return false;
   HDC dc = GetDC(nullptr);
@@ -1280,7 +1280,7 @@ static bool is_font_installed_on_os(const std::string &font_name) {
   return found;
 }
 
-static int CALLBACK EnumFixedPitchFontsProc(const LOGFONTW *lpelfe,
+[[maybe_unused]] static int CALLBACK EnumFixedPitchFontsProc(const LOGFONTW *lpelfe,
                                             const TEXTMETRICW *lpntme,
                                             DWORD /*FontType*/, LPARAM lParam) {
   if (!lpelfe || lpelfe->lfFaceName[0] == L'@')
@@ -1301,7 +1301,7 @@ static int CALLBACK EnumFixedPitchFontsProc(const LOGFONTW *lpelfe,
   return 1;
 }
 
-static const std::vector<CodingFontOption> &get_installed_coding_fonts() {
+[[maybe_unused]] static const std::vector<CodingFontOption> &get_installed_coding_fonts() {
   static std::vector<CodingFontOption> installed_fonts;
   if (!installed_fonts.empty()) {
     return installed_fonts;
@@ -1379,7 +1379,7 @@ static const std::vector<CodingFontOption> &get_installed_coding_fonts() {
 #else
 // Linux/macOS stub: return a static list without Win32 font enumeration.
 // Layout code only needs plausible options for the font dropdown.
-static const std::vector<CodingFontOption> &get_installed_coding_fonts() {
+[[maybe_unused]] static const std::vector<CodingFontOption> &get_installed_coding_fonts() {
   static const std::vector<CodingFontOption> installed_fonts = {
       {"JetBrains Mono", "JetBrains Mono, monospace", "JetBrains Developer Font"},
       {"Fira Code", "Fira Code, monospace", "Programming Ligatures"},
@@ -1803,16 +1803,6 @@ SettingsWindow::calculate_layout(float width, float height,
                  18.0F * dpi_scale, 18.0F * dpi_scale};
         row.toggle_bounds = row.checkbox_bounds;
         row.control_bounds = row.checkbox_bounds;
-      } else if (def->id == "editor.fontFamily") {
-        const float font_w = std::min(
-            340.0F * dpi_scale, row.focus_box_bounds.width - pad_inner * 2.0F);
-        row.input_bounds = Rect{row.focus_box_bounds.x + pad_inner, ctrl_y,
-                                font_w, 28.0F * dpi_scale};
-        row.control_bounds = row.input_bounds;
-        row.dropdown_btn_bounds =
-            Rect{row.input_bounds.right() - 28.0F * dpi_scale, ctrl_y,
-                 28.0F * dpi_scale, 28.0F * dpi_scale};
-        row.option_btn_bounds = row.input_bounds;
       } else if (def->type == Zenvra::Settings::SettingType::Integer ||
                  def->type == Zenvra::Settings::SettingType::Float ||
                  def->type == Zenvra::Settings::SettingType::String) {
@@ -1939,17 +1929,6 @@ SettingsWindow::calculate_layout(float width, float height,
                                      18.0F * dpi_scale, 18.0F * dpi_scale};
           row.toggle_bounds = row.checkbox_bounds;
           row.control_bounds = row.checkbox_bounds;
-        } else if (def->id == "editor.fontFamily") {
-          const float font_w =
-              std::min(340.0F * dpi_scale,
-                       row.focus_box_bounds.width - pad_inner * 2.0F);
-          row.input_bounds = Rect{row.focus_box_bounds.x + pad_inner, ctrl_y,
-                                  font_w, 28.0F * dpi_scale};
-          row.control_bounds = row.input_bounds;
-          row.dropdown_btn_bounds =
-              Rect{row.input_bounds.right() - 28.0F * dpi_scale, ctrl_y,
-                   28.0F * dpi_scale, 28.0F * dpi_scale};
-          row.option_btn_bounds = row.input_bounds;
         } else if (def->type == Zenvra::Settings::SettingType::Integer ||
                    def->type == Zenvra::Settings::SettingType::Float ||
                    def->type == Zenvra::Settings::SettingType::String) {
@@ -2001,9 +1980,7 @@ SettingsWindow::calculate_layout(float width, float height,
     bool owner_found = false;
     for (const auto &row : layout.rows) {
       if (row.def && row.def->id == m_dropdown.get_owner_id()) {
-        const Rect anchor = (row.def->id == "editor.fontFamily")
-                                ? row.input_bounds
-                                : row.option_btn_bounds;
+        const Rect anchor = row.option_btn_bounds;
         const_cast<SettingsWindow *>(this)->m_dropdown.calculate_layout(
             anchor, layout.dialog_bounds, dpi_scale);
         owner_found = true;
@@ -2095,6 +2072,22 @@ bool SettingsWindow::is_interactive_point(
 
 bool SettingsWindow::handle_pointer_press(
     float x, float y, const SettingsWindowLayoutResult &layout) noexcept {
+  // If actively editing a setting, auto-commit when clicking outside that setting's input box
+  if (!m_editing_setting_id.empty()) {
+    bool clicked_same_input = false;
+    for (const auto &row : layout.rows) {
+      if (row.def && row.def->id == m_editing_setting_id) {
+        if (row.input_bounds.contains(x, y)) {
+          clicked_same_input = true;
+        }
+        break;
+      }
+    }
+    if (!clicked_same_input) {
+      commit_editing_setting();
+    }
+  }
+
   // 1. Dropdown component interaction
   if (m_dropdown.is_open()) {
     if (m_dropdown.is_point_inside(x, y)) {
@@ -2111,9 +2104,7 @@ bool SettingsWindow::handle_pointer_press(
     // Check if clicking on the toggle button of the current open dropdown
     for (const auto &row : layout.rows) {
       if (row.def && row.def->id == m_dropdown.get_owner_id()) {
-        const Rect btn = (row.def->id == "editor.fontFamily")
-                             ? row.input_bounds
-                             : row.option_btn_bounds;
+        const Rect btn = row.option_btn_bounds;
         if (btn.contains(x, y) || row.dropdown_btn_bounds.contains(x, y)) {
           m_dropdown.close();
           return true;
@@ -2303,47 +2294,10 @@ bool SettingsWindow::handle_pointer_press(
           }
         }
 
-        // Font Family Combobox / Dropdown
-        if (row.def->id == "editor.fontFamily") {
-          if (row.input_bounds.contains(x, y) ||
-              row.dropdown_btn_bounds.contains(x, y)) {
-            if (m_dropdown.is_open() &&
-                m_dropdown.get_owner_id() == "editor.fontFamily") {
-              m_dropdown.close();
-            } else {
-              std::vector<UI::Components::DropdownItem> items;
-              const auto &coding_fonts = get_installed_coding_fonts();
-              items.reserve(coding_fonts.size());
-              for (const auto &cf : coding_fonts) {
-                items.push_back({
-                    .id = cf.name,
-                    .label = cf.name,
-                    .description = cf.tag,
-                    .preview_colors = {},
-                    .preview_font_family = cf.primary_name,
-                });
-              }
-              m_dropdown.set_owner_id("editor.fontFamily");
-              m_dropdown.set_items(std::move(items));
-              m_dropdown.set_selected_id(
-                  service.get<std::string>("editor.fontFamily"));
-              m_dropdown.set_on_select([this](
-                                           const UI::Components::DropdownItem
-                                               &item) {
-                auto &s = Zenvra::Settings::SettingsService::instance();
-                s.set("editor.fontFamily", item.id, m_active_scope);
-              });
-              m_dropdown.open(row.input_bounds, layout.dialog_bounds, 1.0F);
-            }
-            return true;
-          }
-        }
-
         // Text / Numeric input editing
         if ((row.def->type == Zenvra::Settings::SettingType::Integer ||
              row.def->type == Zenvra::Settings::SettingType::Float ||
              row.def->type == Zenvra::Settings::SettingType::String) &&
-            row.def->id != "editor.fontFamily" &&
             row.def->id != "workbench.mascot.image") {
           if (row.input_bounds.contains(x, y)) {
             m_editing_setting_id = row.def->id;
@@ -2646,6 +2600,28 @@ bool SettingsWindow::handle_escape() noexcept {
   return true;
 }
 
+void SettingsWindow::commit_editing_setting() {
+  if (m_editing_setting_id.empty()) {
+    return;
+  }
+  auto &service = Zenvra::Settings::SettingsService::instance();
+  const auto *def = service.get_schema().get_setting(m_editing_setting_id);
+  if (def) {
+    try {
+      if (def->type == Zenvra::Settings::SettingType::Integer) {
+        service.set(m_editing_setting_id, std::stoi(m_editing_text), m_active_scope);
+      } else if (def->type == Zenvra::Settings::SettingType::Float) {
+        service.set(m_editing_setting_id, std::stof(m_editing_text), m_active_scope);
+      } else if (def->type == Zenvra::Settings::SettingType::String) {
+        service.set(m_editing_setting_id, m_editing_text, m_active_scope);
+      }
+    } catch (...) {
+      // Ignore parsing errors and keep previous value
+    }
+  }
+  m_editing_setting_id.clear();
+}
+
 bool SettingsWindow::handle_enter() noexcept {
   if (m_dropdown.is_open()) {
     for (const auto &entry : m_dropdown.get_layout_items()) {
@@ -2662,22 +2638,7 @@ bool SettingsWindow::handle_enter() noexcept {
     return true;
   }
   if (!m_editing_setting_id.empty()) {
-    auto &service = Zenvra::Settings::SettingsService::instance();
-    const auto *def = service.get_schema().get_setting(m_editing_setting_id);
-    if (def) {
-      try {
-        if (def->type == Zenvra::Settings::SettingType::Integer) {
-          service.set(m_editing_setting_id, std::stoi(m_editing_text), m_active_scope);
-        } else if (def->type == Zenvra::Settings::SettingType::Float) {
-          service.set(m_editing_setting_id, std::stof(m_editing_text), m_active_scope);
-        } else if (def->type == Zenvra::Settings::SettingType::String) {
-          service.set(m_editing_setting_id, m_editing_text, m_active_scope);
-        }
-      } catch (...) {
-        // Ignore parsing errors and keep previous value
-      }
-    }
-    m_editing_setting_id.clear();
+    commit_editing_setting();
     return true;
   }
   return false;
@@ -2694,6 +2655,7 @@ bool SettingsWindow::handle_key(uint32_t key_symbol, float dpi_scale) noexcept {
 // Native popup is Win32-only for now; keep layout state consistent.
 void SettingsWindow::open(void* /*parent_hwnd*/) { m_visible = true; }
 void SettingsWindow::close() {
+  commit_editing_setting();
   m_visible = false;
   m_close_hovered = false;
   m_user_tab_hovered = false;
@@ -3152,60 +3114,6 @@ void SettingsWindow::render(HDC device_context,
         SelectObject(device_context, old_pen);
         DeleteObject(chk_pen);
       }
-    } else if (def->id == "editor.fontFamily") {
-      // Font Family with Coding Fonts Dropdown
-      const COLORREF font_bg = to_color_ref(theme.command_center_background);
-      const bool is_font_open =
-          m_dropdown.is_open() &&
-          (m_dropdown.get_owner_id() == "editor.fontFamily");
-      const COLORREF font_border =
-          is_font_open ? to_color_ref(theme.accent)
-                       : (row.is_input_hovered
-                              ? to_color_ref(theme.hover)
-                              : to_color_ref(theme.command_center_border));
-      draw_rounded_rect(device_context, row.input_bounds, font_bg, font_border,
-                        2.5F * dpi_scale);
-
-      const std::string cur_font = service.get<std::string>(def->id);
-      const std::wstring cur_font_w =
-          Utility::utf8_to_wide(cur_font).value_or(L"");
-      const std::string cur_primary = get_primary_font_name(cur_font);
-      const std::wstring cur_primary_w =
-          Utility::utf8_to_wide(cur_primary).value_or(L"");
-
-      HFONT input_face_font = nullptr;
-      if (!cur_primary_w.empty()) {
-        input_face_font = CreateFontW(
-            -static_cast<int>(13.5F * dpi_scale), 0, 0, 0, FW_NORMAL, FALSE,
-            FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-            CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN,
-            cur_primary_w.c_str());
-      }
-
-      HGDIOBJ old_in_font = SelectObject(
-          device_context, input_face_font ? input_face_font : m_regular_font);
-      SetTextColor(device_context, to_color_ref(theme.text_primary));
-      Rect font_text_box = row.input_bounds;
-      font_text_box.x += 8.0F * dpi_scale;
-      font_text_box.width -= 32.0F * dpi_scale;
-      RECT f_rc = to_native_rect(font_text_box);
-      DrawTextW(device_context, cur_font_w.c_str(), -1, &f_rc,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
-      SelectObject(device_context, old_in_font);
-      if (input_face_font) {
-        DeleteObject(input_face_font);
-      }
-
-      // Chevron down icon
-      const int ch_sz = static_cast<int>(9.0F * dpi_scale);
-      const int ch_x =
-          static_cast<int>(row.dropdown_btn_bounds.x +
-                           (row.dropdown_btn_bounds.width - ch_sz) * 0.5F);
-      const int ch_y =
-          static_cast<int>(row.dropdown_btn_bounds.y +
-                           (row.dropdown_btn_bounds.height - ch_sz) * 0.5F);
-      draw_icon(device_context, "Assets/icons/chevron-down.svg", ch_x, ch_y,
-                ch_sz, to_color_ref(theme.text_secondary));
     } else if (def->id == "workbench.mascot.image") {
       const std::string img_path = service.get<std::string>(def->id);
 

@@ -40,59 +40,48 @@ bool WindowChromeLayoutResult::has_overflow_menu() const noexcept {
          !overflow_menu_bounds.is_empty();
 }
 
-bool WindowChromeLayoutResult::is_overflow_menu(float point_x,
-                                                float point_y) const noexcept {
+bool WindowChromeLayoutResult::is_overflow_menu(float point_x, float point_y) const noexcept {
   return has_overflow_menu() && overflow_menu_bounds.contains(point_x, point_y);
 }
 
-bool WindowChromeLayoutResult::is_run_button(float point_x,
-                                             float point_y) const noexcept {
+bool WindowChromeLayoutResult::is_run_button(float point_x, float point_y) const noexcept {
   return run_bounds.contains(point_x, point_y);
 }
 
-bool WindowChromeLayoutResult::is_debug_button(float point_x,
-                                               float point_y) const noexcept {
+bool WindowChromeLayoutResult::is_debug_button(float point_x, float point_y) const noexcept {
   return debug_bounds.contains(point_x, point_y);
 }
 
-bool WindowChromeLayoutResult::is_ellipsis_button(
-    float point_x, float point_y) const noexcept {
+bool WindowChromeLayoutResult::is_ellipsis_button(float point_x, float point_y) const noexcept {
   return ellipsis_bounds.contains(point_x, point_y);
 }
 
-bool WindowChromeLayoutResult::is_compiler_button(
-    float point_x, float point_y) const noexcept {
+bool WindowChromeLayoutResult::is_compiler_button(float point_x, float point_y) const noexcept {
   return compiler_bounds.contains(point_x, point_y);
 }
 
-bool WindowChromeLayoutResult::is_platform_button(
-    float point_x, float point_y) const noexcept {
+bool WindowChromeLayoutResult::is_platform_button(float point_x, float point_y) const noexcept {
   return platform_bounds.contains(point_x, point_y);
 }
 
-bool WindowChromeLayoutResult::is_binary_button(float point_x,
-                                                float point_y) const noexcept {
+bool WindowChromeLayoutResult::is_binary_button(float point_x, float point_y) const noexcept {
   return binary_bounds.contains(point_x, point_y);
 }
 
-bool WindowChromeLayoutResult::is_build_button(float point_x,
-                                               float point_y) const noexcept {
+bool WindowChromeLayoutResult::is_build_button(float point_x, float point_y) const noexcept {
   return build_bounds.contains(point_x, point_y);
 }
 
-bool WindowChromeLayoutResult::is_mode_button(float point_x,
-                                              float point_y) const noexcept {
+bool WindowChromeLayoutResult::is_mode_button(float point_x, float point_y) const noexcept {
   return mode_bounds.contains(point_x, point_y);
 }
 
-bool WindowChromeLayoutResult::is_gear_button(float point_x,
-                                              float point_y) const noexcept {
+bool WindowChromeLayoutResult::is_gear_button(float point_x, float point_y) const noexcept {
   return gear_bounds.contains(point_x, point_y);
 }
 
 WindowControl
-WindowChromeLayoutResult::get_window_control(float point_x,
-                                             float point_y) const noexcept {
+WindowChromeLayoutResult::get_window_control(float point_x, float point_y) const noexcept {
   if (minimize_bounds.contains(point_x, point_y)) {
     return WindowControl::Minimize;
   }
@@ -106,8 +95,7 @@ WindowChromeLayoutResult::get_window_control(float point_x,
 }
 
 std::optional<std::size_t>
-WindowChromeLayoutResult::get_menu_index(float point_x,
-                                         float point_y) const noexcept {
+WindowChromeLayoutResult::get_menu_index(float point_x, float point_y) const noexcept {
   for (std::size_t index = 0; index < visible_menu_count; ++index) {
     if (menu_regions[index].bounds.contains(point_x, point_y)) {
       return menu_regions[index].menu_index;
@@ -128,9 +116,8 @@ WindowChromeLayoutResult::get_menu_index(float point_x,
   return std::nullopt;
 }
 
-WindowChromeLayoutResult WindowChromeLayout::calculate(
-    float client_width, float dpi_scale,
-    WindowChromeLayoutOptions options) const noexcept {
+WindowChromeLayoutResult WindowChromeLayout::calculate(float client_width, float dpi_scale,
+                                                       WindowChromeLayoutOptions options) const noexcept {
   const float safe_scale = std::max(dpi_scale, 0.5F);
   const WindowChromeMetrics metrics;
   const float titlebar_height =
@@ -142,6 +129,7 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(
                          : metrics.titlebar_height)) *
              safe_scale)
           : 0.0F;
+
   const float control_width = metrics.window_control_width * safe_scale;
 
   WindowChromeLayoutResult result;

@@ -1995,34 +1995,6 @@ void StudioWorkspaceRenderer::render_settings_window(Drawable drawable,
         draw_line(drawable, cx + 7 * s, cy + 13 * s, cx + 14 * s, cy + 5 * s,
                   white);
       }
-    } else if (def->id == "editor.fontFamily") {
-      const bool is_open = m_settings_window.get_dropdown().is_open() &&
-                           (m_settings_window.get_dropdown().get_owner_id() ==
-                            "editor.fontFamily");
-      fill_rounded_rectangle(drawable, row.input_bounds,
-                             allocate_color(theme.command_center_background),
-                             2.5F * scale, dialog_px);
-      draw_rounded_rectangle(
-          drawable, row.input_bounds,
-          allocate_color(is_open ? theme.accent
-                                 : (row.is_input_hovered
-                                        ? theme.hover
-                                        : theme.command_center_border)),
-          2.5F * scale);
-      if (m_ui_font) {
-        const std::string cur = service.get<std::string>(def->id);
-        draw_text(drawable, *m_ui_font, cur, row.input_bounds.x + 8.0F * scale,
-                  row.input_bounds.y + row.input_bounds.height * 0.5F,
-                  m_text.primary);
-      }
-      draw_svg_icon(drawable, "Assets/icons/chevron-down.svg",
-                    round_to_int(row.dropdown_btn_bounds.x +
-                                 row.dropdown_btn_bounds.width * 0.5F),
-                    round_to_int(row.dropdown_btn_bounds.y +
-                                 row.dropdown_btn_bounds.height * 0.5F),
-                    std::max(round_to_int(9.0F * scale), 8),
-                    theme.text_secondary, theme.command_center_background,
-                    false);
     } else if (def->id == "workbench.mascot.image") {
       const std::string img_path = service.get<std::string>(def->id);
       const UI::Theme::Color thumb_bg{20, 21, 24, 255};

@@ -389,22 +389,22 @@ void SettingsService::register_default_settings()
         .id = "editor.fontFamily",
         .title = "Font Family",
         .description = "Controls the font family used in the code editor.",
-        .type = SettingType::Enum,
-        .defaultValue = "Consolas, 'Courier New', monospace",
+        .type = SettingType::String,
+        .defaultValue = "'JetBrains Mono', Consolas, 'Courier New', monospace",
         .category = "Editor",
         .subcategory = "Font",
         .tags = {"font", "family", "typeface", "coding", "monospace"},
-        .enum_values = {
-            {"Consolas, 'Courier New', monospace", "Consolas, 'Courier New', monospace"},
-            {"Cascadia Code, Consolas, monospace", "Cascadia Code, Consolas, monospace"},
-            {"Fira Code, Consolas, monospace", "Fira Code, Consolas, monospace"},
-            {"JetBrains Mono, monospace", "JetBrains Mono, monospace"},
-            {"Source Code Pro, monospace", "Source Code Pro, monospace"},
-            {"Hack, monospace", "Hack, monospace"},
-            {"Hack", "Hack"},
-            {"Consolas", "Consolas"},
-            {"Courier New", "Courier New"}
-        },
+    });
+
+    m_schema.register_setting({
+        .id = "editor.fontLigatures",
+        .title = "Font Ligatures",
+        .description = "Configures font ligatures ('calt' and 'liga') in the code editor.",
+        .type = SettingType::Boolean,
+        .defaultValue = true,
+        .category = "Editor",
+        .subcategory = "Font",
+        .tags = {"font", "ligatures", "coding", "symbols", "calt", "liga"},
     });
 
     m_schema.register_setting({
@@ -701,16 +701,22 @@ void SettingsService::register_default_settings()
         .id = "terminal.fontFamily",
         .title = "Terminal Font Family",
         .description = "Controls the font family used inside the integrated terminal.",
-        .type = SettingType::Enum,
-        .defaultValue = "Hack",
+        .type = SettingType::String,
+        .defaultValue = "'JetBrains Mono', Hack, Consolas, monospace",
         .category = "Terminal",
         .subcategory = "Font",
         .tags = {"terminal", "font", "family"},
-        .enum_values = {
-            {"Hack", "Hack"},
-            {"Consolas", "Consolas"},
-            {"Courier New", "Courier New"}
-        },
+    });
+
+    m_schema.register_setting({
+        .id = "terminal.fontLigatures",
+        .title = "Terminal Font Ligatures",
+        .description = "Configures font ligatures in the integrated terminal emulator.",
+        .type = SettingType::Boolean,
+        .defaultValue = true,
+        .category = "Terminal",
+        .subcategory = "Font",
+        .tags = {"terminal", "font", "ligatures", "calt", "liga"},
     });
 
     // 6. Shader settings

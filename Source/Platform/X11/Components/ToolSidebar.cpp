@@ -962,13 +962,13 @@ void ToolSidebar::render(
         surface.draw_svg_icon(
             drawable,
             item.expanded ? "chevron-down.svg" : "chevron-right.svg",
-            arrow_x, arrow_y, std::max(round_to_int(8.0F * scale), 7),
+            arrow_x, arrow_y, std::max(round_to_int(9.0F * scale), 8),
             icon_color,
             row_background);
       }
       const int folder_x = round_to_int(indent_x + 19.0F * scale);
       if (folder_x + 16.0F * scale < panel.right()) {
-        const int folder_size = std::max(round_to_int(14.0F * scale), 11);
+        const int folder_size = std::max(round_to_int(16.0F * scale), 13);
         surface.draw_svg_icon(
             drawable,
             item.expanded ? "folder-open.svg" : "folder.svg",
@@ -979,17 +979,17 @@ void ToolSidebar::render(
     } else {
       const int icon_x = round_to_int(indent_x + 19.0F * scale);
       const int icon_y = round_to_int(row_bounds.y + row_bounds.height * 0.5F);
-      if (icon_x + 14.0F * scale < panel.right()) {
+      if (icon_x + 16.0F * scale < panel.right()) {
         const std::string icon_asset =
             UI::Editor::file_icon_asset_for_path(item.path);
         surface.draw_svg_icon(
             drawable, icon_asset, icon_x, icon_y,
-            std::max(round_to_int(14.0F * scale), 11),
+            std::max(round_to_int(16.0F * scale), 13),
             icon_color, row_background, !is_cut);
       }
     }
 
-    const float label_x = indent_x + (item.directory ? 30.0F : 36.0F) * scale;
+    const float label_x = indent_x + 36.0F * scale;
     if (label_x < panel.right()) {
       const float available_width = panel.right() - label_x - 10.0F * scale;
       if (available_width > 0.0F) {

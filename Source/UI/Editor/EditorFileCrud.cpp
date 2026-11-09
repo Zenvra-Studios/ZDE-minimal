@@ -5,14 +5,12 @@
 namespace Zenvra::UI::Editor
 {
 
-std::optional<TextFileSnapshot> EditorFileCrud::read(
-    const std::filesystem::path& path) const
+std::optional<TextFileSnapshot> EditorFileCrud::read(const std::filesystem::path& path) const
 {
     return EditorFileSystem::read_text_file(path);
 }
 
-std::optional<TextFileSnapshot> EditorFileCrud::create(
-    const std::filesystem::path& path) const
+std::optional<TextFileSnapshot> EditorFileCrud::create(const std::filesystem::path& path) const
 {
     std::error_code error;
     const std::filesystem::path absolute_path = std::filesystem::absolute(path, error);
@@ -46,6 +44,7 @@ bool EditorFileCrud::update(
     {
         return false;
     }
+
     const std::string_view separator = line_ending == "CRLF" ? "\r\n" : "\n";
     for (std::size_t index = 0; index < lines.size(); ++index)
     {

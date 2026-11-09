@@ -221,16 +221,16 @@ std::string_view ActivityPanelModel::get_title() const noexcept
 {
     switch (m_active_icon)
     {
-    case SidebarIcon::Project: return "Explorer";
-    case SidebarIcon::Search: return "Search";
-    case SidebarIcon::VersionControl: return "Source Control";
-    case SidebarIcon::Run: return "Run & Debug";
-    case SidebarIcon::Terminal: return "Terminal";
-    case SidebarIcon::Services: return "Plugins";
-    case SidebarIcon::Problems: return "Problems";
-    case SidebarIcon::Shader: return "Shader Sandbox";
-    case SidebarIcon::More: return "More";
-    default: return "Activity";
+        case SidebarIcon::Project: return "Explorer";
+        case SidebarIcon::Search: return "Search";
+        case SidebarIcon::VersionControl: return "Source Control";
+        case SidebarIcon::Run: return "Run & Debug";
+        case SidebarIcon::Terminal: return "Terminal";
+        case SidebarIcon::Services: return "Plugins";
+        case SidebarIcon::Problems: return "Problems";
+        case SidebarIcon::Shader: return "Shader Sandbox";
+        case SidebarIcon::More: return "More";
+        default: return "Activity";
     }
 }
 
@@ -238,16 +238,26 @@ std::string_view ActivityPanelModel::get_content_heading() const noexcept
 {
     switch (m_active_icon)
     {
-    case SidebarIcon::VersionControl: return "No pending changes";
-    case SidebarIcon::Search: return "Search across the workspace";
-    case SidebarIcon::Services: return "No plugins configured";
-    case SidebarIcon::More: return "Available tool windows";
-    case SidebarIcon::Run: return "Run and debug";
-    case SidebarIcon::Problems: return "No problems detected";
-    case SidebarIcon::Project: return "Workspace files";
-    case SidebarIcon::Terminal: return "Local terminal";
-    case SidebarIcon::Shader: return "Shader sandbox";
-    default: return {};
+        case SidebarIcon::VersionControl:
+            return "No pending changes";
+        case SidebarIcon::Search:
+            return "Search across the workspace";
+        case SidebarIcon::Services:
+            return "No plugins configured";
+        case SidebarIcon::More:
+            return "Available tool windows";
+        case SidebarIcon::Run:
+            return "Run and debug";
+        case SidebarIcon::Problems:
+            return "No problems detected";
+        case SidebarIcon::Project:
+            return "Workspace files";
+        case SidebarIcon::Terminal:
+            return "Local terminal";
+        case SidebarIcon::Shader:
+            return "Shader sandbox";
+        default:
+            return {};
     }
 }
 
@@ -255,16 +265,16 @@ std::string_view ActivityPanelModel::get_content_detail() const noexcept
 {
     switch (m_active_icon)
     {
-    case SidebarIcon::VersionControl: return "Workspace changes will appear here.";
-    case SidebarIcon::Search: return "Search results will appear in this panel.";
-    case SidebarIcon::Services: return "Installed plugins and language servers will appear here.";
-    case SidebarIcon::More: return "Explorer, Search, Git, Run, Terminal, Problems";
-    case SidebarIcon::Run: return "Create a run configuration to start debugging.";
-    case SidebarIcon::Problems: return "Diagnostics from opened buffers appear here.";
-    case SidebarIcon::Project: return "Browse and open files from the project tree.";
-    case SidebarIcon::Terminal: return "Terminal sessions use the bottom panel.";
-    case SidebarIcon::Shader: return "Realtime GLSL shader preview and editor.";
-    default: return {};
+        case SidebarIcon::VersionControl: return "Workspace changes will appear here.";
+        case SidebarIcon::Search: return "Search results will appear in this panel.";
+        case SidebarIcon::Services: return "Installed plugins and language servers will appear here.";
+        case SidebarIcon::More: return "Explorer, Search, Git, Run, Terminal, Problems";
+        case SidebarIcon::Run: return "Create a run configuration to start debugging.";
+        case SidebarIcon::Problems: return "Diagnostics from opened buffers appear here.";
+        case SidebarIcon::Project: return "Browse and open files from the project tree.";
+        case SidebarIcon::Terminal: return "Terminal sessions use the bottom panel.";
+        case SidebarIcon::Shader: return "Realtime GLSL shader preview and editor.";
+        default: return {};
     }
 }
 
@@ -310,6 +320,7 @@ void ActivityPanelModel::append_directory(
     {
         return;
     }
+
     std::error_code error;
     std::vector<std::filesystem::directory_entry> children;
     for (std::filesystem::directory_iterator iterator{
@@ -324,12 +335,15 @@ void ActivityPanelModel::append_directory(
     std::sort(children.begin(), children.end(), [](const auto& left, const auto& right) {
         std::error_code left_error;
         std::error_code right_error;
+        
         const bool left_directory = left.is_directory(left_error) && !left.is_symlink(left_error);
         const bool right_directory = right.is_directory(right_error) && !right.is_symlink(right_error);
+
         if (left_directory != right_directory)
         {
             return left_directory;
         }
+        
         return lowercase(left.path().filename().string()) <
             lowercase(right.path().filename().string());
     });
@@ -340,6 +354,7 @@ void ActivityPanelModel::append_directory(
         {
             break;
         }
+        
         error.clear();
         const bool directory_child = child.is_directory(error) && !child.is_symlink(error);
         const std::filesystem::path path = child.path().lexically_normal();
@@ -502,6 +517,7 @@ bool ActivityPanelModel::create_file(std::string_view relative_name, std::filesy
     {
         return false;
     }
+
     const std::filesystem::path target_dir = get_target_directory_for_creation();
     if (target_dir.empty())
     {
@@ -573,6 +589,7 @@ bool ActivityPanelModel::create_directory(std::string_view relative_name, std::f
     {
         m_expanded_paths.push_back(full_path);
     }
+    
     std::filesystem::path cur = full_path.parent_path();
     while (!cur.empty() && cur != m_workspace_root && cur != cur.parent_path())
     {

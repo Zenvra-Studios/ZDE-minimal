@@ -333,6 +333,7 @@ public:
     [[nodiscard]] const TerminalPanel& get_terminal_panel() const noexcept { return m_terminal_panel; }
     void reload_editor_font();
     void reload_terminal_font();
+    void reload_ui_font();
     [[nodiscard]] float get_editor_line_height(HDC device_context = nullptr) const noexcept;
     static std::string resolve_font_family_name(const std::string& font_spec) noexcept;
 

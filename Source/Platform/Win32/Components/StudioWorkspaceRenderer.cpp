@@ -14,6 +14,7 @@
 #include "Utility/MathUtil.h"
 #include "Utility/Shadows.h"
 #include "Utility/Fonts.h"
+#include "Utility/TextEncoding.h"
 
 #include <lunasvg.h>
 
@@ -37,28 +38,338 @@ namespace Zenvra::Platform::Win32::Components {
 
 namespace {
 
-static int CALLBACK EnumFontFamExProc(const LOGFONTW * /*lpelfe*/,
-                                      const TEXTMETRICW * /*lpntme*/,
-                                      DWORD /*FontType*/, LPARAM lParam) {
-  *reinterpret_cast<bool *>(lParam) = true;
-  return 0; // stop enumeration on first match
+// Reads big-endian 16-bit and 32-bit integers from byte streams (OpenType spec)
+static inline uint16_t read_be16(const uint8_t *p) noexcept {
+  return static_cast<uint16_t>((p[0] << 8) | p[1]);
+}
+
+static inline uint32_t read_be32(const uint8_t *p) noexcept {
+  return (static_cast<uint32_t>(p[0]) << 24) |
+         (static_cast<uint32_t>(p[1]) << 16) |
+         (static_cast<uint32_t>(p[2]) << 8) |
+         static_cast<uint32_t>(p[3]);
+}
+
+// Normalizes font name for fuzzy comparison (strips whitespace, punctuation, lowercases)
+static std::string normalize_font_name(std::string_view name) {
+  std::string result;
+  for (char c : name) {
+    if (std::isalnum(static_cast<unsigned char>(c))) {
+      result.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+  }
+  return result;
+}
+
+// Extracts font family name and typographic family name from TTF/OTF files
+static std::vector<std::string> extract_ttf_family_names(const std::filesystem::path &path) {
+  std::vector<std::string> result;
+  std::ifstream f(path, std::ios::binary);
+  if (!f.is_open()) return result;
+
+  uint8_t header[12];
+  if (!f.read(reinterpret_cast<char *>(header), sizeof(header))) return result;
+
+  const uint16_t num_tables = read_be16(header + 4);
+  if (num_tables == 0 || num_tables > 128) return result;
+
+  uint32_t name_table_offset = 0;
+  uint32_t name_table_length = 0;
+
+  for (uint16_t i = 0; i < num_tables; ++i) {
+    uint8_t entry[16];
+    if (!f.read(reinterpret_cast<char *>(entry), sizeof(entry))) return result;
+    if (std::memcmp(entry, "name", 4) == 0) {
+      name_table_offset = read_be32(entry + 8);
+      name_table_length = read_be32(entry + 12);
+      break;
+    }
+  }
+
+  if (name_table_offset == 0 || name_table_length == 0 || name_table_length > 1024 * 1024) {
+    return result;
+  }
+
+  f.seekg(name_table_offset, std::ios::beg);
+  std::vector<uint8_t> table_data(name_table_length);
+  if (!f.read(reinterpret_cast<char *>(table_data.data()), name_table_length)) {
+    return result;
+  }
+
+  if (table_data.size() < 6) return result;
+
+  const uint16_t count = read_be16(table_data.data() + 2);
+  const uint16_t string_offset = read_be16(table_data.data() + 4);
+
+  for (uint16_t i = 0; i < count; ++i) {
+    const size_t rec_offset = 6 + i * 12;
+    if (rec_offset + 12 > table_data.size()) break;
+
+    const uint8_t *rec = table_data.data() + rec_offset;
+    const uint16_t platform_id = read_be16(rec);
+    const uint16_t encoding_id = read_be16(rec + 2);
+    const uint16_t name_id = read_be16(rec + 6);
+    const uint16_t length = read_be16(rec + 8);
+    const uint16_t offset = read_be16(rec + 10);
+
+    // name_id 1 = Font Family, name_id 4 = Full Name, name_id 16 = Typographic Family
+    if (name_id != 1 && name_id != 4 && name_id != 16) continue;
+
+    const size_t str_pos = static_cast<size_t>(string_offset) + offset;
+    if (str_pos + length > table_data.size()) continue;
+
+    const uint8_t *str_bytes = table_data.data() + str_pos;
+    std::string name_utf8;
+
+    if (platform_id == 3 || platform_id == 0) {
+      // Windows Unicode BMP or Unicode: UTF-16BE
+      std::wstring wstr;
+      for (size_t c = 0; c + 1 < length; c += 2) {
+        wchar_t ch = static_cast<wchar_t>(read_be16(str_bytes + c));
+        if (ch != 0) wstr.push_back(ch);
+      }
+      if (!wstr.empty()) {
+        int u8len = WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), static_cast<int>(wstr.length()), nullptr, 0, nullptr, nullptr);
+        if (u8len > 0) {
+          name_utf8.resize(u8len);
+          WideCharToMultiByte(CP_UTF8, 0, wstr.c_str(), static_cast<int>(wstr.length()), &name_utf8[0], u8len, nullptr, nullptr);
+        }
+      }
+    } else if (platform_id == 1 && encoding_id == 0) {
+      // Macintosh Roman ASCII
+      name_utf8.assign(reinterpret_cast<const char *>(str_bytes), length);
+    }
+
+    if (!name_utf8.empty()) {
+      if (std::find(result.begin(), result.end(), name_utf8) == result.end()) {
+        result.push_back(name_utf8);
+      }
+    }
+  }
+
+  return result;
+}
+
+// Static registry of font family names parsed from bundled TTF/OTF files
+static std::vector<std::string> g_bundled_font_names;
+// Static catalog of all available font families (OS fonts + process private fonts)
+static std::vector<std::string> g_all_available_fonts;
+static bool g_fonts_enumerated = false;
+static std::vector<std::wstring> g_registered_font_files;
+
+static void ensure_bundled_fonts_loaded() {
+  std::vector<std::filesystem::path> font_search_dirs;
+
+  auto add_font_search_root = [&](const std::filesystem::path &root) {
+    if (root.empty())
+      return;
+    std::error_code ec;
+    if (!std::filesystem::is_directory(root, ec))
+      return;
+    const std::filesystem::path candidates[] = {
+        root / "Assets" / "fonts",
+        root / "Resources" / "fonts",
+        root / "Assets" / "fonts" / "JetBrainsMono",
+        root / "Resources" / "fonts" / "JetBrainsMono",
+        root / "fonts",
+        root / "fonts" / "JetBrainsMono"};
+    for (const auto &p : candidates) {
+      ec.clear();
+      if (std::filesystem::is_directory(p, ec)) {
+        if (std::find(font_search_dirs.begin(), font_search_dirs.end(), p) ==
+            font_search_dirs.end()) {
+          font_search_dirs.push_back(p);
+        }
+      }
+    }
+  };
+
+  std::error_code ec;
+  std::filesystem::path exe_dir;
+  std::array<wchar_t, 32768> executable_path{};
+  const DWORD length =
+      GetModuleFileNameW(nullptr, executable_path.data(),
+                         static_cast<DWORD>(executable_path.size()));
+  if (length > 0 && length < executable_path.size()) {
+    exe_dir = std::filesystem::path{executable_path.data()}.parent_path();
+  }
+
+  const std::filesystem::path current_path =
+      std::filesystem::current_path(ec);
+  ec.clear();
+
+  std::optional<std::filesystem::path> project_root;
+  if (!exe_dir.empty()) {
+    project_root = UI::Editor::EditorFileSystem::find_project_root(exe_dir);
+  }
+  if (!project_root && !current_path.empty()) {
+    project_root = UI::Editor::EditorFileSystem::find_project_root(current_path);
+  }
+
+  if (project_root)
+    add_font_search_root(*project_root);
+  add_font_search_root(exe_dir);
+  add_font_search_root(current_path);
+
+  // Traverse ancestor paths up to 6 levels to locate workspace source trees
+  std::filesystem::path cur = exe_dir;
+  for (int i = 0; i < 6 && !cur.empty(); ++i) {
+    add_font_search_root(cur);
+    const auto parent = cur.parent_path();
+    if (parent == cur)
+      break;
+    cur = parent;
+  }
+
+  cur = current_path;
+  for (int i = 0; i < 6 && !cur.empty(); ++i) {
+    add_font_search_root(cur);
+    const auto parent = cur.parent_path();
+    if (parent == cur)
+      break;
+    cur = parent;
+  }
+
+  // Load and privately register every TTF and OTF file found
+  for (const auto &fdir : font_search_dirs) {
+    std::error_code dir_ec;
+    for (const auto &entry : std::filesystem::recursive_directory_iterator(
+             fdir,
+             std::filesystem::directory_options::skip_permission_denied,
+             dir_ec)) {
+      if (dir_ec)
+        break;
+      std::error_code file_ec;
+      if (entry.is_regular_file(file_ec)) {
+        const auto ext = entry.path().extension().string();
+        std::string ext_lower = ext;
+        for (char &c : ext_lower) {
+          c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        if (ext_lower == ".ttf" || ext_lower == ".otf") {
+          std::error_code sz_err;
+          if (std::filesystem::file_size(entry.path(), sz_err) > 100) {
+            std::error_code abs_err;
+            const auto abs_path =
+                std::filesystem::absolute(entry.path(), abs_err);
+            const std::wstring wpath = abs_path.wstring();
+            if (std::find(g_registered_font_files.begin(),
+                          g_registered_font_files.end(),
+                          wpath) == g_registered_font_files.end()) {
+              g_registered_font_files.push_back(wpath);
+              AddFontResourceExW(wpath.c_str(), FR_PRIVATE, nullptr);
+              auto names = extract_ttf_family_names(abs_path);
+              for (auto &n : names) {
+                if (std::find(g_bundled_font_names.begin(),
+                              g_bundled_font_names.end(),
+                              n) == g_bundled_font_names.end()) {
+                  g_bundled_font_names.push_back(std::move(n));
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+static void refresh_available_fonts() {
+  ensure_bundled_fonts_loaded();
+
+  g_all_available_fonts.clear();
+  HDC dc = GetDC(nullptr);
+  if (dc) {
+    LOGFONTW lf{};
+    lf.lfCharSet = DEFAULT_CHARSET;
+    lf.lfFaceName[0] = L'\0'; // An empty string tells GDI to enumerate ALL font families in the OS & process!
+    auto proc = [](const LOGFONTW *lpelfe, const TEXTMETRICW *, DWORD, LPARAM lParam) -> int {
+      if (lpelfe && lpelfe->lfFaceName[0] != L'\0') {
+        auto *vec = reinterpret_cast<std::vector<std::string> *>(lParam);
+        char u8[LF_FACESIZE * 3]{};
+        int len = WideCharToMultiByte(CP_UTF8, 0, lpelfe->lfFaceName, -1, u8, sizeof(u8) - 1, nullptr, nullptr);
+        if (len > 0) {
+          std::string name(u8);
+          if (std::find(vec->begin(), vec->end(), name) == vec->end()) {
+            vec->push_back(std::move(name));
+          }
+        }
+      }
+      return 1;
+    };
+    EnumFontFamiliesExW(dc, &lf, proc, reinterpret_cast<LPARAM>(&g_all_available_fonts), 0);
+    ReleaseDC(nullptr, dc);
+  }
+
+  // Merge in bundled font names detected from TTF metadata
+  for (const auto &b : g_bundled_font_names) {
+    if (std::find(g_all_available_fonts.begin(), g_all_available_fonts.end(), b) == g_all_available_fonts.end()) {
+      g_all_available_fonts.push_back(b);
+    }
+  }
+  g_fonts_enumerated = true;
 }
 
 static bool is_font_available(const std::string &font_name) {
   if (font_name.empty())
     return false;
+  if (!g_fonts_enumerated) {
+    refresh_available_fonts();
+  }
+
+  // 1. Exact case-insensitive match
+  for (const auto &fam : g_all_available_fonts) {
+    if (_stricmp(fam.c_str(), font_name.c_str()) == 0) {
+      return true;
+    }
+  }
+
+  // 2. Normalized match (ignoring spaces, hyphens, and casing)
+  const std::string norm_target = normalize_font_name(font_name);
+  if (!norm_target.empty()) {
+    for (const auto &fam : g_all_available_fonts) {
+      if (normalize_font_name(fam) == norm_target) {
+        return true;
+      }
+    }
+  }
+
+  // 3. Substring match for known variants (JetBrains Mono, Fira Code, etc.)
+  if (norm_target.find("jetbrainsmono") != std::string::npos ||
+      norm_target.find("jetbrains") != std::string::npos) {
+    for (const auto &fam : g_all_available_fonts) {
+      if (normalize_font_name(fam).find("jetbrainsmono") != std::string::npos ||
+          normalize_font_name(fam).find("jetbrains") != std::string::npos) {
+        return true;
+      }
+    }
+  }
+
+  // 4. Fallback: Direct test with GDI CreateFontW & GetTextFaceW
   HDC dc = GetDC(nullptr);
   if (!dc)
     return false;
-  LOGFONTW lf{};
-  int wlen = MultiByteToWideChar(CP_UTF8, 0, font_name.c_str(),
-                                 static_cast<int>(font_name.length()),
-                                 lf.lfFaceName, 31);
-  lf.lfFaceName[wlen] = L'\0';
-  lf.lfCharSet = DEFAULT_CHARSET;
+  std::wstring wtarget = Utility::utf8_to_wide(font_name).value_or(L"");
+  if (wtarget.empty()) {
+    ReleaseDC(nullptr, dc);
+    return false;
+  }
+
+  HFONT test_font = CreateFontW(
+      -16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+      DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+      DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, wtarget.c_str());
   bool found = false;
-  EnumFontFamiliesExW(dc, &lf, EnumFontFamExProc,
-                      reinterpret_cast<LPARAM>(&found), 0);
+  if (test_font) {
+    HGDIOBJ old_font = SelectObject(dc, test_font);
+    wchar_t actual_face[LF_FACESIZE]{};
+    GetTextFaceW(dc, LF_FACESIZE, actual_face);
+    SelectObject(dc, old_font);
+    DeleteObject(test_font);
+    if (_wcsicmp(actual_face, wtarget.c_str()) == 0) {
+      found = true;
+    }
+  }
   ReleaseDC(nullptr, dc);
   return found;
 }
@@ -133,78 +444,20 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
       current_path / "Resources" / "icons",
   };
   for (const auto &candidate : icon_candidates) {
+    std::error_code icon_ec;
     if (!candidate.empty() &&
-        std::filesystem::is_directory(candidate, path_error)) {
+        std::filesystem::is_directory(candidate, icon_ec)) {
       m_icon_asset_root = candidate;
       break;
     }
   }
 
-  // 2. Resolve Fonts Directory (prioritizes Resources/fonts then Assets/fonts)
-  std::filesystem::path fonts_dir;
-  const std::vector<std::filesystem::path> font_candidates = {
-      exe_dir / "Resources" / "fonts",
-      exe_dir / "Assets" / "fonts",
-      exe_dir.parent_path() / "Resources" / "fonts",
-      exe_dir.parent_path() / "Assets" / "fonts",
-      project_root ? (*project_root / "Resources" / "fonts")
-                   : std::filesystem::path{},
-      project_root ? (*project_root / "Assets" / "fonts")
-                   : std::filesystem::path{},
-      current_path / "Resources" / "fonts",
-      current_path / "Assets" / "fonts",
-  };
-  for (const auto &candidate : font_candidates) {
-    if (!candidate.empty() &&
-        std::filesystem::is_directory(candidate, path_error)) {
-      fonts_dir = candidate;
-      break;
-    }
-  }
+  // 2. Discover, register and enumerate fonts (both bundled Assets/fonts and OS fonts)
+  ensure_bundled_fonts_loaded();
+  refresh_available_fonts();
 
-  // Load bundled fonts from fonts_dir. For each font, register the TTF
-  // file privately using AddFontResourceExA when found (and not a placeholder).
-  // If not found or the file is invalid, fall back to the system default.
-  bool hack_loaded = false;
-  bool opensans_loaded = false;
-  if (!fonts_dir.empty()) {
-    const std::filesystem::path hack_ttf =
-        fonts_dir / "Hack" / "ttf" / "Hack-Regular.ttf";
-    const std::filesystem::path opensans_ttf =
-        fonts_dir / "OpenSans" / "OpenSans-Regular.ttf";
-    const std::filesystem::path jb_ttf =
-        fonts_dir / "JetBrainsMono" / "JetBrainsMonoNLNerdFont-Regular.ttf";
-    const std::filesystem::path jb_bold_ttf =
-        fonts_dir / "JetBrainsMono" / "JetBrainsMonoNLNerdFont-Bold.ttf";
-    std::error_code size_error;
-
-    // Hack – editor / minimap / terminal font
-    if (std::filesystem::exists(hack_ttf, size_error) &&
-        std::filesystem::file_size(hack_ttf, size_error) > 100) {
-      hack_loaded = AddFontResourceExA(hack_ttf.string().c_str(), FR_PRIVATE,
-                                       nullptr) > 0;
-    }
-
-    // JetBrains Mono – specs / code / monospace font
-    if (std::filesystem::exists(jb_ttf, size_error) &&
-        std::filesystem::file_size(jb_ttf, size_error) > 100) {
-      AddFontResourceExA(jb_ttf.string().c_str(), FR_PRIVATE, nullptr);
-    }
-    if (std::filesystem::exists(jb_bold_ttf, size_error) &&
-        std::filesystem::file_size(jb_bold_ttf, size_error) > 100) {
-      AddFontResourceExA(jb_bold_ttf.string().c_str(), FR_PRIVATE, nullptr);
-    }
-
-    // Open Sans – UI / sidebar / tab / large title font
-    if (std::filesystem::exists(opensans_ttf, size_error) &&
-        std::filesystem::file_size(opensans_ttf, size_error) > 100) {
-      opensans_loaded = AddFontResourceExA(opensans_ttf.string().c_str(),
-                                           FR_PRIVATE, nullptr) > 0;
-    }
-  }
-
-  m_editor_font_name = hack_loaded ? "Hack" : "Consolas";
-  m_ui_font_name = opensans_loaded ? "Open Sans" : "Segoe UI";
+  m_editor_font_name = resolve_font_family_name("'JetBrains Mono', Consolas, monospace");
+  m_ui_font_name = is_font_available("Open Sans") ? "Open Sans" : "Segoe UI";
 
   auto &settings_service = Settings::SettingsService::instance();
   settings_service.initialize();
@@ -234,20 +487,38 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
                              ? resolve_font_family_name(term_font)
                              : m_editor_font_name;
 
+  const std::string ui_font =
+      settings_service.get<std::string>("ui.fontFamily");
+  if (!ui_font.empty() && is_font_available(ui_font)) {
+    m_ui_font_name = ui_font;
+  } else {
+    m_ui_font_name = is_font_available("Open Sans") ? "Open Sans" : "Segoe UI";
+  }
+  const int ui_size = settings_service.get<int>("ui.fontSize");
+  const int effective_ui_size = (ui_size >= 8 && ui_size <= 48) ? ui_size : 12;
+
   m_ui_font = std::make_unique<AntialiasedFont>(
-      m_ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
+      m_ui_font_name, std::max(round_to_int(static_cast<float>(effective_ui_size) * m_dpi_scale), 9));
   m_small_font = std::make_unique<AntialiasedFont>(
-      m_ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
+      m_ui_font_name, std::max(round_to_int(static_cast<float>(effective_ui_size) * m_dpi_scale), 9));
   m_editor_font = std::make_unique<AntialiasedFont>(
       m_editor_font_name,
       std::max(round_to_int(static_cast<float>(effective_size) * m_dpi_scale),
                10));
-  m_editor_font->setLigaturesEnabled(true);
+  const bool editor_ligatures =
+      settings_service.has("editor.fontLigatures")
+          ? settings_service.get<bool>("editor.fontLigatures")
+          : true;
+  m_editor_font->setLigaturesEnabled(editor_ligatures);
   m_terminal_font = std::make_unique<AntialiasedFont>(
       m_terminal_font_name,
       std::max(round_to_int(static_cast<float>(eff_term_size) * m_dpi_scale),
                10));
-  m_terminal_font->setLigaturesEnabled(true);
+  const bool term_ligatures =
+      settings_service.has("terminal.fontLigatures")
+          ? settings_service.get<bool>("terminal.fontLigatures")
+          : true;
+  m_terminal_font->setLigaturesEnabled(term_ligatures);
   m_minimap_font = std::make_unique<AntialiasedFont>(
       m_editor_font_name, std::max(round_to_int(3.0F * m_dpi_scale), 3));
   m_large_font = std::make_unique<AntialiasedFont>(
@@ -300,11 +571,15 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
   static_cast<void>(settings_service.subscribe(
       [this, &settings_service](const Settings::SettingsChangedEvent &event) {
         if (event.id == "editor.fontSize" || event.id == "editor.fontFamily" ||
-            event.id == "editor.lineHeight") {
+            event.id == "editor.lineHeight" || event.id == "editor.fontLigatures") {
           reload_editor_font();
         } else if (event.id == "terminal.fontSize" ||
-                   event.id == "terminal.fontFamily") {
+                   event.id == "terminal.fontFamily" ||
+                   event.id == "terminal.fontLigatures") {
           reload_terminal_font();
+        } else if (event.id == "ui.fontSize" ||
+                   event.id == "ui.fontFamily") {
+          reload_ui_font();
         } else if (event.id == "editor.tabSize") {
           const int ts = settings_service.get<int>("editor.tabSize");
           m_text_editor.set_tab_size(static_cast<std::size_t>(std::max(1, ts)));
@@ -453,10 +728,14 @@ void StudioWorkspaceRenderer::update_dpi(UINT dpi) {
   m_dpi = std::max(dpi, 48U);
   m_dpi_scale = static_cast<float>(m_dpi) / 96.0F;
 
+  auto &settings_service = Settings::SettingsService::instance();
+  const int ui_size = settings_service.get<int>("ui.fontSize");
+  const int effective_ui_size = (ui_size >= 8 && ui_size <= 48) ? ui_size : 12;
+
   m_ui_font = std::make_unique<AntialiasedFont>(
-      m_ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
+      m_ui_font_name, std::max(round_to_int(static_cast<float>(effective_ui_size) * m_dpi_scale), 9));
   m_small_font = std::make_unique<AntialiasedFont>(
-      m_ui_font_name, std::max(round_to_int(12.0F * m_dpi_scale), 9));
+      m_ui_font_name, std::max(round_to_int(static_cast<float>(effective_ui_size) * m_dpi_scale), 9));
   m_large_font = std::make_unique<AntialiasedFont>(
       m_ui_font_name, std::max(round_to_int(24.0F * m_dpi_scale), 18), FW_BOLD);
 
@@ -2750,36 +3029,114 @@ void StudioWorkspaceRenderer::render_settings_window(
 
 std::string StudioWorkspaceRenderer::resolve_font_family_name(
     const std::string &font_spec) noexcept {
-  if (font_spec.empty())
-    return "Hack";
+  ensure_bundled_fonts_loaded();
+  if (!g_fonts_enumerated) {
+    refresh_available_fonts();
+  }
 
-  std::stringstream ss(font_spec);
-  std::string item;
-  while (std::getline(ss, item, ',')) {
-    const size_t start = item.find_first_not_of(" \t\r\n'\"");
-    const size_t end = item.find_last_not_of(" \t\r\n'\"");
-    if (start == std::string::npos)
-      continue;
-    std::string name = item.substr(start, end - start + 1);
-    if (name == "monospace" || name == "sans-serif" || name == "serif")
-      continue;
-
-    if (name == "JetBrains Mono" || name == "JetBrainsMono") {
-      if (is_font_available("JetBrainsMonoNL Nerd Font"))
-        return "JetBrainsMonoNL Nerd Font";
-      if (is_font_available("JetBrainsMono Nerd Font"))
-        return "JetBrainsMono Nerd Font";
-      if (is_font_available("JetBrains Mono"))
-        return "JetBrains Mono";
+  std::vector<std::string> candidates;
+  if (!font_spec.empty()) {
+    std::stringstream ss(font_spec);
+    std::string item;
+    while (std::getline(ss, item, ',')) {
+      const size_t start = item.find_first_not_of(" \t\r\n'\"");
+      const size_t end = item.find_last_not_of(" \t\r\n'\"");
+      if (start == std::string::npos)
+        continue;
+      std::string name = item.substr(start, end - start + 1);
+      if (!name.empty()) {
+        candidates.push_back(std::move(name));
+      }
     }
+  }
+
+  // 1. Check each candidate in order (CSS cascade)
+  for (const auto &name : candidates) {
+    if (name == "monospace" || name == "sans-serif" || name == "serif" ||
+        name == "cursive" || name == "fantasy" || name == "system-ui") {
+      continue;
+    }
+
+    // 1a. Exact case-insensitive match in all available fonts (OS + bundled)
+    for (const auto &fam : g_all_available_fonts) {
+      if (_stricmp(fam.c_str(), name.c_str()) == 0) {
+        return fam;
+      }
+    }
+
+    // 1b. Normalized match (e.g. "JetBrainsMono" -> "JetBrains Mono")
+    const std::string norm = normalize_font_name(name);
+    for (const auto &fam : g_all_available_fonts) {
+      if (normalize_font_name(fam) == norm) {
+        return fam;
+      }
+    }
+
+    // 1c. Alias resolution for bundled / OS JetBrains Mono / Nerd Fonts
+    if (norm.find("jetbrainsmono") != std::string::npos ||
+        norm.find("jetbrains") != std::string::npos) {
+      static const char *jb_variants[] = {
+          "JetBrainsMono Nerd Font",
+          "JetBrains Mono",
+          "JetBrainsMonoNL Nerd Font",
+          "JetBrainsMono Nerd Font Mono",
+          "JetBrainsMonoNL Nerd Font Mono",
+          "JetBrainsMono NFM",
+          "JetBrainsMono NF",
+          "JetBrainsMono"};
+      for (const char *v : jb_variants) {
+        for (const auto &fam : g_all_available_fonts) {
+          if (_stricmp(fam.c_str(), v) == 0) {
+            return fam;
+          }
+        }
+      }
+      for (const auto &fam : g_all_available_fonts) {
+        if (normalize_font_name(fam).find("jetbrainsmono") != std::string::npos ||
+            normalize_font_name(fam).find("jetbrains") != std::string::npos) {
+          return fam;
+        }
+      }
+    }
+
+    // 1d. General prefix match for other programming fonts (e.g. "Fira Code", "Cascadia Code")
+    if (norm.find("firacode") != std::string::npos || norm.find("fira") != std::string::npos) {
+      for (const auto &fam : g_all_available_fonts) {
+        if (normalize_font_name(fam).find("firacode") != std::string::npos) {
+          return fam;
+        }
+      }
+    }
+    if (norm.find("cascadiacode") != std::string::npos || norm.find("cascadia") != std::string::npos) {
+      for (const auto &fam : g_all_available_fonts) {
+        if (normalize_font_name(fam).find("cascadia") != std::string::npos) {
+          return fam;
+        }
+      }
+    }
+
+    // 1e. Direct GDI verification for installed system font
     if (is_font_available(name)) {
       return name;
     }
   }
-  if (is_font_available("Hack"))
-    return "Hack";
-  if (is_font_available("Consolas"))
-    return "Consolas";
+
+  // 2. If no candidate strictly matched the catalog, return the first
+  // non-generic candidate typed by the user directly so GDI's font mapper
+  // can attempt to load it.
+  for (const auto &name : candidates) {
+    if (name != "monospace" && name != "sans-serif" && name != "serif") {
+      return name;
+    }
+  }
+
+  // 3. Fallback cascade: prioritize bundled JetBrains Mono, then Cascadia Code, Consolas
+  for (const char *fb : {"JetBrainsMono Nerd Font", "JetBrains Mono", "Cascadia Code", "Consolas"}) {
+    if (is_font_available(fb)) {
+      return fb;
+    }
+  }
+
   return "Consolas";
 }
 
@@ -2803,6 +3160,7 @@ float StudioWorkspaceRenderer::get_editor_line_height(
 }
 
 void StudioWorkspaceRenderer::reload_editor_font() {
+  ensure_bundled_fonts_loaded();
   auto &settings = Settings::SettingsService::instance();
   const int configured_size = settings.get<int>("editor.fontSize");
   const int effective_size =
@@ -2818,7 +3176,11 @@ void StudioWorkspaceRenderer::reload_editor_font() {
       m_editor_font_name,
       std::max(round_to_int(static_cast<float>(effective_size) * m_dpi_scale),
                10));
-  m_editor_font->setLigaturesEnabled(true);
+  const bool ligatures_enabled =
+      settings.has("editor.fontLigatures")
+          ? settings.get<bool>("editor.fontLigatures")
+          : true;
+  m_editor_font->setLigaturesEnabled(ligatures_enabled);
   m_minimap_font = std::make_unique<AntialiasedFont>(
       m_editor_font_name, std::max(round_to_int(3.0F * m_dpi_scale), 3));
 
@@ -2828,6 +3190,7 @@ void StudioWorkspaceRenderer::reload_editor_font() {
 }
 
 void StudioWorkspaceRenderer::reload_terminal_font() {
+  ensure_bundled_fonts_loaded();
   auto &settings = Settings::SettingsService::instance();
   const int configured_size = settings.get<int>("terminal.fontSize");
   const int effective_size =
@@ -2845,7 +3208,36 @@ void StudioWorkspaceRenderer::reload_terminal_font() {
       m_terminal_font_name,
       std::max(round_to_int(static_cast<float>(effective_size) * m_dpi_scale),
                10));
-  m_terminal_font->setLigaturesEnabled(true);
+  const bool term_ligatures =
+      settings.has("terminal.fontLigatures")
+          ? settings.get<bool>("terminal.fontLigatures")
+          : true;
+  m_terminal_font->setLigaturesEnabled(term_ligatures);
+
+  if (m_window_handle) {
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+  }
+}
+
+void StudioWorkspaceRenderer::reload_ui_font() {
+  auto &settings = Settings::SettingsService::instance();
+  const int ui_size = settings.get<int>("ui.fontSize");
+  const int effective_ui_size = (ui_size >= 8 && ui_size <= 48) ? ui_size : 12;
+
+  const std::string configured_font =
+      settings.get<std::string>("ui.fontFamily");
+  if (!configured_font.empty() && is_font_available(configured_font)) {
+    m_ui_font_name = configured_font;
+  } else {
+    m_ui_font_name = is_font_available("Open Sans") ? "Open Sans" : "Segoe UI";
+  }
+
+  m_ui_font = std::make_unique<AntialiasedFont>(
+      m_ui_font_name, std::max(round_to_int(static_cast<float>(effective_ui_size) * m_dpi_scale), 9));
+  m_small_font = std::make_unique<AntialiasedFont>(
+      m_ui_font_name, std::max(round_to_int(static_cast<float>(effective_ui_size) * m_dpi_scale), 9));
+  m_large_font = std::make_unique<AntialiasedFont>(
+      m_ui_font_name, std::max(round_to_int(24.0F * m_dpi_scale), 18), FW_BOLD);
 
   if (m_window_handle) {
     InvalidateRect(m_window_handle, nullptr, FALSE);

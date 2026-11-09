@@ -35,6 +35,6 @@ target_compile_definitions(ZDEPlatformWin32 PRIVATE
 target_link_libraries(ZDEPlatformWin32
     PUBLIC Zenvra::Core Zenvra::PlatformHost Zenvra::Settings
     PRIVATE Zenvra::Commands Zenvra::UI Zenvra::Editors Zenvra::Language Zenvra::Terminal Zenvra::Services Zenvra::Plugins Zenvra::Tools lunasvg ZDEUtility
-            user32 gdi32 msimg32 shell32 dwmapi uxtheme usp10 ole32 uuid runtimeobject comctl32
+            user32 gdi32 msimg32 shell32 dwmapi uxtheme usp10 dwrite ole32 uuid runtimeobject comctl32
 )
 zde_enable_warnings(ZDEPlatformWin32)

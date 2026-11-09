@@ -1,15 +1,63 @@
 #ifndef FONTS_H
 #define FONTS_H
 
+#include <algorithm>
+#include <cwctype>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 
 #if defined(_WIN32) || defined(_WIN64)
 
 #include <windows.h>
-#include <usp10.h> // Uniscribe for ligatures
+#include <usp10.h> // Uniscribe fallback
+#include <dwrite.h> // DirectWrite for OpenType ligatures ('calt' and 'liga')
+
+#pragma comment(lib, "dwrite.lib")
+#pragma comment(lib, "usp10.lib")
+
+namespace Detail {
+
+struct DWriteContext {
+  IDWriteFactory *factory = nullptr;
+  IDWriteGdiInterop *gdiInterop = nullptr;
+  IDWriteTextAnalyzer *textAnalyzer = nullptr;
+
+  static DWriteContext &instance() {
+    static DWriteContext s_ctx;
+    return s_ctx;
+  }
+
+  DWriteContext() {
+    HRESULT hr = DWriteCreateFactory(
+        DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+        reinterpret_cast<IUnknown **>(&factory));
+    if (SUCCEEDED(hr) && factory) {
+      factory->GetGdiInterop(&gdiInterop);
+      factory->CreateTextAnalyzer(&textAnalyzer);
+    }
+  }
+
+  ~DWriteContext() {
+    if (textAnalyzer) {
+      textAnalyzer->Release();
+      textAnalyzer = nullptr;
+    }
+    if (gdiInterop) {
+      gdiInterop->Release();
+      gdiInterop = nullptr;
+    }
+    if (factory) {
+      factory->Release();
+      factory = nullptr;
+    }
+  }
+};
+
+} // namespace Detail
 
 /**
  * @class AntialiasedFont
@@ -20,7 +68,7 @@ class AntialiasedFont {
 public:
   /**
    * @brief Constructor. Opens a vector font by description.
-   * @param font_name Font name string (e.g., "Segoe UI", "Arial").
+   * @param font_name Font name string (e.g., "Segoe UI", "Arial", or comma-separated list).
    * @param font_size Font size in logical units.
    */
   AntialiasedFont(const std::string &font_name, int font_size = 16,
@@ -29,24 +77,68 @@ public:
 #ifndef CLEARTYPE_NATURAL_QUALITY
 #define CLEARTYPE_NATURAL_QUALITY 6
 #endif
-    m_font = CreateFontA(-font_size, 0, 0, 0, font_weight, FALSE, FALSE, FALSE,
-                         DEFAULT_CHARSET, OUT_TT_PRECIS,
-                         CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
-                         DEFAULT_PITCH | FF_DONTCARE, font_name.c_str());
-    if (!m_font) {
-      m_font = CreateFontA(-font_size, 0, 0, 0, font_weight, FALSE, FALSE, FALSE,
-                           DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                           CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
-                           DEFAULT_PITCH | FF_DONTCARE, font_name.c_str());
+    const int effective_size = std::max(font_size, 4);
+    m_font_size = effective_size;
+
+    // Split comma-separated font cascade (e.g. "'JetBrains Mono', Consolas, monospace")
+    std::vector<std::string> candidates;
+    if (!font_name.empty()) {
+      std::stringstream ss(font_name);
+      std::string item;
+      while (std::getline(ss, item, ',')) {
+        size_t s = item.find_first_not_of(" \t\r\n'\"");
+        size_t e = item.find_last_not_of(" \t\r\n'\"");
+        if (s != std::string::npos && e != std::string::npos && e >= s) {
+          std::string trimmed = item.substr(s, e - s + 1);
+          if (!trimmed.empty() && trimmed != "monospace" &&
+              trimmed != "sans-serif" && trimmed != "serif" &&
+              trimmed != "system-ui") {
+            candidates.push_back(std::move(trimmed));
+          }
+        }
+      }
     }
 
-    if (!m_font) {
-      std::cerr << "Warning: Could not open font '" << font_name << "'"
-                << std::endl;
-    } else {
+    if (candidates.empty()) {
+      candidates.push_back("Consolas");
+    }
+
+    auto try_create = [&](const std::wstring &wface) -> bool {
+      HFONT hf = CreateFontW(-effective_size, 0, 0, 0, font_weight, FALSE, FALSE, FALSE,
+                             DEFAULT_CHARSET, OUT_TT_PRECIS,
+                             CLIP_DEFAULT_PRECIS, CLEARTYPE_NATURAL_QUALITY,
+                             DEFAULT_PITCH | FF_DONTCARE, wface.c_str());
+      if (!hf) {
+        hf = CreateFontW(-effective_size, 0, 0, 0, font_weight, FALSE, FALSE, FALSE,
+                         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                         CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                         DEFAULT_PITCH | FF_DONTCARE, wface.c_str());
+      }
+      if (!hf) return false;
+
       HDC screen_dc = GetDC(nullptr);
-      if (screen_dc) {
-        HFONT old_f = (HFONT)SelectObject(screen_dc, m_font);
+      if (!screen_dc) {
+        m_font = hf;
+        return true;
+      }
+      HFONT old_f = (HFONT)SelectObject(screen_dc, hf);
+      wchar_t actual_face[LF_FACESIZE]{};
+      GetTextFaceW(screen_dc, LF_FACESIZE, actual_face);
+
+      bool match = (_wcsicmp(actual_face, wface.c_str()) == 0);
+      if (!match) {
+        // Accept if JetBrains was requested and any JetBrains variant was mapped by GDI
+        std::wstring lower_actual = actual_face;
+        for (wchar_t &c : lower_actual) c = static_cast<wchar_t>(towlower(c));
+        std::wstring lower_face = wface;
+        for (wchar_t &c : lower_face) c = static_cast<wchar_t>(towlower(c));
+        if (lower_face.find(L"jetbrains") != std::wstring::npos &&
+            lower_actual.find(L"jetbrains") != std::wstring::npos) {
+          match = true;
+        }
+      }
+
+      if (match) {
         TEXTMETRIC tm{};
         GetTextMetrics(screen_dc, &tm);
         m_ascent = tm.tmAscent;
@@ -57,6 +149,93 @@ public:
         m_char_width = char_sz.cx;
         SelectObject(screen_dc, old_f);
         ReleaseDC(nullptr, screen_dc);
+        m_font = hf;
+        return true;
+      }
+
+      SelectObject(screen_dc, old_f);
+      ReleaseDC(nullptr, screen_dc);
+      DeleteObject(hf);
+      return false;
+    };
+
+    // Try candidates in order
+    for (const auto &cand : candidates) {
+      int wlen = MultiByteToWideChar(CP_UTF8, 0, cand.c_str(), static_cast<int>(cand.length()), nullptr, 0);
+      if (wlen <= 0) continue;
+      std::wstring wname(wlen, L'\0');
+      MultiByteToWideChar(CP_UTF8, 0, cand.c_str(), static_cast<int>(cand.length()), &wname[0], wlen);
+
+      if (try_create(wname)) {
+        break;
+      }
+
+      // If this candidate was a JetBrains Mono request, try alternative aliases
+      std::wstring lower_cand = wname;
+      for (wchar_t &c : lower_cand) c = static_cast<wchar_t>(towlower(c));
+      if (lower_cand.find(L"jetbrains") != std::wstring::npos) {
+        static const wchar_t *jb_fallbacks[] = {
+            L"JetBrainsMono Nerd Font",
+            L"JetBrains Mono",
+            L"JetBrainsMonoNL Nerd Font",
+            L"JetBrainsMono Nerd Font Mono",
+            L"JetBrainsMonoNL Nerd Font Mono",
+            L"JetBrainsMono NFM",
+            L"JetBrainsMono NF",
+            L"JetBrainsMono"};
+        bool jb_found = false;
+        for (const wchar_t *jb : jb_fallbacks) {
+          if (try_create(jb)) {
+            jb_found = true;
+            break;
+          }
+        }
+        if (jb_found) break;
+      }
+    }
+
+    // Ultimate fallback if nothing in the cascade matched
+    if (!m_font) {
+      for (const wchar_t *fb : {L"Consolas", L"Courier New", L"Segoe UI"}) {
+        if (try_create(fb)) break;
+      }
+    }
+
+    // Safety fallback: if still no font, create default GUI font
+    if (!m_font) {
+      m_font = CreateFontW(-effective_size, 0, 0, 0, font_weight, FALSE, FALSE, FALSE,
+                           DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                           CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY,
+                           DEFAULT_PITCH | FF_DONTCARE, nullptr);
+      if (m_font) {
+        HDC screen_dc = GetDC(nullptr);
+        if (screen_dc) {
+          HFONT old_f = (HFONT)SelectObject(screen_dc, m_font);
+          TEXTMETRIC tm{};
+          GetTextMetrics(screen_dc, &tm);
+          m_ascent = tm.tmAscent;
+          m_descent = tm.tmDescent;
+          m_height = tm.tmHeight;
+          SIZE char_sz{};
+          GetTextExtentPoint32A(screen_dc, "X", 1, &char_sz);
+          m_char_width = char_sz.cx;
+          SelectObject(screen_dc, old_f);
+          ReleaseDC(nullptr, screen_dc);
+        }
+      }
+    }
+
+    // Initialize DirectWrite FontFace for OpenType ligature shaping ('calt' and 'liga')
+    if (m_font) {
+      HDC screen_dc = GetDC(nullptr);
+      if (screen_dc) {
+        HFONT old_f = (HFONT)SelectObject(screen_dc, m_font);
+        auto &dwrite = Detail::DWriteContext::instance();
+        if (dwrite.gdiInterop) {
+          dwrite.gdiInterop->CreateFontFaceFromHdc(screen_dc, &m_dwriteFontFace);
+        }
+        SelectObject(screen_dc, old_f);
+        ReleaseDC(nullptr, screen_dc);
       }
     }
   }
@@ -64,13 +243,155 @@ public:
   ~AntialiasedFont() {
     if (m_font) {
       DeleteObject(m_font);
+      m_font = nullptr;
     }
+    if (m_dwriteFontFace) {
+      m_dwriteFontFace->Release();
+      m_dwriteFontFace = nullptr;
+    }
+  }
+
+  AntialiasedFont(const AntialiasedFont &) = delete;
+  AntialiasedFont &operator=(const AntialiasedFont &) = delete;
+
+  AntialiasedFont(AntialiasedFont &&other) noexcept
+      : m_font(other.m_font),
+        m_dwriteFontFace(other.m_dwriteFontFace),
+        m_ligaturesEnabled(other.m_ligaturesEnabled),
+        m_ascent(other.m_ascent),
+        m_descent(other.m_descent),
+        m_height(other.m_height),
+        m_char_width(other.m_char_width),
+        m_font_size(other.m_font_size) {
+    other.m_font = nullptr;
+    other.m_dwriteFontFace = nullptr;
+  }
+
+  AntialiasedFont &operator=(AntialiasedFont &&other) noexcept {
+    if (this != &other) {
+      if (m_font) {
+        DeleteObject(m_font);
+      }
+      if (m_dwriteFontFace) {
+        m_dwriteFontFace->Release();
+      }
+      m_font = other.m_font;
+      m_dwriteFontFace = other.m_dwriteFontFace;
+      m_ligaturesEnabled = other.m_ligaturesEnabled;
+      m_ascent = other.m_ascent;
+      m_descent = other.m_descent;
+      m_height = other.m_height;
+      m_char_width = other.m_char_width;
+      m_font_size = other.m_font_size;
+      other.m_font = nullptr;
+      other.m_dwriteFontFace = nullptr;
+    }
+    return *this;
   }
 
   bool isValid() const noexcept { return m_font != nullptr; }
 
   void setLigaturesEnabled(bool enabled) { m_ligaturesEnabled = enabled; }
   bool isLigaturesEnabled() const { return m_ligaturesEnabled; }
+
+  /**
+   * @brief Shapes text using DirectWrite OpenType GSUB engine ('calt' and 'liga').
+   */
+  bool shapeTextWithDirectWrite(
+      HDC /*hdc*/, const wchar_t *text, UINT32 length,
+      std::vector<UINT16> &out_glyph_indices,
+      std::vector<INT> &out_advances, int &out_total_width) const {
+    if (!m_dwriteFontFace || length == 0)
+      return false;
+
+    auto &dwrite = Detail::DWriteContext::instance();
+    if (!dwrite.textAnalyzer)
+      return false;
+
+    const UINT32 maxGlyphs = length * 3 / 2 + 16;
+
+    UINT16 stack_clusterMap[128];
+    DWRITE_SHAPING_TEXT_PROPERTIES stack_textProps[128];
+    UINT16 stack_glyphIndices[128];
+    DWRITE_SHAPING_GLYPH_PROPERTIES stack_glyphProps[128];
+
+    std::vector<UINT16> heap_clusterMap;
+    std::vector<DWRITE_SHAPING_TEXT_PROPERTIES> heap_textProps;
+    std::vector<UINT16> heap_glyphIndices;
+    std::vector<DWRITE_SHAPING_GLYPH_PROPERTIES> heap_glyphProps;
+
+    UINT16 *pClusterMap = stack_clusterMap;
+    DWRITE_SHAPING_TEXT_PROPERTIES *pTextProps = stack_textProps;
+    UINT16 *pGlyphIndices = stack_glyphIndices;
+    DWRITE_SHAPING_GLYPH_PROPERTIES *pGlyphProps = stack_glyphProps;
+
+    if (length > 128 || maxGlyphs > 128) {
+      heap_clusterMap.resize(length);
+      heap_textProps.resize(length);
+      heap_glyphIndices.resize(maxGlyphs);
+      heap_glyphProps.resize(maxGlyphs);
+      pClusterMap = heap_clusterMap.data();
+      pTextProps = heap_textProps.data();
+      pGlyphIndices = heap_glyphIndices.data();
+      pGlyphProps = heap_glyphProps.data();
+    }
+
+    DWRITE_SCRIPT_ANALYSIS scriptAnalysis{};
+    scriptAnalysis.script = 0; // Common / Latin
+    scriptAnalysis.shapes = DWRITE_SCRIPT_SHAPES_DEFAULT;
+
+    UINT32 actualGlyphs = 0;
+    HRESULT hr = dwrite.textAnalyzer->GetGlyphs(
+        text, length, m_dwriteFontFace, FALSE, FALSE, &scriptAnalysis,
+        L"en-us", nullptr, nullptr, nullptr, 0, maxGlyphs,
+        pClusterMap, pTextProps, pGlyphIndices,
+        pGlyphProps, &actualGlyphs);
+
+    if (FAILED(hr) || actualGlyphs == 0) {
+      return false;
+    }
+
+    FLOAT stack_glyphAdvances[128];
+    DWRITE_GLYPH_OFFSET stack_glyphOffsets[128];
+    std::vector<FLOAT> heap_glyphAdvances;
+    std::vector<DWRITE_GLYPH_OFFSET> heap_glyphOffsets;
+
+    FLOAT *pGlyphAdvances = stack_glyphAdvances;
+    DWRITE_GLYPH_OFFSET *pGlyphOffsets = stack_glyphOffsets;
+
+    if (actualGlyphs > 128) {
+      heap_glyphAdvances.resize(actualGlyphs);
+      heap_glyphOffsets.resize(actualGlyphs);
+      pGlyphAdvances = heap_glyphAdvances.data();
+      pGlyphOffsets = heap_glyphOffsets.data();
+    }
+
+    const FLOAT fontEmSize = static_cast<FLOAT>(m_font_size);
+
+    hr = dwrite.textAnalyzer->GetGlyphPlacements(
+        text, pClusterMap, pTextProps, length,
+        pGlyphIndices, pGlyphProps, actualGlyphs,
+        m_dwriteFontFace, fontEmSize, FALSE, FALSE, &scriptAnalysis,
+        L"en-us", nullptr, nullptr, 0,
+        pGlyphAdvances, pGlyphOffsets);
+
+    out_glyph_indices.assign(pGlyphIndices, pGlyphIndices + actualGlyphs);
+    out_advances.resize(actualGlyphs);
+    out_total_width = 0;
+    if (SUCCEEDED(hr)) {
+      for (UINT32 i = 0; i < actualGlyphs; ++i) {
+        out_advances[i] = static_cast<INT>(std::round(pGlyphAdvances[i]));
+        out_total_width += out_advances[i];
+      }
+    } else {
+      for (UINT32 i = 0; i < actualGlyphs; ++i) {
+        out_advances[i] = m_char_width;
+        out_total_width += m_char_width;
+      }
+    }
+
+    return true;
+  }
 
   /**
    * @brief Draw a string on a device context.
@@ -108,16 +429,21 @@ public:
     }
 
     if (wlen > 0) {
-      if (m_ligaturesEnabled) {
-        SCRIPT_STRING_ANALYSIS ssa = nullptr;
-        HRESULT hr = ScriptStringAnalyse(hdc, wide_ptr, wlen, static_cast<int>(wlen * 3 / 2 + 16), -1, SSA_GLYPHS | SSA_FALLBACK | SSA_LINK, 0, NULL, NULL, NULL, NULL, NULL, &ssa);
-        if (SUCCEEDED(hr)) {
-          ScriptStringOut(ssa, x, draw_y, 0, NULL, 0, 0, FALSE);
-          ScriptStringFree(&ssa);
-        } else {
-          TextOutW(hdc, x, draw_y, wide_ptr, wlen);
+      bool drawn = false;
+      if (m_ligaturesEnabled && m_dwriteFontFace) {
+        std::vector<UINT16> glyph_indices;
+        std::vector<INT> advances;
+        int total_w = 0;
+        if (shapeTextWithDirectWrite(hdc, wide_ptr, static_cast<UINT32>(wlen),
+                                     glyph_indices, advances, total_w)) {
+          ExtTextOutW(hdc, x, draw_y, ETO_GLYPH_INDEX, nullptr,
+                      reinterpret_cast<LPCWSTR>(glyph_indices.data()),
+                      static_cast<UINT>(glyph_indices.size()),
+                      advances.empty() ? nullptr : advances.data());
+          drawn = true;
         }
-      } else {
+      }
+      if (!drawn) {
         TextOutW(hdc, x, draw_y, wide_ptr, wlen);
       }
     }
@@ -158,15 +484,13 @@ public:
     }
 
     if (wlen > 0) {
-      if (m_ligaturesEnabled) {
-        SCRIPT_STRING_ANALYSIS ssa = nullptr;
-        HRESULT hr = ScriptStringAnalyse(hdc, wide_ptr, wlen, static_cast<int>(wlen * 3 / 2 + 16), -1, SSA_GLYPHS | SSA_FALLBACK | SSA_LINK, 0, NULL, NULL, NULL, NULL, NULL, &ssa);
-        if (SUCCEEDED(hr)) {
-          const SIZE* pSize = ScriptString_pSize(ssa);
-          if (pSize) {
-            width = pSize->cx;
-          }
-          ScriptStringFree(&ssa);
+      if (m_ligaturesEnabled && m_dwriteFontFace) {
+        std::vector<UINT16> glyph_indices;
+        std::vector<INT> advances;
+        int total_w = 0;
+        if (shapeTextWithDirectWrite(hdc, wide_ptr, static_cast<UINT32>(wlen),
+                                     glyph_indices, advances, total_w)) {
+          width = total_w;
         }
       }
 
@@ -183,11 +507,13 @@ public:
 
 private:
   HFONT m_font = nullptr;
+  IDWriteFontFace *m_dwriteFontFace = nullptr;
   bool m_ligaturesEnabled = false;
   int m_ascent = 14;
   int m_descent = 4;
   int m_height = 18;
   int m_char_width = 8;
+  int m_font_size = 16;
 
   COLORREF parseColor(const std::string &color_name) {
     if (color_name.empty())

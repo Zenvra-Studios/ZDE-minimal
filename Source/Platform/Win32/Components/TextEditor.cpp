@@ -355,6 +355,7 @@ bool TextEditor::open_file(const std::filesystem::path &path) {
   const bool opened = m_controller.open_file(path);
   if (opened) {
     m_scrollbar.reset();
+    m_text_scroll_offset = 0.0F;
     m_reveal_caret_pending = true;
     m_caret_blink.reset();
     m_hovered_tab_index.reset();
@@ -610,6 +611,7 @@ std::size_t TextEditor::open_dropped_paths(
       m_controller.open_dropped_paths(dropped_paths);
   if (opened_count > 0) {
     m_scrollbar.reset();
+    m_text_scroll_offset = 0.0F;
     m_reveal_caret_pending = true;
     m_focused = true;
     m_caret_blink.reset();
@@ -643,6 +645,7 @@ bool TextEditor::create_buffer() {
   const bool created = m_controller.create_buffer();
   if (created) {
     m_scrollbar.reset();
+    m_text_scroll_offset = 0.0F;
     m_reveal_caret_pending = true;
     m_focused = true;
     m_caret_blink.reset();
@@ -1593,6 +1596,7 @@ bool TextEditor::handle_pointer_press(
             m_media_player_view.close();
           }
           m_scrollbar.reset();
+          m_text_scroll_offset = 0.0F;
           m_reveal_caret_pending = true;
           m_caret_blink.reset();
         }
@@ -1606,6 +1610,7 @@ bool TextEditor::handle_pointer_press(
             m_media_player_view.close();
           }
           m_scrollbar.reset();
+          m_text_scroll_offset = 0.0F;
           m_reveal_caret_pending = true;
           m_caret_blink.reset();
         }
@@ -1707,6 +1712,7 @@ bool TextEditor::handle_pointer_press(
         }
         if (m_controller.activate_file(index)) {
           m_scrollbar.reset();
+          m_text_scroll_offset = 0.0F;
           m_reveal_caret_pending = true;
           m_caret_blink.reset();
           if (is_media_active()) {
@@ -5642,6 +5648,84 @@ void TextEditor::draw_media_pane(const StudioWorkspaceRenderer &surface,
   }
 }
 
+float TextEditor::calculate_document_max_line_width(
+    const StudioWorkspaceRenderer &surface, HDC device_context,
+    const UI::Editor::TextDocumentModel &document,
+    std::size_t tab_size) const {
+  if (!surface.m_editor_font || device_context == nullptr) {
+    return 0.0F;
+  }
+
+  const std::size_t rev = document.get_revision();
+  const float dpi = surface.m_dpi_scale;
+
+  if (m_last_width_doc == &document &&
+      m_last_width_doc_revision == rev &&
+      m_last_width_tab_size == tab_size &&
+      m_last_width_dpi_scale == dpi &&
+      m_cached_doc_max_line_width > 0.0F) {
+    return m_cached_doc_max_line_width;
+  }
+
+  const auto lines = document.get_lines();
+  if (lines.empty()) {
+    m_last_width_doc = &document;
+    m_last_width_doc_revision = rev;
+    m_last_width_tab_size = tab_size;
+    m_last_width_dpi_scale = dpi;
+    m_cached_doc_max_line_width = 0.0F;
+    return 0.0F;
+  }
+
+  // Fast estimate of visual line lengths to locate the candidate longest lines
+  std::size_t max_visual_len = 0;
+  std::vector<std::size_t> visual_lengths(lines.size(), 0);
+
+  for (std::size_t i = 0; i < lines.size(); ++i) {
+    const std::string_view l = lines[i];
+    std::size_t vlen = 0;
+    for (char c : l) {
+      if (c == '\t') {
+        const std::size_t step = tab_size - (vlen % tab_size);
+        vlen += (step == 0 ? tab_size : step);
+      } else if ((static_cast<unsigned char>(c) & 0xC0) != 0x80) {
+        ++vlen;
+      }
+    }
+    visual_lengths[i] = vlen;
+    if (vlen > max_visual_len) {
+      max_visual_len = vlen;
+    }
+  }
+
+  float calculated_max_width = 0.0F;
+
+  if (max_visual_len > 0) {
+    // If <= 500 lines, measure all. If larger, measure candidate lines within 85% of max length.
+    const std::size_t threshold =
+        (lines.size() <= 500) ? 0 : (max_visual_len * 85 / 100);
+    std::size_t measured_count = 0;
+    for (std::size_t i = 0; i < lines.size() && measured_count < 100; ++i) {
+      if (visual_lengths[i] >= threshold) {
+        const float w = static_cast<float>(surface.get_text_width(
+            device_context, *surface.m_editor_font, lines[i]));
+        if (w > calculated_max_width) {
+          calculated_max_width = w;
+        }
+        ++measured_count;
+      }
+    }
+  }
+
+  m_last_width_doc = &document;
+  m_last_width_doc_revision = rev;
+  m_last_width_tab_size = tab_size;
+  m_last_width_dpi_scale = dpi;
+  m_cached_doc_max_line_width = calculated_max_width;
+
+  return calculated_max_width;
+}
+
 void TextEditor::draw_document(
     const StudioWorkspaceRenderer &surface, HDC device_context,
     const UI::Editor::StudioEditorLayoutResult &layout) const {
@@ -6244,7 +6328,8 @@ void TextEditor::draw_document(
       }
     }
 
-    float max_line_width = 0.0f;
+    float max_line_width = calculate_document_max_line_width(
+        surface, device_context, *document, tab_size);
 
     std::size_t row_pass2 = 0;
     for (std::size_t line_index = first_line;
@@ -6259,8 +6344,10 @@ void TextEditor::draw_document(
 
       const float current_line_width = static_cast<float>(
           surface.get_text_width(device_context, *surface.m_editor_font, line));
-      if (current_line_width > max_line_width)
+      if (current_line_width > max_line_width) {
         max_line_width = current_line_width;
+        m_cached_doc_max_line_width = current_line_width;
+      }
 
       // Render whitespace characters (VS Code style)
       if (m_render_whitespace != "none" && !line.empty()) {
@@ -6857,8 +6944,7 @@ void TextEditor::draw_document(
 
       // Draw modern responsive horizontal scrollbar track and thumb
       const float track_x = layout.editor_bounds.x;
-      const float track_w = is_split_active ? (left_bounds_r - track_x)
-                                            : layout.editor_bounds.width;
+      const float track_w = std::max(0.0F, left_code_limit - track_x);
       const float track_h = 10.0F * surface.m_dpi_scale;
       const float track_y = layout.editor_bounds.bottom() - track_h;
       m_text_hscrollbar_bounds = UI::Rect{track_x, track_y, track_w, track_h};

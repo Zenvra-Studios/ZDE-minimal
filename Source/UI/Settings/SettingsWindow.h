@@ -191,6 +191,8 @@ public:
     [[nodiscard]] const Theme::StudioTheme& get_theme() const noexcept { return m_theme; }
 
 private:
+    void commit_editing_setting();
+
 #ifdef _WIN32
     static LRESULT CALLBACK dialog_proc(HWND hwnd, UINT message, WPARAM w_param, LPARAM l_param);
     LRESULT handle_message(HWND hwnd, UINT message, WPARAM w_param, LPARAM l_param);

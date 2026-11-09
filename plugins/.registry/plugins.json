@@ -3,7 +3,7 @@
     "bmewburn.vscode-intelephense-client": {
       "enabled": true,
       "id": "bmewburn.vscode-intelephense-client",
-      "installPath": "/home/ahmadzanisy/Documents/Projects/ZDE-minimal/plugins/general/bmewburn.vscode-intelephense-client",
+      "installPath": "C:\\Users\\Ahmad Zani Syechkar\\Documents\\Projects\\ZDE-minimal\\plugins\\general\\bmewburn.vscode-intelephense-client",
       "manifest": {
         "capabilities": [],
         "category": "general",
@@ -32,7 +32,7 @@
     "shufo.vscode-blade-formatter": {
       "enabled": true,
       "id": "shufo.vscode-blade-formatter",
-      "installPath": "/home/ahmadzanisy/Documents/Projects/ZDE-minimal/plugins/tools/shufo.vscode-blade-formatter",
+      "installPath": "C:\\Users\\Ahmad Zani Syechkar\\Documents\\Projects\\ZDE-minimal\\plugins\\tools\\shufo.vscode-blade-formatter",
       "manifest": {
         "capabilities": [],
         "category": "tools",

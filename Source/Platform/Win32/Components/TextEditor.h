@@ -219,6 +219,10 @@ private:
   void close_saved_documents();
   void draw_document(const StudioWorkspaceRenderer &surface, HDC device_context,
                      const UI::Editor::StudioEditorLayoutResult &layout) const;
+  [[nodiscard]] float calculate_document_max_line_width(
+      const StudioWorkspaceRenderer &surface, HDC device_context,
+      const UI::Editor::TextDocumentModel &document,
+      std::size_t tab_size) const;
   void draw_media_pane(const StudioWorkspaceRenderer &surface, HDC device_context,
                        const UI::Rect &pane_bounds,
                        const std::filesystem::path &doc_path) const;
@@ -312,6 +316,11 @@ private:
   bool m_dragging_text_hscrollbar = false;
   float m_text_hscroll_drag_start_x = 0.0F;
   float m_text_hscroll_drag_initial_offset = 0.0F;
+  mutable const UI::Editor::TextDocumentModel *m_last_width_doc = nullptr;
+  mutable std::size_t m_last_width_doc_revision = 0;
+  mutable std::size_t m_last_width_tab_size = 0;
+  mutable float m_last_width_dpi_scale = 0.0F;
+  mutable float m_cached_doc_max_line_width = 0.0F;
   mutable UI::Editor::BraceAnimationModel m_brace_animation;
   mutable UI::Editor::BraceAnimationModel m_split_brace_animation;
   mutable UI::Components::Button m_empty_state_open_btn;

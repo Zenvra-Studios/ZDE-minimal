@@ -131,7 +131,8 @@ private:
     // Keep the Explorer header aligned with the editor tab strip. Both
     // borders must use the same vertical measurement when a buffer opens.
     static constexpr float header_height = UI::Editor::StudioEditorMetrics::tab_height;
-    static constexpr float row_height = 22.0F;
+    // JetBrains IDEA-style comfortable row height (26px) for prominent file/folder icons
+    static constexpr float row_height = 26.0F;
 
     [[nodiscard]] std::size_t viewport_row_count(const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
     [[nodiscard]] std::size_t search_viewport_row_count(const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;

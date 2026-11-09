@@ -97,7 +97,7 @@ int main(int argument_count, char **argument_values) {
   if (manifest_path.empty()) {
     manifest_path = exe_path / "manifest" / "runtime.json";
   }
-
+  
   std::string manifest_content = ReadFile(manifest_path.string());
   if (manifest_content.empty()) {
     ShowNativeErrorDialog("ZDE Startup Error",
