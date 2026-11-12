@@ -113,10 +113,16 @@ bool X11ChromeRenderer::initialize(Display *display, int screen,
   m_colors.command_center_background = allocate_color(theme.command_center_background);
   m_colors.command_center_border = allocate_color(theme.command_center_border);
   m_colors.close_hover = allocate_color(theme.close_hover);
-  m_colors.popup_background = allocate_color(theme.panel_background);
-  m_colors.popup_border = allocate_color(theme.titlebar_border);
-  m_theme_popup_background = theme.panel_background;
-  m_theme_popup_border = theme.titlebar_border;
+  const UI::Theme::Color popup_bg =
+      theme.is_modern ? UI::Theme::Color{26, 28, 34, 255}
+                      : theme.panel_background;
+  const UI::Theme::Color popup_bdr =
+      theme.is_modern ? UI::Theme::Color{65, 70, 85, 255}
+                      : theme.titlebar_border;
+  m_colors.popup_background = allocate_color(popup_bg);
+  m_colors.popup_border = allocate_color(popup_bdr);
+  m_theme_popup_background = popup_bg;
+  m_theme_popup_border = popup_bdr;
   m_text_colors.primary = to_xft_color(theme.text_primary);
   m_text_colors.secondary = to_xft_color(theme.text_secondary);
   m_text_colors.white = "#ffffff";
@@ -143,10 +149,16 @@ void X11ChromeRenderer::apply_theme(const UI::Theme::StudioTheme &theme) {
   m_colors.command_center_background = allocate_color(theme.command_center_background);
   m_colors.command_center_border = allocate_color(theme.command_center_border);
   m_colors.close_hover = allocate_color(theme.close_hover);
-  m_colors.popup_background = allocate_color(theme.panel_background);
-  m_colors.popup_border = allocate_color(theme.titlebar_border);
-  m_theme_popup_background = theme.panel_background;
-  m_theme_popup_border = theme.titlebar_border;
+  const UI::Theme::Color popup_bg =
+      theme.is_modern ? UI::Theme::Color{26, 28, 34, 255}
+                      : theme.panel_background;
+  const UI::Theme::Color popup_bdr =
+      theme.is_modern ? UI::Theme::Color{65, 70, 85, 255}
+                      : theme.titlebar_border;
+  m_colors.popup_background = allocate_color(popup_bg);
+  m_colors.popup_border = allocate_color(popup_bdr);
+  m_theme_popup_background = popup_bg;
+  m_theme_popup_border = popup_bdr;
   m_text_colors.primary = to_xft_color(theme.text_primary);
   m_text_colors.secondary = to_xft_color(theme.text_secondary);
   m_text_colors.white = "#ffffff";
@@ -1300,9 +1312,8 @@ void X11ChromeRenderer::draw_popup_menu(
   fill_rectangle(drawable, geometry.bounds, m_colors.popup_background, radius,
                  m_colors.window_background);
 
-  // macOS Hairline Border (subtle translucent border RGB(70, 72, 80))
-  draw_rectangle(drawable, geometry.bounds,
-                 allocate_color(UI::Theme::Color{70, 72, 80, 255}), radius);
+  // macOS Hairline Border
+  draw_rectangle(drawable, geometry.bounds, m_colors.popup_border, radius);
 
   const UI::Components::Menu &menu = menus[menu_index];
   for (std::size_t item_index = 0; item_index < geometry.item_count;
@@ -1429,9 +1440,8 @@ void X11ChromeRenderer::draw_overflow_menu(
   fill_rectangle(drawable, geometry.bounds, m_colors.popup_background, radius,
                  m_colors.window_background);
 
-  // macOS Hairline Border (subtle translucent border RGB(70, 72, 80))
-  draw_rectangle(drawable, geometry.bounds,
-                 allocate_color(UI::Theme::Color{70, 72, 80, 255}), radius);
+  // macOS Hairline Border
+  draw_rectangle(drawable, geometry.bounds, m_colors.popup_border, radius);
 
   const std::span<const UI::Components::Menu> menus =
       UI::Components::get_window_menus();

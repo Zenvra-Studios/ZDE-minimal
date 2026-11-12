@@ -4255,21 +4255,21 @@ Win32Window::calculate_menu_overlay_geometry() const noexcept {
 
   const std::span<const UI::Components::Menu> menus =
       UI::Components::get_window_menus();
-  const float row_height = 24.0F * m_chrome_layout.dpi_scale;
-  const float vertical_padding = 4.0F * m_chrome_layout.dpi_scale;
+  const float row_height = 28.0F * m_chrome_layout.dpi_scale;
+  const float vertical_padding = 6.0F * m_chrome_layout.dpi_scale;
   const std::size_t first_menu_index =
       m_chrome_layout.first_overflow_menu_index;
   if (first_menu_index >= menus.size()) {
     return geometry;
   }
-  float popup_width = 160.0F * m_chrome_layout.dpi_scale;
+  float popup_width = 180.0F * m_chrome_layout.dpi_scale;
   for (std::size_t menu_index = first_menu_index; menu_index < menus.size();
        ++menu_index) {
     const UI::Components::Menu &menu = menus[menu_index];
     popup_width =
-        std::max(popup_width, static_cast<float>(menu.label.size()) * 7.0F *
+        std::max(popup_width, static_cast<float>(menu.label.size()) * 7.5F *
                                       m_chrome_layout.dpi_scale +
-                                  34.0F * m_chrome_layout.dpi_scale);
+                                  44.0F * m_chrome_layout.dpi_scale);
   }
   geometry.item_count =
       std::min(menus.size() - first_menu_index, geometry.item_bounds.size());
@@ -4312,15 +4312,15 @@ Win32Window::PopupMenuGeometry Win32Window::calculate_popup_menu_geometry(
   }
 
   const UI::Components::Menu &menu = menus[menu_index];
-  const float row_height = 24.0F * m_chrome_layout.dpi_scale;
-  const float separator_height = 7.0F * m_chrome_layout.dpi_scale;
-  const float vertical_padding = 4.0F * m_chrome_layout.dpi_scale;
+  const float row_height = 28.0F * m_chrome_layout.dpi_scale;
+  const float separator_height = 9.0F * m_chrome_layout.dpi_scale;
+  const float vertical_padding = 6.0F * m_chrome_layout.dpi_scale;
   const float max_popup_limit = (menu_index == 12)
-                                    ? 560.0F * m_chrome_layout.dpi_scale
-                                    : 460.0F * m_chrome_layout.dpi_scale;
-  const float char_w = (menu_index == 12) ? 7.8F : 7.0F;
-  const float base_pad = (menu_index == 12) ? 48.0F : 42.0F;
-  float popup_width = 220.0F * m_chrome_layout.dpi_scale;
+                                    ? 580.0F * m_chrome_layout.dpi_scale
+                                    : 480.0F * m_chrome_layout.dpi_scale;
+  const float char_w = (menu_index == 12) ? 8.0F : 7.2F;
+  const float base_pad = (menu_index == 12) ? 56.0F : 50.0F;
+  float popup_width = 240.0F * m_chrome_layout.dpi_scale;
   for (const UI::Components::MenuItem &item : menu.items) {
     if (item.separator) {
       continue;
@@ -4329,9 +4329,9 @@ Win32Window::PopupMenuGeometry Win32Window::calculate_popup_menu_geometry(
                            m_chrome_layout.dpi_scale +
                        base_pad * m_chrome_layout.dpi_scale;
     if (!item.shortcut.empty()) {
-      item_width += static_cast<float>(item.shortcut.size()) * 7.0F *
+      item_width += static_cast<float>(item.shortcut.size()) * 7.2F *
                         m_chrome_layout.dpi_scale +
-                    30.0F * m_chrome_layout.dpi_scale;
+                    36.0F * m_chrome_layout.dpi_scale;
     }
     popup_width = std::max(popup_width, item_width);
   }
@@ -4468,28 +4468,47 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
   }
 
   const float scale = m_chrome_layout.dpi_scale;
-  const int radius = std::max(round_to_int(6.0F * scale), 5);
+  const int radius = std::max(round_to_int(8.0F * scale), 7);
   const auto draw_panel = [&](const UI::Rect &panel_bounds) {
     if (panel_bounds.is_empty()) {
       return;
     }
-    // macOS ultra-thin, soft diffuse ambient shadow
-    Utility::for_each_shadow_layer(
-        panel_bounds, static_cast<float>(radius), scale,
-        Utility::macos_card_shadows,
-        [&](const UI::Rect &layer_rect, const UI::Theme::Color &color,
-            float layer_radius) {
-          fill_rounded_rectangle(device_context, layer_rect, color,
-                                 static_cast<int>(layer_radius));
-        });
+    // 1. Soft, realistic multi-layer elevation drop shadow (matching TextEditor floating popup)
+    struct ShadowLayer {
+      float dx;
+      float dy;
+      float spread;
+      uint8_t alpha;
+    };
+    const ShadowLayer shadow_layers[] = {
+        {0.0F, 8.0F, 22.0F, 35},
+        {0.0F, 4.0F, 10.0F, 45},
+        {0.0F, 1.5F, 3.0F, 65},
+    };
+    for (const auto &layer : shadow_layers) {
+      const float spread = layer.spread * scale;
+      const UI::Rect layer_rect{
+          panel_bounds.x - spread + layer.dx * scale,
+          panel_bounds.y - spread + layer.dy * scale,
+          panel_bounds.width + spread * 2.0F,
+          panel_bounds.height + spread * 2.0F,
+      };
+      fill_rounded_rectangle(
+          device_context, layer_rect, UI::Theme::Color{0, 0, 0, layer.alpha},
+          static_cast<int>(static_cast<float>(radius) + spread));
+    }
 
-    // macOS Dark Acrylic Card
-    fill_rounded_rectangle(device_context, panel_bounds,
-                           m_theme.panel_background, radius);
+    // 2. Elevated Floating Card background (rich dark slate for modern theme)
+    const UI::Theme::Color card_bg =
+        m_theme.is_modern ? UI::Theme::Color{50, 54, 66, 255}
+                          : m_theme.panel_background;
+    fill_rounded_rectangle(device_context, panel_bounds, card_bg, radius);
 
-    // macOS Hairline Border (subtle translucent border)
+    // 3. Crisp modern floating hairline border
     const RECT native_bounds = to_native_rect(panel_bounds);
-    HPEN border_pen = CreatePen(PS_SOLID, 1, RGB(70, 72, 80));
+    HPEN border_pen = CreatePen(PS_SOLID, 1,
+                                m_theme.is_modern ? RGB(85, 92, 112)
+                                                  : RGB(70, 72, 80));
     HGDIOBJ previous_brush =
         SelectObject(device_context, GetStockObject(NULL_BRUSH));
     HGDIOBJ previous_pen = SelectObject(device_context, border_pen);
@@ -4520,25 +4539,36 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
       UI::Rect item_bounds = geometry.item_bounds[index];
       if (hovered) {
         UI::Rect hover_bounds = item_bounds;
-        hover_bounds.x += 5.0F * scale;
-        hover_bounds.width -= 10.0F * scale;
-        hover_bounds.y += 1.0F * scale;
-        hover_bounds.height -= 2.0F * scale;
+        hover_bounds.x += 6.0F * scale;
+        hover_bounds.width -= 12.0F * scale;
+        hover_bounds.y += 2.0F * scale;
+        hover_bounds.height -= 4.0F * scale;
         fill_rounded_rectangle(device_context, hover_bounds,
-                               UI::Theme::Color{53, 132, 228, 240},
+                               UI::Theme::Color{53, 132, 228, 255},
                                std::max(round_to_int(4.0F * scale), 3));
       }
-      RECT text_bounds = to_native_rect(item_bounds);
-      text_bounds.left += round_to_int(12.0F * scale);
-      SetTextColor(device_context,
-                   to_color_ref(hovered ? UI::Theme::Color{255, 255, 255, 255}
-                                        : m_theme.text_primary));
-      DrawTextW(device_context, utf8_to_wide(menus[menu_index].label).c_str(),
-                -1, &text_bounds,
-                DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX |
-                    DT_END_ELLIPSIS);
 
-      const int chevron_x = round_to_int(item_bounds.right() - 14.0F * scale);
+      const float text_x = item_bounds.x + 16.0F * scale;
+      const float text_y = item_bounds.y + item_bounds.height * 0.5F;
+      if (m_workspace_renderer.m_small_font) {
+        m_workspace_renderer.draw_text(
+            device_context, *m_workspace_renderer.m_small_font,
+            menus[menu_index].label, text_x, text_y,
+            hovered ? UI::Theme::Color{255, 255, 255, 255}
+                    : m_theme.text_primary);
+      } else {
+        RECT text_bounds = to_native_rect(item_bounds);
+        text_bounds.left += round_to_int(16.0F * scale);
+        SetTextColor(device_context,
+                     to_color_ref(hovered ? UI::Theme::Color{255, 255, 255, 255}
+                                          : m_theme.text_primary));
+        DrawTextW(device_context, utf8_to_wide(menus[menu_index].label).c_str(),
+                  -1, &text_bounds,
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX |
+                      DT_END_ELLIPSIS);
+      }
+
+      const int chevron_x = round_to_int(item_bounds.right() - 16.0F * scale);
       const int chevron_y =
           round_to_int(item_bounds.y + item_bounds.height * 0.5F);
       m_workspace_renderer.draw_svg_icon(
@@ -4563,14 +4593,16 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
     const UI::Components::MenuItem &item = menu.items[index];
     const UI::Rect &item_bounds = geometry.item_bounds[index];
     if (item.separator) {
-      fill_rectangle(device_context,
-                     UI::Rect{
-                         item_bounds.x + 10.0F * scale,
-                         item_bounds.y + item_bounds.height * 0.5F,
-                         item_bounds.width - 20.0F * scale,
-                         1.0F,
-                     },
-                     m_theme.titlebar_border);
+      fill_rectangle(
+          device_context,
+          UI::Rect{
+              item_bounds.x + 12.0F * scale,
+              item_bounds.y + item_bounds.height * 0.5F,
+              item_bounds.width - 24.0F * scale,
+              1.0F,
+          },
+          m_theme.is_modern ? UI::Theme::Color{75, 82, 100, 255}
+                            : m_theme.titlebar_border);
       continue;
     }
 
@@ -4578,65 +4610,87 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
     const bool hovered = enabled && m_hovered_popup_item_index == index;
     if (hovered) {
       UI::Rect hover_bounds = item_bounds;
-      hover_bounds.x += 5.0F * scale;
-      hover_bounds.width -= 10.0F * scale;
-      hover_bounds.y += 1.0F * scale;
-      hover_bounds.height -= 2.0F * scale;
+      hover_bounds.x += 6.0F * scale;
+      hover_bounds.width -= 12.0F * scale;
+      hover_bounds.y += 2.0F * scale;
+      hover_bounds.height -= 4.0F * scale;
       fill_rounded_rectangle(device_context, hover_bounds,
-                             UI::Theme::Color{53, 132, 228, 240},
+                             UI::Theme::Color{53, 132, 228, 255},
                              std::max(round_to_int(4.0F * scale), 3));
-    }
-
-    RECT text_bounds = to_native_rect(item_bounds);
-    text_bounds.left += round_to_int(24.0F * scale);
-    if (!item.shortcut.empty()) {
-      text_bounds.right -=
-          round_to_int(static_cast<float>(item.shortcut.size()) * 7.0F * scale +
-                       24.0F * scale);
-    }
-    SetTextColor(device_context,
-                 to_color_ref(!enabled  ? m_theme.text_secondary
-                              : hovered ? UI::Theme::Color{255, 255, 255, 255}
-                                        : m_theme.text_primary));
-    DrawTextW(
-        device_context, utf8_to_wide(item.label).c_str(), -1, &text_bounds,
-        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
-
-    if (!item.shortcut.empty()) {
-      RECT shortcut_bounds = to_native_rect(item_bounds);
-      shortcut_bounds.right -= round_to_int(14.0F * scale);
-      SetTextColor(device_context,
-                   to_color_ref(!enabled  ? m_theme.text_secondary
-                                : hovered ? UI::Theme::Color{255, 255, 255, 220}
-                                          : m_theme.text_secondary));
-      DrawTextW(device_context, utf8_to_wide(item.shortcut).c_str(), -1,
-                &shortcut_bounds,
-                DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     }
 
     bool is_checked = false;
     if (menu_index == 12) {
       if (index < m_run_config_state.available_targets.size()) {
-        is_checked = (m_run_config_state.available_targets[index].name == m_run_config_state.active_target_name);
+        is_checked = (m_run_config_state.available_targets[index].name ==
+                      m_run_config_state.active_target_name);
       }
     } else if (m_command_state_query_callback && !item.command_id.empty()) {
       is_checked = m_command_state_query_callback(item.command_id).checked;
     }
 
     if (is_checked) {
-      HPEN check_pen = CreatePen(
-          PS_SOLID, 2,
-          to_color_ref(hovered ? UI::Theme::Color{255, 255, 255, 255}
-                               : m_theme.text_primary));
-      HGDIOBJ prev_pen = SelectObject(device_context, check_pen);
-      const int check_x = round_to_int(item_bounds.x + 10.0F * scale);
+      const int check_x = round_to_int(item_bounds.x + 14.0F * scale);
       const int check_y =
           round_to_int(item_bounds.y + item_bounds.height * 0.5F);
-      MoveToEx(device_context, check_x, check_y, nullptr);
-      LineTo(device_context, check_x + 3, check_y + 3);
-      LineTo(device_context, check_x + 8, check_y - 3);
-      SelectObject(device_context, prev_pen);
-      DeleteObject(check_pen);
+      m_workspace_renderer.draw_svg_icon(
+          device_context, "Assets/icons/check.svg", check_x, check_y,
+          std::max(round_to_int(11.0F * scale), 9),
+          hovered ? UI::Theme::Color{255, 255, 255, 255}
+                  : m_theme.text_primary,
+          m_workspace_renderer.m_palette.tab_active_background);
+    }
+
+    const float text_x = item_bounds.x + 28.0F * scale;
+    const float text_y = item_bounds.y + item_bounds.height * 0.5F;
+    if (m_workspace_renderer.m_small_font) {
+      m_workspace_renderer.draw_text(
+          device_context, *m_workspace_renderer.m_small_font, item.label,
+          text_x, text_y,
+          !enabled  ? m_theme.text_secondary
+          : hovered ? UI::Theme::Color{255, 255, 255, 255}
+                    : m_theme.text_primary);
+
+      if (!item.shortcut.empty()) {
+        const int sc_w = m_workspace_renderer.get_text_width(
+            device_context, *m_workspace_renderer.m_small_font, item.shortcut);
+        const float sc_x =
+            item_bounds.right() - static_cast<float>(sc_w) - 16.0F * scale;
+        m_workspace_renderer.draw_text(
+            device_context, *m_workspace_renderer.m_small_font, item.shortcut,
+            sc_x, text_y,
+            !enabled  ? m_theme.text_secondary
+            : hovered ? UI::Theme::Color{255, 255, 255, 220}
+                      : m_workspace_renderer.m_palette.text_muted);
+      }
+    } else {
+      RECT text_bounds = to_native_rect(item_bounds);
+      text_bounds.left += round_to_int(28.0F * scale);
+      if (!item.shortcut.empty()) {
+        text_bounds.right -=
+            round_to_int(static_cast<float>(item.shortcut.size()) * 7.5F *
+                             scale +
+                         28.0F * scale);
+      }
+      SetTextColor(device_context,
+                   to_color_ref(!enabled  ? m_theme.text_secondary
+                                : hovered ? UI::Theme::Color{255, 255, 255, 255}
+                                          : m_theme.text_primary));
+      DrawTextW(
+          device_context, utf8_to_wide(item.label).c_str(), -1, &text_bounds,
+          DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+
+      if (!item.shortcut.empty()) {
+        RECT shortcut_bounds = to_native_rect(item_bounds);
+        shortcut_bounds.right -= round_to_int(16.0F * scale);
+        SetTextColor(device_context,
+                     to_color_ref(!enabled  ? m_theme.text_secondary
+                                  : hovered ? UI::Theme::Color{255, 255, 255, 220}
+                                            : m_theme.text_secondary));
+        DrawTextW(device_context, utf8_to_wide(item.shortcut).c_str(), -1,
+                  &shortcut_bounds,
+                  DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+      }
     }
   }
 }
@@ -5090,11 +5144,11 @@ void Win32Window::show_explorer_context_menu(
       {"Delete", "Delete", false, CmdDelete, ""}};
 
   const float scale = m_chrome_layout.dpi_scale;
-  const float row_height = 24.0F * scale;
-  const float sep_height = 7.0F * scale;
-  const float vertical_padding = 4.0F * scale;
+  const float row_height = 28.0F * scale;
+  const float sep_height = 9.0F * scale;
+  const float vertical_padding = 6.0F * scale;
   float total_h = vertical_padding * 2.0F;
-  float popup_width = 210.0F * scale;
+  float popup_width = 240.0F * scale;
 
   for (const auto &item : m_explorer_context_menu.items) {
     if (item.separator) {
@@ -5103,14 +5157,14 @@ void Win32Window::show_explorer_context_menu(
     }
     total_h += row_height;
     float item_width =
-        static_cast<float>(item.label.size()) * 7.0F * scale + 42.0F * scale;
+        static_cast<float>(item.label.size()) * 7.5F * scale + 52.0F * scale;
     if (!item.shortcut.empty()) {
-      item_width += static_cast<float>(item.shortcut.size()) * 7.0F * scale +
-                    30.0F * scale;
+      item_width += static_cast<float>(item.shortcut.size()) * 7.2F * scale +
+                    36.0F * scale;
     }
     popup_width = std::max(popup_width, item_width);
   }
-  popup_width = std::min(popup_width, 420.0F * scale);
+  popup_width = std::min(popup_width, 460.0F * scale);
 
   RECT client_rect{};
   GetClientRect(m_window_handle, &client_rect);
@@ -5485,11 +5539,11 @@ void Win32Window::show_activity_bar_context_menu(int client_x, int client_y) {
   };
 
   const float scale = m_chrome_layout.dpi_scale;
-  const float row_height = 24.0F * scale;
-  const float sep_height = 7.0F * scale;
-  const float vertical_padding = 4.0F * scale;
+  const float row_height = 28.0F * scale;
+  const float sep_height = 9.0F * scale;
+  const float vertical_padding = 6.0F * scale;
   float total_h = vertical_padding * 2.0F;
-  float popup_width = 230.0F * scale;
+  float popup_width = 240.0F * scale;
 
   for (const auto &item : m_explorer_context_menu.items) {
     if (item.separator) {
@@ -5557,11 +5611,11 @@ void Win32Window::open_context_submenu(std::size_t item_index) {
   m_explorer_context_menu.hovered_sub_index.reset();
 
   const float scale = m_chrome_layout.dpi_scale;
-  const float row_height = 24.0F * scale;
-  const float sep_height = 7.0F * scale;
-  const float vertical_padding = 4.0F * scale;
+  const float row_height = 28.0F * scale;
+  const float sep_height = 9.0F * scale;
+  const float vertical_padding = 6.0F * scale;
   float total_h = vertical_padding * 2.0F;
-  float popup_width = 130.0F * scale;
+  float popup_width = 140.0F * scale;
 
   for (const auto &sub_item : parent_item.sub_items) {
     if (sub_item.separator) {
@@ -5620,9 +5674,9 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
 
   const float scale = m_chrome_layout.dpi_scale;
   const auto &bounds = m_explorer_context_menu.bounds;
-  const int radius = std::max(round_to_int(6.0F * scale), 5);
+  const int radius = std::max(round_to_int(8.0F * scale), 7);
 
-  // 1. macOS ultra-thin, soft diffuse ambient shadow
+  // 1. Soft, realistic multi-layer elevation drop shadow (matching TextEditor floating popup)
   struct ShadowLayer {
     float dx;
     float dy;
@@ -5630,11 +5684,9 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
     uint8_t alpha;
   };
   const ShadowLayer shadow_layers[] = {
-      {0.0F, 8.0F, 16.0F, 8}, // Ambient ultra-soft atmospheric haze
-      {0.0F, 5.0F, 9.0F, 14}, // Soft outer glow
-      {0.0F, 3.0F, 4.5F, 22}, // Soft mid-shadow
-      {0.0F, 1.5F, 2.0F, 32}, // Soft near-shadow
-      {0.0F, 0.5F, 0.8F, 42}, // Ultra-thin contact shadow
+      {0.0F, 8.0F, 22.0F, 35},
+      {0.0F, 4.0F, 10.0F, 45},
+      {0.0F, 1.5F, 3.0F, 65},
   };
   for (const auto &layer : shadow_layers) {
     const float spread = layer.spread * scale;
@@ -5649,13 +5701,17 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
         static_cast<int>(static_cast<float>(radius) + spread));
   }
 
-  // 2. macOS Dark Acrylic Card
-  fill_rounded_rectangle(device_context, bounds, m_theme.panel_background,
-                         radius);
+  // 2. Elevated Floating Card background (rich dark slate for modern theme)
+  const UI::Theme::Color card_bg =
+      m_theme.is_modern ? UI::Theme::Color{50, 54, 66, 255}
+                        : m_theme.panel_background;
+  fill_rounded_rectangle(device_context, bounds, card_bg, radius);
 
-  // 3. macOS Hairline Border (subtle translucent border)
+  // 3. Crisp modern floating hairline border
   const RECT native_bounds = to_native_rect(bounds);
-  HPEN border_pen = CreatePen(PS_SOLID, 1, RGB(70, 72, 80));
+  HPEN border_pen = CreatePen(PS_SOLID, 1,
+                              m_theme.is_modern ? RGB(85, 92, 112)
+                                                : RGB(70, 72, 80));
   HGDIOBJ previous_brush =
       SelectObject(device_context, GetStockObject(NULL_BRUSH));
   HGDIOBJ previous_pen = SelectObject(device_context, border_pen);
@@ -5665,7 +5721,7 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
   SelectObject(device_context, previous_brush);
   DeleteObject(border_pen);
 
-  // 4. Draw items exactly matching draw_menu_overlay
+  // 4. Draw items
   for (std::size_t i = 0; i < m_explorer_context_menu.items.size() &&
                           i < m_explorer_context_menu.item_bounds.size();
        ++i) {
@@ -5673,14 +5729,16 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
     const auto &item_bounds = m_explorer_context_menu.item_bounds[i];
 
     if (item.separator) {
-      fill_rectangle(device_context,
-                     UI::Rect{
-                         item_bounds.x + 10.0F * scale,
-                         item_bounds.y + item_bounds.height * 0.5F,
-                         item_bounds.width - 20.0F * scale,
-                         1.0F,
-                     },
-                     m_theme.titlebar_border);
+      fill_rectangle(
+          device_context,
+          UI::Rect{
+              item_bounds.x + 12.0F * scale,
+              item_bounds.y + item_bounds.height * 0.5F,
+              item_bounds.width - 24.0F * scale,
+              1.0F,
+          },
+          m_theme.is_modern ? UI::Theme::Color{75, 82, 100, 255}
+                            : m_theme.titlebar_border);
       continue;
     }
 
@@ -5688,71 +5746,86 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
                           *m_explorer_context_menu.hovered_index == i);
     if (hovered) {
       UI::Rect hover_bounds = item_bounds;
-      hover_bounds.x += 5.0F * scale;
-      hover_bounds.width -= 10.0F * scale;
-      hover_bounds.y += 1.0F * scale;
-      hover_bounds.height -= 2.0F * scale;
+      hover_bounds.x += 6.0F * scale;
+      hover_bounds.width -= 12.0F * scale;
+      hover_bounds.y += 2.0F * scale;
+      hover_bounds.height -= 4.0F * scale;
       fill_rounded_rectangle(device_context, hover_bounds,
-                             UI::Theme::Color{53, 132, 228, 240},
+                             UI::Theme::Color{53, 132, 228, 255},
                              std::max(round_to_int(4.0F * scale), 3));
     }
 
     if (item.checked) {
-      HPEN check_pen = CreatePen(
-          PS_SOLID, 2,
-          to_color_ref(hovered ? UI::Theme::Color{255, 255, 255, 255}
-                               : m_theme.text_primary));
-      HGDIOBJ prev_pen = SelectObject(device_context, check_pen);
-      const int check_x = round_to_int(item_bounds.x + 9.0F * scale);
+      const int check_x = round_to_int(item_bounds.x + 14.0F * scale);
       const int check_y =
           round_to_int(item_bounds.y + item_bounds.height * 0.5F);
-      MoveToEx(device_context, check_x, check_y, nullptr);
-      LineTo(device_context, check_x + 3, check_y + 3);
-      LineTo(device_context, check_x + 8, check_y - 3);
-      SelectObject(device_context, prev_pen);
-      DeleteObject(check_pen);
+      m_workspace_renderer.draw_svg_icon(
+          device_context, "Assets/icons/check.svg", check_x, check_y,
+          std::max(round_to_int(11.0F * scale), 9),
+          hovered ? UI::Theme::Color{255, 255, 255, 255}
+                  : m_theme.text_primary,
+          m_workspace_renderer.m_palette.tab_active_background);
     }
 
-    RECT text_bounds = to_native_rect(item_bounds);
-    text_bounds.left += round_to_int(24.0F * scale);
-    if (!item.shortcut.empty()) {
-      text_bounds.right -=
-          round_to_int(static_cast<float>(item.shortcut.size()) * 7.0F * scale +
-                       24.0F * scale);
-    } else if (!item.sub_items.empty()) {
-      text_bounds.right -= round_to_int(24.0F * scale);
-    }
-    SetTextColor(device_context,
-                 to_color_ref(hovered ? UI::Theme::Color{255, 255, 255, 255}
-                                      : m_theme.text_primary));
-    DrawTextW(
-        device_context, utf8_to_wide(item.label).c_str(), -1, &text_bounds,
-        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+    const float text_x = item_bounds.x + 28.0F * scale;
+    const float text_y = item_bounds.y + item_bounds.height * 0.5F;
+    if (m_workspace_renderer.m_small_font) {
+      m_workspace_renderer.draw_text(
+          device_context, *m_workspace_renderer.m_small_font, item.label,
+          text_x, text_y,
+          hovered ? UI::Theme::Color{255, 255, 255, 255}
+                  : m_theme.text_primary);
 
-    if (!item.shortcut.empty()) {
-      RECT shortcut_bounds = to_native_rect(item_bounds);
-      shortcut_bounds.right -= round_to_int(14.0F * scale);
+      if (!item.shortcut.empty()) {
+        const int sc_w = m_workspace_renderer.get_text_width(
+            device_context, *m_workspace_renderer.m_small_font, item.shortcut);
+        const float sc_x =
+            item_bounds.right() - static_cast<float>(sc_w) - 16.0F * scale;
+        m_workspace_renderer.draw_text(
+            device_context, *m_workspace_renderer.m_small_font, item.shortcut,
+            sc_x, text_y,
+            hovered ? UI::Theme::Color{255, 255, 255, 220}
+                    : m_workspace_renderer.m_palette.text_muted);
+      }
+    } else {
+      RECT text_bounds = to_native_rect(item_bounds);
+      text_bounds.left += round_to_int(28.0F * scale);
+      if (!item.shortcut.empty()) {
+        text_bounds.right -=
+            round_to_int(static_cast<float>(item.shortcut.size()) * 7.0F *
+                             scale +
+                         28.0F * scale);
+      } else if (!item.sub_items.empty()) {
+        text_bounds.right -= round_to_int(28.0F * scale);
+      }
       SetTextColor(device_context,
-                   to_color_ref(hovered ? UI::Theme::Color{255, 255, 255, 220}
-                                        : m_theme.text_secondary));
-      DrawTextW(device_context, utf8_to_wide(item.shortcut).c_str(), -1,
-                &shortcut_bounds,
-                DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+                   to_color_ref(hovered ? UI::Theme::Color{255, 255, 255, 255}
+                                        : m_theme.text_primary));
+      DrawTextW(
+          device_context, utf8_to_wide(item.label).c_str(), -1, &text_bounds,
+          DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+
+      if (!item.shortcut.empty()) {
+        RECT shortcut_bounds = to_native_rect(item_bounds);
+        shortcut_bounds.right -= round_to_int(16.0F * scale);
+        SetTextColor(device_context,
+                     to_color_ref(hovered ? UI::Theme::Color{255, 255, 255, 220}
+                                          : m_theme.text_secondary));
+        DrawTextW(device_context, utf8_to_wide(item.shortcut).c_str(), -1,
+                  &shortcut_bounds,
+                  DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+      }
     }
 
     if (!item.sub_items.empty()) {
-      HPEN chev_pen = CreatePen(
-          PS_SOLID, 2,
-          to_color_ref(hovered ? UI::Theme::Color{255, 255, 255, 255}
-                               : m_theme.text_secondary));
-      HGDIOBJ prev_pen = SelectObject(device_context, chev_pen);
-      const int chev_x = round_to_int(item_bounds.right() - 14.0F * scale);
+      const int chev_x = round_to_int(item_bounds.right() - 16.0F * scale);
       const int chev_y = round_to_int(item_bounds.y + item_bounds.height * 0.5F);
-      MoveToEx(device_context, chev_x - 3, chev_y - 4, nullptr);
-      LineTo(device_context, chev_x + 1, chev_y);
-      LineTo(device_context, chev_x - 3, chev_y + 4);
-      SelectObject(device_context, prev_pen);
-      DeleteObject(chev_pen);
+      m_workspace_renderer.draw_svg_icon(
+          device_context, "Assets/icons/chevron-right.svg", chev_x, chev_y,
+          std::max(round_to_int(11.0F * scale), 9),
+          hovered ? UI::Theme::Color{255, 255, 255, 255}
+                  : m_workspace_renderer.m_palette.text_muted,
+          hovered ? m_theme.accent : m_theme.panel_background);
     }
   }
 
@@ -5763,9 +5836,9 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
     const auto &parent_item =
         m_explorer_context_menu.items[*m_explorer_context_menu.active_submenu_index];
     const auto &sub_bounds = m_explorer_context_menu.submenu_bounds;
-    const int sub_radius = std::max(round_to_int(6.0F * scale), 5);
+    const int sub_radius = std::max(round_to_int(8.0F * scale), 7);
 
-    // macOS shadow layers for submenu
+    // Multi-layer shadow for submenu
     for (const auto &layer : shadow_layers) {
       const float spread = layer.spread * scale;
       const UI::Rect layer_rect{
@@ -5779,13 +5852,14 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
           static_cast<int>(static_cast<float>(sub_radius) + spread));
     }
 
-    // Acrylic background
-    fill_rounded_rectangle(device_context, sub_bounds, m_theme.panel_background,
-                           sub_radius);
+    // Background
+    fill_rounded_rectangle(device_context, sub_bounds, card_bg, sub_radius);
 
     // Hairline border
     const RECT sub_native_bounds = to_native_rect(sub_bounds);
-    HPEN sub_border_pen = CreatePen(PS_SOLID, 1, RGB(70, 72, 80));
+    HPEN sub_border_pen = CreatePen(PS_SOLID, 1,
+                                    m_theme.is_modern ? RGB(85, 92, 112)
+                                                      : RGB(70, 72, 80));
     HGDIOBJ prev_brush =
         SelectObject(device_context, GetStockObject(NULL_BRUSH));
     HGDIOBJ prev_pen = SelectObject(device_context, sub_border_pen);
@@ -5801,72 +5875,100 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
                             s < m_explorer_context_menu.submenu_item_bounds.size();
          ++s) {
       const auto &sub_item = parent_item.sub_items[s];
-      const auto &sub_item_bounds = m_explorer_context_menu.submenu_item_bounds[s];
+      const auto &sub_item_bounds =
+          m_explorer_context_menu.submenu_item_bounds[s];
 
       if (sub_item.separator) {
-        fill_rectangle(device_context,
-                       UI::Rect{
-                           sub_item_bounds.x + 10.0F * scale,
-                           sub_item_bounds.y + sub_item_bounds.height * 0.5F,
-                           sub_item_bounds.width - 20.0F * scale,
-                           1.0F,
-                       },
-                       m_theme.titlebar_border);
+        fill_rectangle(
+            device_context,
+            UI::Rect{
+                sub_item_bounds.x + 12.0F * scale,
+                sub_item_bounds.y + sub_item_bounds.height * 0.5F,
+                sub_item_bounds.width - 24.0F * scale,
+                1.0F,
+            },
+            m_theme.is_modern ? UI::Theme::Color{75, 82, 100, 255}
+                              : m_theme.titlebar_border);
         continue;
       }
 
-      const bool sub_hovered = (m_explorer_context_menu.hovered_sub_index &&
-                                *m_explorer_context_menu.hovered_sub_index == s);
+      const bool sub_hovered =
+          (m_explorer_context_menu.hovered_sub_index &&
+           *m_explorer_context_menu.hovered_sub_index == s);
       if (sub_hovered) {
         UI::Rect hover_bounds = sub_item_bounds;
-        hover_bounds.x += 5.0F * scale;
-        hover_bounds.width -= 10.0F * scale;
-        hover_bounds.y += 1.0F * scale;
-        hover_bounds.height -= 2.0F * scale;
+        hover_bounds.x += 6.0F * scale;
+        hover_bounds.width -= 12.0F * scale;
+        hover_bounds.y += 2.0F * scale;
+        hover_bounds.height -= 4.0F * scale;
         fill_rounded_rectangle(device_context, hover_bounds,
-                               UI::Theme::Color{53, 132, 228, 240},
+                               UI::Theme::Color{53, 132, 228, 255},
                                std::max(round_to_int(4.0F * scale), 3));
       }
 
       if (sub_item.checked) {
-        HPEN check_pen = CreatePen(
-            PS_SOLID, 2,
-            to_color_ref(sub_hovered ? UI::Theme::Color{255, 255, 255, 255}
-                                     : m_theme.text_primary));
-        HGDIOBJ p_pen = SelectObject(device_context, check_pen);
-        const int check_x = round_to_int(sub_item_bounds.x + 9.0F * scale);
+        const int check_x = round_to_int(sub_item_bounds.x + 14.0F * scale);
         const int check_y =
             round_to_int(sub_item_bounds.y + sub_item_bounds.height * 0.5F);
-        MoveToEx(device_context, check_x, check_y, nullptr);
-        LineTo(device_context, check_x + 3, check_y + 3);
-        LineTo(device_context, check_x + 8, check_y - 3);
-        SelectObject(device_context, p_pen);
-        DeleteObject(check_pen);
+        m_workspace_renderer.draw_svg_icon(
+            device_context, "Assets/icons/check.svg", check_x, check_y,
+            std::max(round_to_int(11.0F * scale), 9),
+            sub_hovered ? UI::Theme::Color{255, 255, 255, 255}
+                        : m_theme.text_primary,
+            m_workspace_renderer.m_palette.tab_active_background);
       }
 
-      RECT text_bounds = to_native_rect(sub_item_bounds);
-      text_bounds.left += round_to_int(24.0F * scale);
-      if (!sub_item.shortcut.empty()) {
-        text_bounds.right -=
-            round_to_int(static_cast<float>(sub_item.shortcut.size()) * 7.0F * scale +
-                         24.0F * scale);
-      }
-      SetTextColor(device_context,
-                   to_color_ref(sub_hovered ? UI::Theme::Color{255, 255, 255, 255}
-                                            : m_theme.text_primary));
-      DrawTextW(
-          device_context, utf8_to_wide(sub_item.label).c_str(), -1, &text_bounds,
-          DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+      const float text_x = sub_item_bounds.x + 28.0F * scale;
+      const float text_y = sub_item_bounds.y + sub_item_bounds.height * 0.5F;
+      if (m_workspace_renderer.m_small_font) {
+        m_workspace_renderer.draw_text(
+            device_context, *m_workspace_renderer.m_small_font, sub_item.label,
+            text_x, text_y,
+            sub_hovered ? UI::Theme::Color{255, 255, 255, 255}
+                        : m_theme.text_primary);
 
-      if (!sub_item.shortcut.empty()) {
-        RECT shortcut_bounds = to_native_rect(sub_item_bounds);
-        shortcut_bounds.right -= round_to_int(14.0F * scale);
+        if (!sub_item.shortcut.empty()) {
+          const int sc_w = m_workspace_renderer.get_text_width(
+              device_context, *m_workspace_renderer.m_small_font,
+              sub_item.shortcut);
+          const float sc_x =
+              sub_item_bounds.right() - static_cast<float>(sc_w) - 16.0F * scale;
+          m_workspace_renderer.draw_text(
+              device_context, *m_workspace_renderer.m_small_font,
+              sub_item.shortcut, sc_x, text_y,
+              sub_hovered ? UI::Theme::Color{255, 255, 255, 220}
+                          : m_workspace_renderer.m_palette.text_muted);
+        }
+      } else {
+        RECT text_bounds = to_native_rect(sub_item_bounds);
+        text_bounds.left += round_to_int(28.0F * scale);
+        if (!sub_item.shortcut.empty()) {
+          text_bounds.right -=
+              round_to_int(static_cast<float>(sub_item.shortcut.size()) *
+                               7.0F * scale +
+                           28.0F * scale);
+        }
         SetTextColor(device_context,
-                     to_color_ref(sub_hovered ? UI::Theme::Color{255, 255, 255, 220}
-                                              : m_theme.text_secondary));
-        DrawTextW(device_context, utf8_to_wide(sub_item.shortcut).c_str(), -1,
-                  &shortcut_bounds,
-                  DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+                     to_color_ref(sub_hovered
+                                      ? UI::Theme::Color{255, 255, 255, 255}
+                                      : m_theme.text_primary));
+        DrawTextW(
+            device_context, utf8_to_wide(sub_item.label).c_str(), -1,
+            &text_bounds,
+            DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX |
+                DT_END_ELLIPSIS);
+
+        if (!sub_item.shortcut.empty()) {
+          RECT shortcut_bounds = to_native_rect(sub_item_bounds);
+          shortcut_bounds.right -= round_to_int(16.0F * scale);
+          SetTextColor(device_context,
+                       to_color_ref(sub_hovered
+                                        ? UI::Theme::Color{255, 255, 255, 220}
+                                        : m_theme.text_secondary));
+          DrawTextW(device_context, utf8_to_wide(sub_item.shortcut).c_str(),
+                    -1, &shortcut_bounds,
+                    DT_RIGHT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        }
       }
     }
   }

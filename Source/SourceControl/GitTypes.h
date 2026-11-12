@@ -26,35 +26,35 @@ enum class GitFileStatus
 {
     switch (status)
     {
-    case GitFileStatus::Untracked: return "Untracked";
-    case GitFileStatus::Modified: return "Modified";
-    case GitFileStatus::Added: return "Added";
-    case GitFileStatus::Deleted: return "Deleted";
-    case GitFileStatus::Renamed: return "Renamed";
-    case GitFileStatus::TypeChange: return "Type Change";
-    case GitFileStatus::Ignored: return "Ignored";
-    case GitFileStatus::Conflicted: return "Conflicted";
-    case GitFileStatus::Unmodified:
-    default:
-        return "Unmodified";
-    }
+        case GitFileStatus::Untracked: return "Untracked";
+        case GitFileStatus::Modified: return "Modified";
+        case GitFileStatus::Added: return "Added";
+        case GitFileStatus::Deleted: return "Deleted";
+        case GitFileStatus::Renamed: return "Renamed";
+        case GitFileStatus::TypeChange: return "Type Change";
+        case GitFileStatus::Ignored: return "Ignored";
+        case GitFileStatus::Conflicted: return "Conflicted";
+        case GitFileStatus::Unmodified:
+        default:
+            return "Unmodified";
+        }
 }
 
 [[nodiscard]] constexpr std::string_view git_file_status_letter(GitFileStatus status) noexcept
 {
     switch (status)
     {
-    case GitFileStatus::Untracked: return "U";
-    case GitFileStatus::Modified: return "M";
-    case GitFileStatus::Added: return "A";
-    case GitFileStatus::Deleted: return "D";
-    case GitFileStatus::Renamed: return "R";
-    case GitFileStatus::TypeChange: return "T";
-    case GitFileStatus::Ignored: return "I";
-    case GitFileStatus::Conflicted: return "!";
-    case GitFileStatus::Unmodified:
-    default:
-        return "";
+        case GitFileStatus::Untracked: return "U";
+        case GitFileStatus::Modified: return "M";
+        case GitFileStatus::Added: return "A";
+        case GitFileStatus::Deleted: return "D";
+        case GitFileStatus::Renamed: return "R";
+        case GitFileStatus::TypeChange: return "T";
+        case GitFileStatus::Ignored: return "I";
+        case GitFileStatus::Conflicted: return "!";
+        case GitFileStatus::Unmodified:
+        default:
+            return "";
     }
 }
 

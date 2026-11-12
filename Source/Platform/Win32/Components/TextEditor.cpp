@@ -5722,7 +5722,7 @@ void TextEditor::draw_document(
           settings_service.get<std::string>("workbench.mascot.renderMode");
     }
 
-    const float logo_size = 220.0F * dpi;
+    const float logo_size = 180.0F * dpi;
     const float logo_gap = 32.0F * dpi;
 
     std::string title = "Zenvra Development Studio";
