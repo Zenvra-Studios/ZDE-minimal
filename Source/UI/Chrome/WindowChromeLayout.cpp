@@ -167,25 +167,50 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(float client_width, float
   }
 
   // Responsive toolbar element widths & gaps based on monitor/window width
-  const bool is_compact = client_width < (960.0F * safe_scale);
-  const bool is_ultra_compact = client_width < (760.0F * safe_scale);
+  const bool is_ultra_compact = client_width < (720.0F * safe_scale);
+  const bool is_compact = client_width < (980.0F * safe_scale);
+  const bool is_medium = client_width < (1200.0F * safe_scale);
 
-  const float button_width = is_ultra_compact ? (28.0F * safe_scale) : (is_compact ? (32.0F * safe_scale) : (36.0F * safe_scale));
+  const float button_width = is_ultra_compact
+                                 ? (26.0F * safe_scale)
+                                 : (is_compact ? (28.0F * safe_scale)
+                                               : (is_medium ? (30.0F * safe_scale)
+                                                            : (32.0F * safe_scale)));
 
   const std::string_view bin_name = options.binary_label.empty()
                                         ? std::string_view{"No Configuration"}
                                         : std::string_view{options.binary_label};
-  // Base padding: icon (16px) + icon margins (16px + 4px) + gap to chevron (8px) + chevron (12px) + right margin (14px) = 54px
-  const float base_padding = (is_ultra_compact ? 44.0F : 54.0F) * safe_scale;
-  const float char_w = (is_ultra_compact ? 7.2F : 8.2F) * safe_scale;
+  // Base padding: icon (14px) + margin (12px) + text-chevron gap (6px) + chevron (10px) + right margin (10px) = ~42px-48px
+  const float base_padding = (is_ultra_compact ? 38.0F : (is_compact ? 42.0F : 46.0F)) * safe_scale;
+  const float char_w = (is_ultra_compact ? 6.8F : 7.4F) * safe_scale;
   const float needed_binary_w = static_cast<float>(bin_name.size()) * char_w + base_padding;
-  const float min_binary_w = is_ultra_compact ? (88.0F * safe_scale) : (is_compact ? (110.0F * safe_scale) : (128.0F * safe_scale));
-  const float max_binary_w = is_ultra_compact ? (180.0F * safe_scale) : (is_compact ? (260.0F * safe_scale) : (360.0F * safe_scale));
+  const float min_binary_w = is_ultra_compact
+                                 ? (80.0F * safe_scale)
+                                 : (is_compact ? (96.0F * safe_scale)
+                                               : (is_medium ? (110.0F * safe_scale)
+                                                            : (128.0F * safe_scale)));
+  const float max_binary_w = is_ultra_compact
+                                 ? (140.0F * safe_scale)
+                                 : (is_compact ? (180.0F * safe_scale)
+                                               : (is_medium ? (220.0F * safe_scale)
+                                                            : (280.0F * safe_scale)));
   const float binary_width = std::clamp(needed_binary_w, min_binary_w, max_binary_w);
 
-  const float platform_width = is_ultra_compact ? (68.0F * safe_scale) : (is_compact ? (78.0F * safe_scale) : (88.0F * safe_scale));
-  const float compiler_width = is_ultra_compact ? (68.0F * safe_scale) : (is_compact ? (78.0F * safe_scale) : (88.0F * safe_scale));
-  const float toolbar_gap = is_ultra_compact ? (4.0F * safe_scale) : (is_compact ? (6.0F * safe_scale) : (8.0F * safe_scale));
+  const float platform_width = is_ultra_compact
+                                   ? (54.0F * safe_scale)
+                                   : (is_compact ? (60.0F * safe_scale)
+                                                 : (is_medium ? (66.0F * safe_scale)
+                                                              : (72.0F * safe_scale)));
+  const float compiler_width = is_ultra_compact
+                                   ? (52.0F * safe_scale)
+                                   : (is_compact ? (56.0F * safe_scale)
+                                                 : (is_medium ? (62.0F * safe_scale)
+                                                              : (68.0F * safe_scale)));
+  const float toolbar_gap = is_ultra_compact
+                                ? (3.0F * safe_scale)
+                                : (is_compact ? (4.0F * safe_scale)
+                                              : (is_medium ? (5.0F * safe_scale)
+                                                           : (6.0F * safe_scale)));
 
   // The right-side toolbar (ellipsis | gear | debug | run | build | binary |
   // platform | compiler) has a responsive width. Reserve it up front so the menus
@@ -261,12 +286,16 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(float client_width, float
                               ? result.overflow_menu_bounds.right()
                               : current_x;
 
+  // Minimum space reserved for file buffer tabs so tabs are not squished to zero
+  const float min_tab_space = (is_ultra_compact ? 60.0F : (is_compact ? 100.0F : 140.0F)) * safe_scale;
+
   // Right-to-left toolbar placement with a gap between every element.
   float current_right = controls_start;
-  auto place_right = [&](float width, UI::Rect &target) -> bool {
+  auto place_right = [&](float width, UI::Rect &target, bool reserve_tab_space = false) -> bool {
     const float candidate_right = current_right - toolbar_gap;
     const float candidate_x = candidate_right - width;
-    if (candidate_x < left_edge) {
+    const float limit = reserve_tab_space ? (left_edge + min_tab_space) : left_edge;
+    if (candidate_x < limit) {
       return false;
     }
     target = {candidate_x, 0.0F, width, titlebar_height};
@@ -282,16 +311,14 @@ WindowChromeLayoutResult WindowChromeLayout::calculate(float client_width, float
     place_right(button_width, result.run_bounds);
     place_right(button_width, result.build_bounds);
     place_right(binary_width, result.binary_bounds);
-    place_right(platform_width, result.platform_bounds);
-    place_right(compiler_width, result.compiler_bounds);
+    place_right(platform_width, result.platform_bounds, true);
+    place_right(compiler_width, result.compiler_bounds, true);
   }
 
   if (current_right > left_edge) {
     const float available_space = current_right - left_edge;
-    const float drag_gap = options.show_build_tools ? (48.0F * safe_scale) : (20.0F * safe_scale);
-    const float max_buffer_width = options.show_build_tools
-        ? std::max(0.0F, std::min(available_space - drag_gap, client_width * 0.50F))
-        : std::max(0.0F, available_space - drag_gap);
+    const float drag_gap = (is_ultra_compact ? 12.0F : (is_compact ? 16.0F : 24.0F)) * safe_scale;
+    const float max_buffer_width = std::max(0.0F, available_space - drag_gap);
     result.command_center_bounds = {};
     result.file_buffer_bounds = {left_edge, 0.0F, max_buffer_width,
                                  titlebar_height};

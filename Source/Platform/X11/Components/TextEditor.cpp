@@ -3281,23 +3281,8 @@ void TextEditor::draw_tab_strip(
 
   surface.pop_clip();
 
-  if (m_max_tab_scroll > 0.0F) {
-    const float track_width = layout.tab_bar_bounds.width;
-    const float thumb_width = std::max(
-        20.0F * scale,
-        track_width * (track_width / (track_width + m_max_tab_scroll)));
-    const float thumb_x =
-        layout.tab_bar_bounds.x +
-        (m_tab_scroll_offset / m_max_tab_scroll) * (track_width - thumb_width);
-    const UI::Rect thumb_bounds{thumb_x,
-                                layout.tab_bar_bounds.bottom() - 3.0F * scale,
-                                thumb_width, 3.0F * scale};
-    const unsigned long thumb_color =
-        m_hovered_tab_scrollbar
-            ? surface.m_pixels.accent
-            : surface.allocate_color(surface.m_palette.text_muted);
-    surface.fill_rectangle(drawable, thumb_bounds, thumb_color);
-  }
+  // Tab bar scrollbar is kept invisible like JetBrains, while remaining fully
+  // scrollable via mouse wheel and trackpad gestures.
 }
 
 void TextEditor::draw_document(

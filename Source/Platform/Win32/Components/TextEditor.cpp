@@ -1628,28 +1628,6 @@ bool TextEditor::handle_pointer_press(
   }
 
   if (layout.tab_bar_bounds.contains(point_x, point_y)) {
-    if (m_max_tab_scroll > 0.0f) {
-      const float track_width = layout.tab_bar_bounds.width;
-      const float thumb_width = std::max(
-          20.0F * layout.dpi_scale,
-          track_width * (track_width / (track_width + m_max_tab_scroll)));
-      const float thumb_x =
-          layout.tab_bar_bounds.x + (m_tab_scroll_offset / m_max_tab_scroll) *
-                                        (track_width - thumb_width);
-      const UI::Rect thumb_bounds{
-          thumb_x, layout.tab_bar_bounds.bottom() - 3.0F * layout.dpi_scale,
-          thumb_width, 3.0F * layout.dpi_scale};
-      const UI::Rect hit_bounds{
-          thumb_bounds.x, thumb_bounds.y - 2.0F * layout.dpi_scale,
-          thumb_bounds.width, thumb_bounds.height + 2.0F * layout.dpi_scale};
-      if (hit_bounds.contains(point_x, point_y)) {
-        m_dragging_tab_scrollbar = true;
-        m_tab_scroll_drag_start_x = point_x;
-        m_tab_scroll_drag_initial_offset = m_tab_scroll_offset;
-        return true;
-      }
-    }
-
     float tab_x = layout.tab_bar_bounds.x - m_tab_scroll_offset;
     const float right_limit = layout.tab_bar_bounds.right();
     const std::span<const UI::Editor::EditorSessionDocument> documents =
@@ -2366,28 +2344,8 @@ bool TextEditor::handle_pointer_move(
       break;
     }
   }
-  bool hovered_tab_scrollbar = false;
-  if (m_max_tab_scroll > 0.0f) {
-    const float track_width = layout.tab_bar_bounds.width;
-    const float thumb_width = std::max(
-        20.0F * layout.dpi_scale,
-        track_width * (track_width / (track_width + m_max_tab_scroll)));
-    const float thumb_x =
-        layout.tab_bar_bounds.x +
-        (m_tab_scroll_offset / m_max_tab_scroll) * (track_width - thumb_width);
-    const UI::Rect thumb_bounds{
-        thumb_x, layout.tab_bar_bounds.bottom() - 3.0F * layout.dpi_scale,
-        thumb_width, 3.0F * layout.dpi_scale};
-    const UI::Rect hit_bounds{
-        thumb_bounds.x, thumb_bounds.y - 2.0F * layout.dpi_scale,
-        thumb_bounds.width, thumb_bounds.height + 2.0F * layout.dpi_scale};
-    hovered_tab_scrollbar = hit_bounds.contains(point_x, point_y);
-  }
+  m_hovered_tab_scrollbar = false;
   bool changed = false;
-  if (hovered_tab_scrollbar != m_hovered_tab_scrollbar) {
-    m_hovered_tab_scrollbar = hovered_tab_scrollbar;
-    changed = true;
-  }
 
   bool hovered_text_hscrollbar = false;
   if (m_max_text_scroll > 0.0F && !m_text_hscrollbar_bounds.is_empty()) {
@@ -5154,22 +5112,8 @@ void TextEditor::draw_tab_strip(
 
   RestoreDC(device_context, -1);
 
-  if (m_max_tab_scroll > 0.0f) {
-    const float track_width = layout.tab_bar_bounds.width;
-    const float thumb_width = std::max(
-        20.0F * surface.m_dpi_scale,
-        track_width * (track_width / (track_width + m_max_tab_scroll)));
-    const float thumb_x =
-        layout.tab_bar_bounds.x +
-        (m_tab_scroll_offset / m_max_tab_scroll) * (track_width - thumb_width);
-    const UI::Rect thumb_bounds{
-        thumb_x, layout.tab_bar_bounds.bottom() - 3.0F * surface.m_dpi_scale,
-        thumb_width, 3.0F * surface.m_dpi_scale};
-    const UI::Theme::Color thumb_color = m_hovered_tab_scrollbar
-                                             ? surface.m_palette.accent
-                                             : surface.m_palette.text_muted;
-    surface.fill_rectangle(device_context, thumb_bounds, thumb_color);
-  }
+  // Tab bar scrollbar is kept invisible like JetBrains, while remaining fully
+  // scrollable via mouse wheel and trackpad gestures.
 }
 
 void TextEditor::draw_media_pane(const StudioWorkspaceRenderer &surface,

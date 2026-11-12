@@ -1361,9 +1361,14 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           root_menu_index ? root_menu_index : combined_menu_index;
       bool menu_state_changed = false;
 
-      const bool menu_interaction_active = m_open_menu_index.has_value() ||
-                                           m_menu_overlay_open ||
-                                           m_menu_pointer_tracking;
+      // Menubar interaction tracking only applies to standard menubar menus (< window_menu_count).
+      // Toolbar popups (compiler 10, platform 11, binary 12, gear 13, ellipsis 14) are independent
+      // toolbar widgets that must never trigger or switch to the menubar on hover.
+      const bool menubar_menu_open =
+          m_open_menu_index.has_value() &&
+          *m_open_menu_index < UI::Chrome::window_menu_count;
+      const bool menubar_interaction_active =
+          menubar_menu_open || m_menu_overlay_open || m_menu_pointer_tracking;
 
       if (m_menu_overlay_open && root_menu_index) {
         if (m_open_menu_index != root_menu_index) {
@@ -1371,14 +1376,14 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
           m_hovered_popup_item_index.reset();
           menu_state_changed = true;
         }
-      } else if (menu_interaction_active && combined_menu_index &&
-                 (m_open_menu_index != combined_menu_index ||
+      } else if (menubar_interaction_active && visible_menu_index &&
+                 (m_open_menu_index != visible_menu_index ||
                   m_menu_overlay_open)) {
-        m_open_menu_index = combined_menu_index;
+        m_open_menu_index = visible_menu_index;
         m_menu_overlay_open = false;
         m_hovered_popup_item_index.reset();
         menu_state_changed = true;
-      } else if (menu_interaction_active && overflow_menu_hovered &&
+      } else if (menubar_interaction_active && overflow_menu_hovered &&
                  !m_menu_overlay_open) {
         m_open_menu_index.reset();
         m_menu_overlay_open = true;
@@ -2178,7 +2183,6 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         return TRUE;
       }
 
-
       if (m_workspace_renderer.get_prompt_modal().is_visible()) {
         const float scale = static_cast<float>(m_dpi) / 96.0F;
         const UI::Rect viewport{
@@ -2436,6 +2440,8 @@ LRESULT Win32Window::handle_message(HWND window_handle, UINT message,
         SetCursor(LoadCursorW(nullptr, IDC_IBEAM));
         return TRUE;
       }
+      SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+      return TRUE;
     }
     break;
 
@@ -3494,7 +3500,8 @@ void Win32Window::paint_custom_chrome() {
   if (m_chrome_layout.has_overflow_menu()) {
     const bool hidden_menu_open =
         m_open_menu_index &&
-        *m_open_menu_index >= m_chrome_layout.first_overflow_menu_index;
+        *m_open_menu_index >= m_chrome_layout.first_overflow_menu_index &&
+        *m_open_menu_index < UI::Chrome::window_menu_count;
     if (m_overflow_menu_hovered || m_menu_overlay_open || hidden_menu_open) {
       UI::Rect hover_bounds = m_chrome_layout.overflow_menu_bounds;
       hover_bounds.y += 4.0F * m_chrome_layout.dpi_scale;
@@ -3634,7 +3641,9 @@ void Win32Window::paint_custom_chrome() {
   }
 
   if (!m_chrome_layout.gear_bounds.is_empty()) {
-    if (m_gear_button_hovered) {
+    const bool gear_active =
+        m_gear_button_hovered || (m_open_menu_index && *m_open_menu_index == 13);
+    if (gear_active) {
       draw_toolbar_hover(m_chrome_layout.gear_bounds);
     }
     const int center_x =
@@ -3647,11 +3656,13 @@ void Win32Window::paint_custom_chrome() {
     m_workspace_renderer.draw_svg_icon(
         buffer_context, "Assets/icons/gear.svg", center_x, center_y, icon_size,
         m_workspace_renderer.m_palette.text_primary,
-        m_gear_button_hovered ? m_theme.hover : m_theme.titlebar_background);
+        gear_active ? m_theme.hover : m_theme.titlebar_background);
   }
 
   if (!m_chrome_layout.ellipsis_bounds.is_empty()) {
-    if (m_ellipsis_button_hovered) {
+    const bool ellipsis_active =
+        m_ellipsis_button_hovered || (m_open_menu_index && *m_open_menu_index == 14);
+    if (ellipsis_active) {
       draw_toolbar_hover(m_chrome_layout.ellipsis_bounds);
     }
     const int center_x =
@@ -3664,20 +3675,22 @@ void Win32Window::paint_custom_chrome() {
     m_workspace_renderer.draw_svg_icon(
         buffer_context, "Assets/icons/ellipsis.svg", center_x, center_y,
         icon_size, m_workspace_renderer.m_palette.text_primary,
-        m_ellipsis_button_hovered ? m_theme.hover
-                                  : m_theme.titlebar_background);
+        ellipsis_active ? m_theme.hover
+                        : m_theme.titlebar_background);
   }
 
-  // Build toolbar: Compiler | Binary
+  // Build toolbar: Compiler | Platform | Binary
   if (!m_chrome_layout.compiler_bounds.is_empty()) {
-    if (m_compiler_button_hovered) {
+    const bool compiler_active =
+        m_compiler_button_hovered || (m_open_menu_index && *m_open_menu_index == 10);
+    if (compiler_active) {
       draw_toolbar_hover(m_chrome_layout.compiler_bounds);
     }
     RECT text_rect = {
-        static_cast<LONG>(m_chrome_layout.compiler_bounds.x + 10.0F * scale),
+        static_cast<LONG>(m_chrome_layout.compiler_bounds.x + 6.0F * scale),
         static_cast<LONG>(m_chrome_layout.compiler_bounds.y),
         static_cast<LONG>(m_chrome_layout.compiler_bounds.right() -
-                          22.0F * scale),
+                          16.0F * scale),
         static_cast<LONG>(m_chrome_layout.compiler_bounds.bottom())};
     std::string mode_str(
         UI::Toolbar::to_string(m_run_config_state.active_mode));
@@ -3685,28 +3698,30 @@ void Win32Window::paint_custom_chrome() {
     draw_centered_text(buffer_context, mode_wstr.c_str(), text_rect,
                        m_theme.text_primary);
     const int chevron_x = static_cast<int>(
-        m_chrome_layout.compiler_bounds.right() - 10.0F * scale);
+        m_chrome_layout.compiler_bounds.right() - 8.0F * scale);
     const int chevron_y =
         static_cast<int>(m_chrome_layout.compiler_bounds.y +
                          m_chrome_layout.compiler_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(
         buffer_context, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
-        std::max(static_cast<int>(10.0F * scale), 8),
-        m_compiler_button_hovered ? m_theme.text_primary
-                                  : m_workspace_renderer.m_palette.text_muted,
-        m_compiler_button_hovered ? m_theme.hover
-                                  : m_theme.titlebar_background);
+        std::max(static_cast<int>(8.0F * scale), 7),
+        compiler_active ? m_theme.text_primary
+                        : m_workspace_renderer.m_palette.text_muted,
+        compiler_active ? m_theme.hover
+                        : m_theme.titlebar_background);
   }
 
   if (!m_chrome_layout.platform_bounds.is_empty()) {
-    if (m_platform_button_hovered) {
+    const bool platform_active =
+        m_platform_button_hovered || (m_open_menu_index && *m_open_menu_index == 11);
+    if (platform_active) {
       draw_toolbar_hover(m_chrome_layout.platform_bounds);
     }
     RECT text_rect = {
-        static_cast<LONG>(m_chrome_layout.platform_bounds.x + 10.0F * scale),
+        static_cast<LONG>(m_chrome_layout.platform_bounds.x + 6.0F * scale),
         static_cast<LONG>(m_chrome_layout.platform_bounds.y),
         static_cast<LONG>(m_chrome_layout.platform_bounds.right() -
-                          22.0F * scale),
+                          16.0F * scale),
         static_cast<LONG>(m_chrome_layout.platform_bounds.bottom())};
     std::string arch_str(
         UI::Toolbar::to_string(m_run_config_state.active_architecture));
@@ -3714,25 +3729,27 @@ void Win32Window::paint_custom_chrome() {
     draw_centered_text(buffer_context, arch_wstr.c_str(), text_rect,
                        m_theme.text_primary);
     const int chevron_x = static_cast<int>(
-        m_chrome_layout.platform_bounds.right() - 10.0F * scale);
+        m_chrome_layout.platform_bounds.right() - 8.0F * scale);
     const int chevron_y =
         static_cast<int>(m_chrome_layout.platform_bounds.y +
                          m_chrome_layout.platform_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(
         buffer_context, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
-        std::max(static_cast<int>(10.0F * scale), 8),
-        m_platform_button_hovered ? m_theme.text_primary
-                                  : m_workspace_renderer.m_palette.text_muted,
-        m_platform_button_hovered ? m_theme.hover
-                                  : m_theme.titlebar_background);
+        std::max(static_cast<int>(8.0F * scale), 7),
+        platform_active ? m_theme.text_primary
+                        : m_workspace_renderer.m_palette.text_muted,
+        platform_active ? m_theme.hover
+                        : m_theme.titlebar_background);
   }
 
   if (!m_chrome_layout.binary_bounds.is_empty()) {
-    if (m_binary_button_hovered) {
+    const bool binary_active =
+        m_binary_button_hovered || (m_open_menu_index && *m_open_menu_index == 12);
+    if (binary_active) {
       draw_toolbar_hover(m_chrome_layout.binary_bounds);
     }
     const bool has_targets = !m_run_config_state.available_targets.empty();
-    const int binary_icon_size = std::max(static_cast<int>(16.0F * scale), 14);
+    const int binary_icon_size = std::max(static_cast<int>(14.0F * scale), 12);
     const std::string target_icon = !has_targets
                                         ? "Assets/icons/gear.svg"
                                         : (m_run_config_state.active_icon_asset.empty()
@@ -3740,17 +3757,17 @@ void Win32Window::paint_custom_chrome() {
                                                : m_run_config_state.active_icon_asset);
     m_workspace_renderer.draw_svg_icon(
         buffer_context, target_icon,
-        static_cast<int>(m_chrome_layout.binary_bounds.x + 16.0F * scale),
+        static_cast<int>(m_chrome_layout.binary_bounds.x + 12.0F * scale),
         static_cast<int>(m_chrome_layout.binary_bounds.y +
                          m_chrome_layout.binary_bounds.height * 0.5F),
         binary_icon_size,
         has_targets ? m_theme.text_primary : m_workspace_renderer.m_palette.text_muted,
-        m_binary_button_hovered ? m_theme.hover : m_theme.titlebar_background);
+        binary_active ? m_theme.hover : m_theme.titlebar_background);
     RECT text_rect = {
-        static_cast<LONG>(m_chrome_layout.binary_bounds.x + 36.0F * scale),
+        static_cast<LONG>(m_chrome_layout.binary_bounds.x + 28.0F * scale),
         static_cast<LONG>(m_chrome_layout.binary_bounds.y),
         static_cast<LONG>(m_chrome_layout.binary_bounds.right() -
-                          16.0F * scale),
+                          14.0F * scale),
         static_cast<LONG>(m_chrome_layout.binary_bounds.bottom())};
     std::string display_name = has_targets ? m_run_config_state.active_target_name : "No Configuration";
     if (display_name.empty()) {
@@ -3760,16 +3777,16 @@ void Win32Window::paint_custom_chrome() {
     draw_centered_text(buffer_context, bin_wstr.c_str(), text_rect,
                        has_targets ? m_theme.text_primary : m_workspace_renderer.m_palette.text_muted);
     const int chevron_x =
-        static_cast<int>(m_chrome_layout.binary_bounds.right() - 14.0F * scale);
+        static_cast<int>(m_chrome_layout.binary_bounds.right() - 10.0F * scale);
     const int chevron_y =
         static_cast<int>(m_chrome_layout.binary_bounds.y +
                          m_chrome_layout.binary_bounds.height * 0.5F);
     m_workspace_renderer.draw_svg_icon(
         buffer_context, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
-        std::max(static_cast<int>(12.0F * scale), 10),
-        m_binary_button_hovered ? m_theme.text_primary
-                                : m_workspace_renderer.m_palette.text_muted,
-        m_binary_button_hovered ? m_theme.hover : m_theme.titlebar_background);
+        std::max(static_cast<int>(10.0F * scale), 8),
+        binary_active ? m_theme.text_primary
+                      : m_workspace_renderer.m_palette.text_muted,
+        binary_active ? m_theme.hover : m_theme.titlebar_background);
   }
 
   const int minimize_state =
@@ -4007,7 +4024,8 @@ void Win32Window::show_menu(std::size_t menu_index) {
   // makes the hierarchy explicit: File -> New File, Open File, ...
   const bool opened_from_overflow =
       m_menu_overlay_open && m_chrome_layout.has_overflow_menu() &&
-      menu_index >= m_chrome_layout.first_overflow_menu_index;
+      menu_index >= m_chrome_layout.first_overflow_menu_index &&
+      menu_index < UI::Chrome::window_menu_count;
   if (!opened_from_overflow) {
     m_menu_overlay_open = false;
   }

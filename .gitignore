@@ -58,3 +58,8 @@ videos/
 # --- Others ------------------------------------------------------------
 .idea
 .cache
+
+/Scripts/*.bmp
+/Scripts/*.ico
+/Scripts/*.jpg
+/Scripts/*.png

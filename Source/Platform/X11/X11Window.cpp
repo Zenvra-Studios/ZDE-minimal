@@ -1698,10 +1698,14 @@ void X11Window::handle_motion(const XMotionEvent &event) {
       combined_hovered_menu = 14;
   }
 
-  // Hover-switching is now active for all dropdowns (menubar and overlays).
+  // Menubar interaction tracking only applies to standard menubar menus (< window_menu_count).
+  // Toolbar popups are independent and must not trigger or switch to the menubar on hover.
+  const bool menubar_menu_open =
+      m_interaction_state.open_menu_index.has_value() &&
+      *m_interaction_state.open_menu_index < UI::Chrome::window_menu_count;
   const bool menu_interaction_active =
-      m_interaction_state.open_menu_index.has_value() ||
-      m_interaction_state.overflow_menu_open || m_menu_pointer_tracking;
+      menubar_menu_open || m_interaction_state.overflow_menu_open ||
+      m_menu_pointer_tracking;
 
   if (menu_interaction_active && hovered_overflow_menu &&
       m_interaction_state.overflow_menu_open &&

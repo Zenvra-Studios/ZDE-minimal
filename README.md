@@ -67,6 +67,32 @@ build/<preset>/bin/<config>/    # executables (.exe) & runtime DLLs
 build/<preset>/lib/<config>/    # static / import libraries
 ```
 
+## Windows Installer
+
+After a Release build, create a Blender-style Windows setup executable with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File Scripts\build_installer.ps1
+```
+
+The installer is written to
+`build/installer/ZDE-<version>-windows-x64-setup.exe` and includes:
+
+- install for all users or the current user,
+- the MIT license page,
+- destination and Start Menu selection,
+- an optional desktop shortcut,
+- optional **Open with ZDE** context menus for files and folders,
+- the app-local MSVC runtime, so a separate VC++ Redistributable is not
+  required, and
+- a standard uninstall entry plus a launch-after-install checkbox.
+
+The version defaults to the one declared in `CMakeLists.txt`. Inno Setup 7
+is recommended (Inno Setup 6 also works). Pass `-Version`, `-BuildDir`,
+`-OutputDir`, or `-InnoSetupPath` to override the defaults. The wizard
+artwork can be regenerated with
+`Scripts\generate_assets.ps1 -Force`.
+
 ## Setup & Build (Linux / macOS)
 
 ```bash

@@ -599,7 +599,9 @@ void X11ChromeRenderer::render(
   if (effective_layout.has_overflow_menu()) {
     const bool hidden_menu_open = interaction_state.open_menu_index &&
                                   *interaction_state.open_menu_index >=
-                                      effective_layout.first_overflow_menu_index;
+                                      effective_layout.first_overflow_menu_index &&
+                                  *interaction_state.open_menu_index <
+                                      UI::Chrome::window_menu_count;
     if (interaction_state.overflow_menu_hovered ||
         interaction_state.overflow_menu_open || hidden_menu_open) {
       UI::Rect hover_bounds = effective_layout.overflow_menu_bounds;
@@ -721,7 +723,10 @@ void X11ChromeRenderer::render(
   }
 
   if (!effective_layout.gear_bounds.is_empty()) {
-    if (interaction_state.gear_button_hovered) {
+    const bool gear_active =
+        interaction_state.gear_button_hovered ||
+        (interaction_state.open_menu_index && *interaction_state.open_menu_index == 13);
+    if (gear_active) {
       draw_toolbar_hover(effective_layout.gear_bounds);
     }
     const int center_x = round_to_int(effective_layout.gear_bounds.x +
@@ -732,12 +737,14 @@ void X11ChromeRenderer::render(
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/gear.svg", center_x, center_y, icon_size,
         m_workspace_renderer.m_palette.text_primary,
-        interaction_state.gear_button_hovered ? m_hover_color
-                                              : unhovered_chrome_bg);
+        gear_active ? m_hover_color : unhovered_chrome_bg);
   }
 
   if (!effective_layout.ellipsis_bounds.is_empty()) {
-    if (interaction_state.ellipsis_button_hovered) {
+    const bool ellipsis_active =
+        interaction_state.ellipsis_button_hovered ||
+        (interaction_state.open_menu_index && *interaction_state.open_menu_index == 14);
+    if (ellipsis_active) {
       draw_toolbar_hover(effective_layout.ellipsis_bounds);
     }
     const int center_x =
@@ -750,24 +757,25 @@ void X11ChromeRenderer::render(
     m_workspace_renderer.draw_svg_icon(
         back_buffer, "Assets/icons/ellipsis.svg", center_x, center_y, icon_size,
         m_workspace_renderer.m_palette.text_primary,
-        interaction_state.ellipsis_button_hovered
-            ? m_hover_color
-            : unhovered_chrome_bg);
+        ellipsis_active ? m_hover_color : unhovered_chrome_bg);
   }
 
-  // Build toolbar: Compiler | Binary | Mode
+  // Build toolbar: Compiler | Platform | Binary
   if (!effective_layout.compiler_bounds.is_empty()) {
-    if (interaction_state.compiler_button_hovered) {
+    const bool compiler_active =
+        interaction_state.compiler_button_hovered ||
+        (interaction_state.open_menu_index && *interaction_state.open_menu_index == 10);
+    if (compiler_active) {
       draw_toolbar_hover(effective_layout.compiler_bounds);
     }
     const UI::Rect text_rect{
-        effective_layout.compiler_bounds.x + 10.0F * scale,
+        effective_layout.compiler_bounds.x + 6.0F * scale,
         effective_layout.compiler_bounds.y,
-        std::max(0.0F, effective_layout.compiler_bounds.width - 22.0F * scale),
+        std::max(0.0F, effective_layout.compiler_bounds.width - 16.0F * scale),
         effective_layout.compiler_bounds.height};
     draw_centered_text(back_buffer, UI::Toolbar::to_string(m_run_config_state.active_mode), text_rect, m_text_colors.primary);
     const int chevron_x =
-        round_to_int(effective_layout.compiler_bounds.right() - 10.0F * scale);
+        round_to_int(effective_layout.compiler_bounds.right() - 8.0F * scale);
     const int chevron_y =
         round_to_int(effective_layout.compiler_bounds.y +
                      effective_layout.compiler_bounds.height * 0.5F);
@@ -775,23 +783,24 @@ void X11ChromeRenderer::render(
         back_buffer, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
         std::max(static_cast<int>(10.0F * scale), 8),
         m_workspace_renderer.m_palette.text_muted,
-        interaction_state.compiler_button_hovered
-            ? m_hover_color
-            : unhovered_chrome_bg);
+        compiler_active ? m_hover_color : unhovered_chrome_bg);
   }
 
   if (!effective_layout.platform_bounds.is_empty()) {
-    if (interaction_state.platform_button_hovered) {
+    const bool platform_active =
+        interaction_state.platform_button_hovered ||
+        (interaction_state.open_menu_index && *interaction_state.open_menu_index == 11);
+    if (platform_active) {
       draw_toolbar_hover(effective_layout.platform_bounds);
     }
     const UI::Rect text_rect{
-        effective_layout.platform_bounds.x + 10.0F * scale,
+        effective_layout.platform_bounds.x + 6.0F * scale,
         effective_layout.platform_bounds.y,
-        std::max(0.0F, effective_layout.platform_bounds.width - 22.0F * scale),
+        std::max(0.0F, effective_layout.platform_bounds.width - 16.0F * scale),
         effective_layout.platform_bounds.height};
     draw_centered_text(back_buffer, UI::Toolbar::to_string(m_run_config_state.active_architecture), text_rect, m_text_colors.primary);
     const int chevron_x =
-        round_to_int(effective_layout.platform_bounds.right() - 10.0F * scale);
+        round_to_int(effective_layout.platform_bounds.right() - 8.0F * scale);
     const int chevron_y =
         round_to_int(effective_layout.platform_bounds.y +
                      effective_layout.platform_bounds.height * 0.5F);
@@ -799,13 +808,14 @@ void X11ChromeRenderer::render(
         back_buffer, "Assets/icons/chevron-down.svg", chevron_x, chevron_y,
         std::max(static_cast<int>(10.0F * scale), 8),
         m_workspace_renderer.m_palette.text_muted,
-        interaction_state.platform_button_hovered
-            ? m_hover_color
-            : unhovered_chrome_bg);
+        platform_active ? m_hover_color : unhovered_chrome_bg);
   }
 
   if (!effective_layout.binary_bounds.is_empty()) {
-    if (interaction_state.binary_button_hovered) {
+    const bool binary_active =
+        interaction_state.binary_button_hovered ||
+        (interaction_state.open_menu_index && *interaction_state.open_menu_index == 12);
+    if (binary_active) {
       draw_toolbar_hover(effective_layout.binary_bounds);
     }
     const bool has_targets = !m_run_config_state.available_targets.empty();

@@ -95,7 +95,7 @@ CPMAddPackage(
 )
 
 # FFmpeg - Multimedia framework (libavcodec, libavformat, libavutil, libswscale, libswresample)
-if(EXISTS "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/include/libavcodec/avcodec.h")
+if(WIN32 AND EXISTS "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/include/libavcodec/avcodec.h")
     set(FFMPEG_ROOT "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg" CACHE PATH "FFmpeg Root" FORCE)
     set(FFMPEG_INCLUDE_DIRS "${CMAKE_SOURCE_DIR}/ThirdParty/ffmpeg/include")
     set(FFMPEG_LIBRARIES

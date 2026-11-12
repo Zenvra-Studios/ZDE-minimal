@@ -1743,7 +1743,21 @@ SidebarPressResult ToolSidebar::handle_pointer_press(
     std::size_t sticky_index =
         static_cast<std::size_t>((point_y - tree_top) / (row_height * scale));
     if (sticky_index < sticky.size()) {
-      m_model.set_scroll_offset(sticky[sticky_index]);
+      const std::size_t item_idx = sticky[sticky_index];
+      const auto items = m_model.get_project_items();
+      if (item_idx < items.size()) {
+        const auto &item = items[item_idx];
+        const float indent_x =
+            layout.tool_sidebar_bounds.x +
+            (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
+        // If clicking near the chevron toggle or folder icon, toggle expand/collapse
+        if (point_x >= indent_x - 6.0F * scale &&
+            point_x <= indent_x + 36.0F * scale) {
+          static_cast<void>(m_model.activate_project_item(item_idx));
+          return SidebarPressResult{.handled = true};
+        }
+      }
+      m_model.set_scroll_offset(item_idx);
       return SidebarPressResult{.handled = true};
     }
   }
@@ -4342,57 +4356,54 @@ void ToolSidebar::render(
                                     m_drag_target_row.has_value() &&
                                     *m_drag_target_row == visible_row;
 
+        const float left_pad = 6.0F * scale;
+        const float right_pad = (items.size() > row_count) ? (15.0F * scale) : (6.0F * scale);
         const UI::Rect highlight_rect{
-            panel.x + 4.0F * scale, row_bounds.y + 1.0F * scale,
-            panel.width - 8.0F * scale, row_height * scale - 2.0F * scale};
+            panel.x + left_pad, row_bounds.y + 1.0F * scale,
+            std::max(0.0F, panel.width - left_pad - right_pad),
+            row_height * scale - 2.0F * scale};
 
+        const bool is_focused = is_explorer_focused();
         if (is_drop_target) {
-          surface.fill_rectangle(device_context, row_bounds,
-                                 UI::Theme::Color{35, 110, 190, 90});
-          surface.draw_rectangle(device_context, row_bounds,
-                                 surface.m_palette.accent);
+          surface.fill_rounded_rectangle(device_context, highlight_rect,
+                                         UI::Theme::Color{35, 110, 190, 90},
+                                         4.0F * scale);
+          surface.draw_rounded_rectangle(device_context, highlight_rect,
+                                         surface.m_palette.accent, 4.0F * scale);
         } else if (is_drag_source) {
-          surface.fill_rectangle(device_context, row_bounds,
-                                 UI::Theme::Color{255, 255, 255, 20});
+          surface.fill_rounded_rectangle(device_context, highlight_rect,
+                                         UI::Theme::Color{255, 255, 255, 20},
+                                         4.0F * scale);
         } else if (is_selected) {
-          if (is_modern) {
-            surface.fill_rounded_rectangle(device_context, highlight_rect,
-                                           UI::Theme::Color{35, 110, 190, 160},
-                                           4.0F * scale);
-          } else {
-            surface.fill_rectangle(device_context, row_bounds,
-                                   UI::Theme::Color{14, 75, 130, 255});
-          }
-          if (m_model.get_selected_path() &&
+          // When file buffer is active/open, selection in explorer is inactive ("an_active")
+          const UI::Theme::Color sel_color = is_focused
+              ? (is_hovered ? UI::Theme::Color{45, 120, 205, 190}
+                            : UI::Theme::Color{35, 110, 190, 160})
+              : (is_hovered ? UI::Theme::Color{55, 62, 75, 180}
+                            : UI::Theme::Color{45, 50, 62, 140});
+          surface.fill_rounded_rectangle(device_context, highlight_rect,
+                                         sel_color, 4.0F * scale);
+          if (is_focused && m_model.get_selected_path() &&
               *m_model.get_selected_path() == item.path) {
-            const UI::Rect left_bar{panel.x, row_bounds.y + 1.0F * scale,
+            const UI::Rect left_bar{panel.x + 2.0F * scale, row_bounds.y + 2.0F * scale,
                                     3.0F * scale,
-                                    row_bounds.height - 2.0F * scale};
-            if (!is_modern) {
-              surface.fill_rectangle(device_context, left_bar,
-                                     surface.m_palette.accent);
-            }
+                                    row_bounds.height - 4.0F * scale};
+            surface.fill_rounded_rectangle(device_context, left_bar,
+                                           surface.m_palette.accent, 1.5F * scale);
           }
         } else if (is_hovered) {
-          if (is_modern) {
-            surface.fill_rounded_rectangle(device_context, highlight_rect,
-                                           UI::Theme::Color{255, 255, 255, 20},
-                                           4.0F * scale);
-          } else {
-            surface.fill_rectangle(device_context, row_bounds,
-                                   surface.m_palette.hover_background);
-          }
+          surface.fill_rounded_rectangle(device_context, highlight_rect,
+                                         UI::Theme::Color{255, 255, 255, 20},
+                                         4.0F * scale);
         }
 
         const UI::Theme::Color current_row_bg =
             is_selected
-                ? (is_modern ? UI::Theme::Color{35, 110, 190, 160}
-                             : UI::Theme::Color{14, 75, 130, 255})
-                : (is_hovered
-                       ? (is_modern ? UI::Theme::Color{255, 255, 255, 20}
-                                    : surface.m_palette.hover_background)
-                       : (is_modern ? UI::Theme::Color{0, 0, 0, 0}
-                                    : surface.m_palette.sidebar_background));
+                ? (is_focused ? UI::Theme::Color{35, 110, 190, 160}
+                              : UI::Theme::Color{45, 50, 62, 140})
+                : (is_hovered ? UI::Theme::Color{255, 255, 255, 20}
+                              : (is_modern ? UI::Theme::Color{0, 0, 0, 0}
+                                           : surface.m_palette.sidebar_background));
 
         const float indent_x =
             panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
@@ -4497,16 +4508,19 @@ void ToolSidebar::render(
 
         const bool is_sticky_hovered =
             (m_hovered_sticky_index && *m_hovered_sticky_index == item_index);
-        const UI::Theme::Color sticky_bg =
-            is_modern
-                ? (is_sticky_hovered ? UI::Theme::Color{255, 255, 255, 25}
-                                     : UI::Theme::Color{0, 0, 0, 0})
-                : (is_sticky_hovered ? surface.m_palette.hover_background
-                                     : surface.m_palette.sidebar_background);
-        if (!is_modern || is_sticky_hovered) {
-          surface.fill_rectangle(device_context, sticky_bounds, sticky_bg);
+        // Sticky explorer headers must be opaque so items scrolled beneath never bleed through
+        UI::Theme::Color sticky_bg = surface.m_palette.sidebar_background;
+        sticky_bg.alpha = 255;
+        if (is_sticky_hovered) {
+          sticky_bg = surface.m_palette.is_dark
+                          ? UI::Theme::Color{40, 44, 52, 255}
+                          : surface.m_palette.hover_background;
+          sticky_bg.alpha = 255;
         }
-        if (!is_modern && i == sticky_indices.size() - 1) {
+        surface.fill_rectangle(device_context, sticky_bounds, sticky_bg);
+
+        // Always draw a crisp separator line below the sticky headers
+        if (i == sticky_indices.size() - 1) {
           surface.draw_line(
               device_context, round_to_int(panel.x),
               round_to_int(sticky_bounds.bottom()), round_to_int(panel.right()),
@@ -4544,15 +4558,16 @@ void ToolSidebar::render(
       // Project Scrollbar
       m_project_scrollbar.set_track_bounds(scrollbar_bounds(layout));
       m_project_scrollbar.set_metrics(items.size(), row_count);
-      m_project_scrollbar.scroll_to(first);
+      static_cast<void>(m_project_scrollbar.scroll_to(first));
       if (m_project_scrollbar.is_needed()) {
         const UI::Rect thumb_bounds = m_project_scrollbar.get_thumb_bounds();
         const UI::Theme::Color thumb_color =
             m_project_scrollbar.is_dragging()
-                ? UI::Theme::Color{255, 255, 255, 115}
-                : (m_hovered_scrollbar ? UI::Theme::Color{255, 255, 255, 75}
-                                       : UI::Theme::Color{255, 255, 255, 40});
-        surface.fill_rectangle(device_context, thumb_bounds, thumb_color);
+                ? UI::Theme::Color{255, 255, 255, 120}
+                : (m_hovered_scrollbar ? UI::Theme::Color{255, 255, 255, 80}
+                                       : UI::Theme::Color{255, 255, 255, 38});
+        surface.fill_rounded_rectangle(device_context, thumb_bounds, thumb_color,
+                                       thumb_bounds.width * 0.5F);
       }
     }
 
@@ -4660,9 +4675,11 @@ UI::Rect ToolSidebar::scrollbar_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const float scale = layout.dpi_scale;
   const float top = layout.tool_sidebar_bounds.y + header_height * scale;
-  const float width = 8.0F * scale;
-  return UI::Rect{layout.tool_sidebar_bounds.right() - width, top, width,
-                  std::max(layout.tool_sidebar_bounds.bottom() - top, 0.0F)};
+  const float width = 6.0F * scale;
+  const float inset_right = 3.0F * scale;
+  return UI::Rect{layout.tool_sidebar_bounds.right() - width - inset_right,
+                  top + 2.0F * scale, width,
+                  std::max(layout.tool_sidebar_bounds.bottom() - top - 4.0F * scale, 0.0F)};
 }
 
 std::vector<std::size_t> ToolSidebar::get_sticky_items() const {

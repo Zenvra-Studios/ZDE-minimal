@@ -917,8 +917,11 @@ LRESULT SettingsWindow::handle_message(HWND hwnd, UINT message, WPARAM w_param,
         SetCursor(LoadCursor(nullptr, IDC_IBEAM));
         return TRUE;
       }
-      if (layout.close_btn_bounds.contains(cur_x, cur_y) ||
-          layout.user_tab_bounds.contains(cur_x, cur_y) ||
+      if (layout.close_btn_bounds.contains(cur_x, cur_y)) {
+        SetCursor(LoadCursor(nullptr, IDC_ARROW));
+        return TRUE;
+      }
+      if (layout.user_tab_bounds.contains(cur_x, cur_y) ||
           layout.workspace_tab_bounds.contains(cur_x, cur_y)) {
         SetCursor(LoadCursor(nullptr, IDC_HAND));
         return TRUE;
