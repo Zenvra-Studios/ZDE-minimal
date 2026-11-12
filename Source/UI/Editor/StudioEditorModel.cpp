@@ -71,32 +71,34 @@ void rebuild_sidebar_items() {
 
 StudioEditorPalette StudioEditorPalette::dark() noexcept {
   return StudioEditorPalette{
-      .workspace_background = {30, 31, 34, 255},
-      .tab_background = {29, 30, 33, 255},
-      .tab_active_background = {31, 32, 35, 255},
-      .sidebar_background = {28, 29, 32, 255},
-      .editor_background = {30, 31, 34, 255},
-      .active_line_background = {36, 37, 42, 255},
-      .selection_background = {48, 70, 101, 255},
-      .status_background = {30, 31, 34, 255},
-      .border = {48, 50, 55, 255},
-      .text_primary = {242, 244, 250, 255},
-      .text_muted = {160, 166, 178, 255},
+      .workspace_background = {30, 31, 35, 255},
+      .tab_background = {27, 28, 31, 255},
+      .tab_active_background = {30, 31, 35, 255},
+      .sidebar_background = {27, 28, 31, 255},
+      .editor_background = {30, 31, 35, 255},
+      .active_line_background = {36, 38, 44, 255},
+      .selection_background = {45, 68, 100, 255},
+      .status_background = {27, 28, 31, 255},
+      .border = {45, 47, 54, 255},
+      .text_primary = {222, 226, 234, 255},
+      .text_muted = {145, 152, 165, 255},
       .keyword = {207, 142, 109, 255},
       .number = {42, 172, 184, 255},
       .label = {218, 126, 168, 255},
       .type = {96, 184, 206, 255},
       .comment = {122, 128, 138, 255},
-      .accent = {53, 132, 228, 255},
+      .accent = {68, 140, 235, 255},
       .warning = {229, 160, 80, 255},
       .success = {106, 171, 115, 255},
-      .tooltip_background = {43, 45, 49, 255},
-      .hover_background = {58, 62, 72, 255},
-      .indent_guide = {48, 50, 56, 255},
+      .tooltip_background = {34, 36, 41, 255},
+      .hover_background = {46, 49, 57, 255},
+      .indent_guide = {45, 47, 54, 255},
       .indent_guide_active = {95, 100, 112, 255},
       .directive = {197, 134, 192, 255},
       .macro_symbol = {96, 184, 206, 255},
       .include_header = {206, 145, 120, 255},
+      .is_dark = true,
+      .is_modern = false,
   };
 }
 
@@ -111,8 +113,8 @@ StudioEditorPalette StudioEditorPalette::light() noexcept {
       .selection_background = {173, 214, 255, 255},
       .status_background = {245, 245, 247, 255},
       .border = {218, 222, 228, 255},
-      .text_primary = {45, 49, 58, 255},
-      .text_muted = {90, 98, 110, 255},
+      .text_primary = {15, 15, 15, 255},
+      .text_muted = {65, 70, 80, 255},
       .keyword = {0, 0, 255, 255},
       .number = {9, 134, 88, 255},
       .label = {175, 0, 219, 255},
@@ -129,25 +131,26 @@ StudioEditorPalette StudioEditorPalette::light() noexcept {
       .macro_symbol = {38, 127, 153, 255},
       .include_header = {163, 21, 21, 255},
       .is_dark = false,
+      .is_modern = false,
   };
 }
 
 StudioEditorPalette StudioEditorPalette::dark_modern() noexcept {
   auto p = dark();
-  p.workspace_background = {14, 15, 18, 255};
-  p.tab_background = {16, 17, 20, 255};
-  p.tab_active_background = {24, 25, 29, 255};
-  p.sidebar_background = {16, 17, 20, 255};
-  p.editor_background = {18, 19, 23, 255};
-  p.status_background = {16, 17, 20, 255};
-  p.border = {42, 44, 52, 255};
-  p.is_dark = true;
   p.is_modern = true;
+  p.workspace_background = {24, 25, 29, 255};
+  p.tab_background = {24, 25, 29, 255};
+  p.tab_active_background = {32, 34, 40, 255};
+  p.sidebar_background = {32, 34, 40, 255};
+  p.editor_background = {32, 34, 40, 255};
+  p.status_background = {24, 25, 29, 255};
+  p.border = {48, 52, 62, 255};
   return p;
 }
 
 StudioEditorPalette StudioEditorPalette::light_modern() noexcept {
   auto p = light();
+  p.is_modern = true;
   p.workspace_background = {243, 245, 248, 255};
   p.tab_background = {243, 245, 248, 255};
   p.tab_active_background = {255, 255, 255, 255};
@@ -155,8 +158,6 @@ StudioEditorPalette StudioEditorPalette::light_modern() noexcept {
   p.editor_background = {255, 255, 255, 255};
   p.status_background = {243, 245, 248, 255};
   p.border = {218, 222, 228, 255};
-  p.is_dark = false;
-  p.is_modern = true;
   return p;
 }
 
@@ -503,8 +504,8 @@ Rect calculate_studio_sidebar_item_bounds(
   const bool is_horizontal =
       layout.activity_bar_bounds.width > layout.activity_bar_bounds.height;
   if (is_horizontal) {
-    const float item_w = 30.0F * scale;
-    const float item_h = 30.0F * scale;
+    const float item_w = 28.0F * scale;
+    const float item_h = 28.0F * scale;
     const float gap = 4.0F * scale;
     const float start_x = layout.activity_bar_bounds.x + 8.0F * scale;
     const float item_x = start_x + static_cast<float>(item_index) * (item_w + gap);

@@ -69,9 +69,16 @@ void FooterToolbar::render(
     const float badge_h = 16.0F * scale;
     const float badge_x = layout.status_bar_bounds.right() - right_offset - badge_w;
     const UI::Rect badge_rect{badge_x, center_y - badge_h * 0.5F, badge_w, badge_h};
-    surface.fill_rounded_rectangle(device_context, badge_rect,
-                                   surface.m_palette.selection_background,
+    const UI::Theme::Color badge_bg = surface.m_palette.is_dark
+        ? surface.m_palette.selection_background
+        : UI::Theme::Color{225, 230, 240, 255};
+    surface.fill_rounded_rectangle(device_context, badge_rect, badge_bg,
                                    3.0F * scale);
+    if (!surface.m_palette.is_dark) {
+      surface.draw_rounded_rectangle(device_context, badge_rect,
+                                     UI::Theme::Color{180, 190, 205, 255},
+                                     3.0F * scale);
+    }
     surface.draw_text(device_context, *surface.m_small_font, status.vim_mode,
                       badge_x + 8.0F * scale, center_y,
                       surface.m_palette.accent);

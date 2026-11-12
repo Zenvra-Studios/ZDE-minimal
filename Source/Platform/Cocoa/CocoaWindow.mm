@@ -664,7 +664,7 @@ void CocoaWindow::apply_theme(const UI::Theme::StudioTheme& theme)
     window.appearance = [NSAppearance appearanceNamed:theme.is_dark ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
 
     // 2. OS Blur (NSVisualEffectView)
-    const bool should_blur = theme.enable_os_blur || theme.is_modern;
+    const bool should_blur = theme.enable_os_blur;
     if (should_blur)
     {
         if (m_blur_view == nullptr && m_content_view != nullptr)

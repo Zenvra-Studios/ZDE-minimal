@@ -354,6 +354,7 @@ private:
     void fill_rounded_rectangle(HDC device_context, const UI::Rect& rectangle, const UI::Theme::Color& color, float radius) const;
     void draw_rectangle(HDC device_context, const UI::Rect& rectangle, const UI::Theme::Color& color) const;
     void draw_rounded_rectangle(HDC device_context, const UI::Rect& rectangle, const UI::Theme::Color& color, float radius) const;
+    void draw_smooth_shadow(HDC device_context, const UI::Rect& bounds, float radius, float scale, bool is_dark) const;
     void draw_line(
         HDC device_context,
         int from_x,

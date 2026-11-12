@@ -4371,7 +4371,7 @@ void X11Window::apply_theme(const UI::Theme::StudioTheme &theme) {
     // Communicate OS blur request to Linux compositors (KWin, Picom, Compiz)
     Atom blur_atom = XInternAtom(m_display, "_KDE_NET_WM_BLUR_BEHIND_REGION", False);
     if (blur_atom != None) {
-      if (theme.enable_os_blur || theme.is_modern) {
+      if (theme.enable_os_blur) {
         unsigned long dummy = 0;
         XChangeProperty(m_display, m_window_handle, blur_atom, XA_CARDINAL, 32,
                         PropModeReplace,

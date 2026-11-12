@@ -1454,7 +1454,7 @@ StudioWorkspaceRenderer::to_blur_uniforms(int client_width, int client_height,
     uniforms.popup_card = {pb.x, pb.y, pb.width, pb.height};
   }
   uniforms.card_radius = geom.card_radius;
-  uniforms.enable_blur = (m_theme.enable_os_blur || m_theme.is_modern) ? 1 : 0;
+  uniforms.enable_blur = m_theme.enable_os_blur ? 1 : 0;
   return uniforms;
 }
 

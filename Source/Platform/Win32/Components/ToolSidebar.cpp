@@ -3902,7 +3902,9 @@ void ToolSidebar::render_tool_plugin_panel(
         surface.draw_text(device_context, *surface.m_small_font, c.name,
                           cdot_x + 12.0F * scale, cur_y + 11.0F * scale,
                           c.running ? surface.m_palette.text_primary
-                                    : surface.m_palette.text_muted);
+                                    : (surface.m_palette.is_dark
+                                          ? surface.m_palette.text_muted
+                                          : surface.m_palette.text_primary));
 
         const int port_w =
             surface.m_small_font->getTextWidth(device_context, c.port);
@@ -3911,7 +3913,9 @@ void ToolSidebar::render_tool_plugin_panel(
                               static_cast<float>(port_w) - 6.0F * scale,
                           cur_y + 11.0F * scale,
                           c.running ? surface.m_palette.accent
-                                    : surface.m_palette.text_muted);
+                                    : (surface.m_palette.is_dark
+                                          ? surface.m_palette.text_muted
+                                          : surface.m_palette.text_primary));
 
         surface.draw_text(device_context, *surface.m_small_font, c.image,
                           cdot_x + 12.0F * scale, cur_y + 23.0F * scale,
@@ -4451,42 +4455,42 @@ void ToolSidebar::render(
                                          : surface.m_palette.accent)
                                   : surface.m_palette.text_muted);
 
+        const int tree_icon_size = std::max(round_to_int(16.0F * scale), 14);
+        const int arrow_size = std::max(round_to_int(16.0F * scale), 14);
+        const int arrow_x = round_to_int(indent_x + 8.0F * scale);
+        const int icon_x = round_to_int(indent_x + 24.0F * scale);
+        const float label_x = indent_x + 38.0F * scale;
+
         if (item.directory) {
-          const int arrow_x = round_to_int(indent_x + 4.0F * scale);
           const int arrow_y =
               round_to_int(row_bounds.y + row_bounds.height * 0.5F);
-          if (arrow_x + 10.0F * scale < panel.right()) {
+          if (arrow_x + 8.0F * scale < panel.right()) {
             const std::string chevron_path =
                 item.expanded ? "chevron-down.svg" : "chevron-right.svg";
             surface.draw_svg_icon(device_context, chevron_path, arrow_x,
-                                  arrow_y,
-                                  std::max(round_to_int(10.0F * scale), 8),
+                                  arrow_y, arrow_size,
                                   icon_color, current_row_bg);
           }
-          const int folder_x = round_to_int(indent_x + 20.0F * scale);
-          if (folder_x + 18.0F * scale < panel.right()) {
+          if (icon_x + 8.0F * scale < panel.right()) {
             const std::string folder_path =
                 UI::Editor::folder_icon_asset_for_path(item.path,
                                                        item.expanded);
-            const int folder_size = std::max(round_to_int(18.0F * scale), 14);
-            surface.draw_svg_icon(device_context, folder_path, folder_x,
-                                  arrow_y, folder_size, icon_color,
+            surface.draw_svg_icon(device_context, folder_path, icon_x,
+                                  arrow_y, tree_icon_size, icon_color,
                                   current_row_bg, !is_cut);
           }
         } else {
-          const int icon_x = round_to_int(indent_x + 20.0F * scale);
           const int icon_y =
               round_to_int(row_bounds.y + row_bounds.height * 0.5F);
-          if (icon_x + 18.0F * scale < panel.right()) {
+          if (icon_x + 8.0F * scale < panel.right()) {
             const std::string icon_asset =
                 UI::Editor::file_icon_asset_for_path(item.path);
             surface.draw_svg_icon(device_context, icon_asset, icon_x, icon_y,
-                                  std::max(round_to_int(18.0F * scale), 14),
+                                  tree_icon_size,
                                   icon_color, current_row_bg, !is_cut);
           }
         }
 
-        const float label_x = indent_x + 36.0F * scale;
         if (label_x < panel.right()) {
           const float available_width = panel.right() - label_x - 10.0F * scale;
           if (available_width > 0.0F) {
@@ -4546,23 +4550,23 @@ void ToolSidebar::render(
 
         const float indent_x =
             panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
-        const int arrow_x = round_to_int(indent_x + 3.0F * scale);
+        const int arrow_x = round_to_int(indent_x + 8.0F * scale);
         const int arrow_y =
             round_to_int(sticky_bounds.y + row_height * 0.5F * scale);
 
         surface.draw_svg_icon(device_context, "chevron-down.svg", arrow_x,
-                              arrow_y, std::max(round_to_int(8.0F * scale), 7),
+                              arrow_y, std::max(round_to_int(16.0F * scale), 14),
                               surface.m_palette.text_muted, sticky_bg);
 
-        const int folder_x = round_to_int(indent_x + 19.0F * scale);
+        const int folder_x = round_to_int(indent_x + 24.0F * scale);
         const std::string folder_path =
             UI::Editor::folder_icon_asset_for_path(item.path, true);
         surface.draw_svg_icon(device_context, folder_path, folder_x, arrow_y,
-                              std::max(round_to_int(14.0F * scale), 11),
+                              std::max(round_to_int(16.0F * scale), 14),
                               surface.m_palette.text_muted, sticky_bg,
                               true);
 
-        const float label_x = indent_x + 30.0F * scale;
+        const float label_x = indent_x + 38.0F * scale;
         const std::string label = ellipsize(
             device_context, *surface.m_small_font, item.label,
             std::max(round_to_int(panel.right() - label_x - 8.0F * scale), 1));

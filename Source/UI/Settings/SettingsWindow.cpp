@@ -2858,10 +2858,11 @@ void SettingsWindow::render(HDC device_context,
   const auto draw_scope_tab = [&](const Rect &bounds, const wchar_t *label,
                                   bool is_active, bool is_hovered) {
     SelectObject(device_context, is_active ? m_semibold_font : m_regular_font);
-    SetTextColor(device_context,
-                 is_active ? to_color_ref(theme.text_primary)
-                           : (is_hovered ? RGB(220, 225, 235)
-                                         : to_color_ref(theme.text_secondary)));
+    const COLORREF tab_text_col = is_active
+        ? to_color_ref(theme.text_primary)
+        : (is_hovered ? (theme.is_dark ? RGB(220, 225, 235) : to_color_ref(theme.text_primary))
+                      : to_color_ref(theme.text_secondary));
+    SetTextColor(device_context, tab_text_col);
     RECT rc = to_native_rect(bounds);
     DrawTextW(device_context, label, -1, &rc,
               DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
@@ -2943,24 +2944,29 @@ void SettingsWindow::render(HDC device_context,
 
     // Chevron icon for parent items
     if (item.has_children) {
-      const int ch_sz = static_cast<int>(10.0F * dpi_scale);
+      const int ch_sz = static_cast<int>(12.0F * dpi_scale);
       const int ch_x = static_cast<int>(item.bounds.x + 6.0F * dpi_scale);
       const int ch_y =
           static_cast<int>(item.bounds.y + (item.bounds.height - ch_sz) * 0.5F);
       const std::string ch_svg = item.is_expanded
                                      ? "Assets/icons/chevron-down.svg"
                                      : "Assets/icons/chevron-right.svg";
-      draw_icon(device_context, ch_svg, ch_x, ch_y, ch_sz,
-                is_active ? RGB(255, 255, 255)
-                          : to_color_ref(theme.text_secondary));
+      const COLORREF chev_col = theme.is_dark
+          ? (is_active ? RGB(255, 255, 255) : to_color_ref(theme.text_secondary))
+          : (is_active ? to_color_ref(theme.text_primary) : to_color_ref(theme.text_secondary));
+      draw_icon(device_context, ch_svg, ch_x, ch_y, ch_sz, chev_col);
     }
 
     // Label
     SelectObject(device_context, is_active ? m_semibold_font : m_regular_font);
-    SetTextColor(device_context,
-                 is_active ? RGB(255, 255, 255)
-                           : (is_hovered ? RGB(235, 238, 245)
-                                         : to_color_ref(theme.text_secondary)));
+    const COLORREF cat_text_col = theme.is_dark
+        ? (is_active ? RGB(255, 255, 255)
+                     : (is_hovered ? RGB(235, 238, 245)
+                                   : to_color_ref(theme.text_secondary)))
+        : (is_active ? to_color_ref(theme.text_primary)
+                     : (is_hovered ? to_color_ref(theme.text_primary)
+                                   : to_color_ref(theme.text_secondary)));
+    SetTextColor(device_context, cat_text_col);
 
     const float text_indent =
         item.has_children

@@ -6,21 +6,22 @@ namespace Zenvra::UI::Theme
 StudioTheme StudioTheme::zenvra_dark() noexcept
 {
     return StudioTheme{
-        .window_background = {30, 31, 34, 255},
-        // Keep the chrome base identical to the editor buffer strip so the
+        .window_background = {30, 31, 35, 255},
+        // Keep the chrome base consistent with the editor buffer strip so the
         // integrated file tabs read as one continuous titlebar surface.
-        .titlebar_background = {29, 30, 33, 255},
-        .titlebar_border = {43, 43, 43, 255},
-        .panel_background = {28, 29, 32, 255},
-        .text_primary = {240, 242, 248, 255},
-        .text_secondary = {165, 170, 180, 255},
-        .accent = {53, 132, 228, 255},
-        .hover = {58, 62, 70, 255},
-        .pressed = {68, 72, 82, 255},
-        .command_center_background = {36, 37, 42, 255},
-        .command_center_border = {43, 43, 43, 255},
+        .titlebar_background = {27, 28, 31, 255},
+        .titlebar_border = {45, 47, 54, 255},
+        .panel_background = {27, 28, 31, 255},
+        .text_primary = {222, 226, 234, 255},
+        .text_secondary = {145, 152, 165, 255},
+        .accent = {68, 140, 235, 255},
+        .hover = {46, 49, 57, 255},
+        .pressed = {58, 62, 72, 255},
+        .command_center_background = {34, 36, 41, 255},
+        .command_center_border = {50, 53, 62, 255},
         .close_hover = {196, 43, 28, 255},
         .is_dark = true,
+        .is_modern = false,
         .enable_os_blur = false,
         .backdrop_effect = BackdropEffect::None,
     };
@@ -33,8 +34,8 @@ StudioTheme StudioTheme::zenvra_light() noexcept
         .titlebar_background = {245, 245, 247, 255},
         .titlebar_border = {218, 222, 228, 255},
         .panel_background = {248, 249, 250, 255},
-        .text_primary = {45, 49, 58, 255},
-        .text_secondary = {90, 98, 110, 255},
+        .text_primary = {15, 15, 15, 255},
+        .text_secondary = {50, 54, 62, 255},
         .accent = {0, 102, 204, 255},
         .hover = {235, 238, 242, 255},
         .pressed = {222, 226, 232, 255},
@@ -42,6 +43,7 @@ StudioTheme StudioTheme::zenvra_light() noexcept
         .command_center_border = {218, 222, 228, 255},
         .close_hover = {232, 17, 35, 255},
         .is_dark = false,
+        .is_modern = false,
         .enable_os_blur = false,
         .backdrop_effect = BackdropEffect::None,
     };
@@ -53,13 +55,15 @@ StudioTheme StudioTheme::zenvra_dark_modern() noexcept
     theme.is_modern = true;
     theme.enable_os_blur = false;
     theme.backdrop_effect = BackdropEffect::None;
-    // Canonical dark neutral charcoal slate for solid window & titlebar presentation (Zen Browser aesthetic)
-    theme.window_background = {14, 15, 18, 255};
+    // Comfortable dark charcoal canvas for solid modern floating cards (not pitch-black)
+    theme.window_background = {24, 25, 29, 255};
     theme.titlebar_background = theme.window_background;
-    theme.titlebar_border = {42, 44, 52, 255};
-    theme.panel_background = {16, 17, 20, 255};
-    theme.command_center_background = {24, 25, 29, 255};
-    theme.command_center_border = {50, 52, 60, 255};
+    theme.titlebar_border = {45, 48, 56, 255};
+    theme.panel_background = {32, 34, 40, 255};
+    theme.command_center_background = {32, 34, 40, 255};
+    theme.command_center_border = {48, 52, 62, 255};
+    theme.hover = {48, 52, 62, 255};
+    theme.pressed = {58, 62, 74, 255};
     return theme;
 }
 
@@ -69,13 +73,15 @@ StudioTheme StudioTheme::zenvra_light_modern() noexcept
     theme.is_modern = true;
     theme.enable_os_blur = false;
     theme.backdrop_effect = BackdropEffect::None;
-    // Soft neutral canvas (#f3f5f8) allowing elevated white (#ffffff) floating cards to stand out
+    // Soft neutral canvas allowing elevated white floating cards to stand out crisply
     theme.window_background = {243, 245, 248, 255};
     theme.titlebar_background = theme.window_background;
     theme.titlebar_border = {218, 222, 228, 255};
     theme.panel_background = {255, 255, 255, 255};
-    theme.command_center_background = {235, 237, 240, 255};
+    theme.command_center_background = {255, 255, 255, 255};
     theme.command_center_border = {218, 222, 228, 255};
+    theme.hover = {230, 234, 240, 255};
+    theme.pressed = {220, 224, 232, 255};
     return theme;
 }
 

@@ -3449,8 +3449,7 @@ void Win32Window::paint_custom_chrome() {
   }
   HGDIOBJ previous_bitmap = SelectObject(buffer_context, buffer_bitmap);
 
-  const bool blur_active =
-      m_theme.enable_os_blur || (m_theme.is_modern && m_theme.is_dark);
+  const bool blur_active = m_theme.enable_os_blur;
   if (blur_active) {
     // In modern blur mode, keep the backdrop transparent/black (0x00000000).
     // Windows DWM composites non-opaque pixels additively with the blur backdrop.
@@ -3479,8 +3478,7 @@ void Win32Window::paint_custom_chrome() {
     static_cast<void>(m_workspace_renderer.tick_animations());
     m_workspace_renderer.render(buffer_context, client_width, client_height, 0.0F);
 
-    const bool blur_active =
-      m_theme.enable_os_blur || (m_theme.is_modern && m_theme.is_dark);
+    const bool blur_active = m_theme.enable_os_blur;
     if (buffer_bits != nullptr && blur_active) {
       auto *pixels = static_cast<uint32_t *>(buffer_bits);
       const size_t total_px = static_cast<size_t>(client_width) * client_height;
@@ -3583,19 +3581,28 @@ void Win32Window::paint_custom_chrome() {
     DeleteObject(titlebar_border_pen);
   }
 
-  auto draw_toolbar_hover = [&](const UI::Rect &bounds) {
-    UI::Rect hover_bounds = bounds;
-    hover_bounds.y += 4.0F * scale;
-    hover_bounds.height -= 8.0F * scale;
-    hover_bounds.x += 2.0F * scale;
-    hover_bounds.width -= 4.0F * scale;
-    fill_rounded_rectangle(buffer_context, hover_bounds, m_theme.hover, 4);
+  auto get_toolbar_item_bounds = [&](const UI::Rect &bounds) -> UI::Rect {
+    UI::Rect item_bounds = bounds;
+    item_bounds.y += 4.0F * scale;
+    item_bounds.height -= 8.0F * scale;
+    item_bounds.x += 2.0F * scale;
+    item_bounds.width -= 4.0F * scale;
+    return item_bounds;
+  };
+
+  auto draw_toolbar_item_bg = [&](const UI::Rect &bounds, bool active) {
+    if (active) {
+      const UI::Rect item_bounds = get_toolbar_item_bounds(bounds);
+      fill_rounded_rectangle(buffer_context, item_bounds, m_theme.hover, 4.0F * scale);
+    }
+  };
+
+  auto get_icon_bg = [&](bool active) -> UI::Theme::Color {
+    return active ? m_theme.hover : m_theme.titlebar_background;
   };
 
   if (!m_chrome_layout.build_bounds.is_empty()) {
-    if (m_build_button_hovered) {
-      draw_toolbar_hover(m_chrome_layout.build_bounds);
-    }
+    draw_toolbar_item_bg(m_chrome_layout.build_bounds, m_build_button_hovered);
     const int center_x =
         static_cast<int>(m_chrome_layout.build_bounds.x +
                          m_chrome_layout.build_bounds.width * 0.5F);
@@ -3606,13 +3613,11 @@ void Win32Window::paint_custom_chrome() {
     m_workspace_renderer.draw_svg_icon(
         buffer_context, "Assets/icons/build.svg", center_x, center_y, icon_size,
         m_workspace_renderer.m_palette.text_primary,
-        m_build_button_hovered ? m_theme.hover : m_theme.titlebar_background);
+        get_icon_bg(m_build_button_hovered));
   }
 
   if (!m_chrome_layout.run_bounds.is_empty()) {
-    if (m_run_button_hovered) {
-      draw_toolbar_hover(m_chrome_layout.run_bounds);
-    }
+    draw_toolbar_item_bg(m_chrome_layout.run_bounds, m_run_button_hovered);
     const int center_x = static_cast<int>(
         m_chrome_layout.run_bounds.x + m_chrome_layout.run_bounds.width * 0.5F);
     const int center_y =
@@ -3622,13 +3627,11 @@ void Win32Window::paint_custom_chrome() {
     m_workspace_renderer.draw_svg_icon(
         buffer_context, "Assets/icons/play.svg", center_x, center_y, icon_size,
         m_workspace_renderer.m_palette.success,
-        m_run_button_hovered ? m_theme.hover : m_theme.titlebar_background);
+        get_icon_bg(m_run_button_hovered));
   }
 
   if (!m_chrome_layout.debug_bounds.is_empty()) {
-    if (m_debug_button_hovered) {
-      draw_toolbar_hover(m_chrome_layout.debug_bounds);
-    }
+    draw_toolbar_item_bg(m_chrome_layout.debug_bounds, m_debug_button_hovered);
     const int center_x =
         static_cast<int>(m_chrome_layout.debug_bounds.x +
                          m_chrome_layout.debug_bounds.width * 0.5F);
@@ -3639,15 +3642,13 @@ void Win32Window::paint_custom_chrome() {
     m_workspace_renderer.draw_svg_icon(
         buffer_context, "Assets/icons/bug.svg", center_x, center_y, icon_size,
         m_workspace_renderer.m_palette.warning,
-        m_debug_button_hovered ? m_theme.hover : m_theme.titlebar_background);
+        get_icon_bg(m_debug_button_hovered));
   }
 
   if (!m_chrome_layout.gear_bounds.is_empty()) {
     const bool gear_active =
         m_gear_button_hovered || (m_open_menu_index && *m_open_menu_index == 13);
-    if (gear_active) {
-      draw_toolbar_hover(m_chrome_layout.gear_bounds);
-    }
+    draw_toolbar_item_bg(m_chrome_layout.gear_bounds, gear_active);
     const int center_x =
         static_cast<int>(m_chrome_layout.gear_bounds.x +
                          m_chrome_layout.gear_bounds.width * 0.5F);
@@ -3658,15 +3659,13 @@ void Win32Window::paint_custom_chrome() {
     m_workspace_renderer.draw_svg_icon(
         buffer_context, "Assets/icons/gear.svg", center_x, center_y, icon_size,
         m_workspace_renderer.m_palette.text_primary,
-        gear_active ? m_theme.hover : m_theme.titlebar_background);
+        get_icon_bg(gear_active));
   }
 
   if (!m_chrome_layout.ellipsis_bounds.is_empty()) {
     const bool ellipsis_active =
         m_ellipsis_button_hovered || (m_open_menu_index && *m_open_menu_index == 14);
-    if (ellipsis_active) {
-      draw_toolbar_hover(m_chrome_layout.ellipsis_bounds);
-    }
+    draw_toolbar_item_bg(m_chrome_layout.ellipsis_bounds, ellipsis_active);
     const int center_x =
         static_cast<int>(m_chrome_layout.ellipsis_bounds.x +
                          m_chrome_layout.ellipsis_bounds.width * 0.5F);
@@ -3677,17 +3676,14 @@ void Win32Window::paint_custom_chrome() {
     m_workspace_renderer.draw_svg_icon(
         buffer_context, "Assets/icons/ellipsis.svg", center_x, center_y,
         icon_size, m_workspace_renderer.m_palette.text_primary,
-        ellipsis_active ? m_theme.hover
-                        : m_theme.titlebar_background);
+        get_icon_bg(ellipsis_active));
   }
 
   // Build toolbar: Compiler | Platform | Binary
   if (!m_chrome_layout.compiler_bounds.is_empty()) {
     const bool compiler_active =
         m_compiler_button_hovered || (m_open_menu_index && *m_open_menu_index == 10);
-    if (compiler_active) {
-      draw_toolbar_hover(m_chrome_layout.compiler_bounds);
-    }
+    draw_toolbar_item_bg(m_chrome_layout.compiler_bounds, compiler_active);
     RECT text_rect = {
         static_cast<LONG>(m_chrome_layout.compiler_bounds.x + 6.0F * scale),
         static_cast<LONG>(m_chrome_layout.compiler_bounds.y),
@@ -3709,16 +3705,13 @@ void Win32Window::paint_custom_chrome() {
         std::max(static_cast<int>(8.0F * scale), 7),
         compiler_active ? m_theme.text_primary
                         : m_workspace_renderer.m_palette.text_muted,
-        compiler_active ? m_theme.hover
-                        : m_theme.titlebar_background);
+        get_icon_bg(compiler_active));
   }
 
   if (!m_chrome_layout.platform_bounds.is_empty()) {
     const bool platform_active =
         m_platform_button_hovered || (m_open_menu_index && *m_open_menu_index == 11);
-    if (platform_active) {
-      draw_toolbar_hover(m_chrome_layout.platform_bounds);
-    }
+    draw_toolbar_item_bg(m_chrome_layout.platform_bounds, platform_active);
     RECT text_rect = {
         static_cast<LONG>(m_chrome_layout.platform_bounds.x + 6.0F * scale),
         static_cast<LONG>(m_chrome_layout.platform_bounds.y),
@@ -3740,23 +3733,20 @@ void Win32Window::paint_custom_chrome() {
         std::max(static_cast<int>(8.0F * scale), 7),
         platform_active ? m_theme.text_primary
                         : m_workspace_renderer.m_palette.text_muted,
-        platform_active ? m_theme.hover
-                        : m_theme.titlebar_background);
+        get_icon_bg(platform_active));
   }
 
   if (!m_chrome_layout.binary_bounds.is_empty()) {
     const bool binary_active =
         m_binary_button_hovered || (m_open_menu_index && *m_open_menu_index == 12);
-    if (binary_active) {
-      draw_toolbar_hover(m_chrome_layout.binary_bounds);
-    }
+    draw_toolbar_item_bg(m_chrome_layout.binary_bounds, binary_active);
     const bool has_targets = !m_run_config_state.available_targets.empty();
     const int binary_icon_size = std::max(static_cast<int>(14.0F * scale), 12);
     const std::string target_icon = !has_targets
-                                        ? "Assets/icons/gear.svg"
-                                        : (m_run_config_state.active_icon_asset.empty()
-                                               ? "Assets/icons/material-icon-theme/cmake.svg"
-                                               : m_run_config_state.active_icon_asset);
+        ? "Assets/icons/gear.svg"
+        : (m_run_config_state.active_icon_asset.empty()
+               ? "Assets/icons/material-icon-theme/cmake.svg"
+               : m_run_config_state.active_icon_asset);
     m_workspace_renderer.draw_svg_icon(
         buffer_context, target_icon,
         static_cast<int>(m_chrome_layout.binary_bounds.x + 12.0F * scale),
@@ -3764,7 +3754,7 @@ void Win32Window::paint_custom_chrome() {
                          m_chrome_layout.binary_bounds.height * 0.5F),
         binary_icon_size,
         has_targets ? m_theme.text_primary : m_workspace_renderer.m_palette.text_muted,
-        binary_active ? m_theme.hover : m_theme.titlebar_background);
+        get_icon_bg(binary_active));
     RECT text_rect = {
         static_cast<LONG>(m_chrome_layout.binary_bounds.x + 28.0F * scale),
         static_cast<LONG>(m_chrome_layout.binary_bounds.y),
@@ -3788,7 +3778,7 @@ void Win32Window::paint_custom_chrome() {
         std::max(static_cast<int>(10.0F * scale), 8),
         binary_active ? m_theme.text_primary
                       : m_workspace_renderer.m_palette.text_muted,
-        binary_active ? m_theme.hover : m_theme.titlebar_background);
+        get_icon_bg(binary_active));
   }
 
   const int minimize_state =
@@ -3899,6 +3889,44 @@ void Win32Window::paint_custom_chrome() {
         stamp_rect_alpha(m_explorer_context_menu.submenu_bounds);
       }
     }
+
+    if (!m_theme.is_dark) {
+      auto stamp_toolbar_item = [&](const UI::Rect &r) {
+        if (!r.is_empty()) {
+          stamp_rect_alpha(get_toolbar_item_bounds(r));
+        }
+      };
+      stamp_toolbar_item(m_chrome_layout.compiler_bounds);
+      stamp_toolbar_item(m_chrome_layout.platform_bounds);
+      stamp_toolbar_item(m_chrome_layout.binary_bounds);
+      stamp_toolbar_item(m_chrome_layout.build_bounds);
+      stamp_toolbar_item(m_chrome_layout.run_bounds);
+      stamp_toolbar_item(m_chrome_layout.debug_bounds);
+      stamp_toolbar_item(m_chrome_layout.gear_bounds);
+      stamp_toolbar_item(m_chrome_layout.ellipsis_bounds);
+
+      auto stamp_opaque_nonblack_pixels = [&](const UI::Rect &r) {
+        if (r.is_empty()) return;
+        const int x0 = std::clamp(static_cast<int>(r.x), 0, client_width);
+        const int y0 = std::clamp(static_cast<int>(r.y), 0, client_height);
+        const int x1 = std::clamp(static_cast<int>(r.right()), 0, client_width);
+        const int y1 = std::clamp(static_cast<int>(r.bottom()), 0, client_height);
+        for (int y = y0; y < y1; ++y) {
+          uint32_t *row = &pixels[y * client_width];
+          for (int x = x0; x < x1; ++x) {
+            if ((row[x] & 0x00FFFFFF) != 0) {
+              row[x] |= 0xFF000000;
+            }
+          }
+        }
+      };
+
+      stamp_opaque_nonblack_pixels(m_chrome_layout.overflow_menu_bounds);
+      stamp_opaque_nonblack_pixels(m_chrome_layout.logo_bounds);
+      stamp_opaque_nonblack_pixels(m_chrome_layout.minimize_bounds);
+      stamp_opaque_nonblack_pixels(m_chrome_layout.maximize_bounds);
+      stamp_opaque_nonblack_pixels(m_chrome_layout.close_bounds);
+    }
   }
 
   BitBlt(window_context, 0, 0, client_width, client_height, buffer_context, 0,
@@ -3992,8 +4020,7 @@ void Win32Window::update_dwm_border_color(bool force) {
   }
 
   if (m_custom_chrome_enabled) {
-    const bool blur_active =
-      m_theme.enable_os_blur || (m_theme.is_modern && m_theme.is_dark);
+    const bool blur_active = m_theme.enable_os_blur;
     if (blur_active) {
       const MARGINS frame_margins{-1, -1, -1, -1};
       DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
@@ -4477,42 +4504,20 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
     if (panel_bounds.is_empty()) {
       return;
     }
-    // 1. Soft, realistic multi-layer elevation drop shadow (matching TextEditor floating popup)
-    struct ShadowLayer {
-      float dx;
-      float dy;
-      float spread;
-      uint8_t alpha;
-    };
-    const ShadowLayer shadow_layers[] = {
-        {0.0F, 8.0F, 22.0F, 35},
-        {0.0F, 4.0F, 10.0F, 45},
-        {0.0F, 1.5F, 3.0F, 65},
-    };
-    for (const auto &layer : shadow_layers) {
-      const float spread = layer.spread * scale;
-      const UI::Rect layer_rect{
-          panel_bounds.x - spread + layer.dx * scale,
-          panel_bounds.y - spread + layer.dy * scale,
-          panel_bounds.width + spread * 2.0F,
-          panel_bounds.height + spread * 2.0F,
-      };
-      fill_rounded_rectangle(
-          device_context, layer_rect, UI::Theme::Color{0, 0, 0, layer.alpha},
-          static_cast<int>(static_cast<float>(radius) + spread));
-    }
+    // 1. Soft, realistic blurred elevation drop shadow (OS-style smooth falloff)
+    m_workspace_renderer.draw_smooth_shadow(device_context, panel_bounds, static_cast<float>(radius), scale, m_theme.is_dark);
 
-    // 2. Elevated Floating Card background (rich dark slate for modern theme)
-    const UI::Theme::Color card_bg =
-        (m_theme.is_modern && m_theme.is_dark) ? UI::Theme::Color{50, 54, 66, 255}
-                                               : m_theme.panel_background;
+    // 2. Elevated Floating Card background (solid without blur)
+    const UI::Theme::Color card_bg = m_theme.is_dark
+        ? UI::Theme::Color{34, 36, 42, 255}
+        : UI::Theme::Color{255, 255, 255, 255};
     fill_rounded_rectangle(device_context, panel_bounds, card_bg, radius);
 
     // 3. Crisp modern floating hairline border
     const RECT native_bounds = to_native_rect(panel_bounds);
     HPEN border_pen = CreatePen(PS_SOLID, 1,
-                                (m_theme.is_modern && m_theme.is_dark)
-                                    ? RGB(85, 92, 112)
+                                m_theme.is_dark
+                                    ? RGB(55, 58, 68)
                                     : to_color_ref(m_theme.titlebar_border));
     HGDIOBJ previous_brush =
         SelectObject(device_context, GetStockObject(NULL_BRUSH));
@@ -4904,38 +4909,29 @@ void Win32Window::draw_about_modal(HDC device_context, int client_width,
                           static_cast<float>(client_height)};
   const auto layout = m_about_modal.calculate_layout(viewport, scale);
 
-  // 1. Draw heavy Windows 10 Acrylic Taskbar frosted glass backdrop overlay
-  apply_backdrop_blur(device_context, client_width, client_height, scale);
+  // 1. Subtle semi-transparent dim backdrop overlay (solid, no blur)
+  BLENDFUNCTION blend{};
+  blend.BlendOp = AC_SRC_OVER;
+  blend.SourceConstantAlpha = 50;
+  blend.AlphaFormat = 0;
+
+  HDC mem_dc = CreateCompatibleDC(device_context);
+  HBITMAP mem_bm = CreateCompatibleBitmap(device_context, 1, 1);
+  HGDIOBJ old_bm = SelectObject(mem_dc, mem_bm);
+  SetPixel(mem_dc, 0, 0, RGB(0, 0, 0));
+  AlphaBlend(device_context, 0, 0, client_width, client_height, mem_dc, 0, 0, 1, 1, blend);
+  SelectObject(mem_dc, old_bm);
+  DeleteObject(mem_bm);
+  DeleteDC(mem_dc);
 
   // 2. Dialog Container (Fluent / Acrylic Dark Card with elevation drop shadow)
   const UI::Theme::Color dialog_bg{28, 29, 34, 255};
   const UI::Theme::Color border_col{70, 74, 88, 255};
 
   // Floating elevation drop shadow behind modal
-  struct ShadowLayer {
-    float dx;
-    float dy;
-    float spread;
-    uint8_t alpha;
-  };
-  const ShadowLayer shadow_layers[] = {
-      {0.0F, 12.0F, 24.0F, 22},
-      {0.0F, 8.0F, 16.0F, 34},
-      {0.0F, 4.0F, 8.0F, 50},
-      {0.0F, 1.5F, 2.0F, 70},
-  };
-  for (const auto &layer : shadow_layers) {
-    const float spread = layer.spread * scale;
-    const UI::Rect layer_rect{
-        layout.base_layout.dialog_bounds.x - spread + layer.dx * scale,
-        layout.base_layout.dialog_bounds.y - spread + layer.dy * scale,
-        layout.base_layout.dialog_bounds.width + spread * 2.0F,
-        layout.base_layout.dialog_bounds.height + spread * 2.0F,
-    };
-    fill_rounded_rectangle(device_context, layer_rect,
-                           UI::Theme::Color{0, 0, 0, layer.alpha},
-                           static_cast<int>(8.0F * scale + spread));
-  }
+  m_workspace_renderer.draw_smooth_shadow(
+      device_context, layout.base_layout.dialog_bounds, 8.0F * scale, scale,
+      m_theme.is_dark);
 
   fill_rounded_rectangle(device_context, layout.base_layout.dialog_bounds,
                          dialog_bg, static_cast<int>(8.0F * scale));
@@ -5682,42 +5678,22 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
   const auto &bounds = m_explorer_context_menu.bounds;
   const int radius = std::max(round_to_int(8.0F * scale), 7);
 
-  // 1. Soft, realistic multi-layer elevation drop shadow (matching TextEditor floating popup)
-  struct ShadowLayer {
-    float dx;
-    float dy;
-    float spread;
-    uint8_t alpha;
-  };
-  const ShadowLayer shadow_layers[] = {
-      {0.0F, 8.0F, 22.0F, 35},
-      {0.0F, 4.0F, 10.0F, 45},
-      {0.0F, 1.5F, 3.0F, 65},
-  };
-  for (const auto &layer : shadow_layers) {
-    const float spread = layer.spread * scale;
-    const UI::Rect layer_rect{
-        bounds.x - spread + layer.dx * scale,
-        bounds.y - spread + layer.dy * scale,
-        bounds.width + spread * 2.0F,
-        bounds.height + spread * 2.0F,
-    };
-    fill_rounded_rectangle(
-        device_context, layer_rect, UI::Theme::Color{0, 0, 0, layer.alpha},
-        static_cast<int>(static_cast<float>(radius) + spread));
-  }
+  // 1. Soft, realistic blurred elevation drop shadow
+  m_workspace_renderer.draw_smooth_shadow(
+      device_context, bounds, static_cast<float>(radius), scale,
+      m_theme.is_dark);
 
-  // 2. Elevated Floating Card background (rich dark slate for modern theme)
-  const UI::Theme::Color card_bg =
-      (m_theme.is_modern && m_theme.is_dark) ? UI::Theme::Color{50, 54, 66, 255}
-                                             : m_theme.panel_background;
+  // 2. Elevated Floating Card background (solid without blur)
+  const UI::Theme::Color card_bg = m_theme.is_dark
+      ? UI::Theme::Color{34, 36, 42, 255}
+      : UI::Theme::Color{255, 255, 255, 255};
   fill_rounded_rectangle(device_context, bounds, card_bg, radius);
 
   // 3. Crisp modern floating hairline border
   const RECT native_bounds = to_native_rect(bounds);
   HPEN border_pen = CreatePen(PS_SOLID, 1,
-                              (m_theme.is_modern && m_theme.is_dark)
-                                  ? RGB(85, 92, 112)
+                              m_theme.is_dark
+                                  ? RGB(55, 58, 68)
                                   : to_color_ref(m_theme.titlebar_border));
   HGDIOBJ previous_brush =
       SelectObject(device_context, GetStockObject(NULL_BRUSH));
@@ -5846,19 +5822,10 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
     const auto &sub_bounds = m_explorer_context_menu.submenu_bounds;
     const int sub_radius = std::max(round_to_int(8.0F * scale), 7);
 
-    // Multi-layer shadow for submenu
-    for (const auto &layer : shadow_layers) {
-      const float spread = layer.spread * scale;
-      const UI::Rect layer_rect{
-          sub_bounds.x - spread + layer.dx * scale,
-          sub_bounds.y - spread + layer.dy * scale,
-          sub_bounds.width + spread * 2.0F,
-          sub_bounds.height + spread * 2.0F,
-      };
-      fill_rounded_rectangle(
-          device_context, layer_rect, UI::Theme::Color{0, 0, 0, layer.alpha},
-          static_cast<int>(static_cast<float>(sub_radius) + spread));
-    }
+    // Soft blurred shadow for submenu
+    m_workspace_renderer.draw_smooth_shadow(
+        device_context, sub_bounds, static_cast<float>(sub_radius), scale,
+        m_theme.is_dark);
 
     // Background
     fill_rounded_rectangle(device_context, sub_bounds, card_bg, sub_radius);
@@ -5866,8 +5833,8 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
     // Hairline border
     const RECT sub_native_bounds = to_native_rect(sub_bounds);
     HPEN sub_border_pen = CreatePen(PS_SOLID, 1,
-                                    (m_theme.is_modern && m_theme.is_dark)
-                                        ? RGB(85, 92, 112)
+                                    m_theme.is_dark
+                                        ? RGB(55, 58, 68)
                                         : to_color_ref(m_theme.titlebar_border));
     HGDIOBJ prev_brush =
         SelectObject(device_context, GetStockObject(NULL_BRUSH));
@@ -6382,8 +6349,7 @@ void Win32Window::apply_theme(const UI::Theme::StudioTheme& theme) {
                             &dark_mode_enabled, sizeof(dark_mode_enabled));
     }
     enable_menu_dark_mode(m_window_handle, theme.is_dark);
-    const bool enable_blur =
-        theme.enable_os_blur || (theme.is_modern && theme.is_dark);
+    const bool enable_blur = theme.enable_os_blur;
     apply_os_backdrop(enable_blur, theme.backdrop_effect, theme.is_dark);
     update_dwm_border_color(GetFocus() == m_window_handle);
 

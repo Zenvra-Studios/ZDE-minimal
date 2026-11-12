@@ -54,114 +54,153 @@ void draw_rounded_rect(HDC hdc, const Rect &r, COLORREF bg_col,
   DeleteObject(br);
 }
 
-void draw_elevation_shadow(HDC hdc, const Rect &bounds, float scale, int radius) {
-  struct ShadowLayer {
-    float dx;
-    float dy;
-    float spread;
-    uint8_t alpha;
-  };
-  const ShadowLayer shadow_layers[] = {
-      {0.0F, 5.0F, 12.0F, 16},
-      {0.0F, 2.5F, 6.0F, 24},
-      {0.0F, 1.0F, 2.0F, 36},
-  };
+void draw_elevation_shadow(HDC hdc, const Rect &bounds, float scale, int radius, bool is_dark) {
+  if (hdc == nullptr || bounds.width <= 0.0F || bounds.height <= 0.0F) {
+    return;
+  }
 
-  for (const auto &layer : shadow_layers) {
-    const float spread = layer.spread * scale;
-    const Rect layer_rect{
-        bounds.x - spread + layer.dx * scale,
-        bounds.y - spread + layer.dy * scale,
-        bounds.width + spread * 2.0F,
-        bounds.height + spread * 2.0F,
-    };
-    const int w = static_cast<int>(std::round(layer_rect.width));
-    const int h = static_cast<int>(std::round(layer_rect.height));
-    if (w <= 0 || h <= 0)
-      continue;
+  const int blur_r = std::max(static_cast<int>(std::round(5.0F * scale)), 4);
+  const int dy = std::max(static_cast<int>(std::round(3.0F * scale)), 2);
+  const int pad = blur_r * 3;
 
-    const float r = std::min({static_cast<float>(radius) + spread,
-                              layer_rect.width * 0.5F, layer_rect.height * 0.5F});
-    BITMAPINFO bmi{};
-    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bmi.bmiHeader.biWidth = w;
-    bmi.bmiHeader.biHeight = h;
-    bmi.bmiHeader.biPlanes = 1;
-    bmi.bmiHeader.biBitCount = 32;
-    bmi.bmiHeader.biCompression = BI_RGB;
+  const int w = std::max(static_cast<int>(std::round(bounds.width)), 1);
+  const int h = std::max(static_cast<int>(std::round(bounds.height)), 1);
+  const int total_w = w + pad * 2;
+  const int total_h = h + pad * 2;
 
-    HDC mem_dc = CreateCompatibleDC(hdc);
-    void *bits = nullptr;
-    HBITMAP h_bmp =
-        CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
-    if (h_bmp && mem_dc) {
-      HGDIOBJ old_bmp = SelectObject(mem_dc, h_bmp);
-      auto *pixels = static_cast<uint32_t *>(bits);
-      const uint32_t col_a = layer.alpha;
-      const int ri = static_cast<int>(r);
-      const float w_minus_r = static_cast<float>(w) - r;
-      const float h_minus_r = static_cast<float>(h) - r;
-      const uint32_t opaque_pixel = (col_a << 24);
+  BITMAPINFO bmi{};
+  bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  bmi.bmiHeader.biWidth = total_w;
+  bmi.bmiHeader.biHeight = -total_h; // top-down
+  bmi.bmiHeader.biPlanes = 1;
+  bmi.bmiHeader.biBitCount = 32;
+  bmi.bmiHeader.biCompression = BI_RGB;
 
-      for (int y = 0; y < h; ++y) {
-        const float cy = static_cast<float>(y) + 0.5F;
-        const bool in_corner_row = (y < ri) || (y >= h - ri);
-        uint32_t *row = &pixels[(h - 1 - y) * w];
+  uint32_t *dib_pixels = nullptr;
+  HDC mem_dc = CreateCompatibleDC(hdc);
+  if (!mem_dc) {
+    return;
+  }
+  HBITMAP h_bmp = CreateDIBSection(mem_dc, &bmi, DIB_RGB_COLORS,
+                                   reinterpret_cast<void **>(&dib_pixels),
+                                   nullptr, 0);
+  if (!h_bmp || !dib_pixels) {
+    DeleteDC(mem_dc);
+    return;
+  }
 
-        if (!in_corner_row) {
-          std::fill(row, row + w, opaque_pixel);
+  std::vector<uint8_t> grid_a(static_cast<std::size_t>(total_w * total_h), 0);
+  std::vector<uint8_t> grid_b(static_cast<std::size_t>(total_w * total_h), 0);
+  const uint8_t peak_alpha = is_dark ? 90 : 40;
+  const float r = std::min({static_cast<float>(radius), static_cast<float>(w) * 0.5F, static_cast<float>(h) * 0.5F});
+  const float r2 = r * r;
+
+  for (int y = 0; y < h; ++y) {
+    const float cy = static_cast<float>(y) + 0.5F;
+    const bool in_top = (r > 0.0F && cy < r);
+    const bool in_bottom = (r > 0.0F && cy > static_cast<float>(h) - r);
+    const int row_offset = (y + pad) * total_w + pad;
+
+    for (int x = 0; x < w; ++x) {
+      const float cx = static_cast<float>(x) + 0.5F;
+      const bool in_left = (r > 0.0F && cx < r);
+      const bool in_right = (r > 0.0F && cx > static_cast<float>(w) - r);
+
+      if ((in_top || in_bottom) && (in_left || in_right)) {
+        const float corner_cx = in_left ? r : (static_cast<float>(w) - r);
+        const float corner_cy = in_top ? r : (static_cast<float>(h) - r);
+        const float dx_val = cx - corner_cx;
+        const float dy_val = cy - corner_cy;
+        if (dx_val * dx_val + dy_val * dy_val > r2) {
           continue;
         }
-
-        for (int x = 0; x < w; ++x) {
-          const float cx = static_cast<float>(x) + 0.5F;
-          float corner_dist = 0.0F;
-          bool is_corner = false;
-
-          if (cx < r && cy < r) {
-            corner_dist = std::hypot(cx - r, cy - r);
-            is_corner = true;
-          } else if (cx > w_minus_r && cy < r) {
-            corner_dist = std::hypot(cx - w_minus_r, cy - r);
-            is_corner = true;
-          } else if (cx < r && cy > h_minus_r) {
-            corner_dist = std::hypot(cx - r, cy - h_minus_r);
-            is_corner = true;
-          } else if (cx > w_minus_r && cy > h_minus_r) {
-            corner_dist = std::hypot(cx - w_minus_r, cy - h_minus_r);
-            is_corner = true;
-          }
-
-          if (!is_corner || corner_dist <= r - 0.5F) {
-            row[x] = opaque_pixel;
-          } else if (corner_dist < r + 0.5F) {
-            const float edge_alpha =
-                std::clamp((r + 0.5F - corner_dist), 0.0F, 1.0F);
-            const uint32_t pixel_alpha =
-                static_cast<uint32_t>(static_cast<float>(col_a) * edge_alpha);
-            row[x] = (pixel_alpha << 24);
-          } else {
-            row[x] = 0;
-          }
-        }
       }
-
-      BLENDFUNCTION blend{};
-      blend.BlendOp = AC_SRC_OVER;
-      blend.SourceConstantAlpha = 255;
-      blend.AlphaFormat = AC_SRC_ALPHA;
-
-      AlphaBlend(hdc, static_cast<int>(std::round(layer_rect.x)),
-                 static_cast<int>(std::round(layer_rect.y)), w, h, mem_dc, 0, 0,
-                 w, h, blend);
-
-      SelectObject(mem_dc, old_bmp);
-      DeleteObject(h_bmp);
-    }
-    if (mem_dc) {
-      DeleteDC(mem_dc);
+      grid_a[row_offset + x] = peak_alpha;
     }
   }
+
+  auto box_blur_h = [&](const std::vector<uint8_t> &src, std::vector<uint8_t> &dst, int r_val) {
+    const int ksize = 2 * r_val + 1;
+    for (int y = 0; y < total_h; ++y) {
+      const int row = y * total_w;
+      int sum = 0;
+      for (int k = -r_val; k <= r_val; ++k) {
+        sum += (k >= 0 && k < total_w) ? src[row + k] : 0;
+      }
+      for (int x = 0; x < total_w; ++x) {
+        dst[row + x] = static_cast<uint8_t>(sum / ksize);
+        const int rem_x = x - r_val;
+        const int add_x = x + r_val + 1;
+        sum -= (rem_x >= 0 && rem_x < total_w) ? src[row + rem_x] : 0;
+        sum += (add_x >= 0 && add_x < total_w) ? src[row + add_x] : 0;
+      }
+    }
+  };
+
+  auto box_blur_v = [&](const std::vector<uint8_t> &src, std::vector<uint8_t> &dst, int r_val) {
+    const int ksize = 2 * r_val + 1;
+    for (int x = 0; x < total_w; ++x) {
+      int sum = 0;
+      for (int k = -r_val; k <= r_val; ++k) {
+        sum += (k >= 0 && k < total_h) ? src[k * total_w + x] : 0;
+      }
+      for (int y = 0; y < total_h; ++y) {
+        dst[y * total_w + x] = static_cast<uint8_t>(sum / ksize);
+        const int rem_y = y - r_val;
+        const int add_y = y + r_val + 1;
+        sum -= (rem_y >= 0 && rem_y < total_h) ? src[rem_y * total_w + x] : 0;
+        sum += (add_y >= 0 && add_y < total_h) ? src[add_y * total_w + x] : 0;
+      }
+    }
+  };
+
+  // Two separable box-blur passes approximate Gaussian with smooth quadratic B-spline falloff
+  box_blur_h(grid_a, grid_b, blur_r);
+  box_blur_v(grid_b, grid_a, blur_r);
+  box_blur_h(grid_a, grid_b, blur_r);
+  box_blur_v(grid_b, grid_a, blur_r);
+
+  const std::size_t pixel_count = static_cast<std::size_t>(total_w * total_h);
+  for (std::size_t i = 0; i < pixel_count; ++i) {
+    const uint32_t a = grid_a[i];
+    dib_pixels[i] = (a << 24U);
+  }
+
+  HGDIOBJ old_bmp = SelectObject(mem_dc, h_bmp);
+  BLENDFUNCTION blend{};
+  blend.BlendOp = AC_SRC_OVER;
+  blend.BlendFlags = 0;
+  blend.SourceConstantAlpha = 255;
+  blend.AlphaFormat = AC_SRC_ALPHA;
+
+  const int dest_x = static_cast<int>(std::round(bounds.x)) - pad;
+  const int dest_y = static_cast<int>(std::round(bounds.y)) - pad + dy;
+
+  int src_x = 0;
+  int src_y = 0;
+  int draw_w = total_w;
+  int draw_h = total_h;
+  int out_x = dest_x;
+  int out_y = dest_y;
+
+  if (out_x < 0) {
+    src_x -= out_x;
+    draw_w += out_x;
+    out_x = 0;
+  }
+  if (out_y < 0) {
+    src_y -= out_y;
+    draw_h += out_y;
+    out_y = 0;
+  }
+  if (draw_w > 0 && draw_h > 0) {
+    AlphaBlend(hdc, out_x, out_y, draw_w, draw_h,
+               mem_dc, src_x, src_y, draw_w, draw_h, blend);
+  }
+
+  SelectObject(mem_dc, old_bmp);
+  DeleteObject(h_bmp);
+  DeleteDC(mem_dc);
 }
 #endif
 
@@ -519,15 +558,18 @@ void Dropdown::render(HDC hdc, const Theme::StudioTheme &theme, float dpi_scale,
 
   // 1. Soft elevation drop shadow on modern theme
   if (theme.is_modern) {
-    draw_elevation_shadow(hdc, m_bounds, dpi_scale, radius);
+    draw_elevation_shadow(hdc, m_bounds, dpi_scale, radius, theme.is_dark);
   }
 
   // 2. Dropdown container box with elevated floating card styling
-  const COLORREF bg_col =
-      theme.is_modern ? RGB(26, 28, 34)
-                      : to_color_ref(theme.command_center_background);
-  const COLORREF border_col =
-      theme.is_modern ? RGB(65, 70, 85) : to_color_ref(theme.accent);
+  const COLORREF bg_col = theme.is_dark
+      ? (theme.is_modern ? RGB(34, 36, 42)
+                         : to_color_ref(theme.command_center_background))
+      : RGB(255, 255, 255);
+  const COLORREF border_col = theme.is_dark
+      ? (theme.is_modern ? RGB(65, 70, 85) : to_color_ref(theme.accent))
+      : (theme.is_modern ? RGB(218, 222, 230)
+                         : to_color_ref(theme.command_center_border));
   draw_rounded_rect(hdc, m_bounds, bg_col, border_col, static_cast<float>(radius));
 
   // 3. Clip items strictly within rounded dropdown box
@@ -549,7 +591,7 @@ void Dropdown::render(HDC hdc, const Theme::StudioTheme &theme, float dpi_scale,
     const bool is_hovered = entry.is_hovered;
     const bool is_selected = (item.id == m_selected_id);
 
-    // Hover background pill
+    // Hover / selected background pill
     if (is_hovered) {
       if (theme.is_modern) {
         Rect hover_bounds = entry.bounds;
@@ -563,6 +605,16 @@ void Dropdown::render(HDC hdc, const Theme::StudioTheme &theme, float dpi_scale,
         draw_rounded_rect(hdc, entry.bounds, to_color_ref(theme.hover),
                           to_color_ref(theme.hover), 2.0F * dpi_scale);
       }
+    } else if (is_selected) {
+      Rect sel_bounds = entry.bounds;
+      sel_bounds.x += 4.0F * dpi_scale;
+      sel_bounds.width -= 8.0F * dpi_scale;
+      sel_bounds.y += 1.0F * dpi_scale;
+      sel_bounds.height -= 2.0F * dpi_scale;
+      const COLORREF sel_bg = theme.is_dark
+          ? RGB(46, 50, 60)
+          : RGB(234, 240, 252);
+      draw_rounded_rect(hdc, sel_bounds, sel_bg, sel_bg, 3.0F * dpi_scale);
     }
 
     // Active indicator / checkmark pip on left
@@ -570,9 +622,11 @@ void Dropdown::render(HDC hdc, const Theme::StudioTheme &theme, float dpi_scale,
       Rect pip{entry.bounds.x + 4.0F * dpi_scale,
                entry.bounds.y + 7.0F * dpi_scale, 3.0F * dpi_scale,
                entry.bounds.height - 14.0F * dpi_scale};
-      draw_rect_solid(hdc, pip,
-                      theme.is_modern ? RGB(255, 255, 255)
-                                      : to_color_ref(theme.accent));
+      const COLORREF pip_col = is_hovered
+          ? RGB(255, 255, 255)
+          : (theme.is_dark ? (theme.is_modern ? RGB(255, 255, 255) : to_color_ref(theme.accent))
+                           : to_color_ref(theme.accent));
+      draw_rect_solid(hdc, pip, pip_col);
     }
 
     // Color swatches (e.g. for Color Themes)
@@ -593,12 +647,15 @@ void Dropdown::render(HDC hdc, const Theme::StudioTheme &theme, float dpi_scale,
       const float chips_y =
           entry.bounds.y + (entry.bounds.height - chip_h) * 0.5F;
 
+      const COLORREF chip_border_col = theme.is_dark
+          ? to_color_ref(theme.command_center_border)
+          : RGB(200, 205, 215);
+
       for (std::size_t c_idx = 0; c_idx < num_chips; ++c_idx) {
         Rect chip_rc{chips_x + static_cast<float>(c_idx) * (chip_w + chip_spacing),
                      chips_y, chip_w, chip_h};
         draw_rounded_rect(hdc, chip_rc, to_color_ref(item.preview_colors[c_idx]),
-                          to_color_ref(theme.command_center_border),
-                          2.0F * dpi_scale);
+                          chip_border_col, 2.0F * dpi_scale);
       }
     }
 
@@ -620,9 +677,11 @@ void Dropdown::render(HDC hdc, const Theme::StudioTheme &theme, float dpi_scale,
         hdc, custom_face_font
                  ? custom_face_font
                  : (is_selected ? semibold_font : regular_font));
-    SetTextColor(hdc, (is_hovered || is_selected)
-                          ? RGB(255, 255, 255)
-                          : to_color_ref(theme.text_primary));
+    const COLORREF item_text_color = is_hovered
+        ? RGB(255, 255, 255)
+        : (is_selected ? (theme.is_dark ? RGB(255, 255, 255) : to_color_ref(theme.text_primary))
+                       : to_color_ref(theme.text_primary));
+    SetTextColor(hdc, item_text_color);
 
     if (!item.description.empty()) {
       // 2-line layout: Title at top, description below
@@ -672,8 +731,9 @@ void Dropdown::render(HDC hdc, const Theme::StudioTheme &theme, float dpi_scale,
   if (m_max_scroll > 0.0F && !m_scrollbar_thumb.is_empty()) {
     const bool is_thumb_active =
         m_is_dragging_scrollbar || m_scrollbar_thumb_hovered;
-    const COLORREF thumb_col =
-        is_thumb_active ? RGB(95, 100, 115) : to_color_ref(theme.hover);
+    const COLORREF thumb_col = theme.is_dark
+        ? (is_thumb_active ? RGB(105, 110, 125) : RGB(70, 74, 85))
+        : (is_thumb_active ? RGB(140, 145, 155) : RGB(190, 195, 205));
     draw_rounded_rect(hdc, m_scrollbar_thumb, thumb_col, thumb_col,
                       3.0F * dpi_scale);
   }

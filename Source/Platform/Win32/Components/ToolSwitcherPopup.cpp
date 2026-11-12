@@ -193,17 +193,16 @@ void ToolSwitcherPopup::render(
     const UI::Rect bounds = calculate_bounds(dpi_scale);
 
     // Drop shadow
-    surface.fill_rounded_rectangle(
-        device_context,
-        UI::Rect{bounds.x + 2.0F * dpi_scale, bounds.y + 2.0F * dpi_scale, bounds.width, bounds.height},
-        UI::Theme::Color{0, 0, 0, 80},
-        6.0F * dpi_scale);
+    surface.draw_smooth_shadow(device_context, bounds, 6.0F * dpi_scale, dpi_scale, surface.m_palette.is_dark);
 
     // Background & Border
+    const UI::Theme::Color popup_bg = surface.m_palette.is_dark
+        ? UI::Theme::Color{34, 36, 41, 255}
+        : UI::Theme::Color{255, 255, 255, 255};
     surface.fill_rounded_rectangle(
         device_context,
         bounds,
-        UI::Theme::Color{28, 29, 32, 255},
+        popup_bg,
         6.0F * dpi_scale);
     surface.draw_rectangle(
         device_context,

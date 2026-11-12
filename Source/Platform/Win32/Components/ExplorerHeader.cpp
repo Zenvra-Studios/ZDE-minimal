@@ -83,7 +83,9 @@ void ExplorerHeader::render(
     
     auto draw_icon = [&](ActionIcon icon_type, const char* path, float center_x) {
         const bool is_hovered = (m_hovered_icon == icon_type);
-        const auto& color = is_hovered ? surface.m_palette.text_primary : surface.m_palette.text_muted;
+        const auto& color = is_hovered
+            ? surface.m_palette.text_primary
+            : (surface.m_palette.is_dark ? surface.m_palette.text_muted : surface.m_palette.text_primary);
         const auto& bg_color = is_hovered ? surface.m_palette.hover_background : surface.m_palette.sidebar_background;
         
         if (is_hovered) {

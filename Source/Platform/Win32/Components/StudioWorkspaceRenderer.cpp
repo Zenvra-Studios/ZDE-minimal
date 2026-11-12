@@ -1894,9 +1894,6 @@ StudioWorkspaceRenderer::get_modern_card_geometry(
       m_tool_sidebar.is_visible() && !layout.tool_sidebar_bounds.is_empty();
   const bool sidebar_on_right =
       has_sidebar && (layout.tool_sidebar_bounds.x > layout.editor_bounds.x);
-  // In modern blurred style, the sidebar seamlessly floats on the blurred window
-  // surface rather than being enclosed in an opaque solid card.
-  geom.sidebar_card = UI::Rect{};
 
   float editor_col_left = outer_gap;
   float editor_col_right = layout.workspace_bounds.right() - outer_gap;
@@ -1934,6 +1931,11 @@ StudioWorkspaceRenderer::get_modern_card_geometry(
                                     : layout.editor_header_bounds.y) +
                                outer_gap;
   const float editor_col_bottom = layout.status_bar_bounds.y - outer_gap;
+
+  // In modern mode, the sidebar card wrapper is eliminated: the sidebar (horizontal
+  // activity bar + explorer) sits seamlessly directly on the window canvas background,
+  // matching the second reference image.
+  geom.sidebar_card = UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
 
   const bool has_terminal = m_terminal_panel.is_visible() &&
                             !layout.terminal_panel_bounds.is_empty();
@@ -2025,7 +2027,7 @@ void StudioWorkspaceRenderer::apply_solid_card_alpha(
     return;
 
   const bool is_modern_style =
-      m_palette.is_modern || m_theme.is_modern || m_theme.enable_os_blur;
+      m_palette.is_modern || m_theme.is_modern;
 
   if (!is_modern_style) {
     const int top_y = std::clamp(static_cast<int>(std::round(content_top)), 0,
@@ -2045,7 +2047,41 @@ void StudioWorkspaceRenderer::apply_solid_card_alpha(
     set_card_alpha_channel(pixels, client_width, client_height, geom.sidebar_card,
                            geom.card_radius);
   }
-  // In modern blurred style, editor card floats transparently on the frosted glass blur
+  // In modern blurred style, editor card floats transparently on the frosted glass blur in dark mode.
+  // In light modern mode, editor card is an elevated solid card floating over the frosted glass acrylic blur
+  // so dark code text and syntax highlighting retain 100% crisp contrast without additive washout.
+  if (!m_theme.is_dark) {
+    if (!geom.editor_card.is_empty()) {
+      set_card_alpha_channel(pixels, client_width, client_height, geom.editor_card,
+                             geom.card_radius);
+    }
+    const auto active_tab = m_text_editor.get_active_tab_bounds();
+    if (active_tab.has_value() && !active_tab->is_empty()) {
+      const UI::Editor::StudioEditorLayoutResult layout =
+          calculate_layout(client_width, client_height, content_top);
+      UI::Rect tab_pill = *active_tab;
+      const float v_pad = std::round(4.0F * m_dpi_scale);
+      const float h_pad = std::round(2.0F * m_dpi_scale);
+      tab_pill.x += h_pad;
+      tab_pill.y += v_pad;
+      tab_pill.width = std::max(0.0F, tab_pill.width - h_pad * 2.0F);
+      tab_pill.height = std::max(0.0F, tab_pill.height - v_pad * 2.0F);
+
+      if (tab_pill.x < layout.tab_bar_bounds.x) {
+        tab_pill.width =
+            std::max(0.0F, tab_pill.right() - layout.tab_bar_bounds.x);
+        tab_pill.x = layout.tab_bar_bounds.x;
+      }
+      if (tab_pill.right() > layout.tab_bar_bounds.right()) {
+        tab_pill.width =
+            std::max(0.0F, layout.tab_bar_bounds.right() - tab_pill.x);
+      }
+      if (!tab_pill.is_empty()) {
+        set_card_alpha_channel(pixels, client_width, client_height, tab_pill,
+                               std::max(std::round(6.0F * m_dpi_scale), 5.0F));
+      }
+    }
+  }
   set_card_alpha_channel(pixels, client_width, client_height, geom.terminal_card,
                          geom.card_radius);
   set_card_alpha_channel(pixels, client_width, client_height, geom.shader_card,
@@ -2086,7 +2122,7 @@ void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
     return;
   }
   const bool is_modern_style =
-      m_palette.is_modern || m_theme.is_modern || m_theme.enable_os_blur;
+      m_palette.is_modern || m_theme.is_modern;
 
   if (!is_modern_style) {
     fill_rectangle(device_context, layout.workspace_bounds,
@@ -2176,12 +2212,8 @@ void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
 
     // 4. Text Editor Card Wrapper
     if (!geom.editor_card.is_empty()) {
-      const bool blur_active =
-          m_theme.enable_os_blur || (m_theme.is_modern && m_theme.is_dark);
-      if (!blur_active) {
-        fill_rounded_rectangle(device_context, geom.editor_card,
-                               m_palette.editor_background, card_radius);
-      }
+      fill_rounded_rectangle(device_context, geom.editor_card,
+                             m_palette.editor_background, card_radius);
 
       const int saved = SaveDC(device_context);
       HRGN rgn = CreateRoundRectRgn(
@@ -2435,6 +2467,158 @@ void StudioWorkspaceRenderer::draw_rounded_rectangle(
   SelectObject(device_context, previous_brush);
   SelectObject(device_context, previous_pen);
   DeleteObject(pen);
+}
+
+void StudioWorkspaceRenderer::draw_smooth_shadow(
+    HDC device_context, const UI::Rect &bounds, float radius, float scale,
+    bool is_dark) const {
+  if (device_context == nullptr || bounds.width <= 0.0F ||
+      bounds.height <= 0.0F) {
+    return;
+  }
+
+  const int blur_r = std::max(round_to_int(5.0F * scale), 4);
+  const int dy = std::max(round_to_int(3.0F * scale), 2);
+  const int pad = blur_r * 3;
+
+  const int w = std::max(round_to_int(bounds.width), 1);
+  const int h = std::max(round_to_int(bounds.height), 1);
+  const int total_w = w + pad * 2;
+  const int total_h = h + pad * 2;
+
+  BITMAPINFO bmi{};
+  bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  bmi.bmiHeader.biWidth = total_w;
+  bmi.bmiHeader.biHeight = -total_h; // top-down
+  bmi.bmiHeader.biPlanes = 1;
+  bmi.bmiHeader.biBitCount = 32;
+  bmi.bmiHeader.biCompression = BI_RGB;
+
+  uint32_t *dib_pixels = nullptr;
+  HDC mem_dc = CreateCompatibleDC(device_context);
+  if (!mem_dc) {
+    return;
+  }
+  HBITMAP hbmp = CreateDIBSection(mem_dc, &bmi, DIB_RGB_COLORS,
+                                  reinterpret_cast<void **>(&dib_pixels),
+                                  nullptr, 0);
+  if (!hbmp || !dib_pixels) {
+    DeleteDC(mem_dc);
+    return;
+  }
+
+  std::vector<uint8_t> grid_a(static_cast<std::size_t>(total_w * total_h), 0);
+  std::vector<uint8_t> grid_b(static_cast<std::size_t>(total_w * total_h), 0);
+  const uint8_t peak_alpha = is_dark ? 90 : 42;
+  const float r = std::min({radius, static_cast<float>(w) * 0.5F, static_cast<float>(h) * 0.5F});
+  const float r2 = r * r;
+
+  for (int y = 0; y < h; ++y) {
+    const float cy = static_cast<float>(y) + 0.5F;
+    const bool in_top = (r > 0.0F && cy < r);
+    const bool in_bottom = (r > 0.0F && cy > static_cast<float>(h) - r);
+    const int row_offset = (y + pad) * total_w + pad;
+
+    for (int x = 0; x < w; ++x) {
+      const float cx = static_cast<float>(x) + 0.5F;
+      const bool in_left = (r > 0.0F && cx < r);
+      const bool in_right = (r > 0.0F && cx > static_cast<float>(w) - r);
+
+      if ((in_top || in_bottom) && (in_left || in_right)) {
+        const float corner_cx = in_left ? r : (static_cast<float>(w) - r);
+        const float corner_cy = in_top ? r : (static_cast<float>(h) - r);
+        const float dx_val = cx - corner_cx;
+        const float dy_val = cy - corner_cy;
+        if (dx_val * dx_val + dy_val * dy_val > r2) {
+          continue;
+        }
+      }
+      grid_a[row_offset + x] = peak_alpha;
+    }
+  }
+
+  auto box_blur_h = [&](const std::vector<uint8_t> &src, std::vector<uint8_t> &dst, int r_val) {
+    const int ksize = 2 * r_val + 1;
+    for (int y = 0; y < total_h; ++y) {
+      const int row = y * total_w;
+      int sum = 0;
+      for (int k = -r_val; k <= r_val; ++k) {
+        sum += (k >= 0 && k < total_w) ? src[row + k] : 0;
+      }
+      for (int x = 0; x < total_w; ++x) {
+        dst[row + x] = static_cast<uint8_t>(sum / ksize);
+        const int rem_x = x - r_val;
+        const int add_x = x + r_val + 1;
+        sum -= (rem_x >= 0 && rem_x < total_w) ? src[row + rem_x] : 0;
+        sum += (add_x >= 0 && add_x < total_w) ? src[row + add_x] : 0;
+      }
+    }
+  };
+
+  auto box_blur_v = [&](const std::vector<uint8_t> &src, std::vector<uint8_t> &dst, int r_val) {
+    const int ksize = 2 * r_val + 1;
+    for (int x = 0; x < total_w; ++x) {
+      int sum = 0;
+      for (int k = -r_val; k <= r_val; ++k) {
+        sum += (k >= 0 && k < total_h) ? src[k * total_w + x] : 0;
+      }
+      for (int y = 0; y < total_h; ++y) {
+        dst[y * total_w + x] = static_cast<uint8_t>(sum / ksize);
+        const int rem_y = y - r_val;
+        const int add_y = y + r_val + 1;
+        sum -= (rem_y >= 0 && rem_y < total_h) ? src[rem_y * total_w + x] : 0;
+        sum += (add_y >= 0 && add_y < total_h) ? src[add_y * total_w + x] : 0;
+      }
+    }
+  };
+
+  // Two separable box-blur passes approximate Gaussian with smooth quadratic B-spline falloff
+  box_blur_h(grid_a, grid_b, blur_r);
+  box_blur_v(grid_b, grid_a, blur_r);
+  box_blur_h(grid_a, grid_b, blur_r);
+  box_blur_v(grid_b, grid_a, blur_r);
+
+  const std::size_t pixel_count = static_cast<std::size_t>(total_w * total_h);
+  for (std::size_t i = 0; i < pixel_count; ++i) {
+    const uint32_t a = grid_a[i];
+    dib_pixels[i] = (a << 24U);
+  }
+
+  HGDIOBJ old_bmp = SelectObject(mem_dc, hbmp);
+  BLENDFUNCTION blend{};
+  blend.BlendOp = AC_SRC_OVER;
+  blend.BlendFlags = 0;
+  blend.SourceConstantAlpha = 255;
+  blend.AlphaFormat = AC_SRC_ALPHA;
+
+  const int dest_x = round_to_int(bounds.x) - pad;
+  const int dest_y = round_to_int(bounds.y) - pad + dy;
+
+  int src_x = 0;
+  int src_y = 0;
+  int draw_w = total_w;
+  int draw_h = total_h;
+  int out_x = dest_x;
+  int out_y = dest_y;
+
+  if (out_x < 0) {
+    src_x -= out_x;
+    draw_w += out_x;
+    out_x = 0;
+  }
+  if (out_y < 0) {
+    src_y -= out_y;
+    draw_h += out_y;
+    out_y = 0;
+  }
+  if (draw_w > 0 && draw_h > 0) {
+    AlphaBlend(device_context, out_x, out_y, draw_w, draw_h,
+               mem_dc, src_x, src_y, draw_w, draw_h, blend);
+  }
+
+  SelectObject(mem_dc, old_bmp);
+  DeleteObject(hbmp);
+  DeleteDC(mem_dc);
 }
 
 void StudioWorkspaceRenderer::draw_line(HDC device_context, int from_x,
@@ -2885,19 +3069,12 @@ void StudioWorkspaceRenderer::render_prompt_modal(HDC device_context,
   DeleteObject(mem_bm);
   DeleteDC(mem_dc);
 
-  // 2. Dialog Container (macOS sleek minimalist dark card with elevation
-  // shadow)
+  // 2. Dialog Container (sleek minimalist card with smooth elevation shadow)
   const UI::Theme::Color dialog_bg{28, 29, 34, 255};
   const UI::Theme::Color border_col{58, 60, 68, 255};
 
-  Utility::for_each_shadow_layer(
-      layout.base_layout.dialog_bounds, 10.0F * m_dpi_scale, m_dpi_scale,
-      Utility::macos_modal_shadows,
-      [&](const UI::Rect &layer_rect, const UI::Theme::Color &color,
-          float layer_radius) {
-        fill_rounded_rectangle(device_context, layer_rect, color,
-                               static_cast<int>(layer_radius));
-      });
+  draw_smooth_shadow(device_context, layout.base_layout.dialog_bounds,
+                     10.0F * m_dpi_scale, m_dpi_scale, m_palette.is_dark);
 
   fill_rounded_rectangle(device_context, layout.base_layout.dialog_bounds,
                          dialog_bg, 10.0F * m_dpi_scale);

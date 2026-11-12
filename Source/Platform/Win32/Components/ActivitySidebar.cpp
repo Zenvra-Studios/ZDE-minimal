@@ -41,7 +41,7 @@ void ActivitySidebar::render(
             // 1. Fill horizontal activity bar background (only in classic non-blurred mode)
             surface.fill_rectangle(device_context, layout.activity_bar_bounds, surface.m_palette.sidebar_background);
 
-            // 2. Draw 1px border line
+            // 2. Draw 1px border line separating activity icons and explorer (classic mode only)
             const bool is_at_bottom = (layout.activity_bar_bounds.y > layout.tool_sidebar_bounds.y);
             const int line_y = is_at_bottom
                 ? round_to_int(layout.activity_bar_bounds.y)
@@ -78,14 +78,14 @@ void ActivitySidebar::render(
             {
                 const UI::Theme::Color active_bg = surface.m_palette.is_dark
                     ? UI::Theme::Color{255, 255, 255, 28}
-                    : UI::Theme::Color{0, 102, 204, 28};
+                    : UI::Theme::Color{220, 226, 236, 255};
                 surface.fill_rounded_rectangle(device_context, item_rect, active_bg, box_radius);
             }
             else if (hovered)
             {
                 const UI::Theme::Color hover_bg = surface.m_palette.is_dark
                     ? UI::Theme::Color{255, 255, 255, 18}
-                    : UI::Theme::Color{0, 0, 0, 16};
+                    : UI::Theme::Color{235, 238, 244, 255};
                 surface.fill_rounded_rectangle(device_context, item_rect, hover_bg, box_radius);
             }
 
@@ -154,7 +154,7 @@ void ActivitySidebar::render(
         {
             const UI::Theme::Color active_bg = surface.m_palette.is_dark
                 ? UI::Theme::Color{255, 255, 255, 28}
-                : UI::Theme::Color{0, 102, 204, 28};
+                : UI::Theme::Color{220, 226, 236, 255};
             surface.fill_rounded_rectangle(device_context, box_rect, active_bg, box_radius);
 
             if (!is_modern)
@@ -176,7 +176,7 @@ void ActivitySidebar::render(
         {
             const UI::Theme::Color hover_bg = surface.m_palette.is_dark
                 ? UI::Theme::Color{255, 255, 255, 18}
-                : UI::Theme::Color{0, 0, 0, 16};
+                : UI::Theme::Color{235, 238, 244, 255};
             surface.fill_rounded_rectangle(device_context, box_rect, hover_bg, box_radius);
         }
         draw_icon(surface, device_context, item.icon, center_x, round_to_int(center_y), active, hovered);

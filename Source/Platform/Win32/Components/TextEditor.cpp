@@ -1038,30 +1038,9 @@ void TextEditor::draw_tab_action_menu(
   const auto &bounds = m_tab_action_menu.bounds;
   const int radius = std::max(round_to_int(6.0F * scale), 5);
 
-  // 1. Soft, realistic multi-layer elevation drop shadow
-  struct ShadowLayer {
-    float dx;
-    float dy;
-    float spread;
-    uint8_t alpha;
-  };
-  const ShadowLayer shadow_layers[] = {
-      {0.0F, 5.0F, 12.0F, 16},
-      {0.0F, 2.5F, 6.0F, 24},
-      {0.0F, 1.0F, 2.0F, 36},
-  };
-  for (const auto &layer : shadow_layers) {
-    const float spread = layer.spread * scale;
-    const UI::Rect layer_rect{
-        bounds.x - spread + layer.dx * scale,
-        bounds.y - spread + layer.dy * scale,
-        bounds.width + spread * 2.0F,
-        bounds.height + spread * 2.0F,
-    };
-    surface.fill_rounded_rectangle(device_context, layer_rect,
-                                   UI::Theme::Color{0, 0, 0, layer.alpha},
-                                   static_cast<float>(radius) + spread);
-  }
+  // 1. Soft, realistic elevation drop shadow
+  surface.draw_smooth_shadow(device_context, bounds, static_cast<float>(radius),
+                             scale, surface.m_palette.is_dark);
 
   // 2. Elevated Floating Card background (rich dark slate)
   surface.fill_rounded_rectangle(device_context, bounds,
