@@ -2176,7 +2176,9 @@ void StudioWorkspaceRenderer::render(HDC device_context, int client_width,
 
     // 4. Text Editor Card Wrapper
     if (!geom.editor_card.is_empty()) {
-      if (!is_modern_style) {
+      const bool blur_active =
+          m_theme.enable_os_blur || (m_theme.is_modern && m_theme.is_dark);
+      if (!blur_active) {
         fill_rounded_rectangle(device_context, geom.editor_card,
                                m_palette.editor_background, card_radius);
       }

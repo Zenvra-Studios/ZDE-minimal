@@ -3901,7 +3901,7 @@ void ToolSidebar::render_tool_plugin_panel(
 
         surface.draw_text(device_context, *surface.m_small_font, c.name,
                           cdot_x + 12.0F * scale, cur_y + 11.0F * scale,
-                          c.running ? UI::Theme::Color{242, 244, 250, 255}
+                          c.running ? surface.m_palette.text_primary
                                     : surface.m_palette.text_muted);
 
         const int port_w =
@@ -4045,7 +4045,7 @@ void ToolSidebar::render_tool_plugin_panel(
             surface.m_palette.text_muted, surface.m_palette.sidebar_background);
         surface.draw_text(device_context, *surface.m_small_font, targets[i],
                           content_left + 24.0F * scale, cur_y + 12.0F * scale,
-                          i == 0 ? UI::Theme::Color{242, 244, 250, 255}
+                          i == 0 ? surface.m_palette.text_primary
                                  : surface.m_palette.text_muted);
         cur_y += 26.0F * scale;
       }
@@ -4301,12 +4301,22 @@ void ToolSidebar::render(
       btn_y += 14.0F * scale;
       m_empty_state_clone_btn.set_bounds(UI::Rect{btn_x, btn_y, btn_w, btn_h});
       if (btn_w > 4.0F * scale) {
+        const bool is_dark = surface.m_palette.is_dark;
+        const UI::Theme::Color clone_btn_bg = is_dark
+            ? (m_empty_state_clone_btn.get_state().hovered
+                   ? UI::Theme::Color{58, 62, 72, 255}
+                   : UI::Theme::Color{44, 48, 56, 255})
+            : (m_empty_state_clone_btn.get_state().hovered
+                   ? UI::Theme::Color{225, 228, 234, 255}
+                   : UI::Theme::Color{236, 239, 244, 255});
         surface.fill_rounded_rectangle(
             device_context, m_empty_state_clone_btn.get_bounds(),
-            m_empty_state_clone_btn.get_state().hovered
-                ? UI::Theme::Color{58, 62, 72, 255}
-                : UI::Theme::Color{44, 48, 56, 255},
-            4.0F * scale);
+            clone_btn_bg, 4.0F * scale);
+        if (!is_dark) {
+          surface.draw_rounded_rectangle(
+              device_context, m_empty_state_clone_btn.get_bounds(),
+              surface.m_palette.border, 4.0F * scale);
+        }
         const int max_btn_w = std::max(round_to_int(btn_w - 12.0F * scale), 0);
         const std::string clone_btn_text =
             ellipsize(device_context, *surface.m_small_font, "Clone Repository",
@@ -4319,7 +4329,8 @@ void ToolSidebar::render(
               btn_x + (btn_w - static_cast<float>(clone_text_w)) * 0.5F);
           surface.draw_text(device_context, *surface.m_small_font,
                             clone_btn_text, clone_text_x, btn_y + btn_h * 0.5F,
-                            UI::Theme::Color{215, 220, 228, 255});
+                            is_dark ? UI::Theme::Color{215, 220, 228, 255}
+                                    : surface.m_palette.text_primary);
         }
       }
 
@@ -4379,8 +4390,8 @@ void ToolSidebar::render(
           const UI::Theme::Color sel_color = is_focused
               ? (is_hovered ? UI::Theme::Color{45, 120, 205, 190}
                             : UI::Theme::Color{35, 110, 190, 160})
-              : (is_hovered ? UI::Theme::Color{55, 62, 75, 180}
-                            : UI::Theme::Color{45, 50, 62, 140});
+              : (is_hovered ? (surface.m_palette.is_dark ? UI::Theme::Color{55, 62, 75, 180} : UI::Theme::Color{218, 222, 228, 255})
+                            : (surface.m_palette.is_dark ? UI::Theme::Color{45, 50, 62, 140} : UI::Theme::Color{228, 232, 238, 255}));
           surface.fill_rounded_rectangle(device_context, highlight_rect,
                                          sel_color, 4.0F * scale);
           if (is_focused && m_model.get_selected_path() &&
@@ -4393,21 +4404,25 @@ void ToolSidebar::render(
           }
         } else if (is_hovered) {
           surface.fill_rounded_rectangle(device_context, highlight_rect,
-                                         UI::Theme::Color{255, 255, 255, 20},
+                                         surface.m_palette.is_dark
+                                             ? UI::Theme::Color{255, 255, 255, 20}
+                                             : surface.m_palette.hover_background,
                                          4.0F * scale);
         }
 
         const UI::Theme::Color current_row_bg =
             is_selected
                 ? (is_focused ? UI::Theme::Color{35, 110, 190, 160}
-                              : UI::Theme::Color{45, 50, 62, 140})
-                : (is_hovered ? UI::Theme::Color{255, 255, 255, 20}
+                              : (surface.m_palette.is_dark ? UI::Theme::Color{45, 50, 62, 140} : UI::Theme::Color{228, 232, 238, 255}))
+                : (is_hovered ? (surface.m_palette.is_dark ? UI::Theme::Color{255, 255, 255, 20} : surface.m_palette.hover_background)
                               : (is_modern ? UI::Theme::Color{0, 0, 0, 0}
                                            : surface.m_palette.sidebar_background));
 
         const float indent_x =
             panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
-        const UI::Theme::Color guide_color{85, 92, 105, 190};
+        const UI::Theme::Color guide_color =
+            surface.m_palette.is_dark ? UI::Theme::Color{85, 92, 105, 190}
+                                      : surface.m_palette.border;
 
         for (std::size_t level = 0; level < item.depth; ++level) {
           const int guide_x = round_to_int(
@@ -4480,8 +4495,10 @@ void ToolSidebar::render(
                           round_to_int(available_width));
             const UI::Theme::Color text_color =
                 is_cut ? UI::Theme::Color{160, 165, 175, 130}
-                       : (is_selected ? UI::Theme::Color{255, 255, 255, 255}
-                                      : UI::Theme::Color{242, 244, 250, 255});
+                       : (is_selected ? ((is_focused || surface.m_palette.is_dark)
+                                             ? UI::Theme::Color{255, 255, 255, 255}
+                                             : surface.m_palette.text_primary)
+                                      : surface.m_palette.text_primary);
             surface.draw_text(device_context, *surface.m_small_font, label,
                               label_x, row_bounds.y + row_bounds.height * 0.5F,
                               text_color);
@@ -4535,14 +4552,14 @@ void ToolSidebar::render(
 
         surface.draw_svg_icon(device_context, "chevron-down.svg", arrow_x,
                               arrow_y, std::max(round_to_int(8.0F * scale), 7),
-                              UI::Theme::Color{220, 225, 235, 255}, sticky_bg);
+                              surface.m_palette.text_muted, sticky_bg);
 
         const int folder_x = round_to_int(indent_x + 19.0F * scale);
         const std::string folder_path =
             UI::Editor::folder_icon_asset_for_path(item.path, true);
         surface.draw_svg_icon(device_context, folder_path, folder_x, arrow_y,
                               std::max(round_to_int(14.0F * scale), 11),
-                              UI::Theme::Color{235, 240, 250, 255}, sticky_bg,
+                              surface.m_palette.text_muted, sticky_bg,
                               true);
 
         const float label_x = indent_x + 30.0F * scale;
@@ -4550,7 +4567,7 @@ void ToolSidebar::render(
             device_context, *surface.m_small_font, item.label,
             std::max(round_to_int(panel.right() - label_x - 8.0F * scale), 1));
         surface.draw_text(device_context, *surface.m_small_font, label, label_x,
-                          arrow_y, UI::Theme::Color{250, 252, 255, 255});
+                          arrow_y, surface.m_palette.text_primary);
       }
 
       RestoreDC(device_context, clip_saved);

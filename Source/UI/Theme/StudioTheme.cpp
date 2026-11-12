@@ -31,15 +31,15 @@ StudioTheme StudioTheme::zenvra_light() noexcept
     return StudioTheme{
         .window_background = {255, 255, 255, 255},
         .titlebar_background = {245, 245, 247, 255},
-        .titlebar_border = {228, 228, 231, 255},
+        .titlebar_border = {218, 222, 228, 255},
         .panel_background = {248, 249, 250, 255},
-        .text_primary = {24, 24, 27, 255},
-        .text_secondary = {107, 114, 128, 255},
+        .text_primary = {45, 49, 58, 255},
+        .text_secondary = {90, 98, 110, 255},
         .accent = {0, 102, 204, 255},
-        .hover = {235, 236, 240, 255},
-        .pressed = {222, 225, 230, 255},
+        .hover = {235, 238, 242, 255},
+        .pressed = {222, 226, 232, 255},
         .command_center_background = {238, 240, 243, 255},
-        .command_center_border = {218, 220, 224, 255},
+        .command_center_border = {218, 222, 228, 255},
         .close_hover = {232, 17, 35, 255},
         .is_dark = false,
         .enable_os_blur = false,
@@ -69,13 +69,13 @@ StudioTheme StudioTheme::zenvra_light_modern() noexcept
     theme.is_modern = true;
     theme.enable_os_blur = false;
     theme.backdrop_effect = BackdropEffect::None;
-    // Solid light neutral presentation
-    theme.window_background = {255, 255, 255, 255};
+    // Soft neutral canvas (#f3f5f8) allowing elevated white (#ffffff) floating cards to stand out
+    theme.window_background = {243, 245, 248, 255};
     theme.titlebar_background = theme.window_background;
-    theme.titlebar_border = {220, 222, 226, 255};
-    theme.panel_background = {248, 249, 250, 255};
+    theme.titlebar_border = {218, 222, 228, 255};
+    theme.panel_background = {255, 255, 255, 255};
     theme.command_center_background = {235, 237, 240, 255};
-    theme.command_center_border = {218, 220, 224, 255};
+    theme.command_center_border = {218, 222, 228, 255};
     return theme;
 }
 

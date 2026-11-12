@@ -3449,7 +3449,8 @@ void Win32Window::paint_custom_chrome() {
   }
   HGDIOBJ previous_bitmap = SelectObject(buffer_context, buffer_bitmap);
 
-  const bool blur_active = m_theme.enable_os_blur || m_theme.is_modern;
+  const bool blur_active =
+      m_theme.enable_os_blur || (m_theme.is_modern && m_theme.is_dark);
   if (blur_active) {
     // In modern blur mode, keep the backdrop transparent/black (0x00000000).
     // Windows DWM composites non-opaque pixels additively with the blur backdrop.
@@ -3478,7 +3479,8 @@ void Win32Window::paint_custom_chrome() {
     static_cast<void>(m_workspace_renderer.tick_animations());
     m_workspace_renderer.render(buffer_context, client_width, client_height, 0.0F);
 
-    const bool blur_active = m_theme.enable_os_blur || m_theme.is_modern;
+    const bool blur_active =
+      m_theme.enable_os_blur || (m_theme.is_modern && m_theme.is_dark);
     if (buffer_bits != nullptr && blur_active) {
       auto *pixels = static_cast<uint32_t *>(buffer_bits);
       const size_t total_px = static_cast<size_t>(client_width) * client_height;
@@ -3822,8 +3824,9 @@ void Win32Window::paint_custom_chrome() {
   // while on Windows 11 DWMWA_BORDER_COLOR provides the hardware anti-aliased rounded border.
   const DWORD win_build = get_windows_build_number();
   if (win_build < 22000 && !is_maximized() && !m_is_fullscreen) {
-    const COLORREF border_color =
-        is_focused() ? RGB(68, 71, 78) : RGB(50, 52, 58);
+    const COLORREF border_color = m_theme.is_dark
+        ? (is_focused() ? RGB(68, 71, 78) : RGB(50, 52, 58))
+        : (is_focused() ? RGB(190, 195, 204) : RGB(218, 222, 228));
     HPEN border_pen = CreatePen(PS_SOLID, 1, border_color);
     HGDIOBJ prev_pen = SelectObject(buffer_context, border_pen);
 
@@ -3989,7 +3992,8 @@ void Win32Window::update_dwm_border_color(bool force) {
   }
 
   if (m_custom_chrome_enabled) {
-    const bool blur_active = m_theme.enable_os_blur || m_theme.is_modern;
+    const bool blur_active =
+      m_theme.enable_os_blur || (m_theme.is_modern && m_theme.is_dark);
     if (blur_active) {
       const MARGINS frame_margins{-1, -1, -1, -1};
       DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
@@ -4500,15 +4504,16 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
 
     // 2. Elevated Floating Card background (rich dark slate for modern theme)
     const UI::Theme::Color card_bg =
-        m_theme.is_modern ? UI::Theme::Color{50, 54, 66, 255}
-                          : m_theme.panel_background;
+        (m_theme.is_modern && m_theme.is_dark) ? UI::Theme::Color{50, 54, 66, 255}
+                                               : m_theme.panel_background;
     fill_rounded_rectangle(device_context, panel_bounds, card_bg, radius);
 
     // 3. Crisp modern floating hairline border
     const RECT native_bounds = to_native_rect(panel_bounds);
     HPEN border_pen = CreatePen(PS_SOLID, 1,
-                                m_theme.is_modern ? RGB(85, 92, 112)
-                                                  : RGB(70, 72, 80));
+                                (m_theme.is_modern && m_theme.is_dark)
+                                    ? RGB(85, 92, 112)
+                                    : to_color_ref(m_theme.titlebar_border));
     HGDIOBJ previous_brush =
         SelectObject(device_context, GetStockObject(NULL_BRUSH));
     HGDIOBJ previous_pen = SelectObject(device_context, border_pen);
@@ -4601,8 +4606,9 @@ void Win32Window::draw_menu_overlay(HDC device_context) const {
               item_bounds.width - 24.0F * scale,
               1.0F,
           },
-          m_theme.is_modern ? UI::Theme::Color{75, 82, 100, 255}
-                            : m_theme.titlebar_border);
+          (m_theme.is_modern && m_theme.is_dark)
+              ? UI::Theme::Color{75, 82, 100, 255}
+              : m_theme.titlebar_border);
       continue;
     }
 
@@ -5703,15 +5709,16 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
 
   // 2. Elevated Floating Card background (rich dark slate for modern theme)
   const UI::Theme::Color card_bg =
-      m_theme.is_modern ? UI::Theme::Color{50, 54, 66, 255}
-                        : m_theme.panel_background;
+      (m_theme.is_modern && m_theme.is_dark) ? UI::Theme::Color{50, 54, 66, 255}
+                                             : m_theme.panel_background;
   fill_rounded_rectangle(device_context, bounds, card_bg, radius);
 
   // 3. Crisp modern floating hairline border
   const RECT native_bounds = to_native_rect(bounds);
   HPEN border_pen = CreatePen(PS_SOLID, 1,
-                              m_theme.is_modern ? RGB(85, 92, 112)
-                                                : RGB(70, 72, 80));
+                              (m_theme.is_modern && m_theme.is_dark)
+                                  ? RGB(85, 92, 112)
+                                  : to_color_ref(m_theme.titlebar_border));
   HGDIOBJ previous_brush =
       SelectObject(device_context, GetStockObject(NULL_BRUSH));
   HGDIOBJ previous_pen = SelectObject(device_context, border_pen);
@@ -5737,8 +5744,9 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
               item_bounds.width - 24.0F * scale,
               1.0F,
           },
-          m_theme.is_modern ? UI::Theme::Color{75, 82, 100, 255}
-                            : m_theme.titlebar_border);
+          (m_theme.is_modern && m_theme.is_dark)
+              ? UI::Theme::Color{75, 82, 100, 255}
+              : m_theme.titlebar_border);
       continue;
     }
 
@@ -5858,8 +5866,9 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
     // Hairline border
     const RECT sub_native_bounds = to_native_rect(sub_bounds);
     HPEN sub_border_pen = CreatePen(PS_SOLID, 1,
-                                    m_theme.is_modern ? RGB(85, 92, 112)
-                                                      : RGB(70, 72, 80));
+                                    (m_theme.is_modern && m_theme.is_dark)
+                                        ? RGB(85, 92, 112)
+                                        : to_color_ref(m_theme.titlebar_border));
     HGDIOBJ prev_brush =
         SelectObject(device_context, GetStockObject(NULL_BRUSH));
     HGDIOBJ prev_pen = SelectObject(device_context, sub_border_pen);
@@ -5887,8 +5896,9 @@ void Win32Window::draw_explorer_context_menu(HDC device_context) const {
                 sub_item_bounds.width - 24.0F * scale,
                 1.0F,
             },
-            m_theme.is_modern ? UI::Theme::Color{75, 82, 100, 255}
-                              : m_theme.titlebar_border);
+            (m_theme.is_modern && m_theme.is_dark)
+                ? UI::Theme::Color{75, 82, 100, 255}
+                : m_theme.titlebar_border);
         continue;
       }
 
@@ -6372,7 +6382,8 @@ void Win32Window::apply_theme(const UI::Theme::StudioTheme& theme) {
                             &dark_mode_enabled, sizeof(dark_mode_enabled));
     }
     enable_menu_dark_mode(m_window_handle, theme.is_dark);
-    const bool enable_blur = theme.enable_os_blur || theme.is_modern;
+    const bool enable_blur =
+        theme.enable_os_blur || (theme.is_modern && theme.is_dark);
     apply_os_backdrop(enable_blur, theme.backdrop_effect, theme.is_dark);
     update_dwm_border_color(GetFocus() == m_window_handle);
 

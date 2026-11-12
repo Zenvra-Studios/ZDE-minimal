@@ -107,12 +107,12 @@ StudioEditorPalette StudioEditorPalette::light() noexcept {
       .tab_active_background = {255, 255, 255, 255},
       .sidebar_background = {248, 249, 250, 255},
       .editor_background = {255, 255, 255, 255},
-      .active_line_background = {243, 245, 248, 255},
+      .active_line_background = {244, 246, 249, 255},
       .selection_background = {173, 214, 255, 255},
       .status_background = {245, 245, 247, 255},
-      .border = {228, 228, 231, 255},
-      .text_primary = {24, 24, 27, 255},
-      .text_muted = {107, 114, 128, 255},
+      .border = {218, 222, 228, 255},
+      .text_primary = {45, 49, 58, 255},
+      .text_muted = {90, 98, 110, 255},
       .keyword = {0, 0, 255, 255},
       .number = {9, 134, 88, 255},
       .label = {175, 0, 219, 255},
@@ -122,9 +122,9 @@ StudioEditorPalette StudioEditorPalette::light() noexcept {
       .warning = {180, 100, 0, 255},
       .success = {40, 167, 69, 255},
       .tooltip_background = {255, 255, 255, 255},
-      .hover_background = {235, 236, 240, 255},
-      .indent_guide = {225, 228, 232, 255},
-      .indent_guide_active = {180, 185, 195, 255},
+      .hover_background = {235, 238, 242, 255},
+      .indent_guide = {228, 232, 238, 255},
+      .indent_guide_active = {180, 186, 196, 255},
       .directive = {175, 0, 219, 255},
       .macro_symbol = {38, 127, 153, 255},
       .include_header = {163, 21, 21, 255},
@@ -148,13 +148,13 @@ StudioEditorPalette StudioEditorPalette::dark_modern() noexcept {
 
 StudioEditorPalette StudioEditorPalette::light_modern() noexcept {
   auto p = light();
-  p.workspace_background = {255, 255, 255, 255};
-  p.tab_background = {245, 245, 247, 255};
+  p.workspace_background = {243, 245, 248, 255};
+  p.tab_background = {243, 245, 248, 255};
   p.tab_active_background = {255, 255, 255, 255};
-  p.sidebar_background = {248, 249, 250, 255};
+  p.sidebar_background = {255, 255, 255, 255};
   p.editor_background = {255, 255, 255, 255};
-  p.status_background = {245, 245, 247, 255};
-  p.border = {220, 222, 226, 255};
+  p.status_background = {243, 245, 248, 255};
+  p.border = {218, 222, 228, 255};
   p.is_dark = false;
   p.is_modern = true;
   return p;
@@ -205,8 +205,9 @@ StudioEditorPalette StudioEditorPalette::from_theme(const Theme::StudioTheme& th
   }
 
   p.workspace_background = theme.window_background;
-  p.editor_background = theme.window_background;
+  p.editor_background = (is_modern_theme && !theme.is_dark) ? UI::Theme::Color{255, 255, 255, 255} : theme.window_background;
   p.tab_background = theme.window_background;
+  p.tab_active_background = (is_modern_theme && !theme.is_dark) ? UI::Theme::Color{255, 255, 255, 255} : p.tab_active_background;
   p.sidebar_background = theme.panel_background;
   p.border = theme.titlebar_border;
   p.text_primary = theme.text_primary;

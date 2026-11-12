@@ -74,22 +74,22 @@ void AsciiMascotRenderer::render_ascii_to_dc(
 
             if (colored) {
                 if (is_light_bg) {
-                    // For light theme, invert brightness so white/light logo glyphs become crisp dark black/slate font
+                    // For light theme, invert brightness so white/light logo glyphs become aesthetic graphite slate font
                     int r = 255 - cell->r;
                     int g = 255 - cell->g;
                     int b = 255 - cell->b;
 
-                    // Ensure high contrast against light background: clamp to deep dark ink
+                    // Ensure high contrast against light background: clamp to aesthetic charcoal ink (not stark #000)
                     const float inv_lum = (0.2126F * r + 0.7152F * g + 0.0722F * b) / 255.0F;
-                    if (inv_lum > 0.35F) {
-                        const float scale = 0.35F / inv_lum;
+                    if (inv_lum > 0.40F) {
+                        const float scale = 0.40F / inv_lum;
                         r = static_cast<int>(r * scale);
                         g = static_cast<int>(g * scale);
                         b = static_cast<int>(b * scale);
                     }
-                    r = std::clamp(r, 18, 110);
-                    g = std::clamp(g, 18, 110);
-                    b = std::clamp(b, 24, 130);
+                    r = std::clamp(r, 45, 115);
+                    g = std::clamp(g, 49, 120);
+                    b = std::clamp(b, 58, 135);
 
                     const uint8_t out_r = static_cast<uint8_t>((r * cell->a + bg_r * (255 - cell->a)) / 255);
                     const uint8_t out_g = static_cast<uint8_t>((g * cell->a + bg_g * (255 - cell->a)) / 255);
@@ -110,7 +110,7 @@ void AsciiMascotRenderer::render_ascii_to_dc(
                 }
             } else {
                 if (is_light_bg) {
-                    SetTextColor(dc, RGB(24, 28, 36)); // Crisp dark black/slate font for light theme
+                    SetTextColor(dc, RGB(45, 49, 58)); // Aesthetic graphite slate font for light theme
                 } else {
                     SetTextColor(dc, RGB(245, 248, 255)); // Bright white font for dark theme
                 }

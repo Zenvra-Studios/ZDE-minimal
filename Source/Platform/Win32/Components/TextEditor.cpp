@@ -5005,7 +5005,8 @@ void TextEditor::draw_tab_strip(
     }
 
     const UI::Theme::Color tab_icon_bg = is_modern
-        ? (active ? UI::Theme::Color{36, 38, 44, 255} : surface.m_theme.titlebar_background)
+        ? (active ? (surface.m_theme.is_dark ? UI::Theme::Color{36, 38, 44, 255} : UI::Theme::Color{255, 255, 255, 255})
+                  : surface.m_theme.titlebar_background)
         : surface.m_palette.tab_background;
 
     const std::string icon_asset = UI::Editor::file_icon_asset_for_path(
