@@ -10,7 +10,7 @@ endif()
 set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries" FORCE)
 set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON CACHE BOOL "Export all symbols on Windows" FORCE)
 
-project("ZDE" LANGUAGES CXX C VERSION 0.1.0)
+project("ZDE" LANGUAGES CXX C VERSION 1.0.0)
 
 add_compile_definitions(
     ZDE_VERSION_STRING="${PROJECT_VERSION}"
@@ -24,7 +24,10 @@ add_compile_definitions(
 include(CTest)
 
 if(WIN32)
+    # Target Windows 7 (NT 6.1) minimum for legacy OS support
     add_compile_definitions(
+        _WIN32_WINNT=0x0601
+        WINVER=0x0601
         _CRT_SECURE_NO_WARNINGS
         _CRT_SECURE_NO_DEPRECATE
         _CRT_NONSTDC_NO_DEPRECATE
@@ -33,6 +36,18 @@ if(WIN32)
         NOMINMAX
         WIN32_LEAN_AND_MEAN
     )
+
+    # Prefer Visual Studio 2022 MSVC v143 toolchain for Clang on Windows.
+    # VS 18+ dropped Windows 7 support and injected CreateFile2 into the STL.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        file(GLOB VS2022_VC_DIRS "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/*")
+        if(VS2022_VC_DIRS)
+            list(GET VS2022_VC_DIRS -1 VS2022_VC_DIR)
+            if(EXISTS "${VS2022_VC_DIR}/lib/x64")
+                add_link_options("LINKER:/libpath:${VS2022_VC_DIR}/lib/x64")
+            endif()
+        endif()
+    endif()
 endif()
 
 # Objective-C++ is only used by the Cocoa platform (Apple). Enabling it on
@@ -84,6 +99,8 @@ function(zde_enable_warnings target_name)
     # std::min and std::max in any ZDE target that includes windows.h.
     if(WIN32)
         target_compile_definitions(${target_name} PRIVATE
+            _WIN32_WINNT=0x0601
+            WINVER=0x0601
             _CRT_SECURE_NO_WARNINGS
             _CRT_SECURE_NO_DEPRECATE
             _CRT_NONSTDC_NO_DEPRECATE
