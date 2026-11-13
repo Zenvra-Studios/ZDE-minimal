@@ -140,4 +140,18 @@ inline void disable_process_windows_ghosting() noexcept {
     }
 }
 
+/// Dynamic shim for GetSystemTimePreciseAsFileTime (Windows 8+).
+/// On Windows 7 / Server 2008 R2, kernel32 does not provide this function,
+/// so we gracefully fall back to GetSystemTimeAsFileTime.
+inline void get_system_time_precise_as_file_time(LPFILETIME lpSystemTimeAsFileTime) noexcept {
+    using GetSystemTimePreciseAsFileTimeFn = void(WINAPI *)(LPFILETIME);
+    static const auto fn = reinterpret_cast<GetSystemTimePreciseAsFileTimeFn>(
+        GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetSystemTimePreciseAsFileTime"));
+    if (fn != nullptr) {
+        fn(lpSystemTimeAsFileTime);
+    } else if (lpSystemTimeAsFileTime != nullptr) {
+        GetSystemTimeAsFileTime(lpSystemTimeAsFileTime);
+    }
+}
+
 } // namespace Zenvra::Platform::Win32::Compat

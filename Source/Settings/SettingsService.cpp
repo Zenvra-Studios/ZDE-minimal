@@ -550,13 +550,7 @@ void SettingsService::register_default_settings()
             {"Zenvra Light", "Zenvra Light"},
             {"Zenvra Dark Modern", "Zenvra Dark Modern"},
             {"Zenvra Light Modern", "Zenvra Light Modern"},
-            {"High Contrast", "High Contrast"},
-            {"Dark", "Dark"},
-            {"Old", "Old"},
-            {"Solid", "Solid"},
-            {"Classic", "Classic"},
-            {"Light", "Light"},
-            {"Modern", "Modern"}
+            {"High Contrast", "High Contrast"}
         },
     });
 

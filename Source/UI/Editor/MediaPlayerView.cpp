@@ -121,7 +121,13 @@ std::string format_seconds(double total_seconds) {
 } // namespace
 
 MediaPlayerView::MediaPlayerView() {
+#if defined(_WIN32)
+    if (Zenvra::Platform::Win32::Compat::is_windows_8_or_greater()) {
+        Zenvra::Drivers::Media::FFmpegPlayer::register_backend();
+    }
+#else
     Zenvra::Drivers::Media::FFmpegPlayer::register_backend();
+#endif
 }
 
 MediaPlayerView::~MediaPlayerView() {
