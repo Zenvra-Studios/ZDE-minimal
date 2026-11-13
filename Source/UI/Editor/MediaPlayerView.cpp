@@ -9,6 +9,10 @@
 #include <cstdio>
 #include <fstream>
 
+#if defined(_WIN32)
+#include "Platform/Win32/Utility/Win32Compat.h"
+#endif
+
 namespace Zenvra::UI::Editor {
 
 namespace {
@@ -130,6 +134,14 @@ bool MediaPlayerView::open(const std::filesystem::path& file_path) {
     m_current_path = file_path;
     m_has_error = false;
     m_error_message.clear();
+
+#if defined(_WIN32)
+    if (!Zenvra::Platform::Win32::Compat::is_windows_8_or_greater()) {
+        m_has_error = true;
+        m_error_message = "Media playback requires Windows 8 or newer (FFmpeg dependency).";
+        return false;
+    }
+#endif
 
     // Smart Path Resolution (Supports full path, relative path, or filename clicked from Explorer)
     std::filesystem::path resolved_path = file_path;

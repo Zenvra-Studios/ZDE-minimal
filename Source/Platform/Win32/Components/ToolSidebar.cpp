@@ -3068,7 +3068,7 @@ void ToolSidebar::render_extensions_panel(
         round_to_int(search_bounds.width - 40.0F * scale);
     const std::string placeholder =
         ellipsize(device_context, *surface.m_small_font,
-                  "Search Plugins in Marketplace...", avail_placeholder_w);
+                  "Search installed plugins...", avail_placeholder_w);
     surface.draw_text(device_context, *surface.m_small_font, placeholder,
                       text_x, text_y, surface.m_palette.text_muted);
     if (m_ext_search_focused && caret_visible) {
@@ -3685,7 +3685,7 @@ void ToolSidebar::render_extensions_panel(
                       panel.x + 14.0F * scale, content_top + 20.0F * scale,
                       surface.m_palette.text_primary);
     surface.draw_text(device_context, *surface.m_small_font,
-                      "No matching plugins found in marketplace.",
+                      "No matching installed plugins found.",
                       panel.x + 14.0F * scale, content_top + 42.0F * scale,
                       surface.m_palette.text_muted);
   }

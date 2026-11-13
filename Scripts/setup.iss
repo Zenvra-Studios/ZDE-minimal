@@ -109,9 +109,10 @@ PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 
 ; 64-bit only, including Windows 11 on Arm (x64 emulation).
+; Minimum Windows 7 (6.1) or higher.
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-MinVersion=10.0
+MinVersion=6.1
 
 ; File associations/context menus need Explorer to be notified.
 ChangesAssociations=yes

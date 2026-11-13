@@ -58,6 +58,7 @@ private:
 
     std::vector<ToolSwitcherItem> m_items;
     std::optional<std::size_t> m_hovered_index;
+    bool m_hovered_browse{false};
 };
 
 } // namespace Zenvra::Platform::Win32::Components

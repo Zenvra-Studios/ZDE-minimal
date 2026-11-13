@@ -1,4 +1,5 @@
 #include "WinRTContext.h"
+#include "Platform/Win32/Utility/Win32Compat.h"
 #include <iostream>
 #include <windows.h>
 
@@ -17,6 +18,13 @@ bool WinRTContext::initialize() {
   }
 
 #if defined(ZDE_HAS_WINRT)
+  // WinRT lives in combase.dll, which only exists on Windows 8+. The combase
+  // import is delay-loaded, so reaching this early-return on Windows 7 keeps
+  // the process alive with WinRT features disabled instead of aborting the
+  // loader or raising a delay-load failure.
+  if (!Compat::is_windows_8_or_greater()) {
+    return false;
+  }
   try {
     winrt::init_apartment();
     s_is_initialized = true;

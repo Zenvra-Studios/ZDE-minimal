@@ -4,6 +4,7 @@
 #include "Language/LanguageServerManager.h"
 #include "Platform/HostSystem.h"
 #include "Platform/PlatformDialogs.h"
+#include "Platform/Win32/Utility/Win32Compat.h"
 #include "Platform/Win32/Components/FileDropTarget.h"
 #include "Settings/SettingsService.h"
 #include "Platform/Win32/Event/ScrollEvent.h"
@@ -421,8 +422,8 @@ Win32Window::~Win32Window() {
 }
 
 bool Win32Window::initialize() {
-  SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
-  DisableProcessWindowsGhosting();
+  Compat::set_process_dpi_awareness_per_monitor_v2();
+  Compat::disable_process_windows_ghosting();
 
   INITCOMMONCONTROLSEX icex{};
   icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
@@ -518,7 +519,7 @@ bool Win32Window::initialize() {
     std::clog << "Warning: the window menu resource could not be loaded.\n";
   }
 
-  m_dpi = GetDpiForWindow(m_window_handle);
+  m_dpi = Compat::get_dpi_for_window(m_window_handle);
   refresh_ui_font();
   if (!m_workspace_renderer.initialize(m_dpi)) {
     std::cerr << "Fatal error: the Win32 workspace renderer could not be "
@@ -3369,10 +3370,10 @@ LRESULT Win32Window::hit_test_resize_border(POINT client_position) const {
 
   RECT client_bounds{};
   GetClientRect(m_window_handle, &client_bounds);
-  const int frame_x = GetSystemMetricsForDpi(SM_CXFRAME, m_dpi) +
-                      GetSystemMetricsForDpi(SM_CXPADDEDBORDER, m_dpi);
-  const int frame_y = GetSystemMetricsForDpi(SM_CYFRAME, m_dpi) +
-                      GetSystemMetricsForDpi(SM_CXPADDEDBORDER, m_dpi);
+  const int frame_x = Compat::get_system_metrics_for_dpi(SM_CXFRAME, m_dpi) +
+                      Compat::get_system_metrics_for_dpi(SM_CXPADDEDBORDER, m_dpi);
+  const int frame_y = Compat::get_system_metrics_for_dpi(SM_CYFRAME, m_dpi) +
+                      Compat::get_system_metrics_for_dpi(SM_CXPADDEDBORDER, m_dpi);
 
   const bool on_left = client_position.x < frame_x;
   const bool on_right = client_position.x >= client_bounds.right - frame_x;

@@ -59,6 +59,23 @@ if(ZDE_GIT2_LIBRARY)
     target_link_libraries(ZDEUI PUBLIC "${ZDE_GIT2_LIBRARY}")
 endif()
 if(WIN32)
+    file(GLOB MSVC_LIB_HINTS
+        "C:/Program Files/Microsoft Visual Studio/*/Community/VC/Tools/MSVC/*/lib/x64"
+        "C:/Program Files (x86)/Microsoft Visual Studio/*/Community/VC/Tools/MSVC/*/lib/x64"
+    )
+    find_library(DELAYIMP_LIB delayimp HINTS ${MSVC_LIB_HINTS})
+    if(DELAYIMP_LIB)
+        target_link_libraries(ZDEUI PRIVATE "${DELAYIMP_LIB}")
+    else()
+        target_link_libraries(ZDEUI PRIVATE delayimp)
+    endif()
     target_link_libraries(ZDEUI PRIVATE gdi32 msimg32 user32 dwmapi shell32)
+    target_link_options(ZDEUI PRIVATE
+        "-Wl,/DELAYLOAD:avcodec-63.dll"
+        "-Wl,/DELAYLOAD:avformat-63.dll"
+        "-Wl,/DELAYLOAD:avutil-61.dll"
+        "-Wl,/DELAYLOAD:swresample-7.dll"
+        "-Wl,/DELAYLOAD:swscale-10.dll"
+    )
 endif()
 zde_enable_warnings(ZDEUI)

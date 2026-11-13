@@ -1,4 +1,5 @@
 #include "Platform/Win32/Components/Win32PromptDialog.h"
+#include "Platform/Win32/Utility/Win32Compat.h"
 #include "Utility/Shadows.h"
 
 #include <algorithm>
@@ -109,7 +110,7 @@ bool Win32PromptDialog::open_new_folder(
   m_on_confirm_void = nullptr;
 
   m_parent_hwnd = parent;
-  m_dpi = parent ? GetDpiForWindow(parent) : 96;
+  m_dpi = parent ? Compat::get_dpi_for_window(parent) : 96;
   if (m_dpi == 0)
     m_dpi = 96;
   refresh_fonts();
@@ -184,7 +185,7 @@ bool Win32PromptDialog::open_new_file(
   m_on_confirm_void = nullptr;
 
   m_parent_hwnd = parent;
-  m_dpi = parent ? GetDpiForWindow(parent) : 96;
+  m_dpi = parent ? Compat::get_dpi_for_window(parent) : 96;
   if (m_dpi == 0)
     m_dpi = 96;
   refresh_fonts();
@@ -258,7 +259,7 @@ bool Win32PromptDialog::open_rename(
   m_on_confirm_void = nullptr;
 
   m_parent_hwnd = parent;
-  m_dpi = parent ? GetDpiForWindow(parent) : 96;
+  m_dpi = parent ? Compat::get_dpi_for_window(parent) : 96;
   if (m_dpi == 0)
     m_dpi = 96;
   refresh_fonts();
@@ -332,7 +333,7 @@ bool Win32PromptDialog::open_delete(HWND parent,
   m_on_confirm_void = std::move(on_confirm);
 
   m_parent_hwnd = parent;
-  m_dpi = parent ? GetDpiForWindow(parent) : 96;
+  m_dpi = parent ? Compat::get_dpi_for_window(parent) : 96;
   if (m_dpi == 0)
     m_dpi = 96;
   refresh_fonts();

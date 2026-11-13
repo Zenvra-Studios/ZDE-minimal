@@ -1,4 +1,5 @@
 #include "UI/Settings/SettingsWindow.h"
+#include "Platform/Win32/Utility/Win32Compat.h"
 #include "UI/Theme/ThemeManager.h"
 #include "Utility/Ascii/AsciiMascotRenderer.h"
 #include "Utility/TextEncoding.h"
@@ -549,7 +550,7 @@ void SettingsWindow::open(HWND parent_hwnd) {
 
   RegisterClassExW(&wc);
 
-  m_dpi = parent_hwnd ? GetDpiForWindow(parent_hwnd) : 96;
+  m_dpi = parent_hwnd ? Zenvra::Platform::Win32::Compat::get_dpi_for_window(parent_hwnd) : 96;
   if (m_dpi == 0)
     m_dpi = 96;
   refresh_fonts();

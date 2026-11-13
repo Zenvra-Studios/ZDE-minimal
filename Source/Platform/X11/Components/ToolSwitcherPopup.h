@@ -26,7 +26,8 @@ struct ToolSwitcherItem
 
 /// Tool switcher popup ported from Win32 (same logic, X11 rendering).
 /// Shows installed tool plugins (Docker, QEMU, GDB, ...) with active checkmark
-/// and a "Browse Marketplace..." footer. Logic is platform-agnostic; only
+/// Header, dynamic active tool list with click-to-activate and close [x].
+/// Logic is platform-agnostic; only
 /// render() uses X11 Drawable via StudioWorkspaceRenderer helpers.
 class ToolSwitcherPopup
 {
