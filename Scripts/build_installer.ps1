@@ -196,11 +196,26 @@ function Stage-MsvcRuntime {
         }
     }
 
+    # Also stage app-local UCRT DLLs for clean Windows 7 systems that lack KB2999226
+    $ucrtDirs = @(
+        (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Redist\10.0.26100.0\ucrt\DLLs\x64'),
+        (Join-Path $env:ProgramFiles 'Windows Kits\10\Redist\10.0.26100.0\ucrt\DLLs\x64')
+    )
+    foreach ($ucrtDir in $ucrtDirs) {
+        if (Test-Path -LiteralPath $ucrtDir) {
+            Get-ChildItem -LiteralPath $ucrtDir -Filter '*.dll' -File | ForEach-Object {
+                Copy-Item -LiteralPath $_.FullName -Destination $Destination -Force
+                $copied++
+            }
+            break
+        }
+    }
+
     if ($copied -eq 0) {
         Write-Warning "No MSVC runtime DLLs were copied from $source."
     }
     else {
-        Write-Host "Staged $copied MSVC runtime DLL(s) from $source" -ForegroundColor DarkGray
+        Write-Host "Staged $copied MSVC runtime / UCRT DLL(s) from $source" -ForegroundColor DarkGray
     }
 }
 
@@ -300,3 +315,39 @@ $sizeMb = [Math]::Round((Get-Item -LiteralPath $installerPath).Length / 1MB, 2)
 Write-Host ''
 Write-Host 'Installer ready:' -ForegroundColor Green
 Write-Host "  $installerPath ($sizeMb MB)"
+
+# Also create a self-contained portable ZIP package
+$portableZip = Join-Path $OutputDir "ZDE-$Version-windows-x64-portable.zip"
+Write-Host "Creating portable archive: $portableZip..." -ForegroundColor Cyan
+$portableStage = Join-Path $OutputDir "portable_stage"
+if (Test-Path $portableStage) { Remove-Item $portableStage -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $portableStage | Out-Null
+
+$excludes = @("ZDEUnitTests.exe","gtest.dll","gtest_main.dll","ucrtbased.dll","libomp140d.x86_64.dll","msvcp140d_*.dll","*d.dll","*.pdb")
+Get-ChildItem -Path $BuildDir -Recurse | ForEach-Object {
+    $rel = $_.FullName.Substring($BuildDir.Length).TrimStart('\', '/')
+    $dest = Join-Path $portableStage $rel
+    if ($_.PSIsContainer) {
+        New-Item -ItemType Directory -Force -Path $dest | Out-Null
+    } else {
+        $name = $_.Name
+        $skip = $false
+        foreach ($pat in $excludes) { if ($name -like $pat) { $skip = $true; break } }
+        if (-not $skip) {
+            $parent = Split-Path -Parent $dest
+            if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+            Copy-Item -LiteralPath $_.FullName -Destination $dest -Force
+        }
+    }
+}
+if (Test-Path $RuntimeDir) {
+    Get-ChildItem -Path $RuntimeDir -Filter '*.dll' -File | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $portableStage -Force
+    }
+}
+if (Test-Path $portableZip) { Remove-Item $portableZip -Force }
+Compress-Archive -Path "$portableStage\*" -DestinationPath $portableZip -CompressionLevel Optimal
+Remove-Item $portableStage -Recurse -Force
+
+$zipSizeMb = [Math]::Round((Get-Item -LiteralPath $portableZip).Length / 1MB, 2)
+Write-Host "Portable package ready: $portableZip ($zipSizeMb MB)" -ForegroundColor Green
