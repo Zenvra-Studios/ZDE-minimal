@@ -11,7 +11,6 @@ if(Graphics_SOURCES)
         "${CMAKE_SOURCE_DIR}"
         "${CMAKE_CURRENT_SOURCE_DIR}/../.."
         "${CMAKE_CURRENT_SOURCE_DIR}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/effect"
     )
     target_link_libraries(Graphics PUBLIC OpenGL::GL)
     if(WIN32)
