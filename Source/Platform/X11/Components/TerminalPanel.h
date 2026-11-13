@@ -100,6 +100,7 @@ private:
     [[nodiscard]] UI::Rect output_channel_tab_bounds(const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
     [[nodiscard]] UI::Rect clear_output_button_bounds(const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
     [[nodiscard]] UI::Rect add_button_bounds(const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
+    [[nodiscard]] UI::Rect tab_close_button_bounds(const UI::Editor::StudioEditorLayoutResult& layout, std::size_t index) const noexcept;
     [[nodiscard]] UI::Rect close_button_bounds(const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
     [[nodiscard]] UI::Rect resize_handle_bounds(const UI::Editor::StudioEditorLayoutResult& layout) const noexcept;
 
@@ -116,6 +117,8 @@ private:
     Time m_last_resize_click_time = 0;
     float m_last_resize_click_x = 0.0F;
     float m_last_resize_click_y = 0.0F;
+    std::optional<std::size_t> m_hovered_tab_index;
+    std::optional<std::size_t> m_hovered_tab_close_index;
     mutable std::unordered_map<std::size_t, float> m_tab_animated_offset_x;
     std::size_t m_horizontal_scroll_offset = 0;
     bool m_force_horizontal_scroll_to_cursor = false;

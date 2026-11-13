@@ -246,10 +246,12 @@ bool TerminalPanel::handle_pointer_press(
           tab.x += m_tab_animated_offset_x[id];
         }
         if (tab.contains(point_x, point_y)) {
-          const float close_btn_w = 22.0F * layout.dpi_scale;
-          if (point_x >= tab.right() - close_btn_w) {
+          const UI::Rect close_btn = tab_close_button_bounds(layout, index);
+          if (close_btn.contains(point_x, point_y) ||
+              point_x >= tab.right() - 22.0F * layout.dpi_scale) {
             const float shift = tab.width;
             static_cast<void>(m_model.close_session(index));
+            m_hovered_tab_close_index = std::nullopt;
             const auto remaining = m_model.get_sessions();
             for (std::size_t k = index; k < remaining.size(); ++k) {
               m_tab_animated_offset_x[remaining[k].identifier] += shift;
@@ -363,6 +365,36 @@ bool TerminalPanel::handle_pointer_move(
   m_last_scale = layout.dpi_scale;
 
   bool changed = false;
+  std::optional<std::size_t> new_hovered_tab;
+  std::optional<std::size_t> new_hovered_close;
+  if (m_active_channel == PanelChannel::Terminal &&
+      layout.terminal_header_bounds.contains(point_x, point_y)) {
+    const auto sessions = m_model.get_sessions();
+    for (std::size_t i = 0; i < sessions.size(); ++i) {
+      UI::Rect tab = session_tab_bounds(layout, i);
+      const std::size_t id = sessions[i].identifier;
+      if (auto it = m_tab_animated_offset_x.find(id);
+          it != m_tab_animated_offset_x.end()) {
+        tab.x += it->second;
+      }
+      if (tab.contains(point_x, point_y)) {
+        new_hovered_tab = i;
+        const UI::Rect close_btn = tab_close_button_bounds(layout, i);
+        if (close_btn.contains(point_x, point_y)) {
+          new_hovered_close = i;
+        }
+        break;
+      }
+    }
+  }
+
+  if (new_hovered_tab != m_hovered_tab_index ||
+      new_hovered_close != m_hovered_tab_close_index) {
+    m_hovered_tab_index = new_hovered_tab;
+    m_hovered_tab_close_index = new_hovered_close;
+    changed = true;
+  }
+
   if (m_active_channel == PanelChannel::Terminal && m_max_tab_scroll > 0.0F) {
     const bool prev_sb = m_hovered_tab_scrollbar;
     const bool prev_l = m_hovered_scroll_left;
@@ -751,6 +783,8 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
       tab.x += m_tab_animated_offset_x[id];
     }
     const bool active = active_index && *active_index == index;
+    const bool tab_hovered = m_hovered_tab_index && *m_hovered_tab_index == index;
+    const bool close_hovered = m_hovered_tab_close_index && *m_hovered_tab_close_index == index;
     if (active) {
       surface.fill_rectangle(device_context, tab,
                              surface.m_palette.tab_active_background);
@@ -792,6 +826,38 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
         device_context, *surface.m_small_font, tab_title,
         tab.x + 22.0F * scale, tab.y + tab.height * 0.5F,
         active ? surface.m_palette.text_primary : surface.m_palette.text_muted);
+
+    // Close (x) Button on active or hovered session tab
+    if (active || tab_hovered || close_hovered) {
+      const UI::Rect close = tab_close_button_bounds(layout, index);
+      const float icon_sz = std::max(round_to_int(10.0F * scale), 9);
+      const float cx = close.x + close.width * 0.5F;
+      const float cy = close.y + close.height * 0.5F;
+      const UI::Theme::Color tab_bg = active
+          ? surface.m_palette.tab_active_background
+          : surface.m_palette.tab_background;
+      if (close_hovered) {
+        const float pad = 2.0F * scale;
+        const UI::Rect btn_rect{
+            round_to_int(cx) - icon_sz * 0.5F - pad,
+            round_to_int(cy) - icon_sz * 0.5F - pad,
+            icon_sz + pad * 2.0F,
+            icon_sz + pad * 2.0F};
+        const UI::Theme::Color hover_bg = surface.m_palette.is_dark
+            ? UI::Theme::Color{255, 255, 255, 25}
+            : UI::Theme::Color{0, 0, 0, 20};
+        surface.fill_rounded_rectangle(device_context, btn_rect, hover_bg, 3.0F * scale);
+      }
+      const UI::Theme::Color close_col = close_hovered
+          ? (surface.m_palette.is_dark ? UI::Theme::Color{255, 255, 255, 255}
+                                       : UI::Theme::Color{20, 20, 20, 255})
+          : (active ? surface.m_palette.text_primary : surface.m_palette.text_muted);
+      surface.draw_svg_icon(
+          device_context, "diagnostic-error.svg",
+          round_to_int(cx), round_to_int(cy),
+          static_cast<int>(icon_sz), close_col,
+          tab_bg);
+    }
   }
 
   if (m_tab_animated_offset_x.size() > sessions.size() + 8) {
@@ -818,17 +884,6 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
                     round_to_int(add.right() - 6.0F * scale),
                     round_to_int(add.y + add.height * 0.5F),
                     surface.m_palette.text_muted);
-
-  // 4. Close (x) Button on active session tab
-  const UI::Rect close = close_button_bounds(layout);
-  if (close.width > 0.0F) {
-    surface.draw_svg_icon(device_context, "diagnostic-error.svg",
-                          round_to_int(close.x + close.width * 0.5F),
-                          round_to_int(close.y + close.height * 0.5F),
-                          std::max(round_to_int(10.0F * scale), 9),
-                          surface.m_palette.text_muted,
-                          surface.m_palette.tab_active_background);
-  }
 
   RestoreDC(device_context, -1);
 
@@ -1308,21 +1363,32 @@ UI::Rect TerminalPanel::add_button_bounds(
                   layout.terminal_header_bounds.height};
 }
 
+UI::Rect TerminalPanel::tab_close_button_bounds(
+    const UI::Editor::StudioEditorLayoutResult &layout,
+    std::size_t index) const noexcept {
+  const std::span<const Terminal::TerminalSessionEntry> sessions =
+      m_model.get_sessions();
+  if (index >= sessions.size()) {
+    return UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
+  }
+  UI::Rect tab = session_tab_bounds(layout, index);
+  const std::size_t id = sessions[index].identifier;
+  if (auto it = m_tab_animated_offset_x.find(id);
+      it != m_tab_animated_offset_x.end()) {
+    tab.x += it->second;
+  }
+  const float size = 16.0F * layout.dpi_scale;
+  return UI::Rect{tab.right() - size - 6.0F * layout.dpi_scale,
+                  tab.y + (tab.height - size) * 0.5F, size, size};
+}
+
 UI::Rect TerminalPanel::close_button_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
   const std::optional<std::size_t> active_index = m_model.get_active_index();
   if (!active_index) {
     return UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
   }
-  const std::span<const Terminal::TerminalSessionEntry> sessions =
-      m_model.get_sessions();
-  if (*active_index >= sessions.size()) {
-    return UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
-  }
-  const UI::Rect tab = session_tab_bounds(layout, *active_index);
-  const float size = 16.0F * layout.dpi_scale;
-  return UI::Rect{tab.right() - size - 6.0F * layout.dpi_scale,
-                  tab.y + (tab.height - size) * 0.5F, size, size};
+  return tab_close_button_bounds(layout, *active_index);
 }
 
 UI::Rect TerminalPanel::resize_handle_bounds(

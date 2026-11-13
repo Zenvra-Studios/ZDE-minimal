@@ -175,11 +175,12 @@ bool TerminalPanel::handle_pointer_press(
         }
         if (tab.contains(point_x, point_y))
         {
-            const float close_btn_w = 22.0F * layout.dpi_scale;
-            if (point_x >= tab.right() - close_btn_w)
+            const UI::Rect close_btn = tab_close_button_bounds(layout, index);
+            if (close_btn.contains(point_x, point_y) || point_x >= tab.right() - 22.0F * layout.dpi_scale)
             {
                 const float shift = tab.width;
                 static_cast<void>(m_model.close_session(index));
+                m_hovered_tab_close_index = std::nullopt;
                 const auto remaining = m_model.get_sessions();
                 for (std::size_t k = index; k < remaining.size(); ++k)
                 {
@@ -263,6 +264,34 @@ bool TerminalPanel::handle_pointer_move(
     const bool resize_hover = m_resize_model.set_hovered(
         is_resizing() || is_resize_handle_point(layout, point_x, point_y));
 
+    std::optional<std::size_t> new_hovered_tab;
+    std::optional<std::size_t> new_hovered_close;
+    if (m_active_channel == PanelChannel::Terminal && layout.terminal_header_bounds.contains(point_x, point_y)) {
+        const auto sessions = m_model.get_sessions();
+        for (std::size_t i = 0; i < sessions.size(); ++i) {
+            UI::Rect tab = session_tab_bounds(layout, i);
+            const std::size_t id = sessions[i].identifier;
+            if (auto it = m_tab_animated_offset_x.find(id); it != m_tab_animated_offset_x.end()) {
+                tab.x += it->second;
+            }
+            if (tab.contains(point_x, point_y)) {
+                new_hovered_tab = i;
+                const UI::Rect close_btn = tab_close_button_bounds(layout, i);
+                if (close_btn.contains(point_x, point_y)) {
+                    new_hovered_close = i;
+                }
+                break;
+            }
+        }
+    }
+
+    bool tab_hover_changed = false;
+    if (new_hovered_tab != m_hovered_tab_index || new_hovered_close != m_hovered_tab_close_index) {
+        m_hovered_tab_index = new_hovered_tab;
+        m_hovered_tab_close_index = new_hovered_close;
+        tab_hover_changed = true;
+    }
+
     if (m_model.is_mouse_tracking_active() && layout.terminal_content_bounds.contains(point_x, point_y))
     {
         const float line_height = m_cached_line_height > 0.0F
@@ -291,7 +320,7 @@ bool TerminalPanel::handle_pointer_move(
         }
     }
 
-    return resize_hover;
+    return resize_hover || tab_hover_changed;
 }
 
 bool TerminalPanel::handle_pointer_drag(
@@ -706,6 +735,8 @@ void TerminalPanel::render(
         }
 
         const bool active = active_index && *active_index == index;
+        const bool tab_hovered = m_hovered_tab_index && *m_hovered_tab_index == index;
+        const bool close_hovered = m_hovered_tab_close_index && *m_hovered_tab_close_index == index;
         if (active)
         {
             surface.fill_rectangle(drawable, UI::Rect{tab.x, tab.y + 1.0F, tab.width, tab.height - 1.0F}, surface.m_pixels.tab_active_background);
@@ -713,18 +744,50 @@ void TerminalPanel::render(
             surface.draw_line(drawable, round_to_int(tab.x), round_to_int(tab.y), round_to_int(tab.x), round_to_int(tab.bottom()) - 1, surface.m_pixels.border);
             surface.draw_line(drawable, round_to_int(tab.right()), round_to_int(tab.y), round_to_int(tab.right()), round_to_int(tab.bottom()) - 1, surface.m_pixels.border);
             surface.draw_line(drawable, round_to_int(tab.x) + 1, round_to_int(tab.bottom()) - 1, round_to_int(tab.right()) - 1, round_to_int(tab.bottom()) - 1, surface.m_pixels.tab_active_background);
-
-            // Draw Close icon on active session tab
-            const float close_icon_x = tab.right() - 14.0F * scale;
-            surface.draw_svg_icon(drawable, "Assets/icons/diagnostic-error.svg",
-                round_to_int(close_icon_x),
-                round_to_int(tab.y + tab.height * 0.5F),
-                std::max(round_to_int(10.0F * scale), 9),
-                surface.m_palette.text_muted, surface.m_palette.tab_active_background);
         }
         else
         {
             surface.draw_line(drawable, round_to_int(tab.right()), round_to_int(tab.y + 4.0F * scale), round_to_int(tab.right()), round_to_int(tab.bottom() - 5.0F * scale), surface.m_pixels.border);
+        }
+
+        // Draw Close icon on active or hovered session tab
+        if (active || tab_hovered || close_hovered)
+        {
+            const float close_icon_x = tab.right() - 14.0F * scale;
+            const float close_icon_y = tab.y + tab.height * 0.5F;
+            const float close_icon_sz = std::max(round_to_int(10.0F * scale), 9);
+            const unsigned long tab_bg_pixel = active ? surface.m_pixels.tab_active_background : surface.m_pixels.tab_background;
+            const UI::Theme::Color tab_bg_color = active ? surface.m_palette.tab_active_background : surface.m_palette.tab_background;
+
+            UI::Theme::Color close_bg = tab_bg_color;
+            if (close_hovered)
+            {
+                const float pad = 2.0F * scale;
+                const UI::Rect btn_rect{
+                    close_icon_x - close_icon_sz * 0.5F - pad,
+                    close_icon_y - close_icon_sz * 0.5F - pad,
+                    close_icon_sz + pad * 2.0F,
+                    close_icon_sz + pad * 2.0F,
+                };
+                const std::uint32_t a = 35; // 14% subtle white hover
+                close_bg = UI::Theme::Color{
+                    static_cast<std::uint8_t>((255 * a + tab_bg_color.red * (255 - a) + 127) / 255),
+                    static_cast<std::uint8_t>((255 * a + tab_bg_color.green * (255 - a) + 127) / 255),
+                    static_cast<std::uint8_t>((255 * a + tab_bg_color.blue * (255 - a) + 127) / 255),
+                    255};
+                surface.fill_rounded_rectangle(
+                    drawable, btn_rect, surface.allocate_color(close_bg),
+                    3.0F * scale, tab_bg_pixel);
+            }
+            const UI::Theme::Color close_col =
+                close_hovered ? UI::Theme::Color{255, 255, 255, 255}
+                              : (active ? surface.m_palette.text_primary
+                                        : surface.m_palette.text_muted);
+            surface.draw_svg_icon(drawable, "Assets/icons/diagnostic-error.svg",
+                round_to_int(close_icon_x),
+                round_to_int(close_icon_y),
+                static_cast<int>(close_icon_sz),
+                close_col, close_bg);
         }
         surface.draw_svg_icon(drawable, "Assets/icons/vscode-codicons/icons/terminal.svg",
             round_to_int(tab.x + 12.0F * surface.m_dpi_scale),
@@ -1097,6 +1160,26 @@ UI::Rect TerminalPanel::add_button_bounds(
                     layout.terminal_header_bounds.height};
 }
 
+UI::Rect TerminalPanel::tab_close_button_bounds(
+    const UI::Editor::StudioEditorLayoutResult& layout,
+    std::size_t index) const noexcept
+{
+    const std::span<const Terminal::TerminalSessionEntry> sessions =
+        m_model.get_sessions();
+    if (index >= sessions.size()) {
+        return UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
+    }
+    UI::Rect tab = session_tab_bounds(layout, index);
+    const std::size_t id = sessions[index].identifier;
+    if (auto it = m_tab_animated_offset_x.find(id); it != m_tab_animated_offset_x.end()) {
+        tab.x += it->second;
+    }
+    const float width = 20.0F * layout.dpi_scale;
+    return UI::Rect{tab.right() - width - 2.0F * layout.dpi_scale,
+                    layout.terminal_header_bounds.y,
+                    width, layout.terminal_header_bounds.height};
+}
+
 UI::Rect TerminalPanel::close_button_bounds(
     const UI::Editor::StudioEditorLayoutResult& layout) const noexcept
 {
@@ -1104,16 +1187,7 @@ UI::Rect TerminalPanel::close_button_bounds(
     if (!active_index) {
         return UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
     }
-    const std::span<const Terminal::TerminalSessionEntry> sessions =
-        m_model.get_sessions();
-    if (*active_index >= sessions.size()) {
-        return UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
-    }
-    const UI::Rect tab = session_tab_bounds(layout, *active_index);
-    const float width = 20.0F * layout.dpi_scale;
-    return UI::Rect{tab.right() - width - 2.0F * layout.dpi_scale,
-                    layout.terminal_header_bounds.y,
-                    width, layout.terminal_header_bounds.height};
+    return tab_close_button_bounds(layout, *active_index);
 }
 
 UI::Rect TerminalPanel::resize_handle_bounds(

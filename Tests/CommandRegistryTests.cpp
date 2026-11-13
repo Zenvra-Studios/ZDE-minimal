@@ -20,7 +20,7 @@
 #include "UI/Components/Modal.h"
 #include "UI/Components/AboutModal.h"
 #include "Drivers/Graphics/BackdropBlurPipeline.h"
-#include "Drivers/Graphics/effect/BackdropBlur.h"
+#include "Drivers/Graphics/BackdropBlur.h"
 #include "Services/Shader/ShaderCompiler.h"
 #include "Services/Shader/ShaderRuntimeEngine.h"
 #include "Utility/Column.h"

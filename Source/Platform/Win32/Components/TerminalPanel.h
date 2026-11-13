@@ -118,6 +118,9 @@ private:
       const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
   [[nodiscard]] UI::Rect add_button_bounds(
       const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
+  [[nodiscard]] UI::Rect tab_close_button_bounds(
+      const UI::Editor::StudioEditorLayoutResult &layout,
+      std::size_t index) const noexcept;
   [[nodiscard]] UI::Rect close_button_bounds(
       const UI::Editor::StudioEditorLayoutResult &layout) const noexcept;
   [[nodiscard]] UI::Rect resize_handle_bounds(
@@ -140,6 +143,8 @@ private:
   float m_tab_scroll_drag_initial_offset = 0.0F;
   bool m_hovered_scroll_left = false;
   bool m_hovered_scroll_right = false;
+  std::optional<std::size_t> m_hovered_tab_index;
+  std::optional<std::size_t> m_hovered_tab_close_index;
   mutable UI::Rect m_last_header_bounds;
   mutable float m_last_scale = 1.0F;
   mutable std::unordered_map<std::size_t, float> m_tab_animated_offset_x;
