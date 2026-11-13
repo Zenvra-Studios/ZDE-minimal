@@ -177,8 +177,6 @@ constexpr std::array binary_items{
 constexpr std::array gear_items{
     MenuItem{"Settings...", Commands::CommandIds::open_settings, false, "Ctrl+,"},
     MenuItem{"Themes...", Commands::CommandIds::open_themes, false, "Ctrl+K Ctrl+T"},
-    separator,
-    MenuItem{"Plugins...", Commands::CommandIds::open_plugins, false, "Ctrl+Shift+X"},
 };
 
 constexpr std::array ellipsis_items{

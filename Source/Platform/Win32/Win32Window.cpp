@@ -5378,8 +5378,6 @@ void Win32Window::show_activity_bar_context_menu(int client_x, int client_y) {
       sidebar_vis && (active_icon == UI::Editor::SidebarIcon::VersionControl);
   const bool is_debug_active =
       sidebar_vis && (active_icon == UI::Editor::SidebarIcon::Run);
-  const bool is_extensions_active =
-      sidebar_vis && (active_icon == UI::Editor::SidebarIcon::Services);
   const bool is_shader_active =
       m_workspace_renderer.is_shader_sandbox_visible();
   const bool is_more_active =
@@ -5481,15 +5479,6 @@ void Win32Window::show_activity_bar_context_menu(int client_x, int client_y) {
          } else {
            m_workspace_renderer.m_tool_sidebar.get_model().set_visible(true);
            static_cast<void>(m_workspace_renderer.m_tool_sidebar.activate(UI::Editor::SidebarIcon::Run));
-         }
-       }},
-      {"Extensions", "Ctrl+Shift+X", false, 0, "", is_extensions_active, [this]() {
-         if (m_workspace_renderer.m_tool_sidebar.is_visible() &&
-             m_workspace_renderer.m_tool_sidebar.is_active(UI::Editor::SidebarIcon::Services)) {
-           m_workspace_renderer.m_tool_sidebar.get_model().set_visible(false);
-         } else {
-           m_workspace_renderer.m_tool_sidebar.get_model().set_visible(true);
-           static_cast<void>(m_workspace_renderer.m_tool_sidebar.activate(UI::Editor::SidebarIcon::Services));
          }
        }},
       {"Shader Sandbox", "", false, 0, "", is_shader_active, [this]() {

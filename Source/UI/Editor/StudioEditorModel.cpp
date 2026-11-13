@@ -25,8 +25,6 @@ std::vector<SidebarItem> s_sidebar_items = {
                 SidebarIcon::VersionControl, SidebarPlacement::Top, false},
     SidebarItem{"search", "Search", SidebarIcon::Search, SidebarPlacement::Top,
                 false},
-    SidebarItem{"services", "Plugins", SidebarIcon::Services,
-                SidebarPlacement::Top, false},
     SidebarItem{"shader", "Shader Sandbox", SidebarIcon::Shader,
                 SidebarPlacement::Top, false},
     SidebarItem{"more", "More Tool Windows", SidebarIcon::More,
@@ -43,8 +41,6 @@ void rebuild_sidebar_items() {
                   SidebarIcon::VersionControl, SidebarPlacement::Top, false},
       SidebarItem{"search", "Search", SidebarIcon::Search, SidebarPlacement::Top,
                   false},
-      SidebarItem{"services", "Plugins", SidebarIcon::Services,
-                  SidebarPlacement::Top, false},
       SidebarItem{"shader", "Shader Sandbox", SidebarIcon::Shader,
                   SidebarPlacement::Top, false},
   };

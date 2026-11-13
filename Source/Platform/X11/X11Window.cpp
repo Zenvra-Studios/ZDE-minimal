@@ -80,8 +80,7 @@ std::vector<unsigned char> downsample_rgba(const unsigned char *source,
     const float y_start = static_cast<float>(y) * scale_y;
     const float y_end = static_cast<float>(y + 1) * scale_y;
     const int sy_min = std::max(static_cast<int>(std::floor(y_start)), 0);
-    const int sy_max =
-        std::min(static_cast<int>(std::ceil(y_end)), source_height);
+    const int sy_max = std::min(static_cast<int>(std::ceil(y_end)), source_height);
 
     for (int x = 0; x < target_width; ++x) {
       const float x_start = static_cast<float>(x) * scale_x;
@@ -97,8 +96,7 @@ std::vector<unsigned char> downsample_rgba(const unsigned char *source,
 
       for (int sy = sy_min; sy < sy_max; ++sy) {
         const float sy_f = static_cast<float>(sy);
-        const float weight_y = std::max(0.0F, std::min(sy_f + 1.0F, y_end) -
-                                                  std::max(sy_f, y_start));
+        const float weight_y = std::max(0.0F, std::min(sy_f + 1.0F, y_end) - std::max(sy_f, y_start));
         if (weight_y <= 0.0F) {
           continue;
         }
@@ -115,8 +113,7 @@ std::vector<unsigned char> downsample_rgba(const unsigned char *source,
             continue;
           }
 
-          const std::size_t idx =
-              row_offset + static_cast<std::size_t>(sx) * 4U;
+          const std::size_t idx = row_offset + static_cast<std::size_t>(sx) * 4U;
           const float a = static_cast<float>(source[idx + 3]) / 255.0F;
           const float r = static_cast<float>(source[idx + 0]) * a;
           const float g = static_cast<float>(source[idx + 1]) * a;
@@ -130,12 +127,10 @@ std::vector<unsigned char> downsample_rgba(const unsigned char *source,
         }
       }
 
-      const std::size_t out_idx =
-          static_cast<std::size_t>(y * target_width + x) * 4U;
+      const std::size_t out_idx = static_cast<std::size_t>(y * target_width + x) * 4U;
       if (total_weight > 0.0F && acc_a > 0.0F) {
         const float alpha_norm = acc_a / total_weight;
-        const float un_premul =
-            (alpha_norm > 0.001F) ? (255.0F / alpha_norm) : 0.0F;
+        const float un_premul = (alpha_norm > 0.001F) ? (255.0F / alpha_norm) : 0.0F;
         const float final_r = (acc_r / total_weight) * un_premul;
         const float final_g = (acc_g / total_weight) * un_premul;
         const float final_b = (acc_b / total_weight) * un_premul;
@@ -4028,8 +4023,6 @@ void X11Window::show_activity_bar_context_menu(int client_x, int client_y) {
       sidebar_vis && (active_icon == UI::Editor::SidebarIcon::VersionControl);
   const bool is_debug_active =
       sidebar_vis && (active_icon == UI::Editor::SidebarIcon::Run);
-  const bool is_extensions_active =
-      sidebar_vis && (active_icon == UI::Editor::SidebarIcon::Services);
   const bool is_shader_active =
       workspace.is_shader_sandbox_visible();
   const bool is_more_active =
@@ -4063,7 +4056,6 @@ void X11Window::show_activity_bar_context_menu(int client_x, int client_y) {
       {"Code Search", "zde.activitybar.toggleSearch", false, true, is_search_active, "Ctrl+Shift+F"},
       {"Source Control", "zde.activitybar.toggleSCM", false, true, is_scm_active, "Ctrl+Shift+G"},
       {"Run and Debug", "zde.activitybar.toggleDebug", false, true, is_debug_active, "Ctrl+Shift+D"},
-      {"Extensions", "zde.activitybar.toggleExtensions", false, true, is_extensions_active, "Ctrl+Shift+X"},
       {"Shader Sandbox", "zde.activitybar.toggleShader", false, true, is_shader_active, ""},
       {"More Tools", "zde.activitybar.toggleMore", false, true, is_more_active, ""},
       {"Terminal", "zde.activitybar.toggleTerminal", false, true, is_terminal_active, "Ctrl+`"},

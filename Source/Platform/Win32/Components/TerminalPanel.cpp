@@ -281,8 +281,8 @@ bool TerminalPanel::handle_pointer_press(
     const float char_width = m_cached_char_width > 0.0F
                                  ? m_cached_char_width
                                  : std::max(8.0F * layout.dpi_scale, 1.0F);
-    const float padding_x = 14.0F * layout.dpi_scale;
-    const float content_top_padding = 8.0F * layout.dpi_scale;
+    const float padding_x = 16.0F * layout.dpi_scale;
+    const float content_top_padding = 12.0F * layout.dpi_scale;
     const float local_y =
         point_y - (layout.terminal_content_bounds.y + content_top_padding);
     const int row = static_cast<int>(std::floor(local_y / line_height));
@@ -327,8 +327,8 @@ bool TerminalPanel::handle_double_click(
     const float char_width = m_cached_char_width > 0.0F
                                  ? m_cached_char_width
                                  : std::max(8.0F * layout.dpi_scale, 1.0F);
-    const float padding_x = 14.0F * layout.dpi_scale;
-    const float content_top_padding = 8.0F * layout.dpi_scale;
+    const float padding_x = 16.0F * layout.dpi_scale;
+    const float content_top_padding = 12.0F * layout.dpi_scale;
     const float local_y =
         point_y - (layout.terminal_content_bounds.y + content_top_padding);
     const int row = static_cast<int>(std::floor(local_y / line_height));
@@ -417,8 +417,8 @@ bool TerminalPanel::handle_pointer_drag(
     const float char_width = m_cached_char_width > 0.0F
                                  ? m_cached_char_width
                                  : std::max(8.0F * layout.dpi_scale, 1.0F);
-    const float padding_x = 14.0F * layout.dpi_scale;
-    const float content_top_padding = 8.0F * layout.dpi_scale;
+    const float padding_x = 16.0F * layout.dpi_scale;
+    const float content_top_padding = 12.0F * layout.dpi_scale;
     const float local_y =
         point_y - (layout.terminal_content_bounds.y + content_top_padding);
     const int row = static_cast<int>(std::floor(local_y / line_height));
@@ -628,12 +628,14 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
                     round_to_int(layout.terminal_header_bounds.right()),
                     round_to_int(layout.terminal_header_bounds.bottom()) - 1,
                     surface.m_palette.border);
-  surface.draw_line(
-      device_context, round_to_int(layout.terminal_panel_bounds.x),
-      round_to_int(layout.terminal_panel_bounds.y),
-      round_to_int(layout.terminal_panel_bounds.right()),
-      round_to_int(layout.terminal_panel_bounds.y), surface.m_palette.border);
   const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
+  if (!is_modern) {
+    surface.draw_line(
+        device_context, round_to_int(layout.terminal_panel_bounds.x),
+        round_to_int(layout.terminal_panel_bounds.y),
+        round_to_int(layout.terminal_panel_bounds.right()),
+        round_to_int(layout.terminal_panel_bounds.y), surface.m_palette.border);
+  }
   if (!is_modern && (m_resize_model.is_hovered() || m_resize_model.is_resizing())) {
     surface.fill_rectangle(
         device_context,
@@ -705,14 +707,14 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
             Services::Output::OutputCategory::Build);
     const float line_h = 16.0F * scale;
     float cur_y =
-        layout.terminal_content_bounds.y + 8.0F * scale + line_h * 0.5F;
+        layout.terminal_content_bounds.y + 12.0F * scale + line_h * 0.5F;
     for (std::size_t i = 0; i < output_lines.size(); ++i) {
       if (cur_y > layout.terminal_content_bounds.bottom() + line_h)
         break;
       const std::string &l = output_lines[i];
       AntialiasedFont &out_font = surface.m_terminal_font ? *surface.m_terminal_font : *surface.m_editor_font;
       surface.draw_text(device_context, out_font, l,
-                        layout.terminal_content_bounds.x + 14.0F * scale, cur_y,
+                        layout.terminal_content_bounds.x + 16.0F * scale, cur_y,
                         surface.m_palette.text_primary);
       cur_y += line_h;
     }
@@ -932,13 +934,13 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
                         surface.m_palette.text_muted);
     }
   }
-  const float padding_x = 14.0F * surface.m_dpi_scale;
+  const float padding_x = 16.0F * surface.m_dpi_scale;
   const float line_height = std::max(
       static_cast<float>(term_font.getHeight(device_context)) +
           2.0F * surface.m_dpi_scale,
       12.0F * surface.m_dpi_scale);
-  const float content_top_padding = 8.0F * surface.m_dpi_scale;
-  const float content_bottom_padding = 8.0F * surface.m_dpi_scale;
+  const float content_top_padding = 12.0F * surface.m_dpi_scale;
+  const float content_bottom_padding = 10.0F * surface.m_dpi_scale;
   const float usable_content_height = std::max(
       layout.terminal_content_bounds.height - (content_top_padding + content_bottom_padding), 0.0F);
   const std::size_t visible_rows =
@@ -953,7 +955,7 @@ void TerminalPanel::render(const StudioWorkspaceRenderer &surface,
   m_cached_char_width = static_cast<float>(glyph_width);
 
   const std::size_t visible_columns = static_cast<std::size_t>(std::max(
-      (layout.terminal_content_bounds.width - 22.0F * surface.m_dpi_scale) /
+      (layout.terminal_content_bounds.width - (padding_x + 14.0F * surface.m_dpi_scale)) /
           static_cast<float>(glyph_width),
       1.0F));
   m_model.resize(visible_columns, std::max<std::size_t>(visible_rows, 1));
@@ -1325,10 +1327,10 @@ UI::Rect TerminalPanel::close_button_bounds(
 
 UI::Rect TerminalPanel::resize_handle_bounds(
     const UI::Editor::StudioEditorLayoutResult &layout) const noexcept {
-  const float handle_height = std::max(8.0F * layout.dpi_scale, 6.0F);
+  const float handle_height = std::max(12.0F * layout.dpi_scale, 8.0F);
   return UI::Rect{
       layout.terminal_panel_bounds.x,
-      layout.terminal_panel_bounds.y - handle_height * 0.5F,
+      layout.terminal_panel_bounds.y - handle_height * 0.75F,
       layout.terminal_panel_bounds.width,
       handle_height,
   };

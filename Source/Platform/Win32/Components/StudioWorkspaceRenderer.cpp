@@ -788,6 +788,160 @@ StudioWorkspaceRenderer::calculate_layout(int client_width, int client_height,
     result.tab_bar_bounds.x = m_file_buffer_bounds->x;
     result.tab_bar_bounds.width = m_file_buffer_bounds->width;
   }
+
+  const bool is_modern =
+      m_palette.is_modern || m_theme.is_modern || m_theme.enable_os_blur;
+  if (is_modern) {
+    const float scale = result.dpi_scale;
+    const float sep_gap = std::max(std::round(10.0F * scale), 10.0F);
+    const float outer_gap = std::max(std::round(6.0F * scale), 5.0F);
+
+    const bool has_sidebar =
+        m_tool_sidebar.is_visible() && !result.tool_sidebar_bounds.is_empty();
+    const bool sidebar_is_right =
+        has_sidebar && (result.tool_sidebar_bounds.x > result.editor_bounds.x);
+
+    float editor_col_left = outer_gap;
+    float editor_col_right = result.workspace_bounds.right() - outer_gap;
+    const float shader_split_x =
+        result.shader_splitter_bounds.x + result.shader_splitter_bounds.width * 0.5F;
+
+    if (sidebar_is_right) {
+      if (!result.activity_bar_bounds.is_empty() &&
+          result.activity_bar_bounds.width < 100.0F &&
+          result.activity_bar_bounds.x < result.editor_bounds.x) {
+        editor_col_left = result.activity_bar_bounds.right() + outer_gap;
+      } else {
+        editor_col_left = outer_gap;
+      }
+      if (result.shader_panel_visible) {
+        editor_col_right = shader_split_x - sep_gap * 0.5F;
+      } else {
+        editor_col_right = result.tool_sidebar_bounds.x - sep_gap * 0.5F;
+      }
+    } else {
+      editor_col_left =
+          has_sidebar ? (result.tool_sidebar_bounds.right() + sep_gap * 0.5F)
+                      : (!result.activity_bar_bounds.is_empty() &&
+                                 result.activity_bar_bounds.width < 100.0F
+                             ? (result.activity_bar_bounds.right() + outer_gap)
+                             : outer_gap);
+
+      editor_col_right = result.shader_panel_visible
+                             ? (shader_split_x - sep_gap * 0.5F)
+                             : (result.workspace_bounds.right() - outer_gap);
+    }
+
+    const float editor_col_top = (result.editor_header_bounds.is_empty()
+                                      ? result.gutter_bounds.y
+                                      : result.editor_header_bounds.y) +
+                                 outer_gap;
+    const float editor_col_bottom = result.status_bar_bounds.y - outer_gap;
+    const float card_w = std::max(0.0F, editor_col_right - editor_col_left);
+
+    const bool has_terminal = m_terminal_panel.is_visible() &&
+                              !result.terminal_panel_bounds.is_empty();
+
+    if (has_terminal && m_terminal_panel.is_maximized()) {
+      result.editor_header_bounds = UI::Rect{};
+      result.gutter_bounds = UI::Rect{};
+      result.editor_bounds = UI::Rect{};
+      result.scrollbar_bounds = UI::Rect{};
+      result.minimap_bounds = UI::Rect{};
+
+      const float term_top = editor_col_top;
+      const float term_height = std::max(0.0F, editor_col_bottom - term_top);
+      result.terminal_panel_bounds =
+          UI::Rect{editor_col_left, term_top, card_w, term_height};
+      const float term_header_h = std::min(28.0F * scale, term_height);
+      result.terminal_header_bounds =
+          UI::Rect{editor_col_left, term_top, card_w, term_header_h};
+      result.terminal_content_bounds =
+          UI::Rect{editor_col_left, term_top + term_header_h, card_w,
+                   std::max(0.0F, term_height - term_header_h)};
+    } else {
+      const float editor_card_bottom =
+          has_terminal ? (result.terminal_panel_bounds.y - sep_gap * 0.5F)
+                       : editor_col_bottom;
+
+      const float header_h = result.editor_header_bounds.height;
+      result.editor_header_bounds =
+          UI::Rect{editor_col_left, editor_col_top, card_w, header_h};
+
+      // Internal editor padding: 4px top between header & code, 6px bottom
+      const float editor_pad_top = 4.0F * scale;
+      const float editor_pad_bottom = 6.0F * scale;
+      const float gutter_w = result.gutter_bounds.width;
+      const float code_top = result.editor_header_bounds.bottom() + editor_pad_top;
+      const float code_height =
+          std::max(0.0F, editor_card_bottom - editor_pad_bottom - code_top);
+
+      result.gutter_bounds =
+          UI::Rect{editor_col_left, code_top, gutter_w, code_height};
+      result.editor_bounds =
+          UI::Rect{editor_col_left + gutter_w, code_top,
+                   std::max(0.0F, card_w - gutter_w), code_height};
+
+      const float scrollbar_w = 14.0F * scale;
+      const float minimap_w = (result.editor_bounds.width >= 120.0F * scale)
+                                  ? (112.0F * scale)
+                                  : 0.0F;
+      result.minimap_bounds = UI::Rect{
+          std::max(result.editor_bounds.right() - scrollbar_w - minimap_w,
+                   result.editor_bounds.x),
+          code_top,
+          std::min(minimap_w,
+                   std::max(result.editor_bounds.width - scrollbar_w, 0.0F)),
+          code_height,
+      };
+      result.scrollbar_bounds = UI::Rect{
+          std::max(result.editor_bounds.right() - scrollbar_w,
+                   result.editor_bounds.x),
+          code_top,
+          std::min(scrollbar_w, result.editor_bounds.width),
+          code_height,
+      };
+
+      if (has_terminal) {
+        const float term_top =
+            result.terminal_panel_bounds.y + sep_gap * 0.5F;
+        const float term_height = std::max(0.0F, editor_col_bottom - term_top);
+        result.terminal_panel_bounds =
+            UI::Rect{editor_col_left, term_top, card_w, term_height};
+        const float term_header_h = std::min(28.0F * scale, term_height);
+        result.terminal_header_bounds =
+            UI::Rect{editor_col_left, term_top, card_w, term_header_h};
+        result.terminal_content_bounds =
+            UI::Rect{editor_col_left, term_top + term_header_h, card_w,
+                     std::max(0.0F, term_height - term_header_h)};
+      }
+    }
+
+    if (result.shader_panel_visible && !result.shader_panel_bounds.is_empty()) {
+      const float shader_left = shader_split_x + sep_gap * 0.5F;
+      const float shader_w =
+          std::max(0.0F, result.shader_panel_bounds.right() - outer_gap - shader_left);
+      const float shader_h =
+          std::max(0.0F, result.shader_panel_bounds.height - outer_gap * 2.0F);
+      const float shader_top = result.shader_panel_bounds.y + outer_gap;
+
+      result.shader_panel_bounds =
+          UI::Rect{shader_left, shader_top, shader_w, shader_h};
+      const float s_head_h =
+          std::min(28.0F * scale, result.shader_panel_header_bounds.height);
+      const float s_ctrl_h =
+          std::min(36.0F * scale, result.shader_panel_controls_bounds.height);
+      result.shader_panel_header_bounds =
+          UI::Rect{shader_left, shader_top, shader_w, s_head_h};
+      result.shader_panel_viewport_bounds =
+          UI::Rect{shader_left, shader_top + s_head_h, shader_w,
+                   std::max(0.0F, shader_h - s_head_h - s_ctrl_h)};
+      result.shader_panel_controls_bounds =
+          UI::Rect{shader_left, shader_top + shader_h - s_ctrl_h, shader_w,
+                   s_ctrl_h};
+    }
+  }
+
   return result;
 }
 
@@ -926,10 +1080,6 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
         m_tool_sidebar.get_model().set_visible(true);
         static_cast<void>(
             m_tool_sidebar.activate(UI::Editor::SidebarIcon::ToolPlugin));
-      } else if (pop_res.open_marketplace) {
-        m_tool_sidebar.get_model().set_visible(true);
-        static_cast<void>(
-            m_tool_sidebar.activate(UI::Editor::SidebarIcon::Services));
       }
       if (m_window_handle)
         InvalidateRect(m_window_handle, nullptr, FALSE);
@@ -1597,9 +1747,21 @@ bool StudioWorkspaceRenderer::is_editor_point(
     float content_top) const noexcept {
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
-  return (layout.editor_header_bounds.contains(point_x, point_y) ||
-          layout.gutter_bounds.contains(point_x, point_y) ||
-          layout.editor_bounds.contains(point_x, point_y)) &&
+  const float scale = layout.dpi_scale;
+  const float editor_top = layout.editor_header_bounds.is_empty()
+                               ? layout.gutter_bounds.y
+                               : layout.editor_header_bounds.y;
+  const float editor_bottom = layout.editor_bounds.bottom() + 6.0F * scale;
+  const float left = layout.editor_header_bounds.is_empty()
+                         ? layout.gutter_bounds.x
+                         : layout.editor_header_bounds.x;
+  const float width = layout.editor_header_bounds.is_empty()
+                          ? (layout.gutter_bounds.width + layout.editor_bounds.width)
+                          : layout.editor_header_bounds.width;
+  const UI::Rect full_editor_rect{left, editor_top, width,
+                                  std::max(0.0F, editor_bottom - editor_top)};
+
+  return full_editor_rect.contains(point_x, point_y) &&
          !m_text_editor.is_minimap_point(layout, point_x, point_y) &&
          !m_text_editor.is_scrollbar_point(layout, point_x, point_y);
 }
@@ -1883,93 +2045,36 @@ StudioWorkspaceRenderer::get_modern_card_geometry(
   const UI::Editor::StudioEditorLayoutResult layout =
       calculate_layout(client_width, client_height, content_top);
   const float scale = layout.dpi_scale;
-  const float sep_gap = std::max(std::round(6.0F * scale), 6.0F);
-  const float outer_gap = std::max(std::round(5.0F * scale), 4.0F);
   const float card_radius = std::max(std::round(8.0F * scale), 8.0F);
 
   ModernCardGeometry geom;
   geom.card_radius = card_radius;
 
-  const bool has_sidebar =
-      m_tool_sidebar.is_visible() && !layout.tool_sidebar_bounds.is_empty();
-  const bool sidebar_on_right =
-      has_sidebar && (layout.tool_sidebar_bounds.x > layout.editor_bounds.x);
-
-  float editor_col_left = outer_gap;
-  float editor_col_right = layout.workspace_bounds.right() - outer_gap;
-  const float shader_split_x =
-      layout.shader_splitter_bounds.x + layout.shader_splitter_bounds.width * 0.5F;
-
-  if (sidebar_on_right) {
-    if (!layout.activity_bar_bounds.is_empty() &&
-        layout.activity_bar_bounds.width < 100.0F &&
-        layout.activity_bar_bounds.x < layout.editor_bounds.x) {
-      editor_col_left = layout.activity_bar_bounds.right() + outer_gap;
-    } else {
-      editor_col_left = outer_gap;
-    }
-    if (layout.shader_panel_visible) {
-      editor_col_right = shader_split_x - sep_gap * 0.5F;
-    } else {
-      editor_col_right = layout.tool_sidebar_bounds.x - sep_gap * 0.5F;
-    }
-  } else {
-    editor_col_left =
-        has_sidebar ? (layout.tool_sidebar_bounds.right() + sep_gap * 0.5F)
-                    : (!layout.activity_bar_bounds.is_empty() &&
-                               layout.activity_bar_bounds.width < 100.0F
-                           ? (layout.activity_bar_bounds.right() + outer_gap)
-                           : outer_gap);
-
-    editor_col_right = layout.shader_panel_visible
-                           ? (shader_split_x - sep_gap * 0.5F)
-                           : (layout.workspace_bounds.right() - outer_gap);
-  }
-
-  const float editor_col_top = (layout.editor_header_bounds.is_empty()
-                                    ? layout.gutter_bounds.y
-                                    : layout.editor_header_bounds.y) +
-                               outer_gap;
-  const float editor_col_bottom = layout.status_bar_bounds.y - outer_gap;
-
-  // In modern mode, the sidebar card wrapper is eliminated: the sidebar (horizontal
-  // activity bar + explorer) sits seamlessly directly on the window canvas background,
-  // matching the second reference image.
+  // In modern mode, the sidebar sits seamlessly on the window canvas background
   geom.sidebar_card = UI::Rect{0.0F, 0.0F, 0.0F, 0.0F};
 
-  const bool has_terminal = m_terminal_panel.is_visible() &&
-                            !layout.terminal_panel_bounds.is_empty();
-
-  const float editor_card_bottom =
-      has_terminal ? (layout.terminal_panel_bounds.y - sep_gap * 0.5F)
-                   : editor_col_bottom;
-  geom.editor_card = UI::Rect{
-      editor_col_left,
-      editor_col_top,
-      std::max(0.0F, editor_col_right - editor_col_left),
-      std::max(0.0F, editor_card_bottom - editor_col_top),
-  };
-
-  if (has_terminal) {
-    const float term_top = layout.terminal_panel_bounds.y + sep_gap * 0.5F;
-    geom.terminal_card = UI::Rect{
-        editor_col_left,
-        term_top,
-        std::max(0.0F, editor_col_right - editor_col_left),
-        std::max(0.0F, editor_col_bottom - term_top),
-    };
+  if (!layout.editor_bounds.is_empty() || !layout.editor_header_bounds.is_empty()) {
+    const float left = layout.editor_header_bounds.is_empty()
+                           ? layout.gutter_bounds.x
+                           : layout.editor_header_bounds.x;
+    const float top = layout.editor_header_bounds.is_empty()
+                          ? (layout.gutter_bounds.y - 4.0F * scale)
+                          : layout.editor_header_bounds.y;
+    const float right = layout.editor_header_bounds.is_empty()
+                            ? layout.editor_bounds.right()
+                            : layout.editor_header_bounds.right();
+    const float bottom = layout.editor_bounds.bottom() + 6.0F * scale;
+    geom.editor_card = UI::Rect{left, top, std::max(0.0F, right - left),
+                                std::max(0.0F, bottom - top)};
   }
 
-  const bool has_shader = m_shader_sandbox_panel.is_visible() &&
-                          !layout.shader_panel_bounds.is_empty();
-  if (has_shader) {
-    const float shader_left = shader_split_x + sep_gap * 0.5F;
-    geom.shader_card = UI::Rect{
-        shader_left,
-        layout.shader_panel_bounds.y + outer_gap,
-        std::max(0.0F, layout.shader_panel_bounds.right() - outer_gap - shader_left),
-        std::max(0.0F, layout.shader_panel_bounds.height - outer_gap * 2.0F),
-    };
+  if (m_terminal_panel.is_visible() && !layout.terminal_panel_bounds.is_empty()) {
+    geom.terminal_card = layout.terminal_panel_bounds;
+  }
+
+  if (m_shader_sandbox_panel.is_visible() &&
+      !layout.shader_panel_bounds.is_empty()) {
+    geom.shader_card = layout.shader_panel_bounds;
   }
 
   return geom;

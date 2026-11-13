@@ -65,10 +65,8 @@ std::optional<std::size_t> EditorMinimap::handle_pointer_drag(
   const float font_height = 3.0F * layout.dpi_scale;
   const float row_height = std::max(font_height, 2.0F * layout.dpi_scale);
   const float total_content_height = static_cast<float>(total_lines) * row_height;
-  const float vp_h = std::clamp(
-      (static_cast<float>(visible_lines) / static_cast<float>(total_lines)) *
-          bounds.height,
-      18.0F * layout.dpi_scale, bounds.height);
+  const float vp_h = std::clamp((static_cast<float>(visible_lines) / static_cast<float>(total_lines)) * bounds.height,
+                                 18.0F * layout.dpi_scale, bounds.height);
 
     if (total_content_height <= bounds.height) {
       const float vp_h = std::clamp(
@@ -181,42 +179,37 @@ void EditorMinimap::render(const StudioWorkspaceRenderer &surface,
   const float left_padding = 4.0F * layout.dpi_scale;
   const float right_padding = 4.0F * layout.dpi_scale;
 
-  const auto token_color =
-      [&surface](UI::Editor::EditorTokenKind kind, bool is_dimmed = false) -> const std::string & {
+  const auto token_color = [&surface](UI::Editor::EditorTokenKind kind, bool is_dimmed = false) -> const std::string & {
     const auto &text_palette = is_dimmed ? surface.m_text_dimmed : surface.m_text;
     switch (kind) {
-    case UI::Editor::EditorTokenKind::Keyword:
-      return text_palette.keyword;
-    case UI::Editor::EditorTokenKind::Directive:
-      return text_palette.keyword;
-    case UI::Editor::EditorTokenKind::Macro:
-      return text_palette.label;
-    case UI::Editor::EditorTokenKind::IncludeHeader:
-      return text_palette.success;
-    case UI::Editor::EditorTokenKind::Number:
-      return text_palette.number;
-    case UI::Editor::EditorTokenKind::Label:
-      return text_palette.label;
-    case UI::Editor::EditorTokenKind::Type:
-      return text_palette.type;
-    case UI::Editor::EditorTokenKind::Comment:
-      return text_palette.comment;
-    case UI::Editor::EditorTokenKind::String:
-      return text_palette.success;
-    case UI::Editor::EditorTokenKind::Plain:
-      return text_palette.primary;
+      case UI::Editor::EditorTokenKind::Keyword:
+        return text_palette.keyword;
+      case UI::Editor::EditorTokenKind::Directive:
+        return text_palette.keyword;
+      case UI::Editor::EditorTokenKind::Macro:
+        return text_palette.label;
+      case UI::Editor::EditorTokenKind::IncludeHeader:
+        return text_palette.success;
+      case UI::Editor::EditorTokenKind::Number:
+        return text_palette.number;
+      case UI::Editor::EditorTokenKind::Label:
+        return text_palette.label;
+      case UI::Editor::EditorTokenKind::Type:
+        return text_palette.type;
+      case UI::Editor::EditorTokenKind::Comment:
+        return text_palette.comment;
+      case UI::Editor::EditorTokenKind::String:
+        return text_palette.success;
+      case UI::Editor::EditorTokenKind::Plain:
+        return text_palette.primary;
     }
     return text_palette.primary;
   };
 
-  for (std::size_t line_index = start_line; line_index < end_line;
-       ++line_index) {
+  for (std::size_t line_index = start_line; line_index < end_line; ++line_index) {
     const std::string_view line = document.get_line(line_index);
-    const float center_y =
-        bounds.y + (static_cast<float>(line_index) + 0.5F) * row_height -
-        minimap_scroll_y;
-    if (center_y < bounds.y - row_height ||
-        center_y > bounds.bottom() + row_height) {
+    const float center_y = bounds.y + (static_cast<float>(line_index) + 0.5F) * row_height - minimap_scroll_y;
+    if (center_y < bounds.y - row_height || center_y > bounds.bottom() + row_height) {
       continue;
     }
 
@@ -240,25 +233,26 @@ void EditorMinimap::render(const StudioWorkspaceRenderer &surface,
 
     float token_x = bounds.x + left_padding;
     std::size_t rendered_bytes = 0;
-    std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens>
-        tokens{};
+    std::array<UI::Editor::EditorToken, UI::Editor::maximum_editor_tokens>tokens{};
     auto line_state = document.get_line_state(line_index);
-    const std::size_t token_count =
-        UI::Editor::tokenize_editor_line(line, tokens, document.get_file_name(), &line_state);
-    for (std::size_t token_index = 0; token_index < token_count;
-         ++token_index) {
+    const std::size_t token_count = UI::Editor::tokenize_editor_line(line, tokens, document.get_file_name(), &line_state);
+
+    for (std::size_t token_index = 0; token_index < token_count; ++token_index) {
       if (token_x >= bounds.right() - right_padding) {
         break;
       }
+
       const UI::Editor::EditorToken &token = tokens[token_index];
       const std::size_t tok_len = token.text.size();
       const bool unused = is_token_unused(rendered_bytes, tok_len);
       const std::string text = normalize_minimap_text(token.text);
       const int width = surface.m_minimap_font->getTextWidth(text);
+
       if (!text.empty() && text.find_first_not_of(' ') != std::string::npos) {
         surface.draw_text(context, *surface.m_minimap_font, text, token_x,
                           center_y, token_color(token.kind, unused));
       }
+
       token_x += static_cast<float>(width);
       rendered_bytes += tok_len;
     }

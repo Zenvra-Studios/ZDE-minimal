@@ -80,11 +80,10 @@ UI::Rect ToolSwitcherPopup::calculate_bounds(float dpi_scale) const noexcept
     const float w = 240.0F * dpi_scale;
     const float header_h = 32.0F * dpi_scale;
     const float item_h = 34.0F * dpi_scale;
-    const float footer_h = 32.0F * dpi_scale;
     const float content_h = m_items.empty()
         ? 40.0F * dpi_scale
         : (static_cast<float>(m_items.size()) * item_h);
-    const float total_h = header_h + content_h + footer_h;
+    const float total_h = header_h + content_h + 8.0F * dpi_scale;
 
     float y = m_anchor_y - 10.0F * dpi_scale;
     if (y < 30.0F * dpi_scale) y = 30.0F * dpi_scale;
@@ -131,14 +130,6 @@ ToolSwitcherPopup::PressResult ToolSwitcherPopup::handle_pointer_press(
         cur_y += item_h;
     }
 
-    const float footer_h = 32.0F * dpi_scale;
-    const UI::Rect footer_rect{bounds.x + 4.0F * dpi_scale, bounds.bottom() - footer_h, bounds.width - 8.0F * dpi_scale, footer_h};
-    if (footer_rect.contains(point_x, point_y))
-    {
-        hide();
-        return PressResult{.handled = true, .open_marketplace = true};
-    }
-
     return PressResult{.handled = true};
 }
 
@@ -172,13 +163,8 @@ bool ToolSwitcherPopup::handle_pointer_move(
         cur_y += item_h;
     }
 
-    const float footer_h = 32.0F * dpi_scale;
-    const UI::Rect footer_rect{bounds.x + 4.0F * dpi_scale, bounds.bottom() - footer_h, bounds.width - 8.0F * dpi_scale, footer_h};
-    const bool next_browse = footer_rect.contains(point_x, point_y);
-
-    const bool changed = (next_hovered != m_hovered_index) || (next_browse != m_hovered_browse);
+    const bool changed = (next_hovered != m_hovered_index);
     m_hovered_index = next_hovered;
-    m_hovered_browse = next_browse;
     return changed;
 }
 
@@ -280,43 +266,6 @@ void ToolSwitcherPopup::render(
 
             cur_y += item_h;
         }
-    }
-
-    surface.draw_line(
-        drawable,
-        round_to_int(bounds.x + 8.0F * dpi_scale),
-        round_to_int(cur_y + 2.0F * dpi_scale),
-        round_to_int(bounds.right() - 8.0F * dpi_scale),
-        round_to_int(cur_y + 2.0F * dpi_scale),
-        surface.m_pixels.border);
-
-    const float footer_h = 32.0F * dpi_scale;
-    const UI::Rect footer_rect{bounds.x + 4.0F * dpi_scale, bounds.bottom() - footer_h + 2.0F * dpi_scale, bounds.width - 8.0F * dpi_scale, footer_h - 4.0F * dpi_scale};
-
-    if (m_hovered_browse)
-    {
-        surface.fill_rounded_rectangle(
-            drawable, footer_rect, surface.m_pixels.hover_background,
-            4.0F * dpi_scale, surface.m_pixels.sidebar_background);
-    }
-
-    surface.draw_svg_icon(
-        drawable,
-        "Assets/icons/vscode-codicons/icons/extensions.svg",
-        round_to_int(footer_rect.x + 14.0F * dpi_scale),
-        round_to_int(footer_rect.y + footer_rect.height * 0.5F),
-        round_to_int(12.0F * dpi_scale),
-        UI::Theme::Color{56, 189, 248, 255},
-        surface.m_palette.sidebar_background,
-        true);
-
-    if (surface.m_small_font) {
-        surface.draw_text(
-            drawable, *surface.m_small_font,
-            "Browse Marketplace...",
-            footer_rect.x + 28.0F * dpi_scale,
-            footer_rect.y + footer_rect.height * 0.5F,
-            surface.m_text.muted);
     }
 }
 

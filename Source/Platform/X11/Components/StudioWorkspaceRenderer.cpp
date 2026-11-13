@@ -389,8 +389,6 @@ bool StudioWorkspaceRenderer::handle_pointer_press(
           UI::Editor::set_active_tool_sidebar_item(active_tool->get_id(),
                                                    active_tool->get_name());
         }
-      } else if (pop_res.open_marketplace) {
-        command_out = "zde.marketplace.open";
       }
       return true;
     }
