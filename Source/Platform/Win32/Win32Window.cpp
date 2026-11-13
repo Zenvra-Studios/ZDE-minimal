@@ -84,6 +84,10 @@ void invoke_uxtheme_proc(HMODULE uxtheme, LPCSTR proc_identifier,
 }
 
 void enable_menu_dark_mode(HWND hwnd, bool is_dark = true) {
+  const DWORD win_build = get_windows_build_number();
+  if (win_build < 17763) {
+    return; // Dark mode menu ordinals in uxtheme.dll were only added in Windows 10 1809 (Build 17763).
+  }
   HMODULE uxtheme =
       LoadLibraryExW(L"uxtheme.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
   if (!uxtheme) {
@@ -713,8 +717,11 @@ void Win32Window::set_custom_chrome_enabled(bool enabled) {
   } else {
     close_menu_overlay();
     static_cast<void>(m_menubar.attach(m_window_handle));
-    const MARGINS frame_margins{0, 0, 0, 0};
-    DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
+    BOOL composition_enabled = FALSE;
+    if (SUCCEEDED(DwmIsCompositionEnabled(&composition_enabled)) && composition_enabled) {
+      const MARGINS frame_margins{0, 0, 0, 0};
+      DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
+    }
   }
 
   SetWindowPos(m_window_handle, nullptr, 0, 0, 0, 0,
@@ -4021,15 +4028,18 @@ void Win32Window::update_dwm_border_color(bool force) {
   }
 
   if (m_custom_chrome_enabled) {
-    const bool blur_active = m_theme.enable_os_blur;
-    if (blur_active) {
-      const MARGINS frame_margins{-1, -1, -1, -1};
-      DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
-    } else {
-      const MARGINS frame_margins = maximized
-          ? MARGINS{0, 0, 0, 0}
-          : MARGINS{1, 1, 1, 1};
-      DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
+    BOOL composition_enabled = FALSE;
+    if (SUCCEEDED(DwmIsCompositionEnabled(&composition_enabled)) && composition_enabled) {
+      const bool blur_active = m_theme.enable_os_blur;
+      if (blur_active) {
+        const MARGINS frame_margins{-1, -1, -1, -1};
+        DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
+      } else {
+        const MARGINS frame_margins = maximized
+            ? MARGINS{0, 0, 0, 0}
+            : MARGINS{1, 1, 1, 1};
+        DwmExtendFrameIntoClientArea(m_window_handle, &frame_margins);
+      }
     }
   }
 }
@@ -5411,7 +5421,6 @@ void Win32Window::show_activity_bar_context_menu(int client_x, int client_y) {
          st.set("workbench.activityBar.visible", true, Settings::SettingsScope::User);
          st.set("workbench.activityBar.location", std::string("Default"), Settings::SettingsScope::User);
          InvalidateRect(m_window_handle, nullptr, FALSE);
-         UpdateWindow(m_window_handle);
        }, {}
   });
   loc_sub_items.push_back({
@@ -5421,7 +5430,6 @@ void Win32Window::show_activity_bar_context_menu(int client_x, int client_y) {
          st.set("workbench.activityBar.location", std::string("Top"), Settings::SettingsScope::User);
          m_workspace_renderer.m_tool_sidebar.get_model().set_visible(true);
          InvalidateRect(m_window_handle, nullptr, FALSE);
-         UpdateWindow(m_window_handle);
        }, {}
   });
   loc_sub_items.push_back({
@@ -5431,7 +5439,6 @@ void Win32Window::show_activity_bar_context_menu(int client_x, int client_y) {
          st.set("workbench.activityBar.location", std::string("Bottom"), Settings::SettingsScope::User);
          m_workspace_renderer.m_tool_sidebar.get_model().set_visible(true);
          InvalidateRect(m_window_handle, nullptr, FALSE);
-         UpdateWindow(m_window_handle);
        }, {}
   });
   loc_sub_items.push_back({
@@ -5440,7 +5447,6 @@ void Win32Window::show_activity_bar_context_menu(int client_x, int client_y) {
          st.set("workbench.activityBar.visible", false, Settings::SettingsScope::User);
          st.set("workbench.activityBar.location", std::string("Hidden"), Settings::SettingsScope::User);
          InvalidateRect(m_window_handle, nullptr, FALSE);
-         UpdateWindow(m_window_handle);
        }, {}
   });
 
@@ -5507,7 +5513,6 @@ void Win32Window::show_activity_bar_context_menu(int client_x, int client_y) {
          auto &st = Settings::SettingsService::instance();
          st.set("workbench.sidebar.position", std::string(sidebar_is_right ? "Left" : "Right"), Settings::SettingsScope::User);
          InvalidateRect(m_window_handle, nullptr, FALSE);
-         UpdateWindow(m_window_handle);
        }, {}},
 
       // 4. Hide / Show Primary Side Bar
@@ -5521,7 +5526,6 @@ void Win32Window::show_activity_bar_context_menu(int client_x, int client_y) {
          st.set("workbench.activityBar.visible", false, Settings::SettingsScope::User);
          st.set("workbench.activityBar.location", std::string("Hidden"), Settings::SettingsScope::User);
          InvalidateRect(m_window_handle, nullptr, FALSE);
-         UpdateWindow(m_window_handle);
        }, {}},
 
       // 6. Reset View Locations
@@ -6226,6 +6230,11 @@ void Win32Window::apply_os_backdrop(bool enable_blur, UI::Theme::BackdropEffect 
 
   const DWORD win_build = get_windows_build_number();
 
+  // Windows 7 / 8 / 8.1 do not support Windows 10/11 acrylic/mica backdrops or WCA_ACCENT_POLICY (Attrib 19).
+  if (win_build < 10240) {
+    return;
+  }
+
   // 1. Windows 11 22H2+ (Build >= 22621): DWMWA_SYSTEMBACKDROP_TYPE (38)
   constexpr DWORD dwm_backdrop_type_attr = 38;
   constexpr DWORD dwmsbt_none = 1;
@@ -6332,13 +6341,16 @@ void Win32Window::apply_theme(const UI::Theme::StudioTheme& theme) {
   m_workspace_renderer.update_theme(theme);
 
   if (m_window_handle != nullptr) {
-    const BOOL dark_mode_enabled = theme.is_dark ? TRUE : FALSE;
-    if (FAILED(DwmSetWindowAttribute(m_window_handle, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */,
-                                     &dark_mode_enabled, sizeof(dark_mode_enabled)))) {
-      DwmSetWindowAttribute(m_window_handle, 19 /* DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 */,
-                            &dark_mode_enabled, sizeof(dark_mode_enabled));
+    const DWORD win_build = get_windows_build_number();
+    if (win_build >= 17763) {
+      const BOOL dark_mode_enabled = theme.is_dark ? TRUE : FALSE;
+      if (FAILED(DwmSetWindowAttribute(m_window_handle, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */,
+                                       &dark_mode_enabled, sizeof(dark_mode_enabled)))) {
+        DwmSetWindowAttribute(m_window_handle, 19 /* DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 */,
+                              &dark_mode_enabled, sizeof(dark_mode_enabled));
+      }
+      enable_menu_dark_mode(m_window_handle, theme.is_dark);
     }
-    enable_menu_dark_mode(m_window_handle, theme.is_dark);
     const bool enable_blur = theme.enable_os_blur;
     apply_os_backdrop(enable_blur, theme.backdrop_effect, theme.is_dark);
     update_dwm_border_color(GetFocus() == m_window_handle);
@@ -6347,7 +6359,6 @@ void Win32Window::apply_theme(const UI::Theme::StudioTheme& theme) {
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE |
                      SWP_FRAMECHANGED);
     InvalidateRect(m_window_handle, nullptr, FALSE);
-    UpdateWindow(m_window_handle);
   }
 }
 
