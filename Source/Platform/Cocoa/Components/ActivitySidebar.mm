@@ -88,13 +88,6 @@ void ActivitySidebar::render(
         {
             const CGFloat active_col[4] = {1.0, 1.0, 1.0, 0.12};
             surface.fill_rounded_rectangle(context, box_rect, active_col, box_radius);
-            const UI::Rect pill_rect{
-                layout.activity_bar_bounds.x,
-                center_y - 12.0F * surface.m_dpi_scale,
-                2.5F * surface.m_dpi_scale,
-                24.0F * surface.m_dpi_scale,
-            };
-            surface.fill_rounded_rectangle(context, pill_rect, surface.m_colors.text_primary, 1.25F * surface.m_dpi_scale);
         }
         else if (hovered)
         {

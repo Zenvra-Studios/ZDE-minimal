@@ -385,6 +385,18 @@ public:
   }
 
   void flush_lsp_document_sync_if_needed(bool force = false);
+
+  int get_next_document_version(const std::string& uri) {
+    auto& v = m_document_versions[uri];
+    return ++v;
+  }
+
+  void reset_document_version(const std::string& uri) {
+    m_document_versions[uri] = 1;
+  }
+
+private:
+  std::unordered_map<std::string, int> m_document_versions;
 };
 
 } // namespace Zenvra::Platform::Win32::Components

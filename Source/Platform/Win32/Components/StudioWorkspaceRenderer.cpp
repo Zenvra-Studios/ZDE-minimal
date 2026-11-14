@@ -1,6 +1,8 @@
 #include "Platform/Win32/Components/StudioWorkspaceRenderer.h"
+#include "Platform/Win32/Utility/Win32Compat.h"
 #include "Commands/CommandIds.h"
 #include "Language/LanguageServerManager.h"
+#include "Services/Installation/Catalog/CatalogLoader.h"
 #include "Platform/HostSystem.h"
 #include "Platform/PlatformDialogs.h"
 #include "Plugins/PluginManager.h"
@@ -718,6 +720,11 @@ bool StudioWorkspaceRenderer::initialize(UINT dpi) {
   }
   m_terminal_panel.set_focused(false);
   static_cast<void>(m_shader_sandbox_panel.initialize());
+
+  Language::LanguageServerManager::instance().set_missing_server_callback(
+      [this](const std::string &lang_id, const std::string &lang_name, const std::string &server_name) {
+        show_missing_lsp_dialog(lang_id, lang_name, server_name);
+      });
 
   m_text_editor.sync_lsp_active_document();
 
@@ -3200,7 +3207,8 @@ void StudioWorkspaceRenderer::render_prompt_modal(HDC device_context,
             layout.title_bounds.y + layout.title_bounds.height * 0.5F,
             UI::Theme::Color{235, 238, 242, 255});
 
-  if (m_prompt_modal.get_mode() == UI::Components::PromptMode::ConfirmDelete) {
+  if (m_prompt_modal.get_mode() == UI::Components::PromptMode::ConfirmDelete ||
+      m_prompt_modal.get_mode() == UI::Components::PromptMode::InstallLspServer) {
     const std::string sub_str = m_prompt_modal.get_subtitle();
     const int sub_tw = get_text_width(device_context, *m_small_font, sub_str);
     const float sub_x =
@@ -3233,7 +3241,8 @@ void StudioWorkspaceRenderer::render_prompt_modal(HDC device_context,
                 close_bg);
 
   // 5. Pure Transparent Borderless Input Field (macOS Cocoa standard)
-  if (m_prompt_modal.get_mode() != UI::Components::PromptMode::ConfirmDelete) {
+  if (m_prompt_modal.get_mode() != UI::Components::PromptMode::ConfirmDelete &&
+      m_prompt_modal.get_mode() != UI::Components::PromptMode::InstallLspServer) {
     const auto &input = m_prompt_modal.get_input();
     const std::string &text = input.get_text();
     const float text_x = layout.input_bounds.x + 4.0F * m_dpi_scale;
@@ -3258,19 +3267,20 @@ void StudioWorkspaceRenderer::render_prompt_modal(HDC device_context,
               UI::Theme::Color{255, 255, 255, 230});
   }
 
-  // 6. Action Buttons (Only rendered when defined, e.g. for ConfirmDelete)
+  // 6. Action Buttons (Only rendered when defined, e.g. for ConfirmDelete or InstallLspServer)
   if (!layout.cancel_button_bounds.is_empty()) {
     const auto cancel_bg = m_prompt_modal.is_cancel_hovered()
                                ? UI::Theme::Color{58, 61, 68, 255}
                                : UI::Theme::Color{45, 47, 52, 255};
     fill_rounded_rectangle(device_context, layout.cancel_button_bounds,
                            cancel_bg, 6.0F * m_dpi_scale);
-    const int cancel_tw = get_text_width(device_context, *m_ui_font, "Cancel");
+    const std::string cancel_label = m_prompt_modal.get_cancel_label();
+    const int cancel_tw = get_text_width(device_context, *m_ui_font, cancel_label);
     const float cancel_tx =
         layout.cancel_button_bounds.x +
         (layout.cancel_button_bounds.width - static_cast<float>(cancel_tw)) *
             0.5F;
-    draw_text(device_context, *m_ui_font, "Cancel", cancel_tx,
+    draw_text(device_context, *m_ui_font, cancel_label, cancel_tx,
               layout.cancel_button_bounds.y +
                   layout.cancel_button_bounds.height * 0.5F,
               UI::Theme::Color{204, 204, 204, 255});
@@ -3537,6 +3547,656 @@ void StudioWorkspaceRenderer::update_theme(
   m_theme = theme;
   m_palette = UI::Editor::StudioEditorPalette::from_theme(theme);
   m_settings_window.set_theme(theme);
+}
+
+void StudioWorkspaceRenderer::show_missing_lsp_dialog(
+    const std::string &language_id,
+    const std::string &language_name,
+    const std::string &server_name) {
+  // If the LSP executable exists in plugins/lsp, do not prompt
+  const auto existing = Language::Registry::ServerRegistry::instance().find_executable_in_system(server_name);
+  if (!existing.empty()) {
+    return;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(m_lsp_install_mutex);
+    if (m_installing_lsp_languages.contains(language_id) ||
+        m_installing_lsp_languages.contains(server_name)) {
+      return;
+    }
+    // If the server does not exist on disk, ensure any previous dismissal is reset
+    m_dismissed_lsp_languages.erase(language_id);
+    m_dismissed_lsp_languages.erase(server_name);
+  }
+
+  if (m_prompt_modal.is_visible()) {
+    return;
+  }
+
+  m_prompt_modal.open_lsp_install(
+      language_name,
+      server_name,
+      [this, language_id, server_name]() {
+        {
+          std::lock_guard<std::mutex> lock(m_lsp_install_mutex);
+          m_installing_lsp_languages.insert(language_id);
+          m_installing_lsp_languages.insert(server_name);
+        }
+        install_language_server(language_id, server_name);
+      },
+      [this, language_id, server_name]() {
+        // User dismissed / Later
+        std::lock_guard<std::mutex> lock(m_lsp_install_mutex);
+        m_dismissed_lsp_languages.insert(language_id);
+        m_dismissed_lsp_languages.insert(server_name);
+      });
+  if (m_window_handle) {
+    InvalidateRect(m_window_handle, nullptr, FALSE);
+  }
+}
+
+void StudioWorkspaceRenderer::install_language_server(
+    const std::string &language_id,
+    const std::string &server_name) {
+  std::thread([this, language_id, server_name]() {
+    bool installed = false;
+    std::error_code ec;
+
+    // 1. Resolve ZDE software plugins directory for LSP
+    std::filesystem::path lsp_root;
+    const auto cur = std::filesystem::current_path(ec);
+    if (!ec && std::filesystem::is_directory(cur / "plugins", ec)) {
+      lsp_root = cur / "plugins" / "lsp";
+    } else {
+#if defined(_WIN32)
+      std::array<wchar_t, 32768> exe_buf{};
+      const DWORD len = GetModuleFileNameW(nullptr, exe_buf.data(), static_cast<DWORD>(exe_buf.size()));
+      if (len > 0) {
+        std::filesystem::path app_dir = std::filesystem::path(exe_buf.data()).parent_path();
+        std::filesystem::path p = app_dir;
+        for (int i = 0; i < 6 && !p.empty(); ++i) {
+          if (std::filesystem::is_directory(p / "plugins", ec)) {
+            lsp_root = p / "plugins" / "lsp";
+            break;
+          }
+          if (p == p.parent_path()) break;
+          p = p.parent_path();
+        }
+        if (lsp_root.empty()) {
+          lsp_root = app_dir / "plugins" / "lsp";
+        }
+      }
+#endif
+    }
+
+    if (lsp_root.empty()) {
+#if defined(_WIN32)
+      const char* appdata = std::getenv("APPDATA");
+      if (appdata) {
+        lsp_root = std::filesystem::path(appdata) / "ZDE" / "plugins" / "lsp";
+      } else {
+        lsp_root = cur / "plugins" / "lsp";
+      }
+#else
+      const char* home = std::getenv("HOME");
+      if (home) {
+        lsp_root = std::filesystem::path(home) / ".zde" / "plugins" / "lsp";
+      } else {
+        lsp_root = cur / "plugins" / "lsp";
+      }
+#endif
+    }
+
+    std::filesystem::create_directories(lsp_root, ec);
+
+    const std::string effective_server = server_name.empty() ? language_id : server_name;
+    const auto target_dir = lsp_root / effective_server;
+    std::filesystem::create_directories(target_dir, ec);
+
+#if defined(_WIN32)
+    const std::string default_ext = (effective_server == "jdtls" || language_id == "java") ? ".bat" : ".exe";
+    const std::string exe_name = (effective_server.ends_with(".exe") || effective_server.ends_with(".bat") || effective_server.ends_with(".cmd"))
+        ? effective_server
+        : (effective_server + default_ext);
+    const auto target_exe = target_dir / exe_name;
+
+    // Helper: find an existing executable on the host system PATH
+    auto find_host_binary = [](const std::string& name) -> std::filesystem::path {
+      std::error_code ec_find;
+      std::wstring name_w(name.begin(), name.end());
+      std::array<wchar_t, 32768> resolved{};
+      const DWORD length = SearchPathW(nullptr, name_w.c_str(), nullptr,
+                                       static_cast<DWORD>(resolved.size()), resolved.data(), nullptr);
+      if (length > 0 && length < resolved.size()) {
+        std::filesystem::path p(resolved.data());
+        if (std::filesystem::exists(p, ec_find) && std::filesystem::is_regular_file(p, ec_find)) {
+          return p;
+        }
+      }
+
+      const std::filesystem::path prog_candidates[] = {
+        "C:\\Program Files\\LLVM\\bin\\" + name,
+        "C:\\Program Files (x86)\\LLVM\\bin\\" + name,
+        "C:\\LLVM\\bin\\" + name
+      };
+      for (const auto& c : prog_candidates) {
+        if (std::filesystem::exists(c, ec_find) && std::filesystem::is_regular_file(c, ec_find)) {
+          return c;
+        }
+      }
+
+      const char* userprofile = std::getenv("USERPROFILE");
+      if (userprofile) {
+        const std::filesystem::path up(userprofile);
+        const std::filesystem::path candidates[] = {
+          up / ".cargo" / "bin" / name,
+          up / "scoop" / "apps" / "rustup" / "current" / ".cargo" / "bin" / name,
+          up / "scoop" / "shims" / name,
+          up / "scoop" / "apps" / "llvm" / "current" / "bin" / name,
+          up / "AppData" / "Local" / "Microsoft" / "WinGet" / "Links" / name
+        };
+        for (const auto& c : candidates) {
+          if (std::filesystem::exists(c, ec_find) && std::filesystem::is_regular_file(c, ec_find)) {
+            return c;
+          }
+        }
+      }
+
+      return {};
+    };
+
+    auto run_cmd_hidden = [](const std::string& cmd_line, DWORD timeout_ms) -> bool {
+      STARTUPINFOA si{};
+      PROCESS_INFORMATION pi{};
+      si.cb = sizeof(si);
+      si.dwFlags = STARTF_USESHOWWINDOW;
+      si.wShowWindow = SW_HIDE;
+      std::string mutable_cmd = cmd_line;
+      if (CreateProcessA(nullptr, mutable_cmd.data(), nullptr, nullptr, FALSE,
+                         CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
+        DWORD wait_res = WaitForSingleObject(pi.hProcess, timeout_ms);
+        DWORD exit_code = 1;
+        GetExitCodeProcess(pi.hProcess, &exit_code);
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        return (wait_res == WAIT_OBJECT_0 && exit_code == 0);
+      }
+      return false;
+    };
+
+    auto find_curl_binary = []() -> std::filesystem::path {
+      std::error_code ec_c;
+      std::array<wchar_t, 32768> resolved{};
+      const DWORD length = SearchPathW(nullptr, L"curl.exe", nullptr,
+                                       static_cast<DWORD>(resolved.size()), resolved.data(), nullptr);
+      if (length > 0 && length < resolved.size()) {
+        std::filesystem::path p(resolved.data());
+        if (std::filesystem::exists(p, ec_c) && std::filesystem::is_regular_file(p, ec_c)) {
+          return p;
+        }
+      }
+      const std::filesystem::path git_candidates[] = {
+        "C:\\Windows\\System32\\curl.exe",
+        "C:\\Program Files\\Git\\mingw64\\bin\\curl.exe",
+        "C:\\Program Files\\Git\\usr\\bin\\curl.exe",
+        "C:\\Program Files (x86)\\Git\\bin\\curl.exe"
+      };
+      for (const auto& c : git_candidates) {
+        if (std::filesystem::exists(c, ec_c) && std::filesystem::is_regular_file(c, ec_c)) {
+          return c;
+        }
+      }
+      const char* up = std::getenv("USERPROFILE");
+      if (up) {
+        std::filesystem::path up_p(up);
+        const std::filesystem::path up_candidates[] = {
+          up_p / "scoop" / "shims" / "curl.exe",
+          up_p / "scoop" / "apps" / "curl" / "current" / "bin" / "curl.exe",
+          up_p / "AppData" / "Local" / "Microsoft" / "WinGet" / "Links" / "curl.exe"
+        };
+        for (const auto& c : up_candidates) {
+          if (std::filesystem::exists(c, ec_c) && std::filesystem::is_regular_file(c, ec_c)) {
+            return c;
+          }
+        }
+      }
+      return "curl.exe";
+    };
+
+    auto find_tar_binary = []() -> std::filesystem::path {
+      std::error_code ec_t;
+      std::array<wchar_t, 32768> resolved{};
+      const DWORD length = SearchPathW(nullptr, L"tar.exe", nullptr,
+                                       static_cast<DWORD>(resolved.size()), resolved.data(), nullptr);
+      if (length > 0 && length < resolved.size()) {
+        std::filesystem::path p(resolved.data());
+        if (std::filesystem::exists(p, ec_t) && std::filesystem::is_regular_file(p, ec_t)) {
+          return p;
+        }
+      }
+      const std::filesystem::path candidates[] = {
+        "C:\\Windows\\System32\\tar.exe",
+        "C:\\Program Files\\Git\\usr\\bin\\tar.exe",
+        "C:\\Program Files (x86)\\Git\\usr\\bin\\tar.exe",
+        "C:\\Program Files\\Git\\bin\\tar.exe",
+        "C:\\msys64\\usr\\bin\\tar.exe"
+      };
+      for (const auto& c : candidates) {
+        if (std::filesystem::exists(c, ec_t) && std::filesystem::is_regular_file(c, ec_t)) {
+          return c;
+        }
+      }
+      const char* up = std::getenv("USERPROFILE");
+      if (up) {
+        const std::filesystem::path up_p(up);
+        const std::filesystem::path up_candidates[] = {
+          up_p / "scoop" / "shims" / "tar.exe",
+          up_p / "scoop" / "apps" / "git" / "current" / "usr" / "bin" / "tar.exe"
+        };
+        for (const auto& c : up_candidates) {
+          if (std::filesystem::exists(c, ec_t) && std::filesystem::is_regular_file(c, ec_t)) {
+            return c;
+          }
+        }
+      }
+      return {};
+    };
+
+    auto find_7z_binary = []() -> std::filesystem::path {
+      std::error_code ec_7;
+      std::array<wchar_t, 32768> resolved{};
+      const DWORD length = SearchPathW(nullptr, L"7z.exe", nullptr,
+                                       static_cast<DWORD>(resolved.size()), resolved.data(), nullptr);
+      if (length > 0 && length < resolved.size()) {
+        std::filesystem::path p(resolved.data());
+        if (std::filesystem::exists(p, ec_7) && std::filesystem::is_regular_file(p, ec_7)) {
+          return p;
+        }
+      }
+      const std::filesystem::path candidates[] = {
+        "C:\\Program Files\\7-Zip\\7z.exe",
+        "C:\\Program Files (x86)\\7-Zip\\7z.exe"
+      };
+      for (const auto& c : candidates) {
+        if (std::filesystem::exists(c, ec_7) && std::filesystem::is_regular_file(c, ec_7)) {
+          return c;
+        }
+      }
+      const char* up = std::getenv("USERPROFILE");
+      if (up) {
+        const std::filesystem::path up_p(up);
+        const std::filesystem::path up_candidates[] = {
+          up_p / "scoop" / "shims" / "7z.exe",
+          up_p / "scoop" / "apps" / "7zip" / "current" / "7z.exe"
+        };
+        for (const auto& c : up_candidates) {
+          if (std::filesystem::exists(c, ec_7) && std::filesystem::is_regular_file(c, ec_7)) {
+            return c;
+          }
+        }
+      }
+      return {};
+    };
+
+    auto find_python_binary = []() -> std::filesystem::path {
+      std::error_code ec_py;
+      std::array<wchar_t, 32768> resolved{};
+      DWORD length = SearchPathW(nullptr, L"python.exe", nullptr,
+                                 static_cast<DWORD>(resolved.size()), resolved.data(), nullptr);
+      if (length > 0 && length < resolved.size()) {
+        std::filesystem::path p(resolved.data());
+        if (std::filesystem::exists(p, ec_py) && std::filesystem::is_regular_file(p, ec_py)) {
+          return p;
+        }
+      }
+      length = SearchPathW(nullptr, L"py.exe", nullptr,
+                           static_cast<DWORD>(resolved.size()), resolved.data(), nullptr);
+      if (length > 0 && length < resolved.size()) {
+        std::filesystem::path p(resolved.data());
+        if (std::filesystem::exists(p, ec_py) && std::filesystem::is_regular_file(p, ec_py)) {
+          return p;
+        }
+      }
+      const char* up = std::getenv("USERPROFILE");
+      if (up) {
+        const std::filesystem::path up_p(up);
+        const std::filesystem::path up_candidates[] = {
+          up_p / "scoop" / "shims" / "python.exe",
+          up_p / "scoop" / "apps" / "python" / "current" / "python.exe",
+          up_p / "AppData" / "Local" / "Programs" / "Python" / "Python312" / "python.exe",
+          up_p / "AppData" / "Local" / "Programs" / "Python" / "Python311" / "python.exe",
+          up_p / "AppData" / "Local" / "Programs" / "Python" / "Python310" / "python.exe"
+        };
+        for (const auto& c : up_candidates) {
+          if (std::filesystem::exists(c, ec_py) && std::filesystem::is_regular_file(c, ec_py)) {
+            return c;
+          }
+        }
+      }
+      return {};
+    };
+
+    auto download_file = [&](const std::string& url, const std::filesystem::path& dest) -> bool {
+      std::error_code ec_dl;
+      std::filesystem::remove(dest, ec_dl);
+      const auto curl_bin = find_curl_binary();
+      std::string curl_cmd = "\"" + curl_bin.string() + "\" -L -k -s -f --retry 2 -A \"ZDE/1.0\" -o \"" + dest.string() + "\" \"" + url + "\"";
+      if (run_cmd_hidden(curl_cmd, 300000) && std::filesystem::exists(dest, ec_dl) && std::filesystem::file_size(dest, ec_dl) > 1000) {
+        return true;
+      }
+      std::string ps_cmd = "powershell.exe -NoProfile -NonInteractive -Command \"try { [System.Net.ServicePointManager]::SecurityProtocol = 3072 } catch {}; $wc = New-Object System.Net.WebClient; $wc.Headers.Add('User-Agent', 'Mozilla/5.0'); $wc.DownloadFile('" + url + "', '" + dest.string() + "')\"";
+      if (run_cmd_hidden(ps_cmd, 300000) && std::filesystem::exists(dest, ec_dl) && std::filesystem::file_size(dest, ec_dl) > 1000) {
+        return true;
+      }
+      std::string bits_cmd = "bitsadmin.exe /transfer zde_dl /download /priority foreground \"" + url + "\" \"" + dest.string() + "\"";
+      if (run_cmd_hidden(bits_cmd, 300000) && std::filesystem::exists(dest, ec_dl) && std::filesystem::file_size(dest, ec_dl) > 1000) {
+        return true;
+      }
+      return false;
+    };
+
+    auto extract_archive = [&](const std::filesystem::path& arc_path, const std::filesystem::path& out_dir) -> bool {
+      std::string fn = arc_path.filename().string();
+      const bool is_targz = (fn.ends_with(".tar.gz") || fn.ends_with(".tgz"));
+
+      const auto tar_bin = find_tar_binary();
+      if (!tar_bin.empty()) {
+        std::string tar_cmd = is_targz
+            ? ("\"" + tar_bin.string() + "\" -xzf \"" + arc_path.string() + "\" -C \"" + out_dir.string() + "\"")
+            : ("\"" + tar_bin.string() + "\" -xf \"" + arc_path.string() + "\" -C \"" + out_dir.string() + "\"");
+        if (run_cmd_hidden(tar_cmd, 180000)) {
+          return true;
+        }
+      }
+
+      const auto seven_zip = find_7z_binary();
+      if (!seven_zip.empty()) {
+        std::error_code ec_7z;
+        if (is_targz) {
+          std::filesystem::path temp_tar_dir = std::filesystem::temp_directory_path() / "zde_tar_extract";
+          std::filesystem::create_directories(temp_tar_dir, ec_7z);
+          std::string cmd1 = "\"" + seven_zip.string() + "\" x \"" + arc_path.string() + "\" -y -o\"" + temp_tar_dir.string() + "\"";
+          if (run_cmd_hidden(cmd1, 180000)) {
+            for (const auto& entry : std::filesystem::directory_iterator(temp_tar_dir, ec_7z)) {
+              if (entry.path().extension() == ".tar") {
+                std::string cmd2 = "\"" + seven_zip.string() + "\" x \"" + entry.path().string() + "\" -y -o\"" + out_dir.string() + "\"";
+                run_cmd_hidden(cmd2, 180000);
+                std::filesystem::remove(entry.path(), ec_7z);
+                break;
+              }
+            }
+            std::filesystem::remove_all(temp_tar_dir, ec_7z);
+            return true;
+          }
+        } else {
+          std::string cmd = "\"" + seven_zip.string() + "\" x \"" + arc_path.string() + "\" -y -o\"" + out_dir.string() + "\"";
+          if (run_cmd_hidden(cmd, 180000)) {
+            return true;
+          }
+        }
+      }
+
+      const auto py_bin = find_python_binary();
+      if (!py_bin.empty()) {
+        std::string py_cmd = is_targz
+            ? ("\"" + py_bin.string() + "\" -c \"import tarfile, sys; tarfile.open(sys.argv[1], 'r:*').extractall(sys.argv[2])\" \"" + arc_path.string() + "\" \"" + out_dir.string() + "\"")
+            : ("\"" + py_bin.string() + "\" -c \"import zipfile, sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])\" \"" + arc_path.string() + "\" \"" + out_dir.string() + "\"");
+        if (run_cmd_hidden(py_cmd, 180000)) {
+          return true;
+        }
+      }
+
+      // PowerShell fallbacks
+      std::error_code ec_ps;
+      if (is_targz) {
+        std::filesystem::path temp_tar = std::filesystem::temp_directory_path() / (fn + ".tar");
+        std::string ps_decompress = "powershell.exe -NoProfile -NonInteractive -Command \""
+            "$in = [System.IO.File]::OpenRead('" + arc_path.string() + "'); "
+            "$gz = New-Object System.IO.Compression.GZipStream($in, [System.IO.Compression.CompressionMode]::Decompress); "
+            "$out = [System.IO.File]::Create('" + temp_tar.string() + "'); "
+            "$buf = New-Object byte[] 65536; "
+            "while (($read = $gz.Read($buf, 0, $buf.Length)) -gt 0) { $out.Write($buf, 0, $read); } "
+            "$out.Close(); $gz.Close(); $in.Close()\"";
+        if (run_cmd_hidden(ps_decompress, 180000) && std::filesystem::exists(temp_tar, ec_ps)) {
+          if (!tar_bin.empty()) {
+            std::string tar_cmd2 = "\"" + tar_bin.string() + "\" -xf \"" + temp_tar.string() + "\" -C \"" + out_dir.string() + "\"";
+            run_cmd_hidden(tar_cmd2, 180000);
+          } else if (!seven_zip.empty()) {
+            std::string cmd2 = "\"" + seven_zip.string() + "\" x \"" + temp_tar.string() + "\" -y -o\"" + out_dir.string() + "\"";
+            run_cmd_hidden(cmd2, 180000);
+          }
+          std::filesystem::remove(temp_tar, ec_ps);
+          return true;
+        }
+      } else {
+        std::string ps_expand = "powershell.exe -NoProfile -NonInteractive -Command \"Expand-Archive -Path '" + arc_path.string() + "' -DestinationPath '" + out_dir.string() + "' -Force\"";
+        if (run_cmd_hidden(ps_expand, 180000)) {
+          return true;
+        }
+        std::string ps_extract = "powershell.exe -NoProfile -NonInteractive -Command \"$shell = New-Object -ComObject Shell.Application; $zip = $shell.NameSpace('" + arc_path.string() + "'); $dest = $shell.NameSpace('" + out_dir.string() + "'); if ($zip -and $dest) { $dest.CopyHere($zip.Items(), 16) }\"";
+        if (run_cmd_hidden(ps_extract, 180000)) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    // Check Catalog for registered server release information
+    std::string catalog_url;
+    if (auto cat = Services::Installation::Catalog::CatalogLoader::instance().find_for_language(language_id)) {
+      if (auto art = cat->find_artifact_for_current_platform()) {
+        catalog_url = art->url_or_package;
+      }
+    } else if (auto cat_srv = Services::Installation::Catalog::CatalogLoader::instance().find_entry(effective_server)) {
+      if (auto art = cat_srv->find_artifact_for_current_platform()) {
+        catalog_url = art->url_or_package;
+      }
+    }
+
+    std::string download_url;
+    std::string archive_ext = ".zip";
+    std::string primary_exe = exe_name;
+
+    if (language_id == "cpp" || language_id == "c" || effective_server == "clangd") {
+      download_url = "https://github.com/clangd/clangd/releases/download/18.1.3/clangd-windows-18.1.3.zip";
+      archive_ext = ".zip";
+      primary_exe = "clangd.exe";
+    } else if (language_id == "rust" || effective_server == "rust-analyzer") {
+      download_url = "https://github.com/rust-lang/rust-analyzer/releases/latest/download/rust-analyzer-x86_64-pc-windows-msvc.zip";
+      archive_ext = ".zip";
+      primary_exe = "rust-analyzer.exe";
+    } else if (language_id == "java" || effective_server == "jdtls" || effective_server == "eclipse.jdtls") {
+      download_url = "https://download.eclipse.org/jdtls/snapshots/jdt-language-server-latest.tar.gz";
+      archive_ext = ".tar.gz";
+      primary_exe = "jdtls.bat";
+    } else if (language_id == "cmake" || effective_server == "cmakels" || effective_server == "cmake-language-server" || effective_server == "neocmakelsp") {
+      download_url = "https://github.com/neocmakelsp/neocmakelsp/releases/latest/download/neocmakelsp-x86_64-pc-windows-msvc.zip";
+      archive_ext = ".zip";
+      primary_exe = "neocmakelsp.exe";
+    } else if (language_id == "zig" || effective_server == "zls") {
+      download_url = "https://github.com/zigtools/zls/releases/latest/download/zls-x86_64-windows.zip";
+      archive_ext = ".zip";
+      primary_exe = "zls.exe";
+    } else if (language_id == "lua" || effective_server == "lua-language-server") {
+      download_url = "https://github.com/LuaLS/lua-language-server/releases/download/3.9.3/lua-language-server-3.9.3-win32-x64.zip";
+      archive_ext = ".zip";
+      primary_exe = "lua-language-server.exe";
+    } else if (language_id == "csharp" || effective_server == "csharp-ls" || effective_server == "omnisharp") {
+      download_url = "https://github.com/OmniSharp/omnisharp-roslyn/releases/latest/download/omnisharp-win-x64.zip";
+      archive_ext = ".zip";
+      primary_exe = "OmniSharp.exe";
+    }
+
+    if (!catalog_url.empty()) {
+      if (catalog_url.starts_with("http://") || catalog_url.starts_with("https://")) {
+        download_url = catalog_url;
+      }
+    }
+
+    // 1. Try host binary copy if present on system PATH
+    std::filesystem::path host_bin = find_host_binary(exe_name);
+    if (host_bin.empty() && primary_exe != exe_name) {
+      host_bin = find_host_binary(primary_exe);
+    }
+    if (!host_bin.empty()) {
+      installed = Compat::copy_file(host_bin, target_exe, true);
+    }
+
+    // 2. If not on host, download from GitHub/official source via curl
+    if (!installed && !download_url.empty()) {
+      std::filesystem::path temp_arc = std::filesystem::temp_directory_path() / (effective_server + archive_ext);
+      if (download_file(download_url, temp_arc)) {
+        extract_archive(temp_arc, target_dir);
+        std::filesystem::remove(temp_arc, ec);
+
+        // Flatten single nested directory if present (e.g. clangd_18.1.3/bin/clangd.exe -> bin/clangd.exe)
+        std::error_code ec_flat;
+        for (const auto& sub : std::filesystem::directory_iterator(target_dir, ec_flat)) {
+          if (sub.is_directory(ec_flat)) {
+            const auto sub_bin = sub.path() / "bin";
+            if (std::filesystem::exists(sub_bin, ec_flat)) {
+              for (const auto& item : std::filesystem::directory_iterator(sub.path(), ec_flat)) {
+                const auto dest = target_dir / item.path().filename();
+                if (!std::filesystem::exists(dest, ec_flat)) {
+                  std::filesystem::copy(item.path(), dest, std::filesystem::copy_options::recursive | std::filesystem::copy_options::overwrite_existing, ec_flat);
+                }
+              }
+              break;
+            }
+          }
+        }
+
+        installed = std::filesystem::exists(target_exe, ec);
+
+        // If not directly in target_dir, search target_dir recursively
+        if (!installed) {
+          for (const auto& entry : std::filesystem::recursive_directory_iterator(target_dir, ec)) {
+            if (entry.is_regular_file(ec)) {
+              const std::string fn = entry.path().filename().string();
+              if (fn == exe_name || fn == primary_exe) {
+                Compat::copy_file(entry.path(), target_exe, true);
+                installed = std::filesystem::exists(target_exe, ec);
+                break;
+              }
+            }
+          }
+        }
+
+        // Special handling for cmake: copy neocmakelsp.exe to cmake-language-server.exe and cmakels.exe
+        if (language_id == "cmake" || effective_server == "cmakels" || effective_server == "cmake-language-server" || effective_server == "neocmakelsp") {
+          for (const auto& entry : std::filesystem::recursive_directory_iterator(target_dir, ec)) {
+            if (entry.is_regular_file(ec)) {
+              const std::string fn = entry.path().filename().string();
+              if (fn == "neocmakelsp.exe" || fn == "cmakels.exe" || fn == "cmake-language-server.exe" || fn == "cmakels-win64.exe") {
+                Compat::copy_file(entry.path(), target_dir / "cmake-language-server.exe", true);
+                Compat::copy_file(entry.path(), target_dir / "cmakels.exe", true);
+                Compat::copy_file(entry.path(), target_dir / "neocmakelsp.exe", true);
+                installed = true;
+                break;
+              }
+            }
+          }
+        }
+
+        // Special handling for clangd: ensure root target_dir / "clangd.exe" exists
+        if (language_id == "cpp" || language_id == "c" || effective_server == "clangd") {
+          const auto bin_clangd = target_dir / "bin" / "clangd.exe";
+          if (std::filesystem::exists(bin_clangd, ec)) {
+            Compat::copy_file(bin_clangd, target_dir / "clangd.exe", true);
+            installed = true;
+          }
+        }
+
+        // Special handling for jdtls: check bin/jdtls.bat or bin/jdtls.cmd
+        if (!installed && (language_id == "java" || effective_server == "jdtls" || effective_server == "eclipse.jdtls")) {
+          const auto bin_bat = target_dir / "bin" / "jdtls.bat";
+          const auto bin_cmd = target_dir / "bin" / "jdtls.cmd";
+          if (std::filesystem::exists(bin_bat, ec) || std::filesystem::exists(bin_cmd, ec)) {
+            const auto root_bat = target_dir / "jdtls.bat";
+            std::ofstream ofs(root_bat);
+            if (ofs) {
+              ofs << "@echo off\r\ncall \"%~dp0bin\\jdtls.bat\" %*\r\n";
+            }
+            installed = true;
+          }
+        }
+
+        // Special handling for lua: copy bin/lua-language-server.exe to root
+        if (language_id == "lua" || effective_server == "lua-language-server") {
+          const auto bin_lua = target_dir / "bin" / "lua-language-server.exe";
+          if (std::filesystem::exists(bin_lua, ec)) {
+            Compat::copy_file(bin_lua, target_dir / "lua-language-server.exe", true);
+            installed = true;
+          }
+        }
+
+        // Special handling for csharp / omnisharp
+        if (language_id == "csharp" || effective_server == "omnisharp" || effective_server == "csharp-ls") {
+          const auto omni = target_dir / "OmniSharp.exe";
+          if (std::filesystem::exists(omni, ec)) {
+            Compat::copy_file(omni, target_dir / "csharp-ls.exe", true);
+            installed = true;
+          }
+        }
+
+        // Fallback: check any .exe or .bat matching server
+        if (!installed) {
+          for (const auto& entry : std::filesystem::recursive_directory_iterator(target_dir, ec)) {
+            if (entry.is_regular_file(ec)) {
+              const std::string ext = entry.path().extension().string();
+              if (ext == ".exe" || ext == ".bat" || ext == ".cmd") {
+                Compat::copy_file(entry.path(), target_exe, true);
+                installed = std::filesystem::exists(target_exe, ec);
+                if (installed) break;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (!installed) {
+      if (std::filesystem::exists(target_dir, ec) && std::filesystem::is_empty(target_dir, ec)) {
+        std::filesystem::remove(target_dir, ec);
+      }
+    }
+#else
+    const auto target_exe = target_dir / effective_server;
+    if (const char* path_env = std::getenv("PATH")) {
+      std::stringstream ss(path_env);
+      std::string dir;
+      while (std::getline(ss, dir, ':')) {
+        if (dir.empty()) continue;
+        std::filesystem::path c = std::filesystem::path(dir) / effective_server;
+        if (std::filesystem::exists(c, ec) && std::filesystem::is_regular_file(c, ec)) {
+          std::filesystem::copy_file(c, target_exe, std::filesystem::copy_options::overwrite_existing, ec);
+          installed = (!ec && std::filesystem::exists(target_exe, ec));
+          break;
+        }
+      }
+    }
+#endif
+
+    {
+      std::lock_guard<std::mutex> lock(m_lsp_install_mutex);
+      m_installing_lsp_languages.erase(language_id);
+      m_installing_lsp_languages.erase(server_name);
+      if (!installed) {
+        m_dismissed_lsp_languages.insert(language_id);
+        m_dismissed_lsp_languages.insert(server_name);
+      }
+    }
+
+    if (installed) {
+      Language::LanguageServerManager::instance().clear_unavailable_language(language_id);
+      Language::Registry::ServerRegistry::instance().clear_cache();
+      m_text_editor.sync_lsp_active_document();
+    }
+    if (m_window_handle) {
+      InvalidateRect(m_window_handle, nullptr, FALSE);
+    }
+  }).detach();
 }
 
 } // namespace Zenvra::Platform::Win32::Components

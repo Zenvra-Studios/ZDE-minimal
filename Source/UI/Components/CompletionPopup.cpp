@@ -90,24 +90,50 @@ int calculate_match_score(std::string_view raw_candidate, std::string_view raw_q
         return (at_boundary ? 4000 : 2500) - static_cast<int>(sub_pos * 10 + candidate.size());
     }
 
-    // Fuzzy subsequence match
+    // Word-boundary / Acronym / Subsequence match
     std::size_t text_idx = 0;
     std::size_t query_idx = 0;
-    int matches = 0;
+    int boundary_matches = 0;
+    int consecutive_bonus = 0;
+    bool last_was_match = false;
 
     while (text_idx < cand_lower.size() && query_idx < query_lower.size())
     {
         if (cand_lower[text_idx] == query_lower[query_idx])
         {
-            ++matches;
+            const bool is_boundary = (text_idx == 0 ||
+                                      candidate[text_idx - 1] == '_' ||
+                                      candidate[text_idx - 1] == '-' ||
+                                      candidate[text_idx - 1] == '.' ||
+                                      candidate[text_idx - 1] == '/' ||
+                                      candidate[text_idx - 1] == ':' ||
+                                      (std::isupper(static_cast<unsigned char>(candidate[text_idx])) &&
+                                       std::islower(static_cast<unsigned char>(candidate[text_idx - 1]))));
+            if (is_boundary)
+            {
+                ++boundary_matches;
+            }
+            if (last_was_match)
+            {
+                consecutive_bonus += 50;
+            }
+            last_was_match = true;
             ++query_idx;
+        }
+        else
+        {
+            last_was_match = false;
         }
         ++text_idx;
     }
 
     if (query_idx == query_lower.size())
     {
-        return 1000 - static_cast<int>(text_idx * 5 + candidate.size());
+        // Require meaningful boundary matches or consecutive character clusters
+        if (boundary_matches >= 2 || (boundary_matches >= 1 && consecutive_bonus >= 50) || (query.size() <= 2 && boundary_matches >= 1))
+        {
+            return 1200 + boundary_matches * 100 + consecutive_bonus - static_cast<int>(text_idx + candidate.size());
+        }
     }
 
     return 0;

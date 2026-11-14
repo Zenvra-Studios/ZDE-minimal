@@ -1,0 +1,30 @@
+{
+  "id": "php",
+  "displayName": "PHP",
+  "extensions": [".php", ".phtml", ".php4", ".php5", ".phps"],
+  "filenames": ["composer.json", "artisan"],
+  "firstLinePatterns": ["^#!.*\\bphp\\b", "^<\\?php"],
+  "projectMarkers": ["composer.json"],
+  "aliases": ["php"],
+  "frameworkModes": ["laravel"],
+  "editorSettings": {
+    "tabSize": 4,
+    "insertSpaces": true,
+    "lineComment": "//",
+    "blockCommentStart": "/*",
+    "blockCommentEnd": "*/",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": true
+  },
+  "serverAssociation": {
+    "defaultServerId": "intelephense",
+    "candidateExecutables": ["intelephense", "phpactor", "php-language-server"],
+    "defaultArguments": ["--stdio"],
+    "rootMarkers": ["composer.json", ".git"],
+    "autoInstall": false
+  }
+}
+

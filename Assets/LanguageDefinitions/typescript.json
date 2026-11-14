@@ -1,0 +1,30 @@
+{
+  "id": "typescript",
+  "displayName": "TypeScript",
+  "extensions": [".ts", ".tsx", ".mts", ".cts"],
+  "filenames": ["tsconfig.json"],
+  "firstLinePatterns": ["^#!.*\\b(?:deno|bun|node)\\b"],
+  "projectMarkers": ["tsconfig.json", "package.json"],
+  "aliases": ["ts"],
+  "frameworkModes": ["react"],
+  "editorSettings": {
+    "tabSize": 2,
+    "insertSpaces": true,
+    "lineComment": "//",
+    "blockCommentStart": "/*",
+    "blockCommentEnd": "*/",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": true
+  },
+  "serverAssociation": {
+    "defaultServerId": "typescript-language-server",
+    "candidateExecutables": ["typescript-language-server", "tls", "vtsls", "deno", "bun"],
+    "defaultArguments": ["--stdio"],
+    "rootMarkers": ["tsconfig.json", "package.json", ".git"],
+    "autoInstall": false
+  }
+}
+

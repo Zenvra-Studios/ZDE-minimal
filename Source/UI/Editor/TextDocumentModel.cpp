@@ -2,7 +2,7 @@
 
 #include "Language/Syntax/GenericGrammarEngine.h"
 #include "Language/Syntax/GrammarRegistry.h"
-#include "UI/Editor/CppSymbolLexer.h"
+#include "UI/Editor/SymbolLexer.h"
 #include "Language/LanguageConfiguration.h"
 #include <algorithm>
 #include <filesystem>

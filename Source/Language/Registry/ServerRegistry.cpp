@@ -1,4 +1,5 @@
 #include "Language/Registry/ServerRegistry.h"
+#include "Services/Language/Registry/LanguageRegistry.h"
 
 #include <array>
 #include <cstdlib>
@@ -171,6 +172,16 @@ const ServerProfile* ServerRegistry::find_profile_for_filename(std::string_view 
         return find_profile_for_language("cpp");
     }
 
+    // 5. Query unified LanguageRegistry (declarative definitions from Assets/LanguageDefinitions or plugins)
+    const auto detected = Zenvra::Services::Language::Registry::LanguageRegistry::instance().detect_language(p);
+    if (detected.is_valid())
+    {
+        if (const auto* prof = find_profile_for_language(detected.language_id))
+        {
+            return prof;
+        }
+    }
+
     return nullptr;
 }
 
@@ -190,6 +201,11 @@ const ServerProfile* ServerRegistry::find_profile_for_extension(std::string_view
     if (it != m_language_by_extension.end())
     {
         return find_profile_for_language(it->second);
+    }
+
+    if (const auto* def = Zenvra::Services::Language::Registry::LanguageRegistry::instance().find_by_extension(extension))
+    {
+        return find_profile_for_language(def->id);
     }
 
     return nullptr;
@@ -224,13 +240,22 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
         std::lock_guard<std::mutex> lock(m_cache_mutex);
         if (auto it = m_executable_cache.find(exe_str); it != m_executable_cache.end())
         {
-            return it->second;
+            std::error_code ec;
+            if (!it->second.empty() && std::filesystem::exists(it->second, ec) && std::filesystem::is_regular_file(it->second, ec))
+            {
+                return it->second;
+            }
+            m_executable_cache.erase(it);
         }
     }
 
     auto cache_and_return = [this, &exe_str](std::filesystem::path result) -> std::filesystem::path {
-        std::lock_guard<std::mutex> lock(m_cache_mutex);
-        m_executable_cache[exe_str] = result;
+        std::error_code ec;
+        if (!result.empty() && std::filesystem::exists(result, ec) && std::filesystem::is_regular_file(result, ec))
+        {
+            std::lock_guard<std::mutex> lock(m_cache_mutex);
+            m_executable_cache[exe_str] = result;
+        }
         return result;
     };
 
@@ -323,6 +348,8 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                 app_dir / "plugins" / "lsp" / "redhat.java" / "bin" / "jdtls.cmd",
                 app_dir / "plugins" / "lsp" / "jdtls" / "bin" / "jdtls.bat",
                 app_dir / "plugins" / "lsp" / "jdtls" / "bin" / "jdtls.cmd",
+                app_dir / "plugins" / "lsp" / "jdtls" / "jdtls.bat",
+                app_dir / "plugins" / "lsp" / "jdtls" / "jdtls.cmd",
                 app_dir / "plugins" / exe_with_ext,
                 app_dir / "bin" / exe_with_ext,
                 app_dir / exe_with_ext,
@@ -351,6 +378,8 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                     check_dir / "plugins" / "lsp" / "redhat.java" / "bin" / "jdtls.cmd",
                     check_dir / "plugins" / "lsp" / "jdtls" / "bin" / "jdtls.bat",
                     check_dir / "plugins" / "lsp" / "jdtls" / "bin" / "jdtls.cmd",
+                    check_dir / "plugins" / "lsp" / "jdtls" / "jdtls.bat",
+                    check_dir / "plugins" / "lsp" / "jdtls" / "jdtls.cmd",
                     check_dir / "plugins" / "tools" / cur_name / exe_with_ext,
                     check_dir / "plugins" / "tools" / cur_name / "bin" / exe_with_ext,
                     check_dir / "plugins" / "lsp" / "shader-ls" / "win" / exe_with_ext,
@@ -472,21 +501,49 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                 if (parent == cur) break;
                 cur = parent;
             }
+#if defined(_WIN32)
+            if (const char* appdata = std::getenv("APPDATA"))
+            {
+                search_bases.push_back(std::filesystem::path(appdata) / "ZDE");
+            }
+            if (const char* lad = std::getenv("LOCALAPPDATA"))
+            {
+                search_bases.push_back(std::filesystem::path(lad) / "ZDE");
+            }
+            if (const char* up = std::getenv("USERPROFILE"))
+            {
+                search_bases.push_back(std::filesystem::path(up) / ".zde");
+            }
+#else
+            if (const char* home = std::getenv("HOME"))
+            {
+                search_bases.push_back(std::filesystem::path(home) / ".zde");
+                search_bases.push_back(std::filesystem::path(home) / ".local" / "share" / "zde");
+            }
+#endif
         }
 
-        // Direct local paths in search bases
+        // Direct local paths in search bases (software managed directories only)
         for (const auto& base : search_bases)
         {
             const std::filesystem::path direct_candidates[] = {
                 base / "plugins" / "lsp" / exe_with_ext,
                 base / "plugins" / "lsp" / cur_name / exe_with_ext,
                 base / "plugins" / "lsp" / cur_name / "bin" / exe_with_ext,
+                base / ".zde" / "lsp" / exe_with_ext,
+                base / ".zde" / "lsp" / cur_name / exe_with_ext,
+                base / ".zde" / "lsp" / cur_name / "bin" / exe_with_ext,
+                base / ".zde" / "plugins" / "lsp" / exe_with_ext,
+                base / ".zde" / "plugins" / "lsp" / cur_name / exe_with_ext,
+                base / ".zde" / "plugins" / "lsp" / cur_name / "bin" / exe_with_ext,
                 base / "plugins" / "lsp" / "eclipse.jdtls" / "bin" / "jdtls.bat",
                 base / "plugins" / "lsp" / "eclipse.jdtls" / "bin" / "jdtls.cmd",
                 base / "plugins" / "lsp" / "redhat.java" / "bin" / "jdtls.bat",
                 base / "plugins" / "lsp" / "redhat.java" / "bin" / "jdtls.cmd",
                 base / "plugins" / "lsp" / "jdtls" / "bin" / "jdtls.bat",
                 base / "plugins" / "lsp" / "jdtls" / "bin" / "jdtls.cmd",
+                base / "plugins" / "lsp" / "jdtls" / "jdtls.bat",
+                base / "plugins" / "lsp" / "jdtls" / "jdtls.cmd",
                 base / "plugins" / "tools" / cur_name / exe_with_ext,
                 base / "plugins" / "tools" / cur_name / "bin" / exe_with_ext,
                 base / "plugins" / exe_with_ext,
@@ -505,6 +562,8 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
             // Check plugins subdirectories
             const std::filesystem::path container_dirs[] = {
                 base / "plugins" / "lsp",
+                base / ".zde" / "lsp",
+                base / ".zde" / "plugins" / "lsp",
                 base / "plugins" / "tools",
                 base / "plugins",
             };
@@ -558,348 +617,6 @@ std::filesystem::path ServerRegistry::find_executable_in_system(std::string_view
                 }
             }
         }
-
-#if defined(_WIN32)
-        // 2. Second Priority (Windows): Check Scoop, WinGet, Chocolatey, NuGet, and LocalAppData environment paths
-        std::wstring user_profile_w;
-        wchar_t up_buf[32768]{};
-        if (GetEnvironmentVariableW(L"USERPROFILE", up_buf, 32768) > 0)
-        {
-            user_profile_w = up_buf;
-        }
-        else if (const char* env_up = std::getenv("USERPROFILE"))
-        {
-            user_profile_w = std::wstring(env_up, env_up + strlen(env_up));
-        }
-
-        const char* local_appdata = std::getenv("LOCALAPPDATA");
-        const char* appdata = std::getenv("APPDATA");
-        const char* program_data = std::getenv("ProgramData");
-
-        if (!user_profile_w.empty())
-        {
-            const std::filesystem::path up(user_profile_w);
-            const std::filesystem::path user_candidates[] = {
-                // Scoop LLVM / clangd / cmake-ls / jdtls
-                up / "scoop" / "apps" / "llvm" / "current" / "bin" / exe_with_ext,
-                up / "scoop" / "apps" / cur_name / "current" / "bin" / exe_with_ext,
-                up / "scoop" / "apps" / "jdtls" / "current" / "bin" / "jdtls.bat",
-                up / "scoop" / "apps" / "jdtls" / "current" / "bin" / exe_with_ext,
-                up / "scoop" / "shims" / exe_with_ext,
-                up / "scoop" / "shims" / (cur_name + ".cmd"),
-                up / "scoop" / "shims" / (cur_name + ".bat"),
-                up / "scoop" / "shims" / "jdtls.cmd",
-                up / "scoop" / "shims" / "jdtls.bat",
-                up / "scoop" / "shims" / "jdtls.exe",
-                // WinGet Links / Packages
-                up / "AppData" / "Local" / "Microsoft" / "WinGet" / "Links" / exe_with_ext,
-                up / "AppData" / "Local" / "Microsoft" / "WinGet" / "Links" / "jdtls.bat",
-                up / "AppData" / "Local" / "Microsoft" / "WinGet" / "Links" / "jdtls.cmd",
-                // NuGet package fallbacks
-                up / ".nuget" / "packages" / cur_name / exe_with_ext,
-                // Cargo / Rust bin
-                up / ".cargo" / "bin" / exe_with_ext,
-                // Go bin
-                up / "go" / "bin" / exe_with_ext,
-                // Eclipse / jdtls standard user locations
-                up / ".jdtls" / "bin" / "jdtls.bat",
-                up / ".jdtls" / "bin" / "jdtls.cmd",
-                up / ".jdtls" / "bin" / exe_with_ext,
-                up / "Documents" / "jdtls" / "bin" / "jdtls.bat",
-                up / "Documents" / "jdtls" / "bin" / "jdtls.cmd",
-                up / "Documents" / "jdtls-win32" / "bin" / "jdtls.bat",
-                up / "Documents" / "jdtls-win32" / "bin" / "jdtls.cmd",
-                up / "Downloads" / "jdtls" / "bin" / "jdtls.bat",
-                up / "Downloads" / "jdtls" / "bin" / "jdtls.cmd",
-            };
-
-            for (const auto& candidate : user_candidates)
-            {
-                std::error_code ec;
-                if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
-                {
-                    return cache_and_return(candidate);
-                }
-            }
-
-            // Auto-unpack jdtls-win32.zip from Documents/Downloads if available
-            if (exe_str == "jdtls" || exe_str == "eclipse.jdtls" || exe_str == "redhat.java")
-            {
-                std::error_code ec_zip;
-                const std::filesystem::path zip_candidates[] = {
-                    up / "Documents" / "jdtls-win32.zip",
-                    up / "Downloads" / "jdtls-win32.zip"
-                };
-                for (const auto& zcand : zip_candidates)
-                {
-                    if (std::filesystem::exists(zcand, ec_zip))
-                    {
-                        const auto dest = up / ".jdtls";
-                        std::filesystem::create_directories(dest, ec_zip);
-                        const std::string unpack_cmd = "tar -xf \"" + zcand.string() + "\" -C \"" + dest.string() + "\"";
-                        std::system(unpack_cmd.c_str());
-                        const auto bat_path = dest / "bin" / "jdtls.bat";
-                        const auto cmd_path = dest / "bin" / "jdtls.cmd";
-                        std::ofstream b_out(bat_path);
-                        if (b_out.is_open()) b_out << "@echo off\npython \"%~dp0jdtls\" %*\n";
-                        std::ofstream c_out(cmd_path);
-                        if (c_out.is_open()) c_out << "@echo off\npython \"%~dp0jdtls\" %*\n";
-                        if (std::filesystem::exists(bat_path, ec_zip))
-                        {
-                            return cache_and_return(bat_path);
-                        }
-                    }
-                }
-            }
-        }
-
-        if (local_appdata != nullptr)
-        {
-            const std::filesystem::path lad(local_appdata);
-            const std::filesystem::path lad_candidates[] = {
-                lad / "Microsoft" / "WinGet" / "Links" / exe_with_ext,
-                lad / "pnpm" / exe_with_ext,
-                lad / "Volta" / "bin" / exe_with_ext,
-                lad / "Programs" / "Python" / "Python313" / "Scripts" / exe_with_ext,
-                lad / "Programs" / "Python" / "Python312" / "Scripts" / exe_with_ext,
-                lad / "Programs" / "Python" / "Python311" / "Scripts" / exe_with_ext,
-                lad / "Programs" / "LLVM" / "bin" / exe_with_ext,
-            };
-            for (const auto& candidate : lad_candidates)
-            {
-                std::error_code ec;
-                if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
-                {
-                    return cache_and_return(candidate);
-                }
-            }
-        }
-
-        if (program_data != nullptr)
-        {
-            const std::filesystem::path pd(program_data);
-            const std::filesystem::path choco_candidates[] = {
-                pd / "chocolatey" / "bin" / exe_with_ext,
-                pd / "chocolatey" / "lib" / "llvm" / "tools" / "llvm" / "bin" / exe_with_ext,
-                pd / "chocolatey" / "lib" / cur_name / "tools" / exe_with_ext,
-            };
-            for (const auto& candidate : choco_candidates)
-            {
-                std::error_code ec;
-                if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
-                {
-                    return cache_and_return(candidate);
-                }
-            }
-        }
-
-        if (appdata != nullptr)
-        {
-            const std::filesystem::path ad(appdata);
-            const std::filesystem::path npm_candidate = ad / "npm" / exe_with_ext;
-            std::error_code ec;
-            if (std::filesystem::exists(npm_candidate, ec) && std::filesystem::is_regular_file(npm_candidate, ec))
-            {
-                return cache_and_return(npm_candidate);
-            }
-        }
-
-        // 3. Third Priority: SearchPathW (System Windows PATH search)
-        std::wstring exe_w(exe_with_ext.begin(), exe_with_ext.end());
-        std::array<wchar_t, 32768> resolved{};
-        const DWORD length = SearchPathW(
-            nullptr, exe_w.c_str(), nullptr, static_cast<DWORD>(resolved.size()), resolved.data(), nullptr);
-        if (length > 0 && length < resolved.size())
-        {
-            return cache_and_return(std::filesystem::path(resolved.data()));
-        }
-
-        // 4. Fourth Priority: Program Files LLVM / CMake / Eclipse, and dynamic Visual Studio installation scanning
-        const std::filesystem::path standard_program_files[] = {
-            std::filesystem::path("C:/Program Files/Eclipse/jdtls/bin") / "jdtls.bat",
-            std::filesystem::path("C:/Program Files/Eclipse/jdtls/bin") / exe_with_ext,
-            std::filesystem::path("C:/Program Files/jdtls/bin") / "jdtls.bat",
-            std::filesystem::path("C:/Program Files/jdtls/bin") / exe_with_ext,
-            std::filesystem::path("C:/jdtls/bin") / "jdtls.bat",
-            std::filesystem::path("C:/jdtls/bin") / exe_with_ext,
-            std::filesystem::path("C:/Program Files/LLVM/bin") / exe_with_ext,
-            std::filesystem::path("C:/Program Files (x86)/LLVM/bin") / exe_with_ext,
-            std::filesystem::path("C:/LLVM/bin") / exe_with_ext,
-            std::filesystem::path("C:/Program Files/CMake/bin") / exe_with_ext,
-            std::filesystem::path("C:/Program Files (x86)/CMake/bin") / exe_with_ext,
-            std::filesystem::path("C:/CMake/bin") / exe_with_ext,
-            std::filesystem::path("C:/msys64/clang64/bin") / exe_with_ext,
-            std::filesystem::path("C:/msys64/ucrt64/bin") / exe_with_ext,
-            std::filesystem::path("C:/msys64/mingw64/bin") / exe_with_ext,
-            std::filesystem::path("C:/msys64/usr/bin") / exe_with_ext,
-            std::filesystem::path("C:/MinGW/bin") / exe_with_ext,
-        };
-        for (const auto& candidate : standard_program_files)
-        {
-            std::error_code ec;
-            if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
-            {
-                return cache_and_return(candidate);
-            }
-        }
-
-        // Dynamically inspect any Visual Studio version/edition (2022, 2019, Preview, BuildTools, etc.)
-        const std::filesystem::path vs_roots[] = {
-            "C:/Program Files/Microsoft Visual Studio",
-            "C:/Program Files (x86)/Microsoft Visual Studio",
-        };
-        for (const auto& vs_root : vs_roots)
-        {
-            std::error_code ec;
-            if (std::filesystem::exists(vs_root, ec) && std::filesystem::is_directory(vs_root, ec))
-            {
-                for (const auto& year_entry : std::filesystem::directory_iterator(vs_root, ec))
-                {
-                    if (!year_entry.is_directory(ec)) continue;
-                    for (const auto& edition_entry : std::filesystem::directory_iterator(year_entry.path(), ec))
-                    {
-                        if (!edition_entry.is_directory(ec)) continue;
-                        
-                        // Check Visual Studio Bundled LLVM
-                        const std::filesystem::path vs_llvm_candidates[] = {
-                            edition_entry.path() / "VC/Tools/Llvm/bin" / exe_with_ext,
-                            edition_entry.path() / "VC/Tools/Llvm/x64/bin" / exe_with_ext,
-                        };
-                        for (const auto& c : vs_llvm_candidates)
-                        {
-                            if (std::filesystem::exists(c, ec) && std::filesystem::is_regular_file(c, ec))
-                            {
-                                return cache_and_return(c);
-                            }
-                        }
-
-                        // Check MSVC compiler tools dynamically across all installed MSVC versions
-                        const auto msvc_tools_dir = edition_entry.path() / "VC/Tools/MSVC";
-                        if (std::filesystem::exists(msvc_tools_dir, ec) && std::filesystem::is_directory(msvc_tools_dir, ec))
-                        {
-                            for (const auto& msvc_ver : std::filesystem::directory_iterator(msvc_tools_dir, ec))
-                            {
-                                if (msvc_ver.is_directory(ec))
-                                {
-                                    const std::filesystem::path msvc_bins[] = {
-                                        msvc_ver.path() / "bin/Hostx64/x64" / exe_with_ext,
-                                        msvc_ver.path() / "bin/Hostx86/x64" / exe_with_ext,
-                                        msvc_ver.path() / "bin/Hostx86/x86" / exe_with_ext,
-                                    };
-                                    for (const auto& b : msvc_bins)
-                                    {
-                                        if (std::filesystem::exists(b, ec) && std::filesystem::is_regular_file(b, ec))
-                                        {
-                                            return cache_and_return(b);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-#else
-        // 2. Second Priority (macOS & Linux): User Home Directory Toolchains
-        const char* home_env = std::getenv("HOME");
-        if (home_env != nullptr)
-        {
-            const std::filesystem::path home(home_env);
-            const std::filesystem::path unix_user_candidates[] = {
-                // User local bin & LLVM versioned binaries
-                home / ".local" / "bin" / cur_name,
-                home / ".local" / "bin" / (cur_name + "-19"),
-                home / ".local" / "bin" / (cur_name + "-18"),
-                home / ".local" / "bin" / (cur_name + "-17"),
-                // Cargo / Rust bin
-                home / ".cargo" / "bin" / cur_name,
-                // Go bin
-                home / "go" / "bin" / cur_name,
-                // Flatpak user exports
-                home / ".local" / "share" / "flatpak" / "exports" / "bin" / cur_name,
-                // Homebrew user bin (Linuxbrew)
-                home / ".linuxbrew" / "bin" / cur_name,
-            };
-
-            for (const auto& candidate : unix_user_candidates)
-            {
-                std::error_code ec;
-                if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
-                {
-                    return cache_and_return(candidate);
-                }
-            }
-        }
-
-        // 3. Third Priority (macOS & Linux): System / Package Manager Standard Paths
-        const std::filesystem::path unix_system_candidates[] = {
-            // Homebrew macOS (Apple Silicon M1/M2/M3/M4)
-            std::filesystem::path("/opt/homebrew/bin") / cur_name,
-            std::filesystem::path("/opt/homebrew/opt/jdtls/bin") / cur_name,
-            std::filesystem::path("/opt/homebrew/opt/llvm/bin") / cur_name,
-            std::filesystem::path("/opt/homebrew/opt/llvm@19/bin") / cur_name,
-            std::filesystem::path("/opt/homebrew/opt/llvm@18/bin") / cur_name,
-            std::filesystem::path("/opt/homebrew/opt/llvm@17/bin") / cur_name,
-            std::filesystem::path("/opt/homebrew/opt/cmake/bin") / cur_name,
-            // Homebrew macOS (Intel x86_64) & Standard Local
-            std::filesystem::path("/usr/local/bin") / cur_name,
-            std::filesystem::path("/usr/local/opt/llvm/bin") / cur_name,
-            // MacPorts (macOS)
-            std::filesystem::path("/opt/local/bin") / cur_name,
-            std::filesystem::path("/opt/local/libexec/llvm-19/bin") / cur_name,
-            std::filesystem::path("/opt/local/libexec/llvm-18/bin") / cur_name,
-            std::filesystem::path("/opt/local/libexec/llvm-17/bin") / cur_name,
-            // Xcode / Command Line Tools (macOS)
-            std::filesystem::path("/Library/Developer/CommandLineTools/usr/bin") / cur_name,
-            std::filesystem::path("/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin") / cur_name,
-            // Linux Distro Standard & Versioned LLVM (Ubuntu, Debian, Fedora, Arch, Alpine)
-            std::filesystem::path("/usr/bin") / cur_name,
-            std::filesystem::path("/usr/bin") / (cur_name + "-19"),
-            std::filesystem::path("/usr/bin") / (cur_name + "-18"),
-            std::filesystem::path("/usr/bin") / (cur_name + "-17"),
-            std::filesystem::path("/usr/bin") / (cur_name + "-16"),
-            std::filesystem::path("/usr/bin") / (cur_name + "-15"),
-            std::filesystem::path("/usr/lib/llvm-19/bin") / cur_name,
-            std::filesystem::path("/usr/lib/llvm-18/bin") / cur_name,
-            std::filesystem::path("/usr/lib/llvm-17/bin") / cur_name,
-            std::filesystem::path("/usr/lib/llvm-16/bin") / cur_name,
-            std::filesystem::path("/usr/lib/llvm/bin") / cur_name,
-            // Snap & Flatpak (Linux)
-            std::filesystem::path("/snap/bin") / cur_name,
-            std::filesystem::path("/var/lib/flatpak/exports/bin") / cur_name,
-            std::filesystem::path("/bin") / cur_name,
-            std::filesystem::path("/sbin") / cur_name,
-            std::filesystem::path("/usr/sbin") / cur_name,
-        };
-
-        for (const auto& candidate : unix_system_candidates)
-        {
-            std::error_code ec;
-            if (std::filesystem::exists(candidate, ec) && std::filesystem::is_regular_file(candidate, ec))
-            {
-                return cache_and_return(candidate);
-            }
-        }
-
-        // 4. Fourth Priority: PATH Environment Variable Tokenizer
-        const char* path_env = std::getenv("PATH");
-        if (path_env != nullptr)
-        {
-            std::stringstream ss(path_env);
-            std::string dir;
-            while (std::getline(ss, dir, ':'))
-            {
-                if (dir.empty()) continue;
-                std::filesystem::path p = std::filesystem::path(dir) / cur_name;
-                std::error_code ec;
-                if (std::filesystem::exists(p, ec) && std::filesystem::is_regular_file(p, ec))
-                {
-                    return cache_and_return(p);
-                }
-            }
-        }
-#endif
     }
 
     return cache_and_return({});
@@ -937,7 +654,6 @@ std::optional<ServerProfile> ServerRegistry::create_standard_profile_for(std::st
             "--enable-config",
             "--header-insertion=iwyu",
             "--header-insertion-decorators=false",
-            "--query-driver=*,*/*,**/*,C:/*,C:/**,D:/*,D:/**,E:/*,E:/**,/usr/**,/opt/**",
             "--completion-style=detailed",
             "--all-scopes-completion"
         };

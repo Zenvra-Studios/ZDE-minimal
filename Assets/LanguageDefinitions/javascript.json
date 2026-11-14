@@ -1,0 +1,30 @@
+{
+  "id": "javascript",
+  "displayName": "JavaScript",
+  "extensions": [".js", ".jsx", ".mjs", ".cjs"],
+  "filenames": ["jsconfig.json"],
+  "firstLinePatterns": ["^#!.*\\b(?:node|deno|bun)\\b"],
+  "projectMarkers": ["package.json", "jsconfig.json"],
+  "aliases": ["js"],
+  "frameworkModes": ["react"],
+  "editorSettings": {
+    "tabSize": 2,
+    "insertSpaces": true,
+    "lineComment": "//",
+    "blockCommentStart": "/*",
+    "blockCommentEnd": "*/",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": true
+  },
+  "serverAssociation": {
+    "defaultServerId": "typescript-language-server",
+    "candidateExecutables": ["typescript-language-server", "tls", "vtsls", "deno", "bun"],
+    "defaultArguments": ["--stdio"],
+    "rootMarkers": ["package.json", ".git"],
+    "autoInstall": false
+  }
+}
+

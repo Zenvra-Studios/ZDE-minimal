@@ -1660,8 +1660,9 @@ void StudioWorkspaceRenderer::render_prompt_modal(Drawable drawable,
       layout.close_button_bounds.y + layout.close_button_bounds.height * 0.5F,
       m_text.muted);
 
-  // 5. Input field (if not ConfirmDelete)
-  if (m_prompt_modal.get_mode() != UI::Components::PromptMode::ConfirmDelete) {
+  // 5. Input field (if not ConfirmDelete or InstallLspServer)
+  if (m_prompt_modal.get_mode() != UI::Components::PromptMode::ConfirmDelete &&
+      m_prompt_modal.get_mode() != UI::Components::PromptMode::InstallLspServer) {
     const auto &input = m_prompt_modal.get_input();
     const UI::Theme::Color input_bg{20, 20, 24, 255};
     const UI::Theme::Color input_border =
@@ -1706,7 +1707,7 @@ void StudioWorkspaceRenderer::render_prompt_modal(Drawable drawable,
                          allocate_color(dialog_bg));
   draw_rectangle(drawable, layout.cancel_button_bounds,
                  allocate_color(border_col));
-  draw_text(drawable, *m_ui_font, "Cancel",
+  draw_text(drawable, *m_ui_font, m_prompt_modal.get_cancel_label(),
             layout.cancel_button_bounds.x + 22.0F * m_dpi_scale,
             layout.cancel_button_bounds.y +
                 layout.cancel_button_bounds.height * 0.5F,

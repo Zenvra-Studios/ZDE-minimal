@@ -341,6 +341,7 @@ void TextEditor::sync_lsp_active_document() {
   if (const auto *doc = m_controller.get_active_document(); doc != nullptr) {
     const std::string uri = get_active_document_uri();
     const std::string fname = get_active_document_filename();
+    reset_document_version(uri);
     std::string content;
     for (std::size_t i = 0; i < doc->get_line_count(); ++i) {
       content += doc->get_line(i);
@@ -3438,6 +3439,9 @@ bool TextEditor::handle_input(UI::Editor::EditorInputCommand command,
             }
 
             std::string text_to_insert = item->insert_text;
+            if (text_to_insert.empty()) {
+              text_to_insert = item->label;
+            }
 
             // Avoid double delimiters (e.g. if closing > or " already exists
             // after caret)
@@ -4095,8 +4099,9 @@ bool TextEditor::handle_text_input(std::string_view utf8_text) {
         content.append(doc->get_line(i));
         content.push_back('\n');
       }
+      const int next_ver = get_next_document_version(uri);
       Language::LanguageServerManager::instance().on_document_changed(
-          uri, fname, 1, content);
+          uri, fname, next_ver, content);
 
       const std::string_view current_line =
           doc->get_line(doc->get_caret_line());
@@ -4487,8 +4492,9 @@ bool TextEditor::check_external_file_changes() {
           content += doc->get_line(i);
           content += "\n";
         }
+        const int next_ver = get_next_document_version(uri);
         Language::LanguageServerManager::instance().on_document_changed(
-            uri, fname, 1, content);
+            uri, fname, next_ver, content);
       }
     }
   }
@@ -4515,8 +4521,9 @@ void TextEditor::flush_lsp_document_sync_if_needed(bool force) {
       content += doc->get_line(i);
       content += '\n';
     }
+    const int next_ver = get_next_document_version(uri);
     Language::LanguageServerManager::instance().on_document_changed(uri, fname,
-                                                                    1, content);
+                                                                    next_ver, content);
   }
 }
 
@@ -7728,19 +7735,23 @@ void TextEditor::draw_document(
     const float popup_h = static_cast<float>(visible_count) * item_h +
                           4.0F * surface.m_dpi_scale; // Compact, no footer
 
-    // Calculate dynamic popup width
-    float max_label_w = 220.0F * surface.m_dpi_scale;
+    // Calculate dynamic popup width accounting for both label and detail
+    float max_label_w = 260.0F * surface.m_dpi_scale;
     for (std::size_t i = 0; i < max_visible && (scroll_offset + i) < count;
          ++i) {
       if (const auto *it = m_completion_popup.get_item(scroll_offset + i)) {
-        const int w = surface.get_text_width(device_context, *surface.m_ui_font,
+        const int lw = surface.get_text_width(device_context, *surface.m_editor_font,
                                              it->label);
-        max_label_w = std::max(max_label_w, static_cast<float>(w) +
-                                                64.0F * surface.m_dpi_scale);
+        int dw = 0;
+        if (!it->detail.empty()) {
+          dw = surface.get_text_width(device_context, *surface.m_ui_font, it->detail) + round_to_int(24.0F * surface.m_dpi_scale);
+        }
+        max_label_w = std::max(max_label_w, static_cast<float>(lw + dw) +
+                                                48.0F * surface.m_dpi_scale);
       }
     }
-    const float popup_w = std::clamp(max_label_w, 220.0F * surface.m_dpi_scale,
-                                     380.0F * surface.m_dpi_scale);
+    const float popup_w = std::clamp(max_label_w, 260.0F * surface.m_dpi_scale,
+                                     520.0F * surface.m_dpi_scale);
 
     const float popup_x =
         std::clamp(caret_screen_x, layout.editor_bounds.x + 10.0F,
@@ -7858,15 +7869,21 @@ void TextEditor::draw_document(
                               ? UI::Theme::Color{255, 255, 255, 255}
                               : completion_text_muted);
       } else if (!item->detail.empty()) {
+        const int label_w = surface.get_text_width(
+            device_context, *surface.m_editor_font, item->label);
         const int detail_w = surface.get_text_width(
             device_context, *surface.m_ui_font, item->detail);
-        const float detail_x =
-            std::max(item_rect.x + 180.0F * surface.m_dpi_scale,
-                     item_rect.right() - static_cast<float>(detail_w) -
-                         6.0F * surface.m_dpi_scale);
-        surface.draw_text(device_context, *surface.m_ui_font, item->detail,
-                          detail_x, row_y + item_h * 0.5F,
-                          completion_text_muted);
+        const float label_end_x = (item_rect.x + 24.0F * surface.m_dpi_scale) +
+                                  static_cast<float>(label_w) + 12.0F * surface.m_dpi_scale;
+        const float ideal_detail_x =
+            item_rect.right() - static_cast<float>(detail_w) - 6.0F * surface.m_dpi_scale;
+        const float detail_x = std::max(label_end_x, ideal_detail_x);
+
+        if (detail_x >= label_end_x && (detail_x + static_cast<float>(detail_w)) <= item_rect.right() + 4.0F) {
+          surface.draw_text(device_context, *surface.m_ui_font, item->detail,
+                            detail_x, row_y + item_h * 0.5F,
+                            completion_text_muted);
+        }
       }
     }
 

@@ -5,7 +5,6 @@
 #include "Plugins/Plugin.h"
 #include "Plugins/PluginManifest.h"
 #include "Plugins/PluginManager.h"
-#include "Plugins/Marketplace/MarketplaceClient.h"
 #include "Settings/SettingsService.h"
 
 #include <gtest/gtest.h>
@@ -317,34 +316,6 @@ TEST_F(ThemeTests, PluginContributedThemeAndSettingsIntegration)
 
     // Reset setting back to Dark
     settings.set("theme.current", "Dark");
-}
-
-TEST_F(ThemeTests, MarketplaceThemeCatalogEntries)
-{
-    Plugins::Marketplace::MarketplaceClient marketplace;
-    marketplace.ensure_default_catalog_if_empty();
-
-    auto all_entries = marketplace.get_all_entries();
-    ASSERT_FALSE(all_entries.empty());
-
-    // Search by category "themes"
-    auto theme_entries = marketplace.search("themes");
-    ASSERT_FALSE(theme_entries.empty());
-
-    // Verify presence of popular theme plugins from GitHub
-    auto one_dark = marketplace.find_entry("zde.theme.one-dark-pro");
-    ASSERT_TRUE(one_dark.has_value());
-    EXPECT_EQ(one_dark->category, "themes");
-    EXPECT_FALSE(one_dark->repository_url.empty());
-
-    auto dracula = marketplace.find_entry("zde.theme.dracula");
-    ASSERT_TRUE(dracula.has_value());
-    EXPECT_EQ(dracula->category, "themes");
-    EXPECT_FALSE(dracula->repository_url.empty());
-
-    auto catppuccin = marketplace.find_entry("zde.theme.catppuccin");
-    ASSERT_TRUE(catppuccin.has_value());
-    EXPECT_EQ(catppuccin->category, "themes");
 }
 
 TEST_F(ThemeTests, ThemeSwitchingSolidAndModern)

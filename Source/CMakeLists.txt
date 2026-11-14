@@ -18,6 +18,7 @@ if(APPLE)
 else()
     add_executable(ZDE main.cpp)
 endif()
+
 target_link_libraries(ZDE PRIVATE Zenvra::Application BootstrapperLib Zenvra::Utility)
 target_include_directories(ZDE PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 zde_enable_warnings(ZDE)
@@ -162,6 +163,16 @@ if(WIN32)
                 "${CMAKE_SOURCE_DIR}/Assets/Grammars"
                 "$<TARGET_FILE_DIR:ZDE>/Assets/Grammars"
             COMMENT "Deploying TextMate Grammars to Assets/Grammars..."
+        )
+    endif()
+
+    # Deploy Language Definitions to Assets/LanguageDefinitions
+    if(EXISTS "${CMAKE_SOURCE_DIR}/Assets/LanguageDefinitions")
+        add_custom_command(TARGET ZDE POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_SOURCE_DIR}/Assets/LanguageDefinitions"
+                "$<TARGET_FILE_DIR:ZDE>/Assets/LanguageDefinitions"
+            COMMENT "Deploying Language Definitions to Assets/LanguageDefinitions..."
         )
     endif()
 

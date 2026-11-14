@@ -12,7 +12,7 @@ std::string_view plugin_source_to_string(PluginSource source) noexcept
     case PluginSource::Bundled: return "bundled";
     case PluginSource::Git: return "git";
     case PluginSource::Local: return "local";
-    case PluginSource::Marketplace: return "marketplace";
+    case PluginSource::Catalog: return "catalog";
     }
     return "local";
 }
@@ -21,7 +21,7 @@ PluginSource plugin_source_from_string(std::string_view str) noexcept
 {
     if (str == "bundled") return PluginSource::Bundled;
     if (str == "git") return PluginSource::Git;
-    if (str == "marketplace") return PluginSource::Marketplace;
+    if (str == "catalog" || str == "marketplace") return PluginSource::Catalog;
     return PluginSource::Local;
 }
 

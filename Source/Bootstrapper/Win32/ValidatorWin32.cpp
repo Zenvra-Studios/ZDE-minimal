@@ -1,5 +1,4 @@
 #include "../NativeUI.h"
-#include "../NativeUI.h"
 #include <filesystem>
 #include <windows.h>
 
@@ -7,7 +6,8 @@ ValidationResult ValidateDependencies(const std::filesystem::path& base_path, co
     for (const auto& dep : dependencies) {
         if (dep.required) {
             std::filesystem::path dep_path = std::filesystem::path(base_path) / dep.file;
-            if (!std::filesystem::exists(dep_path)) {
+            const DWORD attrs = GetFileAttributesW(dep_path.c_str());
+            if (attrs == INVALID_FILE_ATTRIBUTES) {
                 return {false, dep.file, "The installation may be incomplete or corrupted."};
             }
         }

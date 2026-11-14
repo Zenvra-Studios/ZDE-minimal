@@ -219,15 +219,29 @@ TEST(LanguageServerTests, JavaSnippetsAndTemplateCompletions) {
 
 TEST(LanguageServerTests, SystemOrPluginBinaryClangdDiscovery) {
   auto &registry = Language::Registry::ServerRegistry::instance();
+  std::error_code ec;
+  const auto mock_dir = std::filesystem::current_path() / "plugins" / "lsp" / "clangd";
+  std::filesystem::create_directories(mock_dir, ec);
+  const auto mock_exe = mock_dir / "clangd.exe";
+  const bool created = !std::filesystem::exists(mock_exe, ec);
+  if (created) {
+    std::ofstream ofs(mock_exe);
+    ofs << "dummy";
+  }
+  registry.clear_cache();
   const auto clangd_path = registry.find_executable_in_system("clangd");
-  ASSERT_FALSE(clangd_path.empty());
+  EXPECT_FALSE(clangd_path.empty());
   EXPECT_TRUE(clangd_path.string().find("clangd") != std::string::npos);
+  if (created) {
+    std::filesystem::remove(mock_exe, ec);
+    std::filesystem::remove(mock_dir, ec);
+  }
 }
 
 TEST(LanguageServerTests, PluginBinaryDiscoveryInPluginsDirectory) {
   auto &registry = Language::Registry::ServerRegistry::instance();
   std::error_code ec;
-  const auto plugin_bin_dir = std::filesystem::current_path() / "plugins" / "lsp" / "typescript" / "bin";
+  const auto plugin_bin_dir = std::filesystem::current_path() / "plugins" / "lsp" / "typescript-language-server" / "bin";
   std::filesystem::create_directories(plugin_bin_dir, ec);
   const auto dummy_exe = plugin_bin_dir / "typescript-language-server.exe";
   {
@@ -239,6 +253,7 @@ TEST(LanguageServerTests, PluginBinaryDiscoveryInPluginsDirectory) {
   EXPECT_FALSE(tls_path.empty());
   EXPECT_TRUE(tls_path.string().find("typescript-language-server") != std::string::npos);
   std::filesystem::remove(dummy_exe, ec);
+  std::filesystem::remove(plugin_bin_dir, ec);
 }
 
 TEST(LanguageServerTests, SystemOrPluginBinaryJdtlsDiscovery) {

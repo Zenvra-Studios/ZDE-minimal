@@ -8,7 +8,6 @@ add_library(ZDEPlugins
     Toolchain/ToolManager.cpp
     Installer/DependencyResolver.cpp
     Installer/PluginInstaller.cpp
-    Marketplace/MarketplaceClient.cpp
     PluginManager.cpp
     Editor/EditorPluginManager.cpp
 )
@@ -27,8 +26,5 @@ target_link_libraries(ZDEPlugins PUBLIC
     Zenvra::Language
     nlohmann_json::nlohmann_json
 )
-if(WIN32)
-    target_link_libraries(ZDEPlugins PRIVATE winhttp)
-endif()
 
 zde_enable_warnings(ZDEPlugins)

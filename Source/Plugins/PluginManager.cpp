@@ -126,17 +126,6 @@ void PluginManager::initialize(
     // Scan directories for plugins
     scan_plugins();
 
-    // Set marketplace cache dir
-    m_marketplace.set_cache_dir(m_plugins_root / ".cache" / "icons");
-
-    // Load static marketplace catalog if available
-    std::filesystem::path catalog_file = m_plugins_root / ".cache" / "marketplace.json";
-    if (std::filesystem::exists(catalog_file, ec))
-    {
-        m_marketplace.load_catalog_from_file(catalog_file);
-    }
-    m_marketplace.ensure_default_catalog_if_empty();
-
     // Activate enabled plugins
     for (auto& plugin : m_registry.get_enabled_plugins())
     {

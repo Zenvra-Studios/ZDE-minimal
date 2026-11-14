@@ -1,0 +1,29 @@
+{
+  "id": "css",
+  "displayName": "CSS",
+  "extensions": [".css", ".scss", ".less"],
+  "filenames": [],
+  "firstLinePatterns": [],
+  "projectMarkers": [],
+  "aliases": ["css"],
+  "editorSettings": {
+    "tabSize": 2,
+    "insertSpaces": true,
+    "lineComment": "/*",
+    "blockCommentStart": "/*",
+    "blockCommentEnd": "*/",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": true
+  },
+  "serverAssociation": {
+    "defaultServerId": "vscode-css-language-server",
+    "candidateExecutables": ["vscode-css-language-server", "css-languageserver"],
+    "defaultArguments": ["--stdio"],
+    "rootMarkers": [".git"],
+    "autoInstall": false
+  }
+}
+

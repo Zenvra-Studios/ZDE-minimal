@@ -2,7 +2,6 @@
 
 #include "Plugins/Installer/DependencyResolver.h"
 #include "Plugins/Installer/PluginInstaller.h"
-#include "Plugins/Marketplace/MarketplaceClient.h"
 #include "Plugins/Plugin.h"
 #include "Plugins/PluginRegistry.h"
 #include "Plugins/Toolchain/ToolManager.h"
@@ -33,9 +32,6 @@ public:
 
     [[nodiscard]] Toolchain::ToolManager& get_tool_manager() noexcept { return Toolchain::ToolManager::instance(); }
     [[nodiscard]] const Toolchain::ToolManager& get_tool_manager() const noexcept { return Toolchain::ToolManager::instance(); }
-
-    [[nodiscard]] Marketplace::MarketplaceClient& get_marketplace() noexcept { return m_marketplace; }
-    [[nodiscard]] const Marketplace::MarketplaceClient& get_marketplace() const noexcept { return m_marketplace; }
 
     [[nodiscard]] Installer::DependencyResolver& get_dependency_resolver() noexcept { return m_resolver; }
     [[nodiscard]] const Installer::DependencyResolver& get_dependency_resolver() const noexcept { return m_resolver; }
@@ -86,7 +82,6 @@ private:
     std::filesystem::path m_registry_file;
 
     PluginRegistry m_registry;
-    Marketplace::MarketplaceClient m_marketplace;
     Installer::DependencyResolver m_resolver;
     std::unique_ptr<Installer::PluginInstaller> m_installer;
 

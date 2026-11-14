@@ -1,0 +1,29 @@
+{
+  "id": "rust",
+  "displayName": "Rust",
+  "extensions": [".rs"],
+  "filenames": ["Cargo.lock"],
+  "firstLinePatterns": [],
+  "projectMarkers": ["Cargo.toml", "Cargo.lock"],
+  "aliases": ["rs"],
+  "editorSettings": {
+    "tabSize": 4,
+    "insertSpaces": true,
+    "lineComment": "//",
+    "blockCommentStart": "/*",
+    "blockCommentEnd": "*/",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": true
+  },
+  "serverAssociation": {
+    "defaultServerId": "rust-analyzer",
+    "candidateExecutables": ["rust-analyzer", "rust-analyzer-linux", "rust-analyzer-mac"],
+    "defaultArguments": [],
+    "rootMarkers": ["Cargo.toml", ".git"],
+    "autoInstall": false
+  }
+}
+

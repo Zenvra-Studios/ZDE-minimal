@@ -9,7 +9,6 @@
 #include "Plugins/Toolchain/ToolManager.h"
 #include "Plugins/Installer/DependencyResolver.h"
 #include "Plugins/Installer/PluginInstaller.h"
-#include "Plugins/Marketplace/MarketplaceClient.h"
 #include "Language/Registry/ServerRegistry.h"
 #include "Language/LanguageServerManager.h"
 
@@ -262,99 +261,6 @@ TEST_F(PluginSystemTests, AtomicStagingAndLocalInstallation)
     EXPECT_FALSE(std::filesystem::exists(installed_path));
 }
 
-TEST_F(PluginSystemTests, MarketplaceCatalogSearchAndDiscovery)
-{
-    Marketplace::MarketplaceClient client;
-
-    const std::string catalog_json = R"({
-        "version": 1,
-        "plugins": [
-            {
-                "id": "org.zenvra.cpp",
-                "name": "C/C++ Support",
-                "version": "1.0.0",
-                "description": "Comprehensive C and C++ language integration with clangd",
-                "publisher": "Zenvra Studios",
-                "repository": "https://github.com/Zenvra-Studios/zde-cpp.git",
-                "tags": ["cpp", "c", "clangd", "language"]
-            },
-            {
-                "id": "org.zenvra.rust",
-                "name": "Rust Support",
-                "version": "1.1.0",
-                "description": "Rust language support with rust-analyzer and cargo",
-                "publisher": "Zenvra Studios",
-                "repository": "https://github.com/Zenvra-Studios/zde-rust.git",
-                "tags": ["rust", "cargo", "rust-analyzer"]
-            },
-            {
-                "id": "org.zenvra.theme.dracula",
-                "name": "Dracula Theme",
-                "version": "2.0.0",
-                "description": "A dark theme for ZDE Studio",
-                "publisher": "Community",
-                "tags": ["theme", "ui", "dark"]
-            }
-        ]
-    })";
-
-    ASSERT_TRUE(client.load_catalog_from_json(nlohmann::json::parse(catalog_json)));
-    EXPECT_EQ(client.get_all_entries().size(), 3u);
-
-    // Search by query
-    auto rust_results = client.search("rust");
-    ASSERT_EQ(rust_results.size(), 1u);
-    EXPECT_EQ(rust_results[0].id, "org.zenvra.rust");
-
-    auto tag_results = client.search("clangd");
-    ASSERT_EQ(tag_results.size(), 1u);
-    EXPECT_EQ(tag_results[0].id, "org.zenvra.cpp");
-
-    auto empty_search = client.search("");
-    EXPECT_EQ(empty_search.size(), 3u);
-
-    auto entry_opt = client.find_entry("org.zenvra.theme.dracula");
-    ASSERT_TRUE(entry_opt.has_value());
-    EXPECT_EQ(entry_opt->name, "Dracula Theme");
-}
-
-TEST_F(PluginSystemTests, MarketplaceJavaJdtlsCatalogEntryAndLspDiscovery)
-{
-    Marketplace::MarketplaceClient client;
-    client.ensure_default_catalog_if_empty();
-
-    auto jdtls_results = client.search("jdtls");
-    ASSERT_FALSE(jdtls_results.empty());
-
-    bool found_jdtls = false;
-    for (const auto& entry : jdtls_results)
-    {
-        if (entry.id == "eclipse.jdtls" || entry.id == "redhat.java")
-        {
-            found_jdtls = true;
-            EXPECT_EQ(entry.category, "lsp");
-            EXPECT_TRUE(entry.repository_url.find("github.com") != std::string::npos);
-            EXPECT_TRUE(entry.repository_url.ends_with(".git"));
-        }
-    }
-    EXPECT_TRUE(found_jdtls);
-
-    auto java_results = client.search("java");
-    ASSERT_FALSE(java_results.empty());
-
-    auto eclipse_entry = client.find_entry("eclipse.jdtls");
-    ASSERT_TRUE(eclipse_entry.has_value());
-    EXPECT_EQ(eclipse_entry->name, "Eclipse JDT Language Server (jdtls)");
-    EXPECT_EQ(eclipse_entry->category, "lsp");
-    EXPECT_EQ(eclipse_entry->repository_url, "https://github.com/eclipse-jdtls/eclipse.jdt.ls.git");
-
-    auto redhat_entry = client.find_entry("redhat.java");
-    ASSERT_TRUE(redhat_entry.has_value());
-    EXPECT_EQ(redhat_entry->name, "Language Support for Java(TM)");
-    EXPECT_EQ(redhat_entry->category, "lsp");
-    EXPECT_EQ(redhat_entry->repository_url, "https://github.com/red-hat-developer/vscode-java.git");
-}
-
 TEST_F(PluginSystemTests, PluginManagerIntegrationAndLifecycle)
 {
     // Setup PluginManager in isolated sandbox
@@ -401,29 +307,6 @@ TEST_F(PluginSystemTests, PluginManagerIntegrationAndLifecycle)
     // Test uninstall
     EXPECT_TRUE(manager.uninstall_plugin("org.sample.editor"));
     EXPECT_FALSE(manager.get_registry().has_plugin("org.sample.editor"));
-}
-
-TEST_F(PluginSystemTests, CategoryDeductionAndEmulatorCatalog)
-{
-    Marketplace::MarketplaceClient client;
-    client.ensure_default_catalog_if_empty();
-
-    auto emulators = client.search("category:emulators");
-    EXPECT_GE(emulators.size(), 3u);
-
-    bool has_qemu = false;
-    for (const auto& e : emulators)
-    {
-        if (e.id == "org.zenvra.emulator.qemu")
-        {
-            has_qemu = true;
-            EXPECT_EQ(e.category, "emulators");
-        }
-    }
-    EXPECT_TRUE(has_qemu);
-
-    auto lsp_results = client.search("@category:lsp");
-    EXPECT_GE(lsp_results.size(), 5u);
 }
 
 TEST_F(PluginSystemTests, PluginDrivenLspRegistrationAndLifecycle)

@@ -1,0 +1,29 @@
+{
+  "id": "python",
+  "displayName": "Python",
+  "extensions": [".py", ".pyw", ".pyi", ".pyd"],
+  "filenames": ["Pipfile", "pyproject.toml", "requirements.txt"],
+  "firstLinePatterns": ["^#!.*\\bpython[0-9.]*\\b"],
+  "projectMarkers": ["pyproject.toml", "setup.py", "Pipfile", "requirements.txt"],
+  "aliases": ["py"],
+  "editorSettings": {
+    "tabSize": 4,
+    "insertSpaces": true,
+    "lineComment": "#",
+    "blockCommentStart": "\"\"\"",
+    "blockCommentEnd": "\"\"\"",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": true
+  },
+  "serverAssociation": {
+    "defaultServerId": "pyright",
+    "candidateExecutables": ["pyright-langserver", "pyright", "pylsp", "jedi-language-server"],
+    "defaultArguments": ["--stdio"],
+    "rootMarkers": ["pyproject.toml", "setup.py", "requirements.txt", ".git"],
+    "autoInstall": false
+  }
+}
+

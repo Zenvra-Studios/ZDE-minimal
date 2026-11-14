@@ -1,0 +1,29 @@
+{
+  "id": "csharp",
+  "displayName": "C#",
+  "extensions": [".cs", ".csx"],
+  "filenames": [],
+  "firstLinePatterns": [],
+  "projectMarkers": ["*.sln", "*.csproj"],
+  "aliases": ["cs", "c#"],
+  "editorSettings": {
+    "tabSize": 4,
+    "insertSpaces": true,
+    "lineComment": "//",
+    "blockCommentStart": "/*",
+    "blockCommentEnd": "*/",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": true
+  },
+  "serverAssociation": {
+    "defaultServerId": "csharp-ls",
+    "candidateExecutables": ["csharp-ls", "omnisharp"],
+    "defaultArguments": [],
+    "rootMarkers": ["*.sln", "*.csproj", ".git"],
+    "autoInstall": false
+  }
+}
+

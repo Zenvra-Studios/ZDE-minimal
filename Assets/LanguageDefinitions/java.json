@@ -1,0 +1,29 @@
+{
+  "id": "java",
+  "displayName": "Java",
+  "extensions": [".java", ".jav"],
+  "filenames": [],
+  "firstLinePatterns": [],
+  "projectMarkers": ["pom.xml", "build.gradle", "build.gradle.kts"],
+  "aliases": ["java"],
+  "editorSettings": {
+    "tabSize": 4,
+    "insertSpaces": true,
+    "lineComment": "//",
+    "blockCommentStart": "/*",
+    "blockCommentEnd": "*/",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": true
+  },
+  "serverAssociation": {
+    "defaultServerId": "jdtls",
+    "candidateExecutables": ["jdtls", "jdtls.bat", "jdtls.cmd", "jdt-language-server", "eclipse-jdtls"],
+    "defaultArguments": [],
+    "rootMarkers": ["pom.xml", "build.gradle", ".git"],
+    "autoInstall": false
+  }
+}
+

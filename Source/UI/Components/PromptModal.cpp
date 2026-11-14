@@ -60,12 +60,41 @@ void PromptModal::open_delete(const std::filesystem::path& item_path, std::funct
     m_target_path = item_path;
     m_subtitle = "Are you sure you want to permanently delete '" + item_path.filename().string() + "'?";
     m_confirm_label = "Delete";
+    m_cancel_label = "Cancel";
     m_input.set_text("");
     m_input.set_placeholder("");
     m_input.set_focused(false);
     m_on_confirm_string = nullptr;
     m_on_confirm_void = std::move(on_confirm);
+    m_on_cancel_void = nullptr;
     m_visible = true;
+}
+
+void PromptModal::open_lsp_install(
+    const std::string& language_name,
+    const std::string& server_name,
+    std::function<void()> on_confirm,
+    std::function<void()> on_cancel)
+{
+    m_mode = PromptMode::InstallLspServer;
+    m_title = "Install " + language_name + " Language Server?";
+    m_subtitle = "Language server (" + server_name + ") is required for autocompletion and hover. Install now?";
+    m_confirm_label = "Install";
+    m_cancel_label = "Later";
+    m_target_path.clear();
+    m_input.set_text("");
+    m_input.set_placeholder("");
+    m_input.set_focused(false);
+    m_on_confirm_string = nullptr;
+    m_on_confirm_void = std::move(on_confirm);
+    m_on_cancel_void = std::move(on_cancel);
+    m_visible = true;
+    m_close_hovered = false;
+    m_close_pressed = false;
+    m_ok_hovered = false;
+    m_ok_pressed = false;
+    m_cancel_hovered = false;
+    m_cancel_pressed = false;
 }
 
 void PromptModal::close() noexcept
@@ -77,15 +106,24 @@ void PromptModal::close() noexcept
     m_ok_pressed = false;
     m_cancel_hovered = false;
     m_cancel_pressed = false;
+    if (m_on_cancel_void)
+    {
+        auto cb = std::move(m_on_cancel_void);
+        m_on_cancel_void = nullptr;
+        cb();
+    }
 }
 
 void PromptModal::submit()
 {
-    if (m_mode == PromptMode::ConfirmDelete)
+    if (m_mode == PromptMode::ConfirmDelete || m_mode == PromptMode::InstallLspServer)
     {
+        m_on_cancel_void = nullptr;
         if (m_on_confirm_void)
         {
-            m_on_confirm_void();
+            auto cb = std::move(m_on_confirm_void);
+            m_on_confirm_void = nullptr;
+            cb();
         }
         close();
     }
@@ -108,8 +146,12 @@ PromptModalLayoutResult PromptModal::calculate_layout(const Rect& viewport_bound
     PromptModalLayoutResult layout{};
     layout.dpi_scale = dpi_scale;
 
-    const float dialog_w = std::min(360.0F * dpi_scale, viewport_bounds.width - 32.0F * dpi_scale);
-    const float dialog_h = (m_mode == PromptMode::ConfirmDelete) ? (130.0F * dpi_scale) : (96.0F * dpi_scale);
+    const float dialog_w = (m_mode == PromptMode::InstallLspServer)
+        ? std::min(460.0F * dpi_scale, viewport_bounds.width - 32.0F * dpi_scale)
+        : std::min(360.0F * dpi_scale, viewport_bounds.width - 32.0F * dpi_scale);
+    const float dialog_h = (m_mode == PromptMode::InstallLspServer)
+        ? (138.0F * dpi_scale)
+        : ((m_mode == PromptMode::ConfirmDelete) ? (130.0F * dpi_scale) : (96.0F * dpi_scale));
     const float dialog_x = viewport_bounds.x + (viewport_bounds.width - dialog_w) * 0.5F;
     const float dialog_y = viewport_bounds.y + (viewport_bounds.height - dialog_h) * 0.38F;
 
@@ -133,17 +175,17 @@ PromptModalLayoutResult PromptModal::calculate_layout(const Rect& viewport_bound
         20.0F * dpi_scale
     };
 
-    if (m_mode == PromptMode::ConfirmDelete)
+    if (m_mode == PromptMode::ConfirmDelete || m_mode == PromptMode::InstallLspServer)
     {
         layout.subtitle_bounds = Rect{
             dialog_x + pad,
             layout.title_bounds.bottom() + 4.0F * dpi_scale,
             dialog_w - pad * 2.0F,
-            16.0F * dpi_scale
+            24.0F * dpi_scale
         };
 
-        const float btn_w = 78.0F * dpi_scale;
-        const float btn_h = 26.0F * dpi_scale;
+        const float btn_w = (m_mode == PromptMode::InstallLspServer) ? (88.0F * dpi_scale) : (78.0F * dpi_scale);
+        const float btn_h = 28.0F * dpi_scale;
         const float btn_y = dialog_y + dialog_h - 14.0F * dpi_scale - btn_h;
 
         layout.ok_button_bounds = Rect{
@@ -254,43 +296,43 @@ bool PromptModal::handle_pointer_release(float x, float y, const PromptModalLayo
 
 bool PromptModal::handle_char(char32_t codepoint) noexcept
 {
-    if (!m_visible || m_mode == PromptMode::ConfirmDelete) return false;
+    if (!m_visible || m_mode == PromptMode::ConfirmDelete || m_mode == PromptMode::InstallLspServer) return false;
     return m_input.handle_char(codepoint);
 }
 
 bool PromptModal::handle_backspace() noexcept
 {
-    if (!m_visible || m_mode == PromptMode::ConfirmDelete) return false;
+    if (!m_visible || m_mode == PromptMode::ConfirmDelete || m_mode == PromptMode::InstallLspServer) return false;
     return m_input.handle_backspace();
 }
 
 bool PromptModal::handle_delete() noexcept
 {
-    if (!m_visible || m_mode == PromptMode::ConfirmDelete) return false;
+    if (!m_visible || m_mode == PromptMode::ConfirmDelete || m_mode == PromptMode::InstallLspServer) return false;
     return m_input.handle_delete();
 }
 
 bool PromptModal::handle_left(bool select) noexcept
 {
-    if (!m_visible || m_mode == PromptMode::ConfirmDelete) return false;
+    if (!m_visible || m_mode == PromptMode::ConfirmDelete || m_mode == PromptMode::InstallLspServer) return false;
     return m_input.handle_left(select);
 }
 
 bool PromptModal::handle_right(bool select) noexcept
 {
-    if (!m_visible || m_mode == PromptMode::ConfirmDelete) return false;
+    if (!m_visible || m_mode == PromptMode::ConfirmDelete || m_mode == PromptMode::InstallLspServer) return false;
     return m_input.handle_right(select);
 }
 
 bool PromptModal::handle_home(bool select) noexcept
 {
-    if (!m_visible || m_mode == PromptMode::ConfirmDelete) return false;
+    if (!m_visible || m_mode == PromptMode::ConfirmDelete || m_mode == PromptMode::InstallLspServer) return false;
     return m_input.handle_home(select);
 }
 
 bool PromptModal::handle_end(bool select) noexcept
 {
-    if (!m_visible || m_mode == PromptMode::ConfirmDelete) return false;
+    if (!m_visible || m_mode == PromptMode::ConfirmDelete || m_mode == PromptMode::InstallLspServer) return false;
     return m_input.handle_end(select);
 }
 

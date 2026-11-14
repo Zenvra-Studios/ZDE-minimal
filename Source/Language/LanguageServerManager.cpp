@@ -4,6 +4,8 @@
 #include "Language/Syntax/GrammarRegistry.h"
 #include "Language/Toolchain/ToolchainDetector.h"
 #include "Language/Transport/StdioProcessTransport.h"
+#include "Services/Language/Features/CompletionService.h"
+#include "Services/Language/Features/HoverService.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -1933,7 +1935,7 @@ LanguageServerManager::get_templates_for_filename(std::string_view filename) {
 
   if (fname == "CMakeLists.txt" || fname == "cmakelists.txt" ||
       ext == ".cmake") {
-    return CMake::CMakeLanguageDatabase::instance().get_all_completions();
+    return {};
   }
   if (ext == ".java" || ext == ".jav") {
     return get_java_templates();
@@ -1976,198 +1978,16 @@ LanguageServerManager::get_templates_for_filename(std::string_view filename) {
   return {};
 }
 
-namespace {
-static std::mutex& get_header_cache_mutex() {
-  static auto* m = new std::mutex();
-  return *m;
-}
-static std::unordered_map<std::string, std::vector<Protocol::CompletionItem>>
-    s_header_cache;
-} // namespace
-
-void LanguageServerManager::clear_header_cache() noexcept {
-  std::lock_guard<std::mutex> lock(get_header_cache_mutex());
-  s_header_cache.clear();
-}
+void LanguageServerManager::clear_header_cache() noexcept {}
 
 std::vector<Protocol::CompletionItem>
 LanguageServerManager::get_header_completions(
-    std::string_view line_prefix, const std::filesystem::path &workspace_root) {
-  // Determine if it is <system> or "quoted" include
-  bool is_system = false;
-  std::string_view path_after_delim;
-
-  const auto lt_pos = line_prefix.rfind('<');
-  const auto qt_pos = line_prefix.rfind('"');
-
-  if (lt_pos != std::string_view::npos &&
-      (qt_pos == std::string_view::npos || lt_pos > qt_pos)) {
-    is_system = true;
-    path_after_delim = line_prefix.substr(lt_pos + 1);
-  } else if (qt_pos != std::string_view::npos) {
-    is_system = false;
-    path_after_delim = line_prefix.substr(qt_pos + 1);
-  } else {
-    return {};
-  }
-
-  // Extract subdirectory prefix if user typed e.g. "X11/" or "Platform/X11/"
-  std::string sub_dir;
-  const auto last_slash = path_after_delim.rfind('/');
-  if (last_slash != std::string_view::npos) {
-    sub_dir = std::string(path_after_delim.substr(0, last_slash + 1));
-  }
-
-  const std::string cache_key =
-      (is_system ? "sys:" : "quote:") + sub_dir + "|" + workspace_root.string();
-  {
-    std::lock_guard<std::mutex> lock(get_header_cache_mutex());
-    auto it = s_header_cache.find(cache_key);
-    if (it != s_header_cache.end()) {
-      return it->second;
-    }
-  }
-
-  std::vector<Protocol::CompletionItem> items;
-  std::unordered_set<std::string> seen;
-
-  const auto &toolchain =
-      Toolchain::ToolchainDetector::instance().get_active_toolchain();
-
-  auto add_entry = [&](const std::filesystem::directory_entry &entry) {
-    std::error_code ec;
-    const auto name = entry.path().filename().string();
-    if (name.empty() || name.front() == '.')
-      return;
-
-    const auto status = std::filesystem::status(entry.path(), ec);
-    if (std::filesystem::is_regular_file(status)) {
-      const auto ext = entry.path().extension().string();
-      if (ext == ".h" || ext == ".hpp" || ext == ".hxx" || ext == ".inl" ||
-          ext.empty()) {
-        if (seen.insert(name).second) {
-          Protocol::CompletionItem it{};
-          it.label = name;
-          it.kind = Protocol::CompletionItemKind::File;
-          it.detail = is_system ? "System Header" : "Project Header";
-          // Close with > or " automatically
-          it.insert_text = name + (is_system ? ">" : "\"");
-          it.filter_text = name;
-          items.push_back(std::move(it));
-        }
-      }
-    } else if (std::filesystem::is_directory(status) && sub_dir.empty()) {
-      // Only show directory candidates at top-level; once inside a folder, show
-      // only header files
-      const std::string dir_label = name + "/";
-      if (seen.insert(dir_label).second) {
-        Protocol::CompletionItem it{};
-        it.label = dir_label;
-        it.kind = Protocol::CompletionItemKind::Folder;
-        it.detail = "Directory";
-        it.insert_text = dir_label;
-        it.filter_text = name;
-        items.push_back(std::move(it));
-      }
-    }
-  };
-
-  // 1. If scanning a specific sub_dir (e.g. "X11/" or "Platform/X11/"):
-  if (!sub_dir.empty()) {
-    bool found_dir = false;
-
-    // Scan toolchain system include paths + sub_dir
-    for (const auto &sys_inc : toolchain.system_include_paths) {
-      std::error_code ec;
-      const auto target = sys_inc / sub_dir;
-      if (std::filesystem::exists(target, ec) &&
-          std::filesystem::is_directory(target, ec)) {
-        for (const auto &entry : std::filesystem::directory_iterator(
-                 target,
-                 std::filesystem::directory_options::skip_permission_denied,
-                 ec)) {
-          add_entry(entry);
-        }
-        found_dir = true;
-      }
-    }
-
-    // Also scan workspace roots + sub_dir
-    if (!workspace_root.empty()) {
-      const std::filesystem::path roots[] = {
-          workspace_root / sub_dir,
-          workspace_root / "Source" / sub_dir,
-          workspace_root / "Include" / sub_dir,
-          workspace_root / "include" / sub_dir,
-      };
-      for (const auto &target : roots) {
-        std::error_code ec;
-        if (std::filesystem::exists(target, ec) &&
-            std::filesystem::is_directory(target, ec)) {
-          for (const auto &entry : std::filesystem::directory_iterator(
-                   target,
-                   std::filesystem::directory_options::skip_permission_denied,
-                   ec)) {
-            add_entry(entry);
-          }
-          found_dir = true;
-        }
-      }
-    }
-
-    // If no matching sub_dir was found anywhere, return empty
-    if (!found_dir) {
-      return items;
-    }
-  } else {
-    // Top-level include scanning
-    // A. System include top-level
-    for (const auto &sys_inc : toolchain.system_include_paths) {
-      std::error_code ec;
-      if (std::filesystem::exists(sys_inc, ec) &&
-          std::filesystem::is_directory(sys_inc, ec)) {
-        for (const auto &entry : std::filesystem::directory_iterator(
-                 sys_inc,
-                 std::filesystem::directory_options::skip_permission_denied,
-                 ec)) {
-          add_entry(entry);
-        }
-      }
-    }
-    // B. Workspace include scanning
-    if (!workspace_root.empty()) {
-      const std::filesystem::path roots[] = {
-          workspace_root / "Source",
-          workspace_root / "include",
-          workspace_root / "Include",
-          workspace_root,
-      };
-      for (const auto &r : roots) {
-        std::error_code ec;
-        if (std::filesystem::exists(r, ec) &&
-            std::filesystem::is_directory(r, ec)) {
-          for (const auto &entry : std::filesystem::directory_iterator(
-                   r,
-                   std::filesystem::directory_options::skip_permission_denied,
-                   ec)) {
-            add_entry(entry);
-          }
-        }
-      }
-    }
-  }
-
-  // Sort items: header files first, then subdirectories alphabetically
-  std::sort(
-      items.begin(), items.end(),
-      [](const Protocol::CompletionItem &a, const Protocol::CompletionItem &b) {
-        if (a.kind != b.kind) {
-          return a.kind == Protocol::CompletionItemKind::File;
-        }
-        return a.label < b.label;
-      });
-
-  return items;
+    [[maybe_unused]] std::string_view line_prefix,
+    [[maybe_unused]] const std::filesystem::path &workspace_root) {
+  // Pure native approach: Header completions and intelligence are delegated entirely
+  // to the Language Server (e.g. clangd). ZDE does not artificially scan host SDKs
+  // or inject synthetic headers into the autocompletion list.
+  return {};
 }
 
 LanguageServerManager &LanguageServerManager::instance() noexcept {
@@ -2175,7 +1995,26 @@ LanguageServerManager &LanguageServerManager::instance() noexcept {
   return *manager;
 }
 
-LanguageServerManager::LanguageServerManager() {}
+LanguageServerManager::LanguageServerManager() {
+  Services::Language::Features::CompletionService::instance().set_provider(
+      [this](const std::string &uri, std::string_view fn,
+             const Protocol::Position &pos, std::string_view lt,
+             Services::Language::Features::CompletionService::CompletionCallback
+                 cb,
+             std::optional<char> tc) {
+        request_completion(uri, fn, pos, lt, std::move(cb), tc);
+      });
+  Services::Language::Features::CompletionService::instance()
+      .set_template_provider([](std::string_view fn) {
+        return get_templates_for_filename(fn);
+      });
+  Services::Language::Features::HoverService::instance().set_provider(
+      [this](const std::string &uri, std::string_view fn,
+             const Protocol::Position &pos, std::string_view lt,
+             Services::Language::Features::HoverService::HoverCallback cb) {
+        request_hover(uri, fn, pos, lt, std::move(cb));
+      });
+}
 
 LanguageServerManager::~LanguageServerManager() { shutdown_all(); }
 
@@ -2188,7 +2027,7 @@ void LanguageServerManager::set_workspace_root(
 }
 
 Client::ILanguageClient *
-LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
+LanguageServerManager::get_or_start_client_for_file(std::string_view filename, bool prompt_if_missing) {
   if (filename.empty()) {
     return nullptr;
   }
@@ -2243,15 +2082,6 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
     }
   }
 
-  if (m_unavailable_languages.contains(profile->language_id)) {
-    auto quick_check = Registry::ServerRegistry::instance().find_executable_in_system(profile->executable_name);
-    if (!quick_check.empty()) {
-      m_unavailable_languages.erase(profile->language_id);
-    } else {
-      return nullptr;
-    }
-  }
-
   // Locate the language server executable (e.g. clangd.exe, rust-analyzer.exe, etc.)
   std::filesystem::path exe_path;
   if (!profile->custom_executable_path.empty()) {
@@ -2267,7 +2097,34 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
   if (exe_path.empty()) {
     lsp_debug_log("[zde-lsp] EXE NOT FOUND for " +
                   std::string(profile->executable_name));
-    m_unavailable_languages.insert(profile->language_id);
+    if (prompt_if_missing && m_missing_server_callback) {
+      std::string lang_name = profile->language_id;
+      if (lang_name == "rust") lang_name = "Rust";
+      else if (lang_name == "cpp" || lang_name == "c") lang_name = "C/C++";
+      else if (lang_name == "python") lang_name = "Python";
+      else if (lang_name == "typescript" || lang_name == "javascript") lang_name = "TypeScript/JavaScript";
+      else if (lang_name == "go") lang_name = "Go";
+      else if (lang_name == "java") lang_name = "Java";
+      else if (lang_name == "csharp") lang_name = "C#";
+      else if (lang_name == "cmake") lang_name = "CMake";
+      else if (lang_name == "zig") lang_name = "Zig";
+      else if (lang_name == "ruby") lang_name = "Ruby";
+      else if (lang_name == "lua") lang_name = "Lua";
+      else if (lang_name == "html") lang_name = "HTML";
+      else if (lang_name == "css") lang_name = "CSS";
+      else if (lang_name == "json") lang_name = "JSON";
+      else if (lang_name == "yaml") lang_name = "YAML";
+      else if (lang_name == "bash") lang_name = "Bash";
+      else if (lang_name == "swift") lang_name = "Swift";
+      else if (lang_name == "asm") lang_name = "Assembly";
+      else if (lang_name == "php") lang_name = "PHP";
+      else if (lang_name == "glsl") lang_name = "GLSL";
+      else if (lang_name == "hlsl") lang_name = "HLSL";
+      else if (lang_name == "wgsl") lang_name = "WGSL";
+      else if (!lang_name.empty()) lang_name[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(lang_name[0])));
+
+      m_missing_server_callback(profile->language_id, lang_name, profile->executable_name);
+    }
     return nullptr;
   }
   lsp_debug_log("[zde-lsp] exe=" + exe_path.generic_string());
@@ -2446,31 +2303,37 @@ LanguageServerManager::get_or_start_client_for_file(std::string_view filename) {
       }
     }
 
-    // Auto-inject system include directories discovered by ToolchainDetector
-    for (const auto &inc : toolchain.system_include_paths) {
-      if (!inc.empty() && std::filesystem::exists(inc, ec)) {
-        fallback_flags.push_back("-isystem" + inc.generic_string());
-      }
-    }
-
-    // Direct query-driver pointing to the detected compiler and standard paths
-    std::string comp_pattern;
-    if (!toolchain.compiler_path.empty()) {
-      comp_pattern = toolchain.compiler_path.generic_string() + "*,";
-    }
-#if defined(_WIN32)
-    args.push_back("--query-driver=" + comp_pattern +
-                   "*,*/*,**/*,C:/*,C:/**,D:/*,D:/**,E:/*,E:/**");
-#else
-    args.push_back("--query-driver=" + comp_pattern +
-                   "/usr/bin/*,/usr/local/bin/*,/opt/**,*,*/*,**/*");
-#endif
 
     lsp_debug_log(best_compile_dir.empty()
                       ? "[zde-lsp] no compile_commands.json found, using "
                         "fallback includes"
                       : "[zde-lsp] compile-dir=" +
                             best_compile_dir.generic_string());
+  }
+
+  if (profile->language_id == "java" || profile->executable_name == "jdtls" ||
+      exe_path.filename().string().find("jdtls") != std::string::npos) {
+    bool has_data = false;
+    for (const auto& a : args) {
+      if (a == "-data" || a.starts_with("-data=")) {
+        has_data = true;
+        break;
+      }
+    }
+    if (!has_data) {
+      std::error_code ec_jdt;
+      std::filesystem::path jdt_data_dir;
+      if (!m_workspace_root.empty()) {
+        const std::string proj_name = m_workspace_root.filename().string();
+        jdt_data_dir = std::filesystem::temp_directory_path() / "zde-jdtls-data" /
+                       (proj_name.empty() ? "default" : proj_name);
+      } else {
+        jdt_data_dir = std::filesystem::temp_directory_path() / "zde-jdtls-data" / "default";
+      }
+      std::filesystem::create_directories(jdt_data_dir, ec_jdt);
+      args.push_back("-data");
+      args.push_back(jdt_data_dir.string());
+    }
   }
 
   auto transport = std::make_unique<Transport::StdioProcessTransport>(
@@ -2565,7 +2428,7 @@ void LanguageServerManager::on_document_opened(const std::string &uri,
                                                std::string_view filename,
                                                int version,
                                                std::string_view content) {
-  auto *client = get_or_start_client_for_file(filename);
+  auto *client = get_or_start_client_for_file(filename, true);
   if (client != nullptr) {
     if (client->is_document_open(uri)) {
       return;
@@ -2587,10 +2450,17 @@ void LanguageServerManager::on_document_changed(const std::string &uri,
                                                 std::string_view filename,
                                                 int version,
                                                 std::string_view content) {
-  auto *client = get_or_start_client_for_file(filename);
+  auto *client = get_or_start_client_for_file(filename, false);
   if (client != nullptr) {
     if (!client->is_document_open(uri)) {
-      on_document_opened(uri, filename, version, content);
+      const auto *profile =
+          Registry::ServerRegistry::instance().find_profile_for_filename(
+              filename);
+      const std::string base_lang_id =
+          profile != nullptr ? profile->language_id : "plaintext";
+      const std::string lang_id =
+          determine_lsp_language_id(filename, base_lang_id);
+      client->did_open(uri, lang_id, version, content);
       return;
     }
     client->did_change(uri, version, content);
@@ -2600,7 +2470,7 @@ void LanguageServerManager::on_document_changed(const std::string &uri,
 
 void LanguageServerManager::on_document_saved(const std::string &uri,
                                               std::string_view filename) {
-  auto *client = get_or_start_client_for_file(filename);
+  auto *client = get_or_start_client_for_file(filename, false);
   if (client != nullptr) {
     client->did_save(uri);
   }
@@ -2608,7 +2478,7 @@ void LanguageServerManager::on_document_saved(const std::string &uri,
 
 void LanguageServerManager::on_document_closed(const std::string &uri,
                                                std::string_view filename) {
-  auto *client = get_or_start_client_for_file(filename);
+  auto *client = get_or_start_client_for_file(filename, false);
   if (client != nullptr) {
     client->did_close(uri);
   }
@@ -2630,6 +2500,19 @@ void LanguageServerManager::request_completion(
     return;
   }
 
+  // Retrieve or start client. If server executable is not installed,
+  // get_or_start_client_for_file prompts missing server notification and returns nullptr.
+  auto *client = get_or_start_client_for_file(filename);
+  if (client == nullptr ||
+      (!client->is_active() &&
+       client->get_state() != Client::ClientState::Initializing)) {
+    // Before the LSP server is installed and active, do NOT display autocompletion.
+    if (callback) {
+      callback({});
+    }
+    return;
+  }
+
   const std::filesystem::path p(filename);
   const std::string ext = p.extension().string();
   const std::string fname = p.filename().string();
@@ -2637,38 +2520,15 @@ void LanguageServerManager::request_completion(
                          fname == "cmakelists.txt" || ext == ".cmake");
 
   if (is_cmake) {
-    auto cmake_items =
-        CMake::CMakeLanguageDatabase::instance().get_completions_for_context(
-            line_text, pos.character);
-    auto *client = get_or_start_client_for_file(filename);
-    if (client != nullptr &&
-        (client->is_active() ||
-         client->get_state() == Client::ClientState::Initializing)) {
-      client->request_completion(
-          uri, pos,
-          [callback = std::move(callback),
-           cmake_items = std::move(cmake_items)](
-              std::vector<Protocol::CompletionItem> items) mutable {
-            std::unordered_set<std::string> seen;
-            for (const auto &it : items) {
-              seen.insert(it.label);
-            }
-            for (auto &ci : cmake_items) {
-              if (seen.insert(ci.label).second) {
-                items.push_back(std::move(ci));
-              }
-            }
-            if (callback) {
-              callback(std::move(items));
-            }
-          },
-          trigger_character);
-      return;
-    }
-
-    if (callback) {
-      callback(std::move(cmake_items));
-    }
+    client->request_completion(
+        uri, pos,
+        [callback = std::move(callback)](
+            std::vector<Protocol::CompletionItem> items) mutable {
+          if (callback) {
+            callback(std::move(items));
+          }
+        },
+        trigger_character);
     return;
   }
 
@@ -2692,120 +2552,43 @@ void LanguageServerManager::request_completion(
   auto templates = is_scoped_context ? std::vector<Protocol::CompletionItem>{}
                                      : get_templates_for_filename(filename);
 
-  // If in an include context (#include <... or #include "...), fetch header
-  // completions
-  std::vector<Protocol::CompletionItem> header_items;
-  if (line_text.find("#include") != std::string_view::npos ||
-      line_text.find("#import") != std::string_view::npos ||
-      line_text.find('#') != std::string_view::npos) {
-    header_items = get_header_completions(line_text, m_workspace_root);
-  }
+  client->request_completion(
+      uri, pos,
+      [callback = std::move(callback), templates = std::move(templates)](
+          std::vector<Protocol::CompletionItem> lsp_items) mutable {
+        std::unordered_set<std::string> seen_labels;
+        std::vector<Protocol::CompletionItem> combined;
+        combined.reserve(lsp_items.size() + templates.size());
 
-  auto *client = get_or_start_client_for_file(filename);
-  if (client != nullptr &&
-      (client->is_active() ||
-       client->get_state() == Client::ClientState::Initializing)) {
-    client->request_completion(
-        uri, pos,
-        [callback = std::move(callback), templates = std::move(templates),
-         header_items = std::move(header_items)](
-            std::vector<Protocol::CompletionItem> lsp_items) mutable {
-          std::unordered_set<std::string> seen_labels;
-          std::vector<Protocol::CompletionItem> combined;
-          combined.reserve(lsp_items.size() + templates.size() +
-                           header_items.size());
-
-          // 1. LSP items first
-          for (auto &it : lsp_items) {
-            if (seen_labels.insert(it.label).second) {
-              combined.push_back(std::move(it));
-            }
+        // 1. LSP items first (purely from language server)
+        for (auto &it : lsp_items) {
+          if (seen_labels.insert(it.label).second) {
+            combined.push_back(std::move(it));
           }
+        }
 
-          // 2. Header completions (standard library + project headers)
-          for (auto &hdr : header_items) {
-            if (seen_labels.insert(hdr.label).second) {
-              combined.push_back(std::move(hdr));
-            }
+        // 2. Language templates & snippets
+        for (auto &tpl : templates) {
+          if (seen_labels.insert(tpl.label).second) {
+            combined.push_back(std::move(tpl));
           }
+        }
 
-          // 3. Language templates & snippets
-          for (auto &tpl : templates) {
-            if (seen_labels.insert(tpl.label).second) {
-              combined.push_back(std::move(tpl));
-            }
-          }
-
-          if (callback) {
-            callback(std::move(combined));
-          }
-        },
-        trigger_character);
-  } else if (callback) {
-    std::unordered_set<std::string> seen_labels;
-    std::vector<Protocol::CompletionItem> fallback_items;
-    fallback_items.reserve(header_items.size() + templates.size());
-    for (auto &hdr : header_items) {
-      if (seen_labels.insert(hdr.label).second) {
-        fallback_items.push_back(std::move(hdr));
-      }
-    }
-    for (auto &tpl : templates) {
-      if (seen_labels.insert(tpl.label).second) {
-        fallback_items.push_back(std::move(tpl));
-      }
-    }
-    callback(std::move(fallback_items));
-  }
+        if (callback) {
+          callback(std::move(combined));
+        }
+      },
+      trigger_character);
 }
 
 void LanguageServerManager::request_hover(
     const std::string &uri, std::string_view filename,
-    const Protocol::Position &pos, std::string_view line_text,
+    const Protocol::Position &pos, [[maybe_unused]] std::string_view line_text,
     std::function<void(std::optional<Protocol::Hover>)> callback) {
-  const std::filesystem::path p(filename);
-  const std::string ext = p.extension().string();
-  const std::string fname = p.filename().string();
-  const bool is_cmake = (fname == "CMakeLists.txt" ||
-                         fname == "cmakelists.txt" || ext == ".cmake");
-
-  if (is_cmake && !line_text.empty()) {
-    std::size_t col = std::min(pos.character, line_text.size());
-    std::size_t start = col;
-    while (start > 0) {
-      const char ch = line_text[start - 1];
-      if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' ||
-          ch == '$' || ch == '{' || ch == '}') {
-        --start;
-      } else {
-        break;
-      }
-    }
-    std::size_t end = col;
-    while (end < line_text.size()) {
-      const char ch = line_text[end];
-      if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' ||
-          ch == '$' || ch == '{' || ch == '}') {
-        ++end;
-      } else {
-        break;
-      }
-    }
-
-    if (start < end) {
-      const std::string_view word = line_text.substr(start, end - start);
-      auto hover = CMake::CMakeLanguageDatabase::instance().find_hover(word);
-      if (hover.has_value()) {
-        if (callback) {
-          callback(hover);
-        }
-        return;
-      }
-    }
-  }
-
   auto *client = get_or_start_client_for_file(filename);
-  if (client != nullptr) {
+  if (client != nullptr &&
+      (client->is_active() ||
+       client->get_state() == Client::ClientState::Initializing)) {
     client->request_hover(uri, pos, std::move(callback));
   } else if (callback) {
     callback(std::nullopt);
@@ -2851,51 +2634,12 @@ void LanguageServerManager::request_definition(
 
 void LanguageServerManager::request_signature_help(
     const std::string &uri, std::string_view filename,
-    const Protocol::Position &pos, std::string_view line_text,
+    const Protocol::Position &pos, [[maybe_unused]] std::string_view line_text,
     std::function<void(std::optional<Protocol::SignatureHelp>)> callback) {
-  const std::filesystem::path p(filename);
-  const std::string ext = p.extension().string();
-  const std::string fname = p.filename().string();
-  const bool is_cmake = (fname == "CMakeLists.txt" ||
-                         fname == "cmakelists.txt" || ext == ".cmake");
-
-  if (is_cmake && !line_text.empty()) {
-    std::size_t col = std::min(pos.character, line_text.size());
-    const std::string_view prefix = line_text.substr(0, col);
-    const std::size_t open_paren = prefix.rfind('(');
-    if (open_paren != std::string_view::npos) {
-      std::size_t cmd_end = open_paren;
-      while (cmd_end > 0 &&
-             std::isspace(static_cast<unsigned char>(prefix[cmd_end - 1]))) {
-        --cmd_end;
-      }
-      std::size_t cmd_start = cmd_end;
-      while (cmd_start > 0) {
-        const char ch = prefix[cmd_start - 1];
-        if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_') {
-          --cmd_start;
-        } else {
-          break;
-        }
-      }
-
-      if (cmd_start < cmd_end) {
-        const std::string_view cmd_name =
-            prefix.substr(cmd_start, cmd_end - cmd_start);
-        auto sig = CMake::CMakeLanguageDatabase::instance().find_signature_help(
-            cmd_name);
-        if (sig.has_value()) {
-          if (callback) {
-            callback(sig);
-          }
-          return;
-        }
-      }
-    }
-  }
-
   auto *client = get_or_start_client_for_file(filename);
-  if (client != nullptr) {
+  if (client != nullptr &&
+      (client->is_active() ||
+       client->get_state() == Client::ClientState::Initializing)) {
     client->request_signature_help(uri, pos, std::move(callback));
   } else if (callback) {
     callback(std::nullopt);
@@ -2938,6 +2682,11 @@ void LanguageServerManager::set_diagnostics_callback(
         callback) {
   std::lock_guard<std::mutex> lock(m_clients_mutex);
   m_diagnostics_callback = std::move(callback);
+}
+
+void LanguageServerManager::set_missing_server_callback(MissingServerCallback callback) {
+  std::lock_guard<std::mutex> lock(m_clients_mutex);
+  m_missing_server_callback = std::move(callback);
 }
 
 std::vector<Protocol::Diagnostic>

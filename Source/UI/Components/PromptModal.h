@@ -15,7 +15,8 @@ enum class PromptMode {
     NewFile,
     NewFolder,
     Rename,
-    ConfirmDelete
+    ConfirmDelete,
+    InstallLspServer
 };
 
 struct PromptModalLayoutResult {
@@ -61,6 +62,11 @@ public:
     void open_new_folder(const std::filesystem::path& target_dir, std::function<void(const std::string&)> on_confirm);
     void open_rename(const std::filesystem::path& item_path, std::function<void(const std::string&)> on_confirm);
     void open_delete(const std::filesystem::path& item_path, std::function<void()> on_confirm);
+    void open_lsp_install(
+        const std::string& language_name,
+        const std::string& server_name,
+        std::function<void()> on_confirm,
+        std::function<void()> on_cancel = nullptr);
 
     void close() noexcept;
     void set_visible(bool visible) noexcept { m_visible = visible; }
@@ -70,6 +76,7 @@ public:
     [[nodiscard]] const std::string& get_title() const noexcept { return m_title; }
     [[nodiscard]] const std::string& get_subtitle() const noexcept { return m_subtitle; }
     [[nodiscard]] const std::string& get_confirm_label() const noexcept { return m_confirm_label; }
+    [[nodiscard]] const std::string& get_cancel_label() const noexcept { return m_cancel_label; }
     [[nodiscard]] const Input& get_input() const noexcept { return m_input; }
     [[nodiscard]] Input& get_input_mut() noexcept { return m_input; }
 
@@ -104,11 +111,13 @@ private:
     std::string m_title = "New File";
     std::string m_subtitle;
     std::string m_confirm_label = "Create";
+    std::string m_cancel_label = "Cancel";
     std::filesystem::path m_target_path;
 
     Input m_input;
     std::function<void(const std::string&)> m_on_confirm_string;
     std::function<void()> m_on_confirm_void;
+    std::function<void()> m_on_cancel_void;
 
     bool m_visible = false;
     bool m_close_hovered = false;

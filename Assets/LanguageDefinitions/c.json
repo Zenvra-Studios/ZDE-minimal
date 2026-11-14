@@ -1,0 +1,29 @@
+{
+  "id": "c",
+  "displayName": "C",
+  "extensions": [".c", ".h", ".m"],
+  "filenames": [],
+  "firstLinePatterns": [],
+  "projectMarkers": ["CMakeLists.txt", "Makefile", "compile_commands.json"],
+  "aliases": ["c"],
+  "editorSettings": {
+    "tabSize": 4,
+    "insertSpaces": true,
+    "lineComment": "//",
+    "blockCommentStart": "/*",
+    "blockCommentEnd": "*/",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": true
+  },
+  "serverAssociation": {
+    "defaultServerId": "clangd",
+    "candidateExecutables": ["clangd", "clangd-19", "clangd-18", "clangd-17", "clangd-16"],
+    "defaultArguments": ["--background-index"],
+    "rootMarkers": ["compile_commands.json", "Makefile", ".git"],
+    "autoInstall": false
+  }
+}
+

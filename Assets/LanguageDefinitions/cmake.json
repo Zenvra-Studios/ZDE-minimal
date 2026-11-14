@@ -1,0 +1,29 @@
+{
+  "id": "cmake",
+  "displayName": "CMake",
+  "extensions": [".cmake"],
+  "filenames": ["CMakeLists.txt", "CMakePresets.json"],
+  "firstLinePatterns": [],
+  "projectMarkers": ["CMakeLists.txt"],
+  "aliases": ["cmake"],
+  "editorSettings": {
+    "tabSize": 4,
+    "insertSpaces": true,
+    "lineComment": "#",
+    "blockCommentStart": "#[[",
+    "blockCommentEnd": "]]",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": true
+  },
+  "serverAssociation": {
+    "defaultServerId": "cmakels",
+    "candidateExecutables": ["cmakels", "cmake-language-server", "neocmakelsp", "cmake-ls"],
+    "defaultArguments": [],
+    "rootMarkers": ["CMakeLists.txt", ".git"],
+    "autoInstall": false
+  }
+}
+

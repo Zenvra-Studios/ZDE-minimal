@@ -35,6 +35,10 @@ if(SHARED_LIBRARIES)
 
     foreach(lib_file IN LISTS SHARED_LIBRARIES)
         get_filename_component(lib_name "${lib_file}" NAME)
+        # Never deploy debug CRT libraries in Release mode
+        if(CMAKE_BUILD_TYPE STREQUAL "Release" AND lib_name MATCHES "(msvcp140d.*|msvcp140_.*d.*|vcruntime140d.*|vcruntime140_.*d.*|ucrtbased.*|vcomp140d.*|vcamp140d.*|vccorlib140d.*|concrt140d.*|libomp140d.*)\\.dll$")
+            continue()
+        endif()
         add_custom_command(
             TARGET zde_shared_libs POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"

@@ -1,0 +1,29 @@
+{
+  "id": "yaml",
+  "displayName": "YAML",
+  "extensions": [".yaml", ".yml"],
+  "filenames": [".clang-format", ".clang-tidy"],
+  "firstLinePatterns": ["^%YAML", "^---"],
+  "projectMarkers": [],
+  "aliases": ["yml"],
+  "editorSettings": {
+    "tabSize": 2,
+    "insertSpaces": true,
+    "lineComment": "#",
+    "blockCommentStart": "",
+    "blockCommentEnd": "",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": true
+  },
+  "serverAssociation": {
+    "defaultServerId": "yaml-language-server",
+    "candidateExecutables": ["yaml-language-server"],
+    "defaultArguments": ["--stdio"],
+    "rootMarkers": [".git"],
+    "autoInstall": false
+  }
+}
+

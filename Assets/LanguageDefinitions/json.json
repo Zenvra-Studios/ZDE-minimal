@@ -1,0 +1,29 @@
+{
+  "id": "json",
+  "displayName": "JSON",
+  "extensions": [".json", ".jsonc"],
+  "filenames": ["package.json", "tsconfig.json", "composer.json"],
+  "firstLinePatterns": [],
+  "projectMarkers": [],
+  "aliases": ["json"],
+  "editorSettings": {
+    "tabSize": 2,
+    "insertSpaces": true,
+    "lineComment": "//",
+    "blockCommentStart": "/*",
+    "blockCommentEnd": "*/",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": false
+  },
+  "serverAssociation": {
+    "defaultServerId": "vscode-json-language-server",
+    "candidateExecutables": ["vscode-json-language-server", "json-languageserver"],
+    "defaultArguments": ["--stdio"],
+    "rootMarkers": [".git"],
+    "autoInstall": false
+  }
+}
+

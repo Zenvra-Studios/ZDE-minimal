@@ -1,0 +1,29 @@
+{
+  "id": "html",
+  "displayName": "HTML",
+  "extensions": [".html", ".htm", ".xhtml"],
+  "filenames": [],
+  "firstLinePatterns": ["^<!DOCTYPE\\s+html", "^<html"],
+  "projectMarkers": ["index.html"],
+  "aliases": ["html"],
+  "editorSettings": {
+    "tabSize": 2,
+    "insertSpaces": true,
+    "lineComment": "<!--",
+    "blockCommentStart": "<!--",
+    "blockCommentEnd": "-->",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": false
+  },
+  "serverAssociation": {
+    "defaultServerId": "vscode-html-language-server",
+    "candidateExecutables": ["vscode-html-language-server", "html-languageserver", "html"],
+    "defaultArguments": ["--stdio"],
+    "rootMarkers": [".git"],
+    "autoInstall": false
+  }
+}
+

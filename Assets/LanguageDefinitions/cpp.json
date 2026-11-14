@@ -1,0 +1,40 @@
+{
+  "id": "cpp",
+  "displayName": "C++",
+  "extensions": [
+    ".cpp", ".cc", ".cxx", ".c++",
+    ".hpp", ".hh", ".hxx", ".h++",
+    ".h", ".inl", ".ixx", ".cppm",
+    ".cu", ".cuh", ".mm"
+  ],
+  "filenames": [],
+  "firstLinePatterns": [],
+  "projectMarkers": ["CMakeLists.txt", "compile_commands.json", ".clangd"],
+  "aliases": ["c++", "cplusplus"],
+  "editorSettings": {
+    "tabSize": 4,
+    "insertSpaces": true,
+    "lineComment": "//",
+    "blockCommentStart": "/*",
+    "blockCommentEnd": "*/",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": true
+  },
+  "serverAssociation": {
+    "defaultServerId": "clangd",
+    "candidateExecutables": ["clangd", "clangd-19", "clangd-18", "clangd-17", "clangd-16", "clangd-15"],
+    "defaultArguments": [
+      "--background-index",
+      "--clang-tidy",
+      "--completion-style=detailed",
+      "--header-insertion=iwyu",
+      "--pch-storage=memory"
+    ],
+    "rootMarkers": ["compile_commands.json", "CMakeLists.txt", ".git"],
+    "autoInstall": false
+  }
+}
+

@@ -16,7 +16,7 @@ enum class PluginSource
     Bundled,
     Git,
     Local,
-    Marketplace
+    Catalog
 };
 
 enum class PluginState

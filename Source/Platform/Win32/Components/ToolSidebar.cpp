@@ -937,7 +937,6 @@ bool ToolSidebar::handle_extensions_scroll(
 
   auto &pm = Zenvra::Plugins::PluginManager::instance();
   std::size_t inst_count = pm.get_all_plugins().size();
-  std::size_t rec_count = pm.get_marketplace().get_all_entries().size();
 
   if (!m_ext_search_query.empty()) {
     const std::string q = to_lower(m_ext_search_query);
@@ -951,26 +950,11 @@ bool ToolSidebar::handle_extensions_scroll(
         ++inst_count;
       }
     }
-    rec_count = 0;
-    for (const auto &e : pm.get_marketplace().get_all_entries()) {
-      if (pm.get_registry().has_plugin(e.id))
-        continue;
-      if (to_lower(e.name).find(q) != std::string::npos ||
-          to_lower(e.id).find(q) != std::string::npos ||
-          to_lower(e.description).find(q) != std::string::npos ||
-          to_lower(e.publisher).find(q) != std::string::npos) {
-        ++rec_count;
-      }
-    }
   }
 
   float total_h = 24.0F * scale; // Installed header
   if (m_ext_installed_expanded) {
     total_h += static_cast<float>(inst_count) * 62.0F * scale;
-  }
-  total_h += 24.0F * scale; // Recommended header
-  if (m_ext_recommended_expanded) {
-    total_h += static_cast<float>(rec_count) * 64.0F * scale;
   }
 
   const float max_scroll = std::max(total_h - viewport_h, 0.0F);
@@ -1096,63 +1080,6 @@ bool ToolSidebar::handle_extensions_move(
             }
             cur_y += item_h;
           }
-        }
-      }
-    }
-
-    std::vector<Zenvra::Plugins::Marketplace::MarketplacePluginEntry>
-        matching_recommended;
-    for (const auto &e : pm.get_marketplace().get_all_entries()) {
-      if (pm.get_registry().has_plugin(e.id)) {
-        auto p = pm.get_registry().get_plugin(e.id);
-        std::error_code ec;
-        if (p && std::filesystem::exists(p->get_install_path(), ec)) {
-          continue;
-        }
-      }
-      if (m_ext_search_query.empty()) {
-        matching_recommended.push_back(e);
-      } else {
-        const std::string q = to_lower(m_ext_search_query);
-        bool tag_matched = false;
-        for (const auto &tag : e.tags) {
-          if (to_lower(tag).find(q) != std::string::npos) {
-            tag_matched = true;
-            break;
-          }
-        }
-        if (tag_matched || to_lower(e.name).find(q) != std::string::npos ||
-            to_lower(e.id).find(q) != std::string::npos ||
-            to_lower(e.description).find(q) != std::string::npos ||
-            to_lower(e.publisher).find(q) != std::string::npos ||
-            to_lower(e.category).find(q) != std::string::npos) {
-          matching_recommended.push_back(e);
-        }
-      }
-    }
-
-    if (!matching_recommended.empty() || m_ext_search_query.empty()) {
-      const UI::Rect rec_hdr_rect{panel.x, cur_y, panel.width, header_h};
-      if (rec_hdr_rect.contains(point_x, point_y)) {
-        next_rec_hdr = true;
-      }
-      cur_y += header_h;
-
-      if (m_ext_recommended_expanded) {
-        for (std::size_t j = 0; j < matching_recommended.size(); ++j) {
-          const float item_h = 64.0F * scale;
-          const UI::Rect item_rect{panel.x, cur_y, panel.width, item_h};
-          if (item_rect.contains(point_x, point_y)) {
-            next_rec_idx = j;
-            const float btn_w = 56.0F * scale;
-            const float btn_h = 22.0F * scale;
-            const UI::Rect btn_rect{panel.right() - btn_w - 12.0F * scale,
-                                    cur_y + 36.0F * scale, btn_w, btn_h};
-            if (btn_rect.contains(point_x, point_y)) {
-              next_install_idx = j;
-            }
-          }
-          cur_y += item_h;
         }
       }
     }
@@ -1323,190 +1250,6 @@ SidebarPressResult ToolSidebar::handle_extensions_press(
             }
             cur_y += item_h;
           }
-        }
-      }
-    }
-
-    std::vector<Zenvra::Plugins::Marketplace::MarketplacePluginEntry>
-        matching_recommended;
-    for (const auto &e : pm.get_marketplace().get_all_entries()) {
-      if (pm.get_registry().has_plugin(e.id)) {
-        auto p = pm.get_registry().get_plugin(e.id);
-        std::error_code ec;
-        if (p && std::filesystem::exists(p->get_install_path(), ec)) {
-          continue;
-        }
-      }
-      if (m_ext_search_query.empty()) {
-        matching_recommended.push_back(e);
-      } else {
-        const std::string q = to_lower(m_ext_search_query);
-        bool tag_matched = false;
-        for (const auto &tag : e.tags) {
-          if (to_lower(tag).find(q) != std::string::npos) {
-            tag_matched = true;
-            break;
-          }
-        }
-        if (tag_matched || to_lower(e.name).find(q) != std::string::npos ||
-            to_lower(e.id).find(q) != std::string::npos ||
-            to_lower(e.description).find(q) != std::string::npos ||
-            to_lower(e.publisher).find(q) != std::string::npos ||
-            to_lower(e.category).find(q) != std::string::npos) {
-          matching_recommended.push_back(e);
-        }
-      }
-    }
-
-    if (!matching_recommended.empty() || m_ext_search_query.empty()) {
-      const UI::Rect rec_hdr_rect{panel.x, cur_y, panel.width, header_h};
-      if (rec_hdr_rect.contains(point_x, point_y)) {
-        m_ext_recommended_expanded = !m_ext_recommended_expanded;
-        return SidebarPressResult{.handled = true};
-      }
-      cur_y += header_h;
-
-      if (m_ext_recommended_expanded) {
-        for (std::size_t j = 0; j < matching_recommended.size(); ++j) {
-          const float item_h = 64.0F * scale;
-          const UI::Rect item_rect{panel.x, cur_y, panel.width, item_h};
-          if (item_rect.contains(point_x, point_y)) {
-            const float btn_w = 56.0F * scale;
-            const float btn_h = 22.0F * scale;
-            const UI::Rect btn_rect{panel.right() - btn_w - 12.0F * scale,
-                                    cur_y + 36.0F * scale, btn_w, btn_h};
-            if (btn_rect.contains(point_x, point_y)) {
-              // Trigger install!
-              const auto &entry = matching_recommended[j];
-              const auto target_path =
-                  pm.get_installer()
-                      ? pm.get_installer()->get_target_path(entry.category,
-                                                            entry.id)
-                      : (pm.get_plugins_root() / entry.category / entry.id);
-
-              std::error_code ec;
-              std::filesystem::create_directories(target_path, ec);
-
-              Zenvra::Plugins::PluginManifest mf;
-              mf.set_id(entry.id);
-              mf.set_name(entry.name);
-              mf.set_version(entry.version);
-              mf.set_description(entry.description);
-              mf.set_publisher(entry.publisher);
-              mf.set_category(entry.category);
-
-              // Physically write plugin.json with explicit LSP metadata if
-              // applicable
-              {
-                nlohmann::json pj = mf.to_json();
-                if (entry.category == "lsp") {
-                  std::string lang = "java";
-                  std::string exe = "jdtls";
-                  std::vector<std::string> exts = {".java", ".jav"};
-                  if (entry.id.find("clangd") != std::string::npos) {
-                    lang = "cpp";
-                    exe = "clangd";
-                    exts = {".cpp", ".c", ".h", ".hpp"};
-                  } else if (entry.id.find("rust") != std::string::npos) {
-                    lang = "rust";
-                    exe = "rust-analyzer";
-                    exts = {".rs"};
-                  } else if (entry.id.find("pyright") != std::string::npos ||
-                             entry.id.find("python") != std::string::npos) {
-                    lang = "python";
-                    exe = "pyright-langserver";
-                    exts = {".py"};
-                  } else if (entry.id.find("gopls") != std::string::npos ||
-                             entry.id.find("go") != std::string::npos) {
-                    lang = "go";
-                    exe = "gopls";
-                    exts = {".go"};
-                  } else if (entry.id.find("zls") != std::string::npos ||
-                             entry.id.find("zig") != std::string::npos) {
-                    lang = "zig";
-                    exe = "zls";
-                    exts = {".zig"};
-                  } else if (entry.id.find("lua") != std::string::npos) {
-                    lang = "lua";
-                    exe = "lua-language-server";
-                    exts = {".lua"};
-                  } else if (entry.id.find("jdt") != std::string::npos ||
-                             entry.id.find("java") != std::string::npos) {
-                    lang = "java";
-                    exe = "jdtls";
-                    exts = {".java", ".jav"};
-                  }
-                  pj["lsp"] = {{"language", lang},
-                               {"executable", exe},
-                               {"extensions", exts},
-                               {"args", nlohmann::json::array()}};
-                }
-                std::ofstream out(target_path / "plugin.json");
-                if (out.is_open()) {
-                  out << pj.dump(2);
-                }
-              }
-
-              if (entry.id == "eclipse.jdtls" || entry.id == "redhat.java") {
-                // Auto-unpack pre-built JDTLS package if available
-                std::error_code ec_jdt;
-                std::vector<std::filesystem::path> zip_sources;
-                if (const char *up = std::getenv("USERPROFILE")) {
-                  zip_sources.push_back(std::filesystem::path(up) /
-                                        "Documents" / "jdtls-win32.zip");
-                  zip_sources.push_back(std::filesystem::path(up) /
-                                        "Downloads" / "jdtls-win32.zip");
-                }
-                zip_sources.push_back(pm.get_plugins_root() / "lsp" /
-                                      "eclipse.jdtls" / "jdtls-win32.zip");
-                zip_sources.push_back(pm.get_plugins_root() / ".cache" /
-                                      "jdtls-win32.zip");
-
-                bool unpacked = false;
-                for (const auto &zsrc : zip_sources) {
-                  if (std::filesystem::exists(zsrc, ec_jdt)) {
-                    const std::string unpack_cmd = "tar -xf \"" +
-                                                   zsrc.string() + "\" -C \"" +
-                                                   target_path.string() + "\"";
-                    std::system(unpack_cmd.c_str());
-                    const auto bat_path = target_path / "bin" / "jdtls.bat";
-                    const auto cmd_path = target_path / "bin" / "jdtls.cmd";
-                    std::ofstream b_out(bat_path);
-                    if (b_out.is_open())
-                      b_out << "@echo off\npython \"%~dp0jdtls\" %*\n";
-                    std::ofstream c_out(cmd_path);
-                    if (c_out.is_open())
-                      c_out << "@echo off\npython \"%~dp0jdtls\" %*\n";
-                    unpacked = true;
-                    break;
-                  }
-                }
-                if (!unpacked && !entry.repository_url.empty()) {
-                  pm.install_from_git(entry.repository_url);
-                }
-              } else if (!entry.repository_url.empty()) {
-                pm.install_from_git(entry.repository_url);
-              }
-
-              auto new_p = std::make_shared<Zenvra::Plugins::Plugin>(
-                  mf, target_path,
-                  entry.repository_url.empty()
-                      ? Zenvra::Plugins::PluginSource::Local
-                      : Zenvra::Plugins::PluginSource::Git);
-              new_p->set_state(Zenvra::Plugins::PluginState::Installed);
-              new_p->set_enabled(true);
-              pm.get_registry().register_plugin(new_p);
-              pm.activate_plugin(new_p);
-              Zenvra::Language::LanguageServerManager::instance()
-                  .clear_unavailable_language("java");
-              pm.get_registry().save_to_disk(pm.get_plugins_root() /
-                                             ".registry" / "plugins.json");
-
-              return SidebarPressResult{.handled = true};
-            }
-            return SidebarPressResult{.handled = true};
-          }
-          cur_y += item_h;
         }
       }
     }
@@ -3154,37 +2897,6 @@ void ToolSidebar::render_extensions_panel(
   }
 
   // Filter matching recommended
-  std::vector<Zenvra::Plugins::Marketplace::MarketplacePluginEntry>
-      matching_recommended;
-  for (const auto &e : pm.get_marketplace().get_all_entries()) {
-    if (pm.get_registry().has_plugin(e.id)) {
-      auto p = pm.get_registry().get_plugin(e.id);
-      std::error_code ec;
-      if (p && std::filesystem::exists(p->get_install_path(), ec)) {
-        continue;
-      }
-    }
-    if (m_ext_search_query.empty()) {
-      matching_recommended.push_back(e);
-    } else {
-      const std::string q = to_lower(m_ext_search_query);
-      bool tag_matched = false;
-      for (const auto &tag : e.tags) {
-        if (to_lower(tag).find(q) != std::string::npos) {
-          tag_matched = true;
-          break;
-        }
-      }
-      if (tag_matched || to_lower(e.name).find(q) != std::string::npos ||
-          to_lower(e.id).find(q) != std::string::npos ||
-          to_lower(e.description).find(q) != std::string::npos ||
-          to_lower(e.publisher).find(q) != std::string::npos ||
-          to_lower(e.category).find(q) != std::string::npos) {
-        matching_recommended.push_back(e);
-      }
-    }
-  }
-
   const int clip_saved = SaveDC(device_context);
   IntersectClipRect(device_context, round_to_int(panel.x),
                     round_to_int(content_top), round_to_int(panel.right()),
@@ -3262,15 +2974,13 @@ void ToolSidebar::render_extensions_panel(
             const int icon_cy = round_to_int(cur_y + 24.0F * scale);
             const int icon_sz = round_to_int(24.0F * scale);
 
-            HWND hwnd = WindowFromDC(device_context);
-            auto repaint_cb = [hwnd]() {
-              if (hwnd && ::IsWindow(hwnd)) {
-                ::InvalidateRect(hwnd, nullptr, FALSE);
-              }
-            };
-
-            auto cached_icon = pm.get_marketplace().get_cached_icon(
-                p->get_id(), "", repaint_cb);
+            std::optional<std::filesystem::path> cached_icon;
+            std::error_code icon_ec;
+            if (std::filesystem::exists(p->get_install_path() / "icon.png", icon_ec)) {
+              cached_icon = p->get_install_path() / "icon.png";
+            } else if (std::filesystem::exists(p->get_install_path() / "icon.svg", icon_ec)) {
+              cached_icon = p->get_install_path() / "icon.svg";
+            }
             bool rendered_custom_icon = false;
             if (cached_icon.has_value()) {
               const std::string path_str = cached_icon->string();
@@ -3452,237 +3162,8 @@ void ToolSidebar::render_extensions_panel(
     }
   }
 
-  // --- SECTION 2: RECOMMENDED ---
-  if (!matching_recommended.empty() || m_ext_search_query.empty()) {
-    const UI::Rect rec_hdr_rect{panel.x, cur_y, panel.width, header_h};
-    if (m_hover_ext_recommended_header) {
-      surface.fill_rectangle(device_context, rec_hdr_rect,
-                             UI::Theme::Color{255, 255, 255, 8});
-    }
-
-    // Chevron
-    const std::string chevron_icon =
-        m_ext_recommended_expanded ? "chevron-down.svg" : "chevron-right.svg";
-    surface.draw_svg_icon(
-        device_context, chevron_icon, round_to_int(panel.x + 14.0F * scale),
-        round_to_int(cur_y + header_h * 0.5F),
-        std::max(round_to_int(9.0F * scale), 8), surface.m_palette.text_primary,
-        surface.m_palette.sidebar_background);
-
-    // Header Title
-    surface.draw_text(device_context, *surface.m_ui_font, "Recommended",
-                      panel.x + 26.0F * scale, cur_y + header_h * 0.5F,
-                      surface.m_palette.text_primary);
-
-    // Count Badge Pill
-    const std::string count_str = std::to_string(matching_recommended.size());
-    const int count_w =
-        surface.m_small_font->getTextWidth(device_context, count_str);
-    const float pill_w =
-        std::max(static_cast<float>(count_w) + 10.0F * scale, 18.0F * scale);
-    const UI::Rect pill_bounds{panel.right() - pill_w - 14.0F * scale,
-                               cur_y + 3.0F * scale, pill_w, 18.0F * scale};
-    surface.fill_rounded_rectangle(device_context, pill_bounds,
-                                   UI::Theme::Color{255, 255, 255, 25},
-                                   9.0F * scale);
-    surface.draw_text(device_context, *surface.m_small_font, count_str,
-                      pill_bounds.x +
-                          (pill_bounds.width - static_cast<float>(count_w)) *
-                              0.5F,
-                      cur_y + header_h * 0.5F, surface.m_palette.text_primary);
-
-    cur_y += header_h;
-
-    // Items
-    if (m_ext_recommended_expanded) {
-      for (std::size_t j = 0; j < matching_recommended.size(); ++j) {
-        const auto &entry = matching_recommended[j];
-        const float item_h = 64.0F * scale;
-
-        if (cur_y + item_h >= content_top && cur_y <= panel.bottom()) {
-          // Hover background
-          if (m_hovered_ext_recommended_idx &&
-              *m_hovered_ext_recommended_idx == j) {
-            surface.fill_rounded_rectangle(
-                device_context,
-                UI::Rect{panel.x + 4.0F * scale, cur_y + 1.0F * scale,
-                         panel.width - 8.0F * scale, item_h - 2.0F * scale},
-                UI::Theme::Color{255, 255, 255, 12}, 3.0F * scale);
-          }
-
-          // Icon on left (real-time fetched image or fallback)
-          const int icon_cx = round_to_int(panel.x + 22.0F * scale);
-          const int icon_cy = round_to_int(cur_y + 24.0F * scale);
-          const int icon_sz = round_to_int(24.0F * scale);
-
-          HWND hwnd = WindowFromDC(device_context);
-          auto repaint_cb = [hwnd]() {
-            if (hwnd && ::IsWindow(hwnd)) {
-              ::InvalidateRect(hwnd, nullptr, FALSE);
-            }
-          };
-
-          auto cached_icon = pm.get_marketplace().get_cached_icon(
-              entry.id, entry.icon_url, repaint_cb);
-          bool rendered_custom_icon = false;
-          if (cached_icon.has_value()) {
-            const std::string path_str = cached_icon->string();
-            if (path_str.ends_with(".png") || path_str.ends_with(".jpg") ||
-                path_str.ends_with(".jpeg")) {
-              surface.draw_png_icon(device_context, path_str, icon_cx, icon_cy,
-                                    icon_sz,
-                                    surface.m_palette.sidebar_background);
-              rendered_custom_icon = true;
-            } else if (path_str.ends_with(".svg")) {
-              surface.draw_svg_icon(device_context, path_str, icon_cx, icon_cy,
-                                    icon_sz, surface.m_palette.text_primary,
-                                    surface.m_palette.sidebar_background, true);
-              rendered_custom_icon = true;
-            }
-          }
-
-          if (!rendered_custom_icon) {
-            const std::string icon_file =
-                extension_icon_for(entry.id, entry.name);
-            surface.draw_svg_icon(device_context, icon_file, icon_cx, icon_cy,
-                                  icon_sz, surface.m_palette.text_primary,
-                                  surface.m_palette.sidebar_background, true);
-          }
-
-          // Details
-          const float text_left = panel.x + 42.0F * scale;
-          const float btn_w = 56.0F * scale;
-          const int max_desc_w = std::max(
-              round_to_int(panel.right() - text_left - btn_w - 20.0F * scale),
-              20);
-
-          // Line 1: Name + stats (downloads, stars)
-          surface.draw_text(device_context, *surface.m_ui_font, entry.name,
-                            text_left, cur_y + 13.0F * scale,
-                            surface.m_palette.text_primary);
-
-          const int name_w =
-              surface.m_ui_font->getTextWidth(device_context, entry.name);
-          float stat_x = text_left + static_cast<float>(name_w) + 12.0F * scale;
-
-          if (stat_x + 70.0F * scale < panel.right() - btn_w - 14.0F * scale) {
-            // Download icon + text
-            surface.draw_svg_icon(
-                device_context, "vscode-codicons/icons/cloud-download.svg",
-                round_to_int(stat_x), round_to_int(cur_y + 13.0F * scale),
-                round_to_int(11.0F * scale), surface.m_palette.text_muted,
-                surface.m_palette.sidebar_background);
-            stat_x += 10.0F * scale;
-            surface.draw_text(device_context, *surface.m_small_font,
-                              entry.downloads, stat_x, cur_y + 13.0F * scale,
-                              surface.m_palette.text_muted);
-            stat_x += static_cast<float>(surface.m_small_font->getTextWidth(
-                          device_context, entry.downloads)) +
-                      8.0F * scale;
-
-            // Star icon + rating
-            surface.draw_svg_icon(
-                device_context, "vscode-codicons/icons/star-full.svg",
-                round_to_int(stat_x), round_to_int(cur_y + 13.0F * scale),
-                round_to_int(10.0F * scale),
-                UI::Theme::Color{245, 158, 11, 255}, // Amber star
-                surface.m_palette.sidebar_background);
-            stat_x += 8.0F * scale;
-            surface.draw_text(device_context, *surface.m_small_font,
-                              entry.rating, stat_x, cur_y + 13.0F * scale,
-                              surface.m_palette.text_muted);
-          }
-
-          // Line 2: Description
-          const std::string desc_text =
-              ellipsize(device_context, *surface.m_small_font,
-                        entry.description, max_desc_w);
-          surface.draw_text(device_context, *surface.m_small_font, desc_text,
-                            text_left, cur_y + 29.0F * scale,
-                            surface.m_palette.text_muted);
-
-          // Line 3: Publisher + Category Badge
-          const std::string pub_text =
-              ellipsize(device_context, *surface.m_small_font, entry.publisher,
-                        max_desc_w);
-          surface.draw_text(device_context, *surface.m_small_font, pub_text,
-                            text_left, cur_y + 44.0F * scale,
-                            surface.m_palette.text_muted);
-
-          const int pub_w =
-              surface.m_small_font->getTextWidth(device_context, pub_text);
-          float badge_x = text_left + static_cast<float>(pub_w) + 8.0F * scale;
-
-          std::string cat_tag = entry.category;
-          std::transform(cat_tag.begin(), cat_tag.end(), cat_tag.begin(),
-                         ::toupper);
-          if (cat_tag == "EMULATORS")
-            cat_tag = "EMULATOR";
-          if (cat_tag == "THEMES")
-            cat_tag = "THEME";
-          if (cat_tag == "TOOLS")
-            cat_tag = "TOOL";
-
-          UI::Theme::Color badge_bg{50, 50, 60, 255};
-          UI::Theme::Color badge_fg{200, 200, 210, 255};
-          if (cat_tag == "LSP") {
-            badge_bg = UI::Theme::Color{14, 80, 150, 255};
-            badge_fg = UI::Theme::Color{120, 200, 255, 255};
-          } else if (cat_tag == "EMULATOR") {
-            badge_bg = UI::Theme::Color{100, 30, 140, 255};
-            badge_fg = UI::Theme::Color{220, 150, 255, 255};
-          } else if (cat_tag == "TOOL") {
-            badge_bg = UI::Theme::Color{140, 80, 10, 255};
-            badge_fg = UI::Theme::Color{255, 200, 100, 255};
-          } else if (cat_tag == "THEME") {
-            badge_bg = UI::Theme::Color{16, 120, 70, 255};
-            badge_fg = UI::Theme::Color{120, 255, 180, 255};
-          }
-
-          const int cat_text_w =
-              surface.m_small_font->getTextWidth(device_context, cat_tag);
-          const float badge_w = static_cast<float>(cat_text_w) + 8.0F * scale;
-          const float badge_h = 13.0F * scale;
-          if (badge_x + badge_w < panel.right() - btn_w - 14.0F * scale) {
-            surface.fill_rounded_rectangle(
-                device_context,
-                UI::Rect{badge_x, cur_y + 44.0F * scale - 6.0F * scale, badge_w,
-                         badge_h},
-                badge_bg, 2.0F * scale);
-            surface.draw_text(device_context, *surface.m_small_font, cat_tag,
-                              badge_x + 4.0F * scale, cur_y + 44.0F * scale,
-                              badge_fg);
-          }
-
-          // Right [ Install ] Button
-          const float btn_h = 22.0F * scale;
-          const UI::Rect btn_rect{panel.right() - btn_w - 12.0F * scale,
-                                  cur_y + 36.0F * scale, btn_w, btn_h};
-          const bool btn_hovered =
-              (m_hovered_ext_install_idx && *m_hovered_ext_install_idx == j);
-
-          const UI::Theme::Color btn_bg =
-              btn_hovered ? UI::Theme::Color{16, 137, 243, 255}
-                          : UI::Theme::Color{0, 120, 212, 255};
-          surface.fill_rounded_rectangle(device_context, btn_rect, btn_bg,
-                                         3.0F * scale);
-
-          const int inst_text_w =
-              surface.m_small_font->getTextWidth(device_context, "Install");
-          surface.draw_text(
-              device_context, *surface.m_small_font, "Install",
-              btn_rect.x +
-                  (btn_rect.width - static_cast<float>(inst_text_w)) * 0.5F,
-              btn_rect.y + btn_rect.height * 0.5F,
-              UI::Theme::Color{255, 255, 255, 255});
-        }
-        cur_y += item_h;
-      }
-    }
-  }
-
   // If no plugins found at all
-  if (matching_installed.empty() && matching_recommended.empty()) {
+  if (matching_installed.empty()) {
     surface.draw_text(device_context, *surface.m_ui_font, "No plugins found",
                       panel.x + 14.0F * scale, content_top + 20.0F * scale,
                       surface.m_palette.text_primary);

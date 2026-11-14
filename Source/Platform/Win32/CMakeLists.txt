@@ -29,8 +29,8 @@ target_compile_definitions(ZDEPlatformWin32 PRIVATE
     WIN32_LEAN_AND_MEAN
     UNICODE
     _UNICODE
-    _WIN32_WINNT=0x0A00
-    WINVER=0x0A00
+    _WIN32_WINNT=0x0601
+    WINVER=0x0601
 )
 target_link_libraries(ZDEPlatformWin32
     PUBLIC Zenvra::Core Zenvra::PlatformHost Zenvra::Settings

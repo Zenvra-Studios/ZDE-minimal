@@ -25,7 +25,7 @@ public:
     [[nodiscard]] const std::filesystem::path& get_workspace_root() const noexcept { return m_workspace_root; }
 
     /// Gets or creates (lazy starts) the language client for a given file extension/language.
-    Client::ILanguageClient* get_or_start_client_for_file(std::string_view filename);
+    Client::ILanguageClient* get_or_start_client_for_file(std::string_view filename, bool prompt_if_missing = false);
 
     /// Document sync lifecycle
     void on_document_opened(const std::string& uri, std::string_view filename, int version, std::string_view content);
@@ -78,6 +78,10 @@ public:
     void set_diagnostics_callback(
         std::function<void(const std::string& uri, const std::vector<Protocol::Diagnostic>&)> callback);
 
+    /// Missing server notification callback
+    using MissingServerCallback = std::function<void(const std::string& language_id, const std::string& language_name, const std::string& server_name)>;
+    void set_missing_server_callback(MissingServerCallback callback);
+
     /// Gets cached diagnostics for a document URI
     [[nodiscard]] std::vector<Protocol::Diagnostic> get_diagnostics_for_document(const std::string& uri) const;
 
@@ -108,6 +112,7 @@ private:
     std::unordered_map<std::string, std::vector<Protocol::Diagnostic>> m_document_diagnostics; // uri -> diagnostics
 
     std::function<void(const std::string&, const std::vector<Protocol::Diagnostic>&)> m_diagnostics_callback;
+    MissingServerCallback m_missing_server_callback;
 };
 
 } // namespace Zenvra::Language

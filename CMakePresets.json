@@ -90,7 +90,7 @@
         "rhs": "Windows"
       },
       "environment": {
-        "VCToolsInstallDir": "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/"
+        "VCToolsInstallDir": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/"
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -109,7 +109,7 @@
         "rhs": "Windows"
       },
       "environment": {
-        "VCToolsInstallDir": "C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/"
+        "VCToolsInstallDir": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/"
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",

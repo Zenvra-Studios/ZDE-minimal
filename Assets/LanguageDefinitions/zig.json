@@ -1,0 +1,29 @@
+{
+  "id": "zig",
+  "displayName": "Zig",
+  "extensions": [".zig", ".zon"],
+  "filenames": ["build.zig", "build.zig.zon"],
+  "firstLinePatterns": [],
+  "projectMarkers": ["build.zig", "build.zig.zon"],
+  "aliases": ["zig"],
+  "editorSettings": {
+    "tabSize": 4,
+    "insertSpaces": true,
+    "lineComment": "//",
+    "blockCommentStart": "",
+    "blockCommentEnd": "",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": true
+  },
+  "serverAssociation": {
+    "defaultServerId": "zls",
+    "candidateExecutables": ["zls"],
+    "defaultArguments": [],
+    "rootMarkers": ["build.zig", ".git"],
+    "autoInstall": false
+  }
+}
+

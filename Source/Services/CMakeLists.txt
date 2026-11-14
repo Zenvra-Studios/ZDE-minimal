@@ -29,6 +29,47 @@ add_library(ZDEServices
     Run/RunConfigurationStore.cpp
     Run/RunConfigurationResolver.cpp
     Run/RunService.cpp
+    Language/Definitions/EditorSettings.cpp
+    Language/Definitions/LanguageDefinition.cpp
+    Language/Detection/LanguageDetector.cpp
+    Language/Registry/LanguageValidator.cpp
+    Language/Registry/LanguageRegistry.cpp
+    Language/Routing/ServerRouter.cpp
+    Language/Documents/DocumentCoordinator.cpp
+    Language/Features/CompletionService.cpp
+    Language/Features/HoverService.cpp
+    Language/Features/DiagnosticsService.cpp
+    LSP/Lifecycle/LifecycleManager.cpp
+    LSP/Process/ProcessSupervisor.cpp
+    LSP/Capabilities/CapabilityMatrix.cpp
+    LSP/Discovery/ServerDiscovery.cpp
+    LSP/Transport/StdioTransport.cpp
+    LSP/Protocol/LspSerializer.cpp
+    LSP/Client/LspClient.cpp
+    LSP/Client/LspSession.cpp
+    Installation/Catalog/CatalogLoader.cpp
+    Installation/Catalog/CatalogValidator.cpp
+    Installation/Verification/Sha256Verifier.cpp
+    Installation/Verification/SignatureVerifier.cpp
+    Installation/Extraction/SafeExtract.cpp
+    Installation/Extraction/ArchiveExtractor.cpp
+    Installation/Download/DownloadManager.cpp
+    Installation/Deployment/InstallationStore.cpp
+    Installation/Deployment/DeploymentManager.cpp
+    Installation/Rollback/RollbackManager.cpp
+    Installation/Providers/GithubReleaseProvider.cpp
+    Installation/Providers/DirectDownloadProvider.cpp
+    Installation/Providers/SystemPackageProvider.cpp
+    Installation/Providers/CustomProvider.cpp
+    Plugins/Permissions/PermissionValidator.cpp
+    Plugins/Loader/PackageLoader.cpp
+    Plugins/Resolver/DependencyGraph.cpp
+    Plugins/Runtime/PluginRuntime.cpp
+    Plugins/Host/PluginHost.cpp
+    Indexing/SymbolIndex.cpp
+    Indexing/WorkspaceIndex.cpp
+    Search/FileSearchService.cpp
+    Search/WorkspaceSearchService.cpp
 )
 add_library(Zenvra::Services ALIAS ZDEServices)
 
@@ -36,5 +77,5 @@ target_include_directories(ZDEServices PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/.."
     "${PROJECT_SOURCE_DIR}"
 )
-target_link_libraries(ZDEServices PUBLIC Zenvra::Core Zenvra::UI Zenvra::Tools Zenvra::Graphics)
+target_link_libraries(ZDEServices PUBLIC Zenvra::Core Zenvra::Tools Zenvra::Graphics nlohmann_json::nlohmann_json)
 zde_enable_warnings(ZDEServices)

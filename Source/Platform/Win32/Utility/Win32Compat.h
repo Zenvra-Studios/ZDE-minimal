@@ -17,6 +17,7 @@
 // wrappers so Windows 7 keeps booting.
 
 #include <windows.h>
+#include <filesystem>
 
 namespace Zenvra::Platform::Win32::Compat {
 
@@ -152,6 +153,26 @@ inline void get_system_time_precise_as_file_time(LPFILETIME lpSystemTimeAsFileTi
     } else if (lpSystemTimeAsFileTime != nullptr) {
         GetSystemTimeAsFileTime(lpSystemTimeAsFileTime);
     }
+}
+
+/// Windows 7-compatible file copy helper.
+/// Bypasses MSVC STL's std::filesystem::copy_file which links to CopyFile2 (Windows 8+).
+/// Uses CopyFileW which is natively supported on Windows 7 (NT 6.1) and all versions of Windows.
+inline bool copy_file(const std::filesystem::path& from, const std::filesystem::path& to, bool overwrite = true) noexcept {
+    return CopyFileW(from.c_str(), to.c_str(), overwrite ? FALSE : TRUE) != FALSE;
+}
+
+/// Windows 7-compatible file open/create helper.
+/// Bypasses CreateFile2 (Windows 8+) and uses native CreateFileW.
+inline HANDLE create_file(
+    const std::filesystem::path& path,
+    DWORD desired_access,
+    DWORD share_mode,
+    LPSECURITY_ATTRIBUTES security_attributes,
+    DWORD creation_disposition,
+    DWORD flags_and_attributes = FILE_ATTRIBUTE_NORMAL,
+    HANDLE template_file = nullptr) noexcept {
+    return CreateFileW(path.c_str(), desired_access, share_mode, security_attributes, creation_disposition, flags_and_attributes, template_file);
 }
 
 } // namespace Zenvra::Platform::Win32::Compat

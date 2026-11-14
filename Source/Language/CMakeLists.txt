@@ -15,7 +15,7 @@ target_include_directories(ZDELanguage PUBLIC
 )
 
 target_link_libraries(ZDELanguage
-    PUBLIC Zenvra::Core nlohmann_json::nlohmann_json
+    PUBLIC Zenvra::Core Zenvra::Services nlohmann_json::nlohmann_json
 )
 
 zde_enable_warnings(ZDELanguage)

@@ -189,38 +189,20 @@ void ActivitySidebar::render(
 
         if (active)
         {
-            if (is_modern)
-            {
-                const UI::Theme::Color active_tint = surface.m_palette.is_dark
-                    ? UI::Theme::Color{255, 255, 255, 28}
-                    : UI::Theme::Color{0, 102, 204, 28};
-                const uint32_t a = active_tint.alpha;
-                const auto& sbg = surface.m_palette.workspace_background;
-                item_bg = UI::Theme::Color{
-                    static_cast<uint8_t>((active_tint.red * a + sbg.red * (255 - a) + 127) / 255),
-                    static_cast<uint8_t>((active_tint.green * a + sbg.green * (255 - a) + 127) / 255),
-                    static_cast<uint8_t>((active_tint.blue * a + sbg.blue * (255 - a) + 127) / 255),
-                    255
-                };
-                surface.fill_rounded_rectangle(
-                    drawable, box_rect, surface.allocate_color(item_bg), box_radius,
-                    bg_px);
-            }
-            else
-            {
-                const UI::Rect pill_rect{
-                    layout.activity_bar_bounds.x,
-                    center_y - 12.0F * surface.m_dpi_scale,
-                    2.5F * surface.m_dpi_scale,
-                    24.0F * surface.m_dpi_scale,
-                };
-                surface.fill_rounded_rectangle(
-                    drawable,
-                    pill_rect,
-                    surface.m_palette.is_dark ? surface.m_pixels.text_primary : surface.m_pixels.accent,
-                    1.25F * surface.m_dpi_scale,
-                    surface.m_pixels.sidebar_background);
-            }
+            const UI::Theme::Color active_tint = surface.m_palette.is_dark
+                ? UI::Theme::Color{255, 255, 255, 28}
+                : UI::Theme::Color{0, 102, 204, 28};
+            const uint32_t a = active_tint.alpha;
+            const auto& sbg = surface.m_palette.workspace_background;
+            item_bg = UI::Theme::Color{
+                static_cast<uint8_t>((active_tint.red * a + sbg.red * (255 - a) + 127) / 255),
+                static_cast<uint8_t>((active_tint.green * a + sbg.green * (255 - a) + 127) / 255),
+                static_cast<uint8_t>((active_tint.blue * a + sbg.blue * (255 - a) + 127) / 255),
+                255
+            };
+            surface.fill_rounded_rectangle(
+                drawable, box_rect, surface.allocate_color(item_bg), box_radius,
+                bg_px);
         }
         else if (hovered)
         {

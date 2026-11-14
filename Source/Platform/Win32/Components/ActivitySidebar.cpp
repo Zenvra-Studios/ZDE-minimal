@@ -156,21 +156,6 @@ void ActivitySidebar::render(
                 ? UI::Theme::Color{255, 255, 255, 28}
                 : UI::Theme::Color{220, 226, 236, 255};
             surface.fill_rounded_rectangle(device_context, box_rect, active_bg, box_radius);
-
-            if (!is_modern)
-            {
-                const UI::Rect pill_rect{
-                    layout.activity_bar_bounds.x,
-                    center_y - 12.0F * surface.m_dpi_scale,
-                    2.5F * surface.m_dpi_scale,
-                    24.0F * surface.m_dpi_scale,
-                };
-                surface.fill_rounded_rectangle(
-                    device_context,
-                    pill_rect,
-                    surface.m_palette.is_dark ? surface.m_palette.text_primary : surface.m_palette.accent,
-                    1.25F * surface.m_dpi_scale);
-            }
         }
         else if (hovered)
         {

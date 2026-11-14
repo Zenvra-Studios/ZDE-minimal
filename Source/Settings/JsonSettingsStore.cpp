@@ -4,6 +4,24 @@
 #include <iostream>
 #include <system_error>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+static bool safe_copy_file(const std::filesystem::path& from, const std::filesystem::path& to) {
+    return CopyFileW(from.c_str(), to.c_str(), FALSE) != FALSE;
+}
+#else
+static bool safe_copy_file(const std::filesystem::path& from, const std::filesystem::path& to) {
+    std::error_code ec;
+    return std::filesystem::copy_file(from, to, std::filesystem::copy_options::overwrite_existing, ec);
+}
+#endif
+
 namespace Zenvra::Settings
 {
 
@@ -41,14 +59,8 @@ bool JsonSettingsStore::load()
     catch (const std::exception& e) {
         // Handle corrupt file gracefully: create a backup copy and reset
         file.close();
-        std::error_code copy_ec;
         const auto backup_path = m_file_path.string() + ".bak";
-        std::filesystem::copy_file(
-            m_file_path,
-            backup_path,
-            std::filesystem::copy_options::overwrite_existing,
-            copy_ec
-        );
+        safe_copy_file(m_file_path, backup_path);
 
         m_cache.clear();
         return false;
@@ -84,15 +96,10 @@ bool JsonSettingsStore::save()
         std::filesystem::rename(temp_path, m_file_path, rename_ec);
         if (rename_ec) {
             // Fallback to overwrite copy if rename fails across partitions
-            std::error_code copy_ec;
-            std::filesystem::copy_file(
-                temp_path,
-                m_file_path,
-                std::filesystem::copy_options::overwrite_existing,
-                copy_ec
-            );
-            std::filesystem::remove(temp_path, copy_ec);
-            return !copy_ec;
+            const bool copied = safe_copy_file(temp_path, m_file_path);
+            std::error_code remove_ec;
+            std::filesystem::remove(temp_path, remove_ec);
+            return copied;
         }
 
         return true;

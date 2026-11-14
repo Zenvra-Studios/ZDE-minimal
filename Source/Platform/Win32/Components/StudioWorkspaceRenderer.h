@@ -21,11 +21,13 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 class AntialiasedFont;
@@ -392,6 +394,8 @@ private:
     [[nodiscard]] UI::Components::PromptModal& get_prompt_modal() const noexcept { return m_prompt_modal; }
     [[nodiscard]] Win32PromptDialog& get_prompt_dialog() const noexcept { return m_prompt_dialog; }
     void render_prompt_modal(HDC device_context, int client_width, int client_height) const;
+    void show_missing_lsp_dialog(const std::string& language_id, const std::string& language_name, const std::string& server_name);
+    void install_language_server(const std::string& language_id, const std::string& server_name);
 
     void set_window_handle(HWND handle) noexcept { m_window_handle = handle; }
     [[nodiscard]] HWND get_window_handle() const noexcept { return m_window_handle; }
@@ -438,6 +442,9 @@ private:
     WorkspaceRootRequestHandler m_workspace_root_request_handler;
     SplitterCornerKind m_active_corner_resizing = SplitterCornerKind::None;
     std::optional<UI::Rect> m_file_buffer_bounds;
+    std::unordered_set<std::string> m_dismissed_lsp_languages;
+    std::unordered_set<std::string> m_installing_lsp_languages;
+    mutable std::mutex m_lsp_install_mutex;
 };
 
 } // namespace Zenvra::Platform::Win32::Components

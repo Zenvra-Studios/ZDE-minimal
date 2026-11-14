@@ -2,6 +2,16 @@
 
 #include "UI/Editor/EditorFileSystem.h"
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include <algorithm>
 #include <cctype>
 #include <fstream>
@@ -911,8 +921,15 @@ bool ActivityPanelModel::copy_item(
     }
     else
     {
+#ifdef _WIN32
+        if (!CopyFileW(source_path.c_str(), target_path.c_str(), FALSE))
+        {
+            ec = std::error_code(static_cast<int>(GetLastError()), std::system_category());
+        }
+#else
         std::filesystem::copy_file(source_path, target_path,
                                    std::filesystem::copy_options::overwrite_existing, ec);
+#endif
     }
 
     if (ec)

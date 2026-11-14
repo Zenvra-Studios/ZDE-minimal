@@ -1,0 +1,29 @@
+{
+  "id": "markdown",
+  "displayName": "Markdown",
+  "extensions": [".md", ".markdown", ".mdown", ".mkdn"],
+  "filenames": ["README.md", "CHANGELOG.md"],
+  "firstLinePatterns": [],
+  "projectMarkers": [],
+  "aliases": ["md"],
+  "editorSettings": {
+    "tabSize": 2,
+    "insertSpaces": true,
+    "lineComment": "<!--",
+    "blockCommentStart": "<!--",
+    "blockCommentEnd": "-->",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": false
+  },
+  "serverAssociation": {
+    "defaultServerId": "marksman",
+    "candidateExecutables": ["marksman"],
+    "defaultArguments": ["server"],
+    "rootMarkers": [".git"],
+    "autoInstall": false
+  }
+}
+

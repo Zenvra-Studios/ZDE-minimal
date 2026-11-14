@@ -1,0 +1,29 @@
+{
+  "id": "go",
+  "displayName": "Go",
+  "extensions": [".go"],
+  "filenames": ["go.mod", "go.sum", "go.work"],
+  "firstLinePatterns": [],
+  "projectMarkers": ["go.mod", "go.work"],
+  "aliases": ["golang"],
+  "editorSettings": {
+    "tabSize": 4,
+    "insertSpaces": false,
+    "lineComment": "//",
+    "blockCommentStart": "/*",
+    "blockCommentEnd": "*/",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": true
+  },
+  "serverAssociation": {
+    "defaultServerId": "gopls",
+    "candidateExecutables": ["gopls", "gopls-v0.23.0"],
+    "defaultArguments": [],
+    "rootMarkers": ["go.work", "go.mod", ".git"],
+    "autoInstall": false
+  }
+}
+

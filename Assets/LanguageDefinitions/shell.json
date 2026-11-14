@@ -1,0 +1,29 @@
+{
+  "id": "shell",
+  "displayName": "Shell Script",
+  "extensions": [".sh", ".bash", ".zsh", ".ksh"],
+  "filenames": [".bashrc", ".zshrc", ".profile", ".bash_profile"],
+  "firstLinePatterns": ["^#!.*\\b(?:bash|sh|zsh|ksh)\\b"],
+  "projectMarkers": [],
+  "aliases": ["sh", "bash", "zsh"],
+  "editorSettings": {
+    "tabSize": 2,
+    "insertSpaces": true,
+    "lineComment": "#",
+    "blockCommentStart": "",
+    "blockCommentEnd": "",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": true
+  },
+  "serverAssociation": {
+    "defaultServerId": "bash-language-server",
+    "candidateExecutables": ["bash-language-server"],
+    "defaultArguments": ["start"],
+    "rootMarkers": [".git"],
+    "autoInstall": false
+  }
+}
+

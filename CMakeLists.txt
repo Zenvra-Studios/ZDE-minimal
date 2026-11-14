@@ -44,6 +44,11 @@ if(WIN32)
         if(VS2022_VC_DIRS)
             list(GET VS2022_VC_DIRS -1 VS2022_VC_DIR)
             if(EXISTS "${VS2022_VC_DIR}/lib/x64")
+                set(ENV{VCToolsInstallDir} "${VS2022_VC_DIR}/")
+                set(CMAKE_CXX_COMPILER_LAUNCHER "${CMAKE_COMMAND}" -E env "VCToolsInstallDir=${VS2022_VC_DIR}/" "VSINSTALLDIR=C:/Program Files/Microsoft Visual Studio/2022/Community/")
+                set(CMAKE_C_COMPILER_LAUNCHER "${CMAKE_COMMAND}" -E env "VCToolsInstallDir=${VS2022_VC_DIR}/" "VSINSTALLDIR=C:/Program Files/Microsoft Visual Studio/2022/Community/")
+                set(CMAKE_CXX_LINK_LAUNCHER "${CMAKE_COMMAND}" -E env "VCToolsInstallDir=${VS2022_VC_DIR}/" "VSINSTALLDIR=C:/Program Files/Microsoft Visual Studio/2022/Community/")
+                set(CMAKE_C_LINK_LAUNCHER "${CMAKE_COMMAND}" -E env "VCToolsInstallDir=${VS2022_VC_DIR}/" "VSINSTALLDIR=C:/Program Files/Microsoft Visual Studio/2022/Community/")
                 add_link_options("LINKER:/libpath:${VS2022_VC_DIR}/lib/x64")
             endif()
         endif()
@@ -93,6 +98,12 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/Cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/Cmake/CPM.cmake")
 include("${CMAKE_CURRENT_SOURCE_DIR}/Cmake/Depedencies.cmake")
 
+# --- Windows 7 Compatibility Object Library ---------------------------------
+if(WIN32)
+    add_library(Win32Compat OBJECT "${CMAKE_CURRENT_SOURCE_DIR}/Source/Platform/Win32/Utility/Win32Compat.cpp")
+    target_include_directories(Win32Compat PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+endif()
+
 # --- Compiler Flags per Target & Configuration -----------------------------
 function(zde_enable_warnings target_name)
     # Prevent the Windows SDK's min/max macros from breaking calls such as
@@ -109,6 +120,12 @@ function(zde_enable_warnings target_name)
             NOMINMAX
             WIN32_LEAN_AND_MEAN
         )
+        if(TARGET Win32Compat AND NOT "${target_name}" STREQUAL "Win32Compat")
+            get_target_property(_target_type ${target_name} TYPE)
+            if(NOT "${_target_type}" STREQUAL "INTERFACE_LIBRARY")
+                target_sources(${target_name} PRIVATE $<TARGET_OBJECTS:Win32Compat>)
+            endif()
+        endif()
     endif()
 
     if(MSVC)

@@ -1,0 +1,29 @@
+{
+  "id": "lua",
+  "displayName": "Lua",
+  "extensions": [".lua"],
+  "filenames": [],
+  "firstLinePatterns": ["^#!.*\\blua\\b"],
+  "projectMarkers": [],
+  "aliases": ["lua"],
+  "editorSettings": {
+    "tabSize": 2,
+    "insertSpaces": true,
+    "lineComment": "--",
+    "blockCommentStart": "--[[",
+    "blockCommentEnd": "]]",
+    "autoCloseBraces": true,
+    "autoCloseBrackets": true,
+    "autoCloseParentheses": true,
+    "autoCloseQuotes": true,
+    "autoContinueComments": true
+  },
+  "serverAssociation": {
+    "defaultServerId": "lua-language-server",
+    "candidateExecutables": ["lua-language-server"],
+    "defaultArguments": [],
+    "rootMarkers": [".git"],
+    "autoInstall": false
+  }
+}
+
