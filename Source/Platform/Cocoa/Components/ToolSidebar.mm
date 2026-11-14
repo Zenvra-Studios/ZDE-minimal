@@ -75,7 +75,10 @@ bool ToolSidebar::is_resize_handle_point(
     const UI::Editor::StudioEditorLayoutResult& layout, float px, float py) const noexcept
 {
     if (!is_visible()) return false;
-    const float handle_x = layout.tool_sidebar_bounds.right() - 3.0F;
+    const bool on_right = layout.tool_sidebar_bounds.x > layout.editor_bounds.x;
+    const float handle_x = on_right
+        ? (layout.tool_sidebar_bounds.x - 3.0F)
+        : (layout.tool_sidebar_bounds.right() - 3.0F);
     return px >= handle_x && px <= handle_x + 6.0F &&
            py >= layout.tool_sidebar_bounds.y && py < layout.tool_sidebar_bounds.bottom();
 }
@@ -265,7 +268,9 @@ bool ToolSidebar::handle_pointer_drag(
     const UI::Editor::StudioEditorLayoutResult& layout, float px, float py) noexcept
 {
     if (m_resizing) {
-        m_width = std::max(120.0F, m_drag_start_width + (px - m_drag_start_x));
+        const bool on_right = layout.tool_sidebar_bounds.x > layout.editor_bounds.x;
+        const float delta = on_right ? (m_drag_start_x - px) : (px - m_drag_start_x);
+        m_width = std::max(120.0F, m_drag_start_width + delta);
         return true;
     }
 
@@ -1956,9 +1961,9 @@ void ToolSidebar::render(
 
     // Background
     const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
-    if (!is_modern) {
-        surface.fill_rectangle(context, panel, surface.m_colors.sidebar_background);
-    }
+    const CGFloat* panel_bg = is_modern ? surface.m_colors.workspace_background
+                                        : surface.m_colors.sidebar_background;
+    surface.fill_rectangle(context, panel, panel_bg);
 
     if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Search)
     {
@@ -2092,13 +2097,6 @@ void ToolSidebar::render(
                 surface.fill_rectangle(context, row_bounds, drag_rgba);
             } else if (is_selected) {
                 surface.fill_rectangle(context, row_bounds, surface.m_colors.selection_background);
-                if (m_model.get_selected_path() && *m_model.get_selected_path() == item.path) {
-                    const UI::Rect left_bar{
-                        panel.x, row_bounds.y + 1.0F * scale,
-                        3.0F * scale, row_bounds.height - 2.0F * scale
-                    };
-                    surface.fill_rectangle(context, left_bar, surface.m_colors.accent);
-                }
             } else if (is_hovered) {
                 surface.fill_rectangle(context, row_bounds, surface.m_colors.hover_background);
             }
@@ -2164,11 +2162,18 @@ void ToolSidebar::render(
             };
 
             const bool is_sticky_hovered = (m_hovered_sticky_index && *m_hovered_sticky_index == item_index);
-            const CGFloat* sticky_bg = is_sticky_hovered 
-                ? surface.m_colors.hover_background 
-                : surface.m_colors.sidebar_background;
+            const CGFloat* sticky_base_bg = panel_bg;
+            const UI::Theme::Color& sticky_icon_bg = is_modern ? surface.m_palette.workspace_background : surface.m_palette.sidebar_background;
 
-            surface.fill_rectangle(context, sticky_bounds, sticky_bg);
+            surface.fill_rectangle(context, sticky_bounds, sticky_base_bg);
+
+            if (is_sticky_hovered) {
+                const CGFloat hov_rgba[4] = {1.0, 1.0, 1.0, 0.08};
+                surface.fill_rounded_rectangle(
+                    context,
+                    UI::Rect{panel.x + 4.0F * scale, sticky_bounds.y + 1.0F * scale, panel.width - 8.0F * scale, row_height * scale - 2.0F * scale},
+                    hov_rgba, 4.0F * scale);
+            }
             if (i == sticky_indices.size() - 1) {
                 surface.draw_line(context, round_to_int(panel.x), round_to_int(sticky_bounds.bottom()),
                                   round_to_int(panel.right()), round_to_int(sticky_bounds.bottom()),
@@ -2185,7 +2190,7 @@ void ToolSidebar::render(
                 guide_y,
                 std::max(round_to_int(10.0F * scale), 8),
                 surface.m_palette.text_muted,
-                is_sticky_hovered ? surface.m_palette.hover_background : surface.m_palette.sidebar_background);
+                sticky_icon_bg);
 
             // Folder icon
             const int folder_x = round_to_int(indent_x + 14.0F * scale);
@@ -2195,7 +2200,7 @@ void ToolSidebar::render(
                 guide_y,
                 std::max(round_to_int(14.0F * scale), 12),
                 surface.m_palette.text_primary,
-                is_sticky_hovered ? surface.m_palette.hover_background : surface.m_palette.sidebar_background);
+                sticky_icon_bg);
 
             // Label
             if (surface.m_small_font) {

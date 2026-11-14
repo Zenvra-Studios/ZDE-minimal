@@ -1882,13 +1882,17 @@ StudioWorkspaceRenderer::get_splitter_corner_at(
     const UI::Editor::StudioEditorLayoutResult &layout, float point_x,
     float point_y) const noexcept {
   const float scale = layout.dpi_scale;
-  const float radius = std::max(8.0F * scale, 8.0F);
+  const float radius = std::max(12.0F * scale, 10.0F);
 
-  // 1. Sidebar + Terminal corner
+  // 1. Sidebar + Terminal corner (T-junction / 3-way intersection)
   if (m_tool_sidebar.is_visible() && m_terminal_panel.is_visible() &&
       !layout.tool_sidebar_bounds.is_empty() &&
       !layout.terminal_panel_bounds.is_empty()) {
-    const float cx = layout.tool_sidebar_bounds.right();
+    const bool on_right =
+        layout.tool_sidebar_bounds.x > layout.editor_bounds.x;
+    const float cx = on_right
+        ? (layout.terminal_panel_bounds.right() + layout.tool_sidebar_bounds.x) * 0.5F
+        : (layout.tool_sidebar_bounds.right() + layout.terminal_panel_bounds.x) * 0.5F;
     const float cy = layout.terminal_panel_bounds.y;
     if (point_x >= (cx - radius) && point_x <= (cx + radius) &&
         point_y >= (cy - radius) && point_y <= (cy + radius)) {

@@ -68,9 +68,8 @@ void ExplorerHeader::render(
     };
     
     const bool is_modern = surface.m_palette.is_modern || surface.m_theme.is_modern || surface.m_theme.enable_os_blur;
-    if (!is_modern) {
-        surface.fill_rectangle(device_context, header_bounds, surface.m_palette.sidebar_background);
-    }
+    const UI::Theme::Color header_bg = is_modern ? surface.m_palette.workspace_background : surface.m_palette.sidebar_background;
+    surface.fill_rectangle(device_context, header_bounds, header_bg);
     const float center_y = header_bounds.y + header_bounds.height * 0.5F;
     
     // Draw Title
@@ -86,7 +85,7 @@ void ExplorerHeader::render(
         const auto& color = is_hovered
             ? surface.m_palette.text_primary
             : (surface.m_palette.is_dark ? surface.m_palette.text_muted : surface.m_palette.text_primary);
-        const auto& bg_color = is_hovered ? surface.m_palette.hover_background : surface.m_palette.sidebar_background;
+        const auto& bg_color = is_hovered ? surface.m_palette.hover_background : header_bg;
         
         if (is_hovered) {
             UI::Rect hover_bg{

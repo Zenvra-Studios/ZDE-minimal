@@ -611,9 +611,9 @@ void ToolSidebar::render(
     return;
   }
 
-  if (!is_modern) {
-    surface.fill_rectangle(drawable, panel, surface.m_pixels.sidebar_background);
-  }
+  const unsigned long panel_px = is_modern ? surface.m_pixels.workspace_background
+                                           : surface.m_pixels.sidebar_background;
+  surface.fill_rectangle(drawable, panel, panel_px);
 
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Project) {
     const bool show_actions = !m_model.get_project_items().empty();
@@ -897,13 +897,6 @@ void ToolSidebar::render(
       surface.draw_rectangle(drawable, highlight_rect, surface.m_pixels.accent);
     } else if (is_selected) {
       surface.fill_rectangle(drawable, row_bounds, surface.m_pixels.selection_background);
-      if (m_model.get_selected_path() && *m_model.get_selected_path() == item.path) {
-        const UI::Rect left_bar{
-            panel.x, row_bounds.y + 1.0F * scale,
-            3.0F * scale, row_bounds.height - 2.0F * scale
-        };
-        surface.fill_rectangle(drawable, left_bar, surface.m_pixels.accent);
-      }
     } else if (is_hovered) {
       surface.fill_rounded_rectangle(
           drawable, highlight_rect, surface.m_pixels.hover_background,
@@ -1023,14 +1016,27 @@ void ToolSidebar::render(
 
     const bool is_sticky_hovered =
         (m_hovered_sticky_index && *m_hovered_sticky_index == absolute_index);
-    const UI::Theme::Color &sticky_bg = is_sticky_hovered
-                                            ? surface.m_palette.hover_background
-                                            : surface.m_palette.sidebar_background;
+    const unsigned long sticky_base_px = is_modern
+                                             ? surface.m_pixels.workspace_background
+                                             : surface.m_pixels.sidebar_background;
+    const UI::Theme::Color &sticky_base_color =
+        is_modern ? surface.m_palette.workspace_background
+                  : surface.m_palette.sidebar_background;
 
     // Background to overlay standard items
-    surface.fill_rectangle(drawable, row_bounds,
-                           is_sticky_hovered ? surface.m_pixels.hover_background
-                                             : surface.m_pixels.sidebar_background);
+    surface.fill_rectangle(drawable, row_bounds, sticky_base_px);
+
+    if (is_sticky_hovered) {
+      const UI::Rect highlight_rect{
+          panel.x + 4.0F * scale,
+          row_bounds.y + 1.0F * scale,
+          panel.width - 8.0F * scale,
+          row_height * scale - 2.0F * scale,
+      };
+      surface.fill_rounded_rectangle(
+          drawable, highlight_rect, surface.m_pixels.hover_background,
+          4.0F * scale, sticky_base_px);
+    }
 
     const float indent_x =
         panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
@@ -1041,7 +1047,7 @@ void ToolSidebar::render(
       surface.draw_svg_icon(
           drawable, "chevron-down.svg",
           arrow_x, arrow_y, std::max(round_to_int(8.0F * scale), 7),
-          surface.m_palette.text_muted, sticky_bg);
+          surface.m_palette.text_muted, sticky_base_color);
     }
 
     const int folder_x = round_to_int(indent_x + 19.0F * scale);
@@ -1050,7 +1056,7 @@ void ToolSidebar::render(
       surface.draw_svg_icon(
           drawable, "folder-open.svg",
           folder_x, arrow_y, folder_size,
-          surface.m_palette.text_muted, sticky_bg);
+          surface.m_palette.text_muted, sticky_base_color);
     }
 
     const float label_x = indent_x + 30.0F * scale;

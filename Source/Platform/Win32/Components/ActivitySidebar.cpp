@@ -213,56 +213,56 @@ void ActivitySidebar::draw_icon(
     std::string_view asset_name;
     switch (icon)
     {
-    case UI::Editor::SidebarIcon::Project:
-        asset_name = "folder.svg";
-        break;
-    case UI::Editor::SidebarIcon::VersionControl:
-        asset_name = "vscode-codicons/icons/source-control.svg";
-        break;
-    case UI::Editor::SidebarIcon::Search:
-        asset_name = "vscode-codicons/icons/search.svg";
-        break;
-    case UI::Editor::SidebarIcon::Services:
-        asset_name = "vscode-codicons/icons/extensions.svg";
-        break;
-    case UI::Editor::SidebarIcon::Shader:
-        asset_name = "material-icon-theme/shader.svg";
-        break;
-    case UI::Editor::SidebarIcon::ToolPlugin: {
-        auto& pm = Zenvra::Plugins::PluginManager::instance();
-        auto tool = pm.get_active_tool_plugin();
-        std::string tool_name = tool ? tool->get_name() : "";
-        std::string tool_id = tool ? tool->get_id() : "";
-        std::string tool_lower = tool_name;
-        for (char& c : tool_lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-
-        if (tool_lower.find("docker") != std::string::npos || tool_id.find("docker") != std::string::npos) {
-            asset_name = "material-icon-theme/docker.svg";
-        } else if (tool_lower.find("qemu") != std::string::npos || tool_id.find("qemu") != std::string::npos) {
-            asset_name = "vscode-codicons/icons/chip.svg";
-        } else if (tool_lower.find("gdb") != std::string::npos || tool_lower.find("debug") != std::string::npos) {
-            asset_name = "vscode-codicons/icons/debug-alt.svg";
-        } else if (tool_lower.find("wasm") != std::string::npos) {
-            asset_name = "vscode-codicons/icons/server.svg";
-        } else if (tool_lower.find("cmake") != std::string::npos || tool_id.find("cmake") != std::string::npos) {
-            asset_name = "Assets/icons/cmake.svg";
-        } else {
-            asset_name = "vscode-codicons/icons/tools.svg";
+        case UI::Editor::SidebarIcon::Project:
+            asset_name = "folder.svg";
+            break;
+        case UI::Editor::SidebarIcon::VersionControl:
+            asset_name = "vscode-codicons/icons/source-control.svg";
+            break;
+        case UI::Editor::SidebarIcon::Search:
+            asset_name = "vscode-codicons/icons/search.svg";
+            break;
+        case UI::Editor::SidebarIcon::Services:
+            asset_name = "vscode-codicons/icons/extensions.svg";
+            break;
+        case UI::Editor::SidebarIcon::Shader:
+            asset_name = "material-icon-theme/shader.svg";
+            break;
+        case UI::Editor::SidebarIcon::ToolPlugin: {
+            auto& pm = Zenvra::Plugins::PluginManager::instance();
+            auto tool = pm.get_active_tool_plugin();
+            std::string tool_name = tool ? tool->get_name() : "";
+            std::string tool_id = tool ? tool->get_id() : "";
+            std::string tool_lower = tool_name;
+            for (char& c : tool_lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    
+            if (tool_lower.find("docker") != std::string::npos || tool_id.find("docker") != std::string::npos) {
+                asset_name = "material-icon-theme/docker.svg";
+            } else if (tool_lower.find("qemu") != std::string::npos || tool_id.find("qemu") != std::string::npos) {
+                asset_name = "vscode-codicons/icons/chip.svg";
+            } else if (tool_lower.find("gdb") != std::string::npos || tool_lower.find("debug") != std::string::npos) {
+                asset_name = "vscode-codicons/icons/debug-alt.svg";
+            } else if (tool_lower.find("wasm") != std::string::npos) {
+                asset_name = "vscode-codicons/icons/server.svg";
+            } else if (tool_lower.find("cmake") != std::string::npos || tool_id.find("cmake") != std::string::npos) {
+                asset_name = "Assets/icons/cmake.svg";
+            } else {
+                asset_name = "vscode-codicons/icons/tools.svg";
+            }
+            break;
         }
-        break;
-    }
-    case UI::Editor::SidebarIcon::Run:
-        asset_name = "Assets/icons/play.svg";
-        break;
-    case UI::Editor::SidebarIcon::Terminal:
-        asset_name = "Assets/icons/terminal.svg";
-        break;
-    case UI::Editor::SidebarIcon::Problems:
-        asset_name = "Assets/icons/bug.svg";
-        break;
-    case UI::Editor::SidebarIcon::More:
-        asset_name = "vscode-codicons/icons/ellipsis.svg";
-        break;
+        case UI::Editor::SidebarIcon::Run:
+            asset_name = "Assets/icons/play.svg";
+            break;
+        case UI::Editor::SidebarIcon::Terminal:
+            asset_name = "Assets/icons/terminal.svg";
+            break;
+        case UI::Editor::SidebarIcon::Problems:
+            asset_name = "Assets/icons/bug.svg";
+            break;
+        case UI::Editor::SidebarIcon::More:
+            asset_name = "vscode-codicons/icons/ellipsis.svg";
+            break;
     }
 
     if (!asset_name.empty())

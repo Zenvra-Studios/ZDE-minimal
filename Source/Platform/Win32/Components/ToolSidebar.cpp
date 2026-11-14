@@ -2131,11 +2131,12 @@ bool ToolSidebar::is_resize_handle_point(
     float point_y) const noexcept {
   const float scale = layout.dpi_scale;
   const bool on_right = layout.tool_sidebar_bounds.x > layout.editor_bounds.x;
-  const float handle_x = on_right
-      ? (layout.tool_sidebar_bounds.x - 4.0F * scale)
-      : (layout.tool_sidebar_bounds.right() - 4.0F * scale);
-  const UI::Rect handle_bounds{handle_x,
-                               layout.tool_sidebar_bounds.y, 8.0F * scale,
+  const float half_w = 6.0F * scale;
+  const float center_x = on_right
+      ? layout.tool_sidebar_bounds.x
+      : layout.tool_sidebar_bounds.right();
+  const UI::Rect handle_bounds{center_x - half_w,
+                               layout.tool_sidebar_bounds.y, half_w * 2.0F,
                                layout.tool_sidebar_bounds.height};
   return handle_bounds.contains(point_x, point_y);
 }
@@ -2967,14 +2968,15 @@ void ToolSidebar::render_search_panel(
     const UI::Theme::Color splitter_color =
         show_accent ? surface.m_palette.accent : surface.m_palette.border;
 
-    const float splitter_x = panel.right() - scale;
+    const bool on_right = panel.x > layout.editor_bounds.x;
+    const float splitter_x = on_right ? panel.x : (panel.right() - scale);
     surface.draw_line(device_context, round_to_int(splitter_x),
                       round_to_int(panel.y), round_to_int(splitter_x),
                       round_to_int(panel.bottom()), splitter_color);
 
     if (show_accent) {
       surface.fill_rectangle(device_context,
-                             UI::Rect{splitter_x - 1.5F * scale, panel.y,
+                             UI::Rect{splitter_x - (on_right ? 0.0F : 1.5F) * scale, panel.y,
                                       std::max(3.5F * scale, 3.0F),
                                       panel.height},
                              surface.m_palette.accent);
@@ -3720,7 +3722,8 @@ void ToolSidebar::render_extensions_panel(
     const UI::Theme::Color splitter_color =
         show_accent ? surface.m_palette.accent : surface.m_palette.border;
 
-    const float splitter_x = panel.right() - scale;
+    const bool on_right = panel.x > layout.editor_bounds.x;
+    const float splitter_x = on_right ? panel.x : (panel.right() - scale);
     surface.draw_line(device_context, round_to_int(splitter_x),
                       round_to_int(panel.y), round_to_int(splitter_x),
                       round_to_int(panel.bottom()), splitter_color);
@@ -4129,7 +4132,8 @@ void ToolSidebar::render_tool_plugin_panel(
     const UI::Theme::Color splitter_color =
         show_accent ? surface.m_palette.accent : surface.m_palette.border;
 
-    const float splitter_x = panel.right() - scale;
+    const bool on_right = panel.x > layout.editor_bounds.x;
+    const float splitter_x = on_right ? panel.x : (panel.right() - scale);
     surface.draw_line(device_context, round_to_int(splitter_x),
                       round_to_int(panel.y), round_to_int(splitter_x),
                       round_to_int(panel.bottom()), splitter_color);
@@ -4147,12 +4151,14 @@ void ToolSidebar::render(
 
   if (!is_visible() || panel.is_empty()) {
     if (!is_modern && (m_resize_hovered || m_resizing)) {
-      surface.draw_line(device_context, round_to_int(panel.right() - scale),
+      const bool on_right = panel.x > layout.editor_bounds.x;
+      const float edge_x = on_right ? panel.x : (panel.right() - scale);
+      surface.draw_line(device_context, round_to_int(edge_x),
                         round_to_int(panel.y),
-                        round_to_int(panel.right() - scale),
+                        round_to_int(edge_x),
                         round_to_int(panel.bottom()), surface.m_palette.accent);
       surface.fill_rectangle(device_context,
-                             UI::Rect{panel.right() - scale - scale, panel.y,
+                             UI::Rect{on_right ? panel.x : (panel.right() - scale - scale), panel.y,
                                       std::max(2.0F * scale, 2.0F),
                                       panel.height},
                              surface.m_palette.accent);
@@ -4160,10 +4166,10 @@ void ToolSidebar::render(
     return;
   }
 
-  if (!is_modern) {
-    surface.fill_rectangle(device_context, panel,
-                           surface.m_palette.sidebar_background);
-  }
+  const UI::Theme::Color panel_bg =
+      is_modern ? surface.m_palette.workspace_background
+                : surface.m_palette.sidebar_background;
+  surface.fill_rectangle(device_context, panel, panel_bg);
 
   if (m_model.get_active_icon() == UI::Editor::SidebarIcon::Search) {
     render_search_panel(surface, device_context, layout);
@@ -4196,7 +4202,7 @@ void ToolSidebar::render(
     surface.draw_svg_icon(
         device_context, "ellipsis.svg", more_center_x, header_center_y,
         std::max(round_to_int(15.0F * scale), 11), surface.m_palette.text_muted,
-        surface.m_palette.sidebar_background);
+        panel_bg);
     if (!is_modern) {
       surface.draw_line(device_context, round_to_int(panel.x),
                         round_to_int(panel.y + header_height * scale),
@@ -4398,14 +4404,6 @@ void ToolSidebar::render(
                             : (surface.m_palette.is_dark ? UI::Theme::Color{45, 50, 62, 140} : UI::Theme::Color{228, 232, 238, 255}));
           surface.fill_rounded_rectangle(device_context, highlight_rect,
                                          sel_color, 4.0F * scale);
-          if (is_focused && m_model.get_selected_path() &&
-              *m_model.get_selected_path() == item.path) {
-            const UI::Rect left_bar{panel.x + 2.0F * scale, row_bounds.y + 2.0F * scale,
-                                    3.0F * scale,
-                                    row_bounds.height - 4.0F * scale};
-            surface.fill_rounded_rectangle(device_context, left_bar,
-                                           surface.m_palette.accent, 1.5F * scale);
-          }
         } else if (is_hovered) {
           surface.fill_rounded_rectangle(device_context, highlight_rect,
                                          surface.m_palette.is_dark
@@ -4419,8 +4417,7 @@ void ToolSidebar::render(
                 ? (is_focused ? UI::Theme::Color{35, 110, 190, 160}
                               : (surface.m_palette.is_dark ? UI::Theme::Color{45, 50, 62, 140} : UI::Theme::Color{228, 232, 238, 255}))
                 : (is_hovered ? (surface.m_palette.is_dark ? UI::Theme::Color{255, 255, 255, 20} : surface.m_palette.hover_background)
-                              : (is_modern ? UI::Theme::Color{0, 0, 0, 0}
-                                           : surface.m_palette.sidebar_background));
+                              : panel_bg);
 
         const float indent_x =
             panel.x + (10.0F + static_cast<float>(item.depth) * 16.0F) * scale;
@@ -4529,16 +4526,38 @@ void ToolSidebar::render(
 
         const bool is_sticky_hovered =
             (m_hovered_sticky_index && *m_hovered_sticky_index == item_index);
+
         // Sticky explorer headers must be opaque so items scrolled beneath never bleed through
-        UI::Theme::Color sticky_bg = surface.m_palette.sidebar_background;
-        sticky_bg.alpha = 255;
+        const UI::Theme::Color sticky_base_bg = panel_bg;
+        surface.fill_rectangle(device_context, sticky_bounds, sticky_base_bg);
+
+        const float left_pad = 6.0F * scale;
+        const float right_pad =
+            (items.size() > row_count) ? (15.0F * scale) : (6.0F * scale);
+        const UI::Rect highlight_rect{
+            panel.x + left_pad, sticky_bounds.y + 1.0F * scale,
+            std::max(0.0F, panel.width - left_pad - right_pad),
+            row_height * scale - 2.0F * scale};
+
         if (is_sticky_hovered) {
-          sticky_bg = surface.m_palette.is_dark
-                          ? UI::Theme::Color{40, 44, 52, 255}
-                          : surface.m_palette.hover_background;
-          sticky_bg.alpha = 255;
+          surface.fill_rounded_rectangle(device_context, highlight_rect,
+                                         surface.m_palette.is_dark
+                                             ? UI::Theme::Color{255, 255, 255, 20}
+                                             : surface.m_palette.hover_background,
+                                         4.0F * scale);
         }
-        surface.fill_rectangle(device_context, sticky_bounds, sticky_bg);
+
+        // Draw indent guides for sticky item hierarchy
+        const UI::Theme::Color guide_color =
+            surface.m_palette.is_dark ? UI::Theme::Color{85, 92, 105, 190}
+                                      : surface.m_palette.border;
+        for (std::size_t level = 0; level < item.depth; ++level) {
+          const int guide_x = round_to_int(
+              panel.x + (13.0F + static_cast<float>(level) * 16.0F) * scale);
+          surface.draw_line(device_context, guide_x,
+                            round_to_int(sticky_bounds.y), guide_x,
+                            round_to_int(sticky_bounds.bottom()), guide_color);
+        }
 
         // Always draw a crisp separator line below the sticky headers
         if (i == sticky_indices.size() - 1) {
@@ -4554,24 +4573,27 @@ void ToolSidebar::render(
         const int arrow_y =
             round_to_int(sticky_bounds.y + row_height * 0.5F * scale);
 
+        const UI::Theme::Color icon_color = surface.m_palette.text_muted;
+
         surface.draw_svg_icon(device_context, "chevron-down.svg", arrow_x,
                               arrow_y, std::max(round_to_int(16.0F * scale), 14),
-                              surface.m_palette.text_muted, sticky_bg);
+                              icon_color, sticky_base_bg);
 
         const int folder_x = round_to_int(indent_x + 24.0F * scale);
         const std::string folder_path =
             UI::Editor::folder_icon_asset_for_path(item.path, true);
         surface.draw_svg_icon(device_context, folder_path, folder_x, arrow_y,
                               std::max(round_to_int(16.0F * scale), 14),
-                              surface.m_palette.text_muted, sticky_bg,
+                              icon_color, sticky_base_bg,
                               true);
 
         const float label_x = indent_x + 38.0F * scale;
         const std::string label = ellipsize(
             device_context, *surface.m_small_font, item.label,
             std::max(round_to_int(panel.right() - label_x - 8.0F * scale), 1));
+        const UI::Theme::Color text_color = surface.m_palette.text_primary;
         surface.draw_text(device_context, *surface.m_small_font, label, label_x,
-                          arrow_y, surface.m_palette.text_primary);
+                          arrow_y, text_color);
       }
 
       RestoreDC(device_context, clip_saved);
@@ -4650,14 +4672,15 @@ void ToolSidebar::render(
     const UI::Theme::Color splitter_color =
         show_accent ? surface.m_palette.accent : surface.m_palette.border;
 
-    const float splitter_x = panel.right() - scale;
+    const bool on_right = panel.x > layout.editor_bounds.x;
+    const float splitter_x = on_right ? panel.x : (panel.right() - scale);
     surface.draw_line(device_context, round_to_int(splitter_x),
                       round_to_int(panel.y), round_to_int(splitter_x),
                       round_to_int(panel.bottom()), splitter_color);
 
     if (show_accent) {
       surface.fill_rectangle(device_context,
-                             UI::Rect{splitter_x - 1.0F * scale, panel.y,
+                             UI::Rect{splitter_x - (on_right ? 0.0F : 1.0F) * scale, panel.y,
                                       2.0F * scale, panel.height},
                              surface.m_palette.accent);
     }
